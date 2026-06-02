@@ -1,5 +1,5 @@
 """
-app.py — Streamlit web version of the Resume Analyzer.
+app.py — Streamlit web version of the Job AI Helper capstone app.
 
 Run locally:
     streamlit run app.py
@@ -11,13 +11,15 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from typing import Any
 from pathlib import Path
+from typing import Any
+
 import streamlit as st
 
 
-
+# ---------------------------------------------------------------------------
 # Streamlit Cloud secrets -> environment variables
+# ---------------------------------------------------------------------------
 # llm.py reads environment variables when it is imported.
 # Therefore, copy st.secrets into os.environ BEFORE importing analyzer.py / llm.py.
 try:
@@ -28,11 +30,10 @@ try:
         "OLLAMA_API_BASE",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
     ):
         if key in st.secrets and key not in os.environ:
             os.environ[key] = str(st.secrets[key])
-
-
 except Exception:
     # Local development without Streamlit secrets is fine.
     # llm.py can still read your local .env through python-dotenv.
@@ -51,19 +52,76 @@ from analyzer import (
     summarise_overall,
     compute_overall_score,
 )
-
-
+from database.db_manager import (
+    init_db,
+    create_empty_application_session,
+    save_application,
+    update_application_report,
+    update_application_cover_letter,
+    get_recent_applications,
+    get_application_by_id,
+)
 from report import render_markdown
 from llm import ask_text
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
 
+
 VALID_DEGREES = ["RTIS", "IMGD", "UXGD", "BFA"]
 ATS_PASS_THRESHOLD = 60
 
+
+ANALYSIS_QA_PROMPT = """
+Instruction:
+Answer the user's question about the resume-job analysis report.
+
+Context:
+You are an AI job application assistant. The user has already analysed a resume
+against a job description. Use the analysis report to explain the result and give
+practical improvement advice.
+
+Constraints:
+- Use only the provided analysis report.
+- Do not invent resume experience, companies, skills, or achievements.
+- If the report does not contain enough information, say so clearly.
+- Give practical advice that is honest and suitable for a student or junior applicant.
+- Do not rewrite the full resume.
+- Keep the answer concise and easy to understand.
+
+Output:
+Return a clear plain-text answer.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Session-state helpers
+# ---------------------------------------------------------------------------
+
+def init_session_state() -> None:
+    """Initialize Streamlit session-state keys used by the app."""
+    st.session_state.setdefault("input_reset_counter", 0)
+    st.session_state.setdefault("revision_history", [])
+    st.session_state.setdefault("analysis_chat", [])
+
+
+def reset_current_application() -> None:
+    """Clear the current in-memory application and reset input widgets."""
+    st.session_state.pop("latest_report", None)
+    st.session_state.pop("cover_letter", None)
+    st.session_state.pop("resume_filename", None)
+    st.session_state.pop("current_application_id", None)
+    st.session_state["revision_history"] = []
+    st.session_state["analysis_chat"] = []
+
+    # Changing widget keys forces Streamlit to show fresh upload/text inputs.
+    st.session_state["input_reset_counter"] += 1
+
+
+# ---------------------------------------------------------------------------
+# LLM feature functions
+# ---------------------------------------------------------------------------
+
 def generate_cover_letter(report: dict) -> str:
-    """
-    Generate a tailored cover letter using the completed résumé analysis report.
-    """
+    """Generate a tailored cover letter using the completed resume analysis report."""
     resume_profile = report.get("resume_profile", {})
     jd_profile = report.get("jd_profile", {})
     keyword_match = report.get("keyword_match", {})
@@ -95,14 +153,12 @@ Write a tailored cover letter for this job application.
         user_prompt,
         temperature=0.4,
         max_tokens=900,
-    )
+    ).strip()
 
-    cleaned = cover_letter.strip()
-
-    if not cleaned:
+    if not cover_letter:
         raise RuntimeError("The AI returned an empty cover letter.")
 
-    return cleaned
+    return cover_letter
 
 
 def revise_cover_letter(
@@ -110,9 +166,7 @@ def revise_cover_letter(
     current_letter: str,
     revision_request: str,
 ) -> str:
-    """
-    Revise the current cover letter based on the user's follow-up request.
-    """
+    """Revise the current cover letter based on the user's follow-up request."""
     if not current_letter.strip():
         raise ValueError("There is no existing cover letter to revise.")
 
@@ -144,15 +198,43 @@ Revise the cover letter according to the user's request.
         user_prompt,
         temperature=0.4,
         max_tokens=900,
-    )
+    ).strip()
 
-    cleaned = revised_letter.strip()
-
-    if not cleaned:
+    if not revised_letter:
         raise RuntimeError("The AI returned an empty revised cover letter.")
 
-    return cleaned
+    return revised_letter
 
+
+def answer_analysis_question(report: dict, question: str) -> str:
+    """Answer a follow-up question about the current analysis report."""
+    if not question.strip():
+        raise ValueError("Please enter a question first.")
+
+    user_prompt = f"""
+ANALYSIS REPORT:
+{json.dumps(report, indent=2, ensure_ascii=False)}
+
+USER QUESTION:
+{question}
+"""
+
+    answer = ask_text(
+        ANALYSIS_QA_PROMPT,
+        user_prompt,
+        temperature=0.3,
+        max_tokens=700,
+    ).strip()
+
+    if not answer:
+        raise RuntimeError("The AI returned an empty answer.")
+
+    return answer
+
+
+# ---------------------------------------------------------------------------
+# File and report helpers
+# ---------------------------------------------------------------------------
 
 def create_markdown_report(report: dict) -> tuple[str, str]:
     """
@@ -170,20 +252,13 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
     md_path = output_dir / filename
 
     render_markdown(report, out_path=md_path)
-
     markdown_text = md_path.read_text(encoding="utf-8")
 
     return markdown_text, filename
 
 
 def validate_jd_text(jd_text: str) -> str:
-    """
-    Validate JD text pasted into the Streamlit text_area.
-
-    The CLI version used read_jd_text(path).
-    The web version does not need a JD .txt file path because the user pastes
-    the JD directly into the browser.
-    """
+    """Validate job description text pasted into the Streamlit text area."""
     cleaned = jd_text.strip()
 
     if len(cleaned) < _MIN_JD_CHARS:
@@ -196,31 +271,8 @@ def validate_jd_text(jd_text: str) -> str:
     return cleaned
 
 
-# def read_uploaded_resume_pdf(uploaded_file: Any) -> str:
-#     """
-#     Convert Streamlit's uploaded PDF into a temporary file path, then reuse
-#     the existing read_resume_pdf(path) function.
-
-#     This avoids modifying parse.py.
-#     """
-#     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-#         tmp_file.write(uploaded_file.getbuffer())
-#         tmp_path = tmp_file.name
-
-#     try:
-#         return read_resume_pdf(tmp_path)
-#     finally:
-#         try:
-#             os.remove(tmp_path)
-#         except OSError:
-#             pass
-
 def read_uploaded_resume(uploaded_file: Any) -> str:
-    """
-    Read an uploaded résumé file.
-
-    Supports PDF and DOCX files.
-    """
+    """Read an uploaded resume file. Supports text-based PDF and DOCX files."""
     file_name = uploaded_file.name.lower()
 
     if file_name.endswith(".pdf"):
@@ -228,7 +280,7 @@ def read_uploaded_resume(uploaded_file: Any) -> str:
     elif file_name.endswith(".docx"):
         suffix = ".docx"
     else:
-        raise ValueError("Unsupported file type. Please upload a PDF or DOCX résumé.")
+        raise ValueError("Unsupported file type. Please upload a PDF or DOCX resume.")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
         tmp_file.write(uploaded_file.getbuffer())
@@ -246,26 +298,22 @@ def read_uploaded_resume(uploaded_file: Any) -> str:
 
 
 def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
-    """
-    Run the pipeline.
-    """
-
+    """Run the full resume-job analysis pipeline and return the report dict."""
     progress = st.progress(0)
     log = st.container()
 
-    log.write("[1/8] Reading résumé and job description...")
+    log.write("[1/8] Reading resume and job description...")
     progress.progress(12)
 
-    log.write("[2/8] Extracting résumé profile...")
+    log.write("[2/8] Extracting resume profile...")
     resume_profile = extract_resume_profile(resume_text)
     progress.progress(25)
 
-    log.write("[3/8] Extracting JD profile...")
+    log.write("[3/8] Extracting job description profile...")
     jd_profile = extract_jd_profile(jd_text)
     progress.progress(37)
 
     log.write("[4/8] Analysing keyword match...")
-    # keyword_match = analyse_keyword_match(resume_profile, jd_profile)
     keyword_match = analyse_keyword_match(resume_profile, jd_profile, resume_text)
     progress.progress(50)
 
@@ -277,7 +325,7 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
     jargon = analyse_jargon(resume_profile, degree, jd_profile)
     progress.progress(75)
 
-    log.write("[7/8] Auditing résumé structure...")
+    log.write("[7/8] Auditing resume structure...")
     structure = analyse_structure(resume_text)
     progress.progress(87)
 
@@ -312,7 +360,6 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
     return report
 
 
-
 def score_label(score: int) -> str:
     """Return PASS/FAIL label for the ATS threshold."""
     if score >= ATS_PASS_THRESHOLD:
@@ -320,16 +367,26 @@ def score_label(score: int) -> str:
     return f"FAIL — below {ATS_PASS_THRESHOLD}% ATS threshold"
 
 
+# ---------------------------------------------------------------------------
+# Streamlit app
+# ---------------------------------------------------------------------------
+
 st.set_page_config(
     page_title="Job AI Helper",
     page_icon="📄",
     layout="wide",
 )
 
+init_db()
+init_session_state()
 
+st.title("📄 Job AI Helper")
+st.caption("Analyze resume-job fit, save application sessions, and generate tailored cover letters.")
 
-st.title("Job AI Helper")
-st.caption("Help with cover letters and resumes.")
+flash_message = st.session_state.pop("flash_message", "")
+if flash_message:
+    st.success(flash_message)
+
 
 with st.sidebar:
     st.header("Settings")
@@ -345,35 +402,102 @@ with st.sidebar:
     st.write("**Model route:**")
     st.code(model_name)
 
+    show_debug_text = st.checkbox(
+        "Show debug resume text",
+        value=False,
+        help="Shows extracted resume text after upload. Useful for checking PDF/DOCX parsing.",
+    )
+
     st.divider()
+
+    if st.button("➕ New Application Session", use_container_width=True):
+        application_id = create_empty_application_session(degree=degree)
+
+        reset_current_application()
+        st.session_state["current_application_id"] = application_id
+        st.session_state["flash_message"] = (
+            f"Started new application session #{application_id}. "
+            "Upload a resume and paste a job description."
+        )
+
+        st.rerun()
+
     st.write("**How to use**")
-    st.write("1. Upload a PDF résumé.")
-    st.write("2. Paste the target job description.")
-    st.write("3. Click **Analyze Resume**.")
+    st.write("1. Click **New Application Session** to start a blank session.")
+    st.write("2. Upload a PDF or DOCX resume.")
+    st.write("3. Paste the target job description.")
+    st.write("4. Click **Analyze Resume**.")
+    st.write("5. Optionally generate or revise a cover letter.")
 
     st.divider()
+    st.subheader("Application Sessions")
 
+    recent_applications = get_recent_applications(limit=15)
+    current_application_id = st.session_state.get("current_application_id")
+
+    if not recent_applications:
+        st.caption("No application sessions yet.")
+    else:
+        for app_id, session_name, job_title, company, score, has_report, updated_at in recent_applications:
+            is_current = current_application_id == app_id
+
+            if has_report:
+                clean_title = job_title or session_name or f"Application #{app_id}"
+                clean_company = company or "Unknown Company"
+
+                if score is None:
+                    base_label = f"{clean_title} @ {clean_company}"
+                else:
+                    base_label = f"{clean_title} @ {clean_company} — {score}/100"
+
+                label = f"✅ {base_label}" if is_current else f"📄 {base_label}"
+            else:
+                draft_name = session_name or f"Application #{app_id}"
+                label = f"✅ {draft_name} (Draft)" if is_current else f"📝 {draft_name} (Draft)"
+
+            if st.button(label, key=f"load_app_{app_id}", use_container_width=True):
+                saved = get_application_by_id(app_id)
+
+                if saved:
+                    if saved.get("report") is None:
+                        st.session_state.pop("latest_report", None)
+                    else:
+                        st.session_state["latest_report"] = saved["report"]
+
+                    st.session_state["cover_letter"] = saved.get("cover_letter", "")
+                    st.session_state["resume_filename"] = saved.get("resume_filename", "")
+                    st.session_state["current_application_id"] = app_id
+                    st.session_state["revision_history"] = []
+                    st.session_state["analysis_chat"] = []
+                    st.session_state["flash_message"] = f"Loaded application session #{app_id}."
+                    st.rerun()
+
+
+input_suffix = st.session_state["input_reset_counter"]
 
 uploaded_resume = st.file_uploader(
-    "Upload résumé",
+    "Upload resume",
     type=["pdf", "docx"],
-    help="Upload a text-based PDF résumé or DOCX résumé.",
+    key=f"resume_upload_{input_suffix}",
+    help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
 )
 
 jd_text_input = st.text_area(
     "Paste job description",
     height=260,
+    key=f"jd_text_{input_suffix}",
     placeholder=(
         "Paste the full job description here, including responsibilities, "
         "requirements, tools, technologies, and soft skills..."
     ),
 )
 
-analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
+analyze_clicked = st.button("Analyze Resume", type="primary", use_container_width=True)
+
 
 if analyze_clicked:
     if uploaded_resume is None:
-        st.error("Please upload a résumé PDF first.")
+        st.error("Please upload a resume first.")
         st.stop()
 
     if not jd_text_input.strip():
@@ -381,28 +505,50 @@ if analyze_clicked:
         st.stop()
 
     try:
-        with st.status("Reading résumé...", expanded=True) as status:
-            #resume_text = read_uploaded_resume_pdf(uploaded_resume)
+        with st.status("Reading resume...", expanded=True) as status:
             resume_text = read_uploaded_resume(uploaded_resume)
-            with st.expander("Debug: Extracted résumé text"):
-                st.text(resume_text[-2000:])
-            st.write(f"Extracted {len(resume_text)} characters from résumé PDF.")
+
+            if show_debug_text:
+                with st.expander("Debug: Extracted resume text", expanded=True):
+                    st.text(resume_text[-3000:])
+
+            st.write(f"Extracted {len(resume_text)} characters from resume.")
 
             jd_text = validate_jd_text(jd_text_input)
             st.write(f"Read {len(jd_text)} characters from job description.")
 
             status.update(label="Running AI analysis...", state="running")
             report = run_resume_analysis(resume_text, jd_text, degree)
-
             status.update(label="Analysis complete.", state="complete")
 
+        application_id = st.session_state.get("current_application_id")
+
+        if application_id is None:
+            # If the user did not click "New Application Session", create one automatically.
+            application_id = save_application(
+                resume_filename=uploaded_resume.name,
+                report=report,
+                cover_letter="",
+            )
+        else:
+            # If the user started or loaded a session, update that session with the analysis result.
+            update_application_report(
+                application_id=application_id,
+                resume_filename=uploaded_resume.name,
+                report=report,
+            )
+
         st.session_state["latest_report"] = report
-
         st.session_state["resume_filename"] = uploaded_resume.name
+        st.session_state["current_application_id"] = application_id
 
-        # Clear old cover letter when a new résumé/job is analysed.
+        # Clear old generated content when a new resume/job is analysed.
         st.session_state.pop("cover_letter", None)
         st.session_state["revision_history"] = []
+        st.session_state["analysis_chat"] = []
+
+        st.session_state["flash_message"] = f"Saved application session #{application_id}."
+        st.rerun()
 
     except ValueError as exc:
         st.error(f"Input error: {exc}")
@@ -419,6 +565,7 @@ if analyze_clicked:
 
 
 report = st.session_state.get("latest_report")
+current_application_id = st.session_state.get("current_application_id")
 
 if report:
     overall_score = int(report.get("overall_score", 0))
@@ -427,13 +574,15 @@ if report:
     st.divider()
     st.header("Results")
 
+    if current_application_id is not None:
+        st.caption(f"Current application session: #{current_application_id}")
+
     if passed:
         st.success(f"Score: {overall_score}/100 ({score_label(overall_score)})")
     else:
         st.error(f"Score: {overall_score}/100 ({score_label(overall_score)})")
 
     col1, col2, col3, col4, col5 = st.columns(5)
-
     col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
     col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
     col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
@@ -451,14 +600,14 @@ if report:
         st.write("### Present Keywords")
         present = report.get("keyword_match", {}).get("present", [])
         if present:
-            st.dataframe(present, width ='stretch') # use_container_width=True
+            st.dataframe(present, use_container_width=True)
         else:
             st.info("No present keywords returned.")
 
         st.write("### Missing Keywords")
         missing = report.get("keyword_match", {}).get("missing", [])
         if missing:
-            st.dataframe(missing, width ='stretch') #use_container_width=True)
+            st.dataframe(missing, use_container_width=True)
         else:
             st.success("No missing keywords returned.")
 
@@ -466,7 +615,7 @@ if report:
         st.write("### Bullet Quality Audit")
         bullet_rows = report.get("bullets", {}).get("bullets", [])
         if bullet_rows:
-            st.dataframe(bullet_rows,  width ='stretch')#use_container_width=True)
+            st.dataframe(bullet_rows, use_container_width=True)
         else:
             st.info("No bullet audit rows returned.")
 
@@ -478,7 +627,7 @@ if report:
         st.write("### Jargon Flags")
         flags = report.get("jargon", {}).get("flags", [])
         if flags:
-            st.dataframe(flags, width='stretch') #use_container_width=True)
+            st.dataframe(flags, use_container_width=True)
         else:
             st.success("No jargon flags returned.")
 
@@ -491,7 +640,7 @@ if report:
         st.json(report)
 
     st.subheader("Download Reports")
-    
+
     json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
     markdown_text, markdown_filename = create_markdown_report(report)
 
@@ -518,15 +667,27 @@ if report:
     st.divider()
     st.header("Tailored Cover Letter")
 
-    if st.button("Generate Cover Letter", type="primary", width='stretch'): # use_container_width=True):
+    if st.button("Generate Cover Letter", type="primary", use_container_width=True):
         try:
             with st.spinner("Generating tailored cover letter..."):
                 cover_letter = generate_cover_letter(report)
 
             st.session_state["cover_letter"] = cover_letter
             st.session_state.setdefault("revision_history", [])
-            
-            
+
+            application_id = st.session_state.get("current_application_id")
+
+            if application_id is None:
+                application_id = save_application(
+                    resume_filename=st.session_state.get("resume_filename", "uploaded_resume"),
+                    report=report,
+                    cover_letter=cover_letter,
+                )
+                st.session_state["current_application_id"] = application_id
+            else:
+                update_application_cover_letter(application_id, cover_letter)
+
+            st.success("Cover letter saved to the current application session.")
 
         except RuntimeError as exc:
             st.error(f"LLM/API error: {exc}")
@@ -558,7 +719,7 @@ if report:
             placeholder="Example: Make it shorter and more confident.",
         )
 
-        if st.button("Revise Cover Letter", width='stretch' ): # use_container_width=True) :
+        if st.button("Revise Cover Letter", use_container_width=True):
             try:
                 with st.spinner("Revising cover letter..."):
                     revised_letter = revise_cover_letter(
@@ -576,6 +737,11 @@ if report:
                 )
 
                 st.session_state["cover_letter"] = revised_letter
+
+                application_id = st.session_state.get("current_application_id")
+                if application_id is not None:
+                    update_application_cover_letter(application_id, revised_letter)
+
                 st.rerun()
 
             except ValueError as exc:
@@ -587,5 +753,40 @@ if report:
             except Exception as exc:
                 st.error(f"Unexpected error while revising cover letter: {exc}")
 
+    st.divider()
+    st.header("Ask About This Analysis")
+
+    analysis_question = st.text_input(
+        "Ask a question about the analysis",
+        placeholder="Example: What should I improve first?",
+    )
+
+    if st.button("Ask AI About Analysis", use_container_width=True):
+        try:
+            with st.spinner("Answering question..."):
+                answer = answer_analysis_question(report, analysis_question)
+
+            st.session_state.setdefault("analysis_chat", []).append(
+                {"question": analysis_question, "answer": answer}
+            )
+
+        except ValueError as exc:
+            st.warning(str(exc))
+
+        except RuntimeError as exc:
+            st.error(f"LLM/API error: {exc}")
+
+        except Exception as exc:
+            st.error(f"Unexpected error while answering question: {exc}")
+
+    for item in st.session_state.get("analysis_chat", []):
+        st.markdown(f"**You:** {item['question']}")
+        st.markdown(f"**AI:** {item['answer']}")
+
+elif current_application_id is not None:
+    st.info(
+        f"Application session #{current_application_id} is open. "
+        "Upload a resume, paste a job description, then click **Analyze Resume**."
+    )
 else:
-    st.info("Upload a résumé, paste a job description, then click **Analyze Resume**.")
+    st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
