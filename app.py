@@ -58,6 +58,8 @@ from database.db_manager import (
     save_application,
     update_application_report,
     update_application_cover_letter,
+    rename_application_session,
+    delete_application_session,
     get_recent_applications,
     get_application_by_id,
 )
@@ -410,7 +412,7 @@ with st.sidebar:
 
     st.divider()
 
-    if st.button("➕ New Application Session", use_container_width=True):
+    if st.button("➕ New Application Session", width="stretch"):
         application_id = create_empty_application_session(degree=degree)
 
         reset_current_application()
@@ -421,6 +423,61 @@ with st.sidebar:
         )
 
         st.rerun()
+
+    # Manage the current saved session.
+    current_application_id = st.session_state.get("current_application_id")
+    if current_application_id is not None:
+        st.subheader("Manage Current Session")
+
+        current_session = get_application_by_id(current_application_id)
+        current_name = ""
+        if current_session:
+            current_name = current_session.get("session_name", "") or f"Application #{current_application_id}"
+
+        new_session_name = st.text_input(
+            "Session name",
+            value=current_name,
+            key=f"rename_session_{current_application_id}",
+        )
+
+        rename_col, delete_col = st.columns(2)
+
+        with rename_col:
+            if st.button("Rename", width="stretch", key=f"rename_btn_{current_application_id}"):
+                cleaned_name = new_session_name.strip()
+
+                if not cleaned_name:
+                    st.warning("Session name cannot be empty.")
+                else:
+                    rename_application_session(current_application_id, cleaned_name)
+                    st.session_state["flash_message"] = f"Renamed session #{current_application_id}."
+                    st.rerun()
+
+        with delete_col:
+            if st.button("Delete", width="stretch", key=f"delete_btn_{current_application_id}"):
+                st.session_state["pending_delete_application_id"] = current_application_id
+                st.rerun()
+
+        pending_delete_id = st.session_state.get("pending_delete_application_id")
+        if pending_delete_id == current_application_id:
+            st.warning(f"Delete session #{current_application_id}? This cannot be undone.")
+
+            confirm_col, cancel_col = st.columns(2)
+
+            with confirm_col:
+                if st.button("Confirm", width="stretch", key=f"confirm_delete_{current_application_id}"):
+                    delete_application_session(current_application_id)
+                    st.session_state.pop("pending_delete_application_id", None)
+                    reset_current_application()
+                    st.session_state["flash_message"] = f"Deleted session #{current_application_id}."
+                    st.rerun()
+
+            with cancel_col:
+                if st.button("Cancel", width="stretch", key=f"cancel_delete_{current_application_id}"):
+                    st.session_state.pop("pending_delete_application_id", None)
+                    st.rerun()
+
+    st.divider()
 
     st.write("**How to use**")
     st.write("1. Click **New Application Session** to start a blank session.")
@@ -442,20 +499,20 @@ with st.sidebar:
             is_current = current_application_id == app_id
 
             if has_report:
-                clean_title = job_title or session_name or f"Application #{app_id}"
-                clean_company = company or "Unknown Company"
+                # Prefer the saved session name so renamed sessions stay renamed.
+                clean_name = session_name or job_title or f"Application #{app_id}"
 
                 if score is None:
-                    base_label = f"{clean_title} @ {clean_company}"
+                    base_label = clean_name
                 else:
-                    base_label = f"{clean_title} @ {clean_company} — {score}/100"
+                    base_label = f"{clean_name} — {score}/100"
 
                 label = f"✅ {base_label}" if is_current else f"📄 {base_label}"
             else:
                 draft_name = session_name or f"Application #{app_id}"
                 label = f"✅ {draft_name} (Draft)" if is_current else f"📝 {draft_name} (Draft)"
 
-            if st.button(label, key=f"load_app_{app_id}", use_container_width=True):
+            if st.button(label, key=f"load_app_{app_id}", width="stretch"):
                 saved = get_application_by_id(app_id)
 
                 if saved:
@@ -492,7 +549,7 @@ jd_text_input = st.text_area(
     ),
 )
 
-analyze_clicked = st.button("Analyze Resume", type="primary", use_container_width=True)
+analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
 
 
 if analyze_clicked:
@@ -600,14 +657,14 @@ if report:
         st.write("### Present Keywords")
         present = report.get("keyword_match", {}).get("present", [])
         if present:
-            st.dataframe(present, use_container_width=True)
+            st.dataframe(present, width="stretch")
         else:
             st.info("No present keywords returned.")
 
         st.write("### Missing Keywords")
         missing = report.get("keyword_match", {}).get("missing", [])
         if missing:
-            st.dataframe(missing, use_container_width=True)
+            st.dataframe(missing, width="stretch")
         else:
             st.success("No missing keywords returned.")
 
@@ -615,7 +672,7 @@ if report:
         st.write("### Bullet Quality Audit")
         bullet_rows = report.get("bullets", {}).get("bullets", [])
         if bullet_rows:
-            st.dataframe(bullet_rows, use_container_width=True)
+            st.dataframe(bullet_rows, width="stretch")
         else:
             st.info("No bullet audit rows returned.")
 
@@ -627,7 +684,7 @@ if report:
         st.write("### Jargon Flags")
         flags = report.get("jargon", {}).get("flags", [])
         if flags:
-            st.dataframe(flags, use_container_width=True)
+            st.dataframe(flags, width="stretch")
         else:
             st.success("No jargon flags returned.")
 
@@ -652,7 +709,7 @@ if report:
             data=json_bytes,
             file_name=f"match_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
 
     with download_col2:
@@ -661,13 +718,13 @@ if report:
             data=markdown_text,
             file_name=markdown_filename,
             mime="text/markdown",
-            use_container_width=True,
+            width="stretch",
         )
 
     st.divider()
     st.header("Tailored Cover Letter")
 
-    if st.button("Generate Cover Letter", type="primary", use_container_width=True):
+    if st.button("Generate Cover Letter", type="primary", width="stretch"):
         try:
             with st.spinner("Generating tailored cover letter..."):
                 cover_letter = generate_cover_letter(report)
@@ -709,7 +766,7 @@ if report:
             data=cover_letter,
             file_name=f"cover_letter_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain",
-            use_container_width=True,
+            width="stretch",
         )
 
         st.subheader("Ask for a revision")
@@ -719,7 +776,7 @@ if report:
             placeholder="Example: Make it shorter and more confident.",
         )
 
-        if st.button("Revise Cover Letter", use_container_width=True):
+        if st.button("Revise Cover Letter", width="stretch"):
             try:
                 with st.spinner("Revising cover letter..."):
                     revised_letter = revise_cover_letter(
@@ -761,7 +818,7 @@ if report:
         placeholder="Example: What should I improve first?",
     )
 
-    if st.button("Ask AI About Analysis", use_container_width=True):
+    if st.button("Ask AI About Analysis", width="stretch"):
         try:
             with st.spinner("Answering question..."):
                 answer = answer_analysis_question(report, analysis_question)

@@ -303,6 +303,52 @@ def update_application_cover_letter(application_id: int, cover_letter: str) -> N
     conn.close()
 
 
+def rename_application_session(application_id: int, session_name: str) -> None:
+    """Rename an existing application session."""
+    cleaned_name = session_name.strip()
+
+    if not cleaned_name:
+        raise ValueError("Session name cannot be empty.")
+
+    conn = _connect()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE applications
+        SET
+            session_name = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            cleaned_name,
+            datetime.now().isoformat(timespec="seconds"),
+            application_id,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def delete_application_session(application_id: int) -> None:
+    """Delete one application session permanently."""
+    conn = _connect()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        DELETE FROM applications
+        WHERE id = ?
+        """,
+        (application_id,),
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def get_recent_applications(limit: int = 15) -> list[tuple]:
     """
     Return recent saved application sessions for the sidebar.

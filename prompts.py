@@ -178,11 +178,27 @@ Output ONLY a valid JSON object matching the schema above. No prose. No markdown
 #   user="RÉSUMÉ PROFILE:\n{json}\n\nJD PROFILE:\n{json}"
 # Expected output schema:
 # {
-#   "present": [{"keyword": "string", "category": "language|framework|tool|concept|soft_skill|buzzword",
-#                "found_in": "summary|projects|experience|education|skills", "exact_match": true}],
-#   "missing": [{"keyword": "string", "category": "...", "importance": "required|preferred",
-#                "suggested_section": "skills|projects|experience|summary",
-#                "why_it_matters": "string (25 words max — diagnostic only)"}],
+#   "present": [
+#     {
+#       "keyword": "string",
+#       "category": "language|framework|tool|concept|soft_skill|buzzword",
+#       "found_in": "summary|projects|experience|education|skills|raw_text",
+#       "matched_resume_term": "string",
+#       "match_type": "exact|case_insensitive|equivalent|partial",
+#       "match_reason": "string (20 words max)"
+#     }
+#   ],
+#   "missing": [
+#   {
+#     "keyword": "string",
+#     "category": "language|framework|tool|concept|soft_skill|buzzword",
+#     "importance": "required|preferred",
+#     "suggested_section": "skills|projects|experience|education",
+#     "recommendation_type": "add_if_true|provide_evidence|not_applicable",
+#     "why_it_matters": "string (25 words max — diagnostic only)",
+#     "missing_reason": "string (20 words max)"
+#   }
+# ],
 #   "keyword_match_score": 0
 # }
 # Scoring formula: 100 × (required_skills found in résumé) / max(1, total required_skills)
@@ -197,14 +213,12 @@ Evaluation criteria:
 - Required skills from the JD are the primary scoring basis.
 - Preferred skills, tools_technologies, soft_skills, and buzzwords should still be checked and reported when useful.
 - A keyword is present only if the résumé profile clearly contains the same keyword or an unambiguous equivalent.
-- exact_match is true only when the same wording appears in the résumé profile. It is false when the résumé shows a clear equivalent but not the exact wording.
 - found_in must identify the strongest résumé section where the keyword appears: summary, projects, experience, education, or skills.
 - Use the RÉSUMÉ RAW TEXT as the final source of truth for whether a keyword appears.
 - If a keyword appears clearly in the raw résumé text but was omitted from the résumé profile, still count it as present.
 - Matching must be case-insensitive.
 - Treat plural/singular forms and small wording differences as matches when the meaning is clearly the same.
 - Treat noun/verb forms as equivalent when obvious.
-- exact_match should be true only when the same phrase appears after lowercasing and trimming whitespace.
 - Use match_type = "equivalent" when the résumé uses different wording with the same meaning.
 - Use match_type = "partial" when the résumé proves part of the requirement but not the full requirement.
 
@@ -217,9 +231,12 @@ Constraints:
 - Do not punish the résumé for missing vague JD phrases that are not concrete skills, tools, concepts, soft skills, or buzzwords.
 - Missing items must be diagnostic only. Explain why the keyword matters, but do not write replacement résumé text.
 - why_it_matters must be 25 words or fewer.
-- suggested_section must be one of: skills, projects, experience, education, not_recommended.
+- suggested_section must be one of: skills, projects, experience, education.
+- Do not suggest adding missing keywords to a resume summary. A summary is optional, especially for one-page student resumes.
+- Use recommendation_type = "add_if_true" for skills the candidate may add if truthful.
+- Use recommendation_type = "provide_evidence" when the resume needs proof through project or experience bullets.
+- Use recommendation_type = "not_applicable" only when adding the keyword would be misleading or unsupported.
 - Do not suggest adding missing keywords to a résumé summary. A summary is optional, especially for one-page student résumés.
-- Use not_recommended if the keyword should not be added unless the candidate truly has evidence for it.
 - category must be one of: language, framework, tool, concept, soft_skill, buzzword.
 - importance must be required or preferred.
 - If the JD asks for a duration, such as "1 year of experience in quality assurance", only mark the full requirement as present if the résumé clearly supports both the skill and the duration.
@@ -234,22 +251,22 @@ Return this exact JSON schema:
       "keyword": "string",
       "category": "language|framework|tool|concept|soft_skill|buzzword",
       "found_in": "summary|projects|experience|education|skills|raw_text",
-      "exact_match": true,
       "matched_resume_term": "string",
       "match_type": "exact|case_insensitive|equivalent|partial",
       "match_reason": "string (20 words max)"
     }
   ],
   "missing": [
-    {
-      "keyword": "string",
-      "category": "language|framework|tool|concept|soft_skill|buzzword",
-      "importance": "required|preferred",
-      "suggested_section": "skills|projects|experience|education|not_recommended",
-      "why_it_matters": "string (25 words max — diagnostic only)",
-      "missing_reason": "string (20 words max)"
-    }
-  ],
+  {
+    "keyword": "string",
+    "category": "language|framework|tool|concept|soft_skill|buzzword",
+    "importance": "required|preferred",
+    "suggested_section": "skills|projects|experience|education",
+    "recommendation_type": "add_if_true|provide_evidence|not_applicable",
+    "why_it_matters": "string (25 words max — diagnostic only)",
+    "missing_reason": "string (20 words max)"
+  }
+],
   "keyword_match_score": 0
 }
 Output ONLY a valid JSON object matching the schema above. No prose. No markdown fences. No commentary. Never rewrite or generate résumé content.
