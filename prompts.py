@@ -194,7 +194,7 @@ Output ONLY a valid JSON object matching the schema above. No prose. No markdown
 #     "category": "language|framework|tool|concept|soft_skill|buzzword",
 #     "importance": "required|preferred",
 #     "suggested_section": "skills|projects|experience|education",
-#     "recommendation_type": "add_if_true|provide_evidence|not_applicable",
+#      "alternative_sections": ["skills|projects|experience|education|summary"],
 #     "why_it_matters": "string (25 words max — diagnostic only)",
 #     "missing_reason": "string (20 words max)"
 #   }
@@ -232,10 +232,9 @@ Constraints:
 - Missing items must be diagnostic only. Explain why the keyword matters, but do not write replacement résumé text.
 - why_it_matters must be 25 words or fewer.
 - suggested_section must be one of: skills, projects, experience, education.
+- alternative_sections may include other reasonable sections, including summary, if the résumé already has or can fit that section.
+- Do not make summary the main suggested_section because a summary is optional.
 - Do not suggest adding missing keywords to a resume summary. A summary is optional, especially for one-page student resumes.
-- Use recommendation_type = "add_if_true" for skills the candidate may add if truthful.
-- Use recommendation_type = "provide_evidence" when the resume needs proof through project or experience bullets.
-- Use recommendation_type = "not_applicable" only when adding the keyword would be misleading or unsupported.
 - Do not suggest adding missing keywords to a résumé summary. A summary is optional, especially for one-page student résumés.
 - category must be one of: language, framework, tool, concept, soft_skill, buzzword.
 - importance must be required or preferred.
@@ -262,7 +261,7 @@ Return this exact JSON schema:
     "category": "language|framework|tool|concept|soft_skill|buzzword",
     "importance": "required|preferred",
     "suggested_section": "skills|projects|experience|education",
-    "recommendation_type": "add_if_true|provide_evidence|not_applicable",
+    "alternative_sections": ["skills|projects|experience|education|summary"],
     "why_it_matters": "string (25 words max — diagnostic only)",
     "missing_reason": "string (20 words max)"
   }

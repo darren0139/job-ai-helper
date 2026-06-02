@@ -424,69 +424,6 @@ with st.sidebar:
 
         st.rerun()
 
-    # Manage the current saved session.
-    current_application_id = st.session_state.get("current_application_id")
-    if current_application_id is not None:
-        st.subheader("Manage Current Session")
-
-        current_session = get_application_by_id(current_application_id)
-        current_name = ""
-        if current_session:
-            current_name = current_session.get("session_name", "") or f"Application #{current_application_id}"
-
-        new_session_name = st.text_input(
-            "Session name",
-            value=current_name,
-            key=f"rename_session_{current_application_id}",
-        )
-
-        rename_col, delete_col = st.columns(2)
-
-        with rename_col:
-            if st.button("Rename", width="stretch", key=f"rename_btn_{current_application_id}"):
-                cleaned_name = new_session_name.strip()
-
-                if not cleaned_name:
-                    st.warning("Session name cannot be empty.")
-                else:
-                    rename_application_session(current_application_id, cleaned_name)
-                    st.session_state["flash_message"] = f"Renamed session #{current_application_id}."
-                    st.rerun()
-
-        with delete_col:
-            if st.button("Delete", width="stretch", key=f"delete_btn_{current_application_id}"):
-                st.session_state["pending_delete_application_id"] = current_application_id
-                st.rerun()
-
-        pending_delete_id = st.session_state.get("pending_delete_application_id")
-        if pending_delete_id == current_application_id:
-            st.warning(f"Delete session #{current_application_id}? This cannot be undone.")
-
-            confirm_col, cancel_col = st.columns(2)
-
-            with confirm_col:
-                if st.button("Confirm", width="stretch", key=f"confirm_delete_{current_application_id}"):
-                    delete_application_session(current_application_id)
-                    st.session_state.pop("pending_delete_application_id", None)
-                    reset_current_application()
-                    st.session_state["flash_message"] = f"Deleted session #{current_application_id}."
-                    st.rerun()
-
-            with cancel_col:
-                if st.button("Cancel", width="stretch", key=f"cancel_delete_{current_application_id}"):
-                    st.session_state.pop("pending_delete_application_id", None)
-                    st.rerun()
-
-    st.divider()
-
-    st.write("**How to use**")
-    st.write("1. Click **New Application Session** to start a blank session.")
-    st.write("2. Upload a PDF or DOCX resume.")
-    st.write("3. Paste the target job description.")
-    st.write("4. Click **Analyze Resume**.")
-    st.write("5. Optionally generate or revise a cover letter.")
-
-    st.divider()
     st.subheader("Application Sessions")
 
     recent_applications = get_recent_applications(limit=15)
@@ -499,35 +436,99 @@ with st.sidebar:
             is_current = current_application_id == app_id
 
             if has_report:
-                # Prefer the saved session name so renamed sessions stay renamed.
-                clean_name = session_name or job_title or f"Application #{app_id}"
+                display_name = session_name or job_title or f"Application {app_id}"
 
-                if score is None:
-                    base_label = clean_name
+                if score is not None:
+                    label = f"{display_name} — {score}/100"
                 else:
-                    base_label = f"{clean_name} — {score}/100"
+                    label = display_name
 
-                label = f"✅ {base_label}" if is_current else f"📄 {base_label}"
+                if is_current:
+                    label = f"✅ {label}"
+                else:
+                    label = f"📄 {label}"
             else:
-                draft_name = session_name or f"Application #{app_id}"
-                label = f"✅ {draft_name} (Draft)" if is_current else f"📝 {draft_name} (Draft)"
+                display_name = session_name or f"Application {app_id}"
+                label = f"✅ {display_name} (Draft)" if is_current else f"📝 {display_name} (Draft)"
 
-            if st.button(label, key=f"load_app_{app_id}", width="stretch"):
-                saved = get_application_by_id(app_id)
+            row_col, menu_col = st.columns([0.82, 0.18])
 
-                if saved:
-                    if saved.get("report") is None:
-                        st.session_state.pop("latest_report", None)
-                    else:
-                        st.session_state["latest_report"] = saved["report"]
+            with row_col:
+                if st.button(label, key=f"load_app_{app_id}", width="stretch"):
+                    saved = get_application_by_id(app_id)
 
-                    st.session_state["cover_letter"] = saved.get("cover_letter", "")
-                    st.session_state["resume_filename"] = saved.get("resume_filename", "")
-                    st.session_state["current_application_id"] = app_id
-                    st.session_state["revision_history"] = []
-                    st.session_state["analysis_chat"] = []
-                    st.session_state["flash_message"] = f"Loaded application session #{app_id}."
-                    st.rerun()
+                    if saved:
+                        if saved.get("report") is None:
+                            st.session_state.pop("latest_report", None)
+                        else:
+                            st.session_state["latest_report"] = saved["report"]
+
+                        st.session_state["cover_letter"] = saved.get("cover_letter", "")
+                        st.session_state["resume_filename"] = saved.get("resume_filename", "")
+                        st.session_state["current_application_id"] = app_id
+                        st.session_state["revision_history"] = []
+                        st.session_state["analysis_chat"] = []
+                        st.session_state["flash_message"] = f"Loaded application session #{app_id}."
+                        st.rerun()
+
+            with menu_col:
+                with st.popover("⋯", use_container_width=True):
+                    st.write(f"**{display_name}**")
+
+                    new_name = st.text_input(
+                        "Rename session",
+                        value=display_name,
+                        key=f"session_name_{app_id}",
+                    )
+
+                    if st.button("Rename", key=f"rename_app_{app_id}", width="stretch"):
+                        cleaned_name = new_name.strip()
+
+                        if cleaned_name:
+                            rename_application_session(app_id, cleaned_name)
+                            st.session_state["flash_message"] = "Session renamed."
+                            st.rerun()
+                        else:
+                            st.warning("Session name cannot be empty.")
+
+                    st.divider()
+
+                    if st.button("Delete", key=f"delete_app_{app_id}", width="stretch"):
+                        st.session_state["pending_delete_application_id"] = app_id
+                        st.rerun()
+
+            pending_delete_id = st.session_state.get("pending_delete_application_id")
+
+            if pending_delete_id == app_id:
+                st.warning(f"Delete '{display_name}'? This cannot be undone.")
+
+                confirm_col, cancel_col = st.columns(2)
+
+                with confirm_col:
+                    if st.button("Confirm", key=f"confirm_delete_{app_id}", width="stretch"):
+                        delete_application_session(app_id)
+
+                        if current_application_id == app_id:
+                            reset_current_application()
+
+                        st.session_state.pop("pending_delete_application_id", None)
+                        st.session_state["flash_message"] = "Session deleted."
+                        st.rerun()
+
+                with cancel_col:
+                    if st.button("Cancel", key=f"cancel_delete_{app_id}", width="stretch"):
+                        st.session_state.pop("pending_delete_application_id", None)
+                        st.rerun()
+
+    st.divider()
+
+    st.write("**How to use**")
+    st.write("1. Click **New Application Session** to start a blank session.")
+    st.write("2. Upload a PDF or DOCX resume.")
+    st.write("3. Paste the target job description.")
+    st.write("4. Click **Analyze Resume**.")
+    st.write("5. Optionally generate or revise a cover letter.")
+
 
 
 input_suffix = st.session_state["input_reset_counter"]
