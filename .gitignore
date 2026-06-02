@@ -1,0 +1,26 @@
+
+# secrets
+.env
+.streamlit/secrets.toml
+
+# python cache
+__pycache__/
+*.pyc
+
+# virtual environment
+venv/
+.venv/
+
+# output
+outputs/*
+!outputs/.gitkeep
+
+# db stuff
+.db
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+
+# Keep the data folder in Git
+!data/.gitkeep
