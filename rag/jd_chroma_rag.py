@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 import re
 from pathlib import Path
 from typing import Any
@@ -310,3 +311,222 @@ RETRIEVED JOB DESCRIPTION CHUNKS:
         raise RuntimeError("The AI returned an empty answer.")
 
     return answer
+
+
+# ---------------------------------------------------------------------------
+# Market fit scoring across analyzed job descriptions
+# ---------------------------------------------------------------------------
+
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
+    "have", "in", "is", "it", "of", "on", "or", "our", "that", "the", "to",
+    "with", "you", "your", "we", "will", "work", "job", "role", "team",
+    "candidate", "experience", "skills", "skill", "ability", "knowledge",
+}
+
+
+FIELD_WEIGHTS = {
+    "required_skills": 3.0,
+    "tools_technologies": 2.5,
+    "preferred_skills": 2.0,
+    "soft_skills": 1.5,
+    "buzzwords": 1.0,
+}
+
+
+def normalize_term(value: str) -> str:
+    """Normalize a term for comparison."""
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9+#.\s/-]", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def tokenize(text: str) -> set[str]:
+    """Convert text into simple keyword tokens."""
+    words = re.findall(r"[a-zA-Z0-9+#.]+", text.lower())
+    return {word for word in words if len(word) >= 2 and word not in STOPWORDS}
+
+
+def get_common_jd_terms(limit: int = 200, top_n: int = 20) -> dict[str, list[dict[str, Any]]]:
+    """
+    Count common terms across analyzed JD profiles.
+
+    Counts each term at most once per job description.
+    """
+    jobs = get_all_job_descriptions(limit=limit)
+
+    grouped_fields = {
+        "required_skills": Counter(),
+        "tools_technologies": Counter(),
+        "preferred_skills": Counter(),
+        "soft_skills": Counter(),
+        "buzzwords": Counter(),
+    }
+
+    display_names: dict[str, str] = {}
+
+    for job in jobs:
+        jd_profile = job.get("jd_profile", {})
+
+        for field in grouped_fields:
+            values = jd_profile.get(field, [])
+            if not isinstance(values, list):
+                continue
+
+            seen_in_this_job: set[str] = set()
+
+            for value in values:
+                if not isinstance(value, str) or not value.strip():
+                    continue
+
+                norm = normalize_term(value)
+                if not norm or norm in seen_in_this_job:
+                    continue
+
+                grouped_fields[field][norm] += 1
+                display_names.setdefault(norm, value.strip())
+                seen_in_this_job.add(norm)
+
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    for field, counter in grouped_fields.items():
+        result[field] = [
+            {
+                "term": display_names.get(term, term),
+                "count": count,
+                "field": field,
+            }
+            for term, count in counter.most_common(top_n)
+        ]
+
+    return result
+
+
+def flatten_resume_terms(resume_profile: dict[str, Any]) -> set[str]:
+    """Flatten a resume profile into normalized skills and evidence tokens."""
+    terms: set[str] = set()
+
+    skills = resume_profile.get("skills", {})
+    if isinstance(skills, dict):
+        for values in skills.values():
+            if not isinstance(values, list):
+                continue
+
+            for value in values:
+                if isinstance(value, str) and value.strip():
+                    terms.add(normalize_term(value))
+                    terms.update(tokenize(value))
+
+    for section in ("summary", "projects", "experience", "education"):
+        value = resume_profile.get(section)
+
+        if isinstance(value, str):
+            terms.update(tokenize(value))
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    for field_value in item.values():
+                        if isinstance(field_value, str):
+                            terms.add(normalize_term(field_value))
+                            terms.update(tokenize(field_value))
+                        elif isinstance(field_value, list):
+                            for entry in field_value:
+                                if isinstance(entry, str):
+                                    terms.add(normalize_term(entry))
+                                    terms.update(tokenize(entry))
+
+    return terms
+
+
+def term_matches_resume(term: str, resume_terms: set[str]) -> tuple[bool, str]:
+    """
+    Check whether a common JD term is shown in the resume terms.
+
+    Returns:
+        (matched, match_reason)
+    """
+    norm = normalize_term(term)
+    tokens = tokenize(term)
+
+    if norm in resume_terms:
+        return True, "Full term appears in resume profile."
+
+    if tokens:
+        overlap = tokens & resume_terms
+        required_overlap = max(1, min(len(tokens), 2))
+
+        if len(overlap) >= required_overlap:
+            return True, f"Related tokens found: {', '.join(sorted(overlap))}."
+
+    return False, "Not clearly shown in the resume profile."
+
+
+def compare_resume_to_common_market_skills(
+    resume_profile: dict[str, Any],
+    *,
+    top_n: int = 30,
+    min_count: int = 1,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """
+    Score how well a resume matches frequent skills across analyzed job descriptions.
+
+    This is a market-level score, not a one-job ATS score.
+    """
+    jobs = get_all_job_descriptions(limit=limit)
+    common_terms = get_common_jd_terms(limit=limit, top_n=top_n)
+    resume_terms = flatten_resume_terms(resume_profile)
+
+    matched: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+
+    total_weight = 0.0
+    matched_weight = 0.0
+
+    for field, rows in common_terms.items():
+        field_weight = FIELD_WEIGHTS.get(field, 1.0)
+
+        for row in rows:
+            count = int(row.get("count", 0))
+
+            if count < min_count:
+                continue
+
+            term = row.get("term", "")
+            if not term:
+                continue
+
+            weight = count * field_weight
+            total_weight += weight
+
+            is_match, reason = term_matches_resume(term, resume_terms)
+
+            output_row = {
+                "term": term,
+                "field": field,
+                "job_count": count,
+                "weight": round(weight, 2),
+                "match_reason": reason,
+            }
+
+            if is_match:
+                matched_weight += weight
+                matched.append(output_row)
+            else:
+                missing.append(output_row)
+
+    score = round(100 * matched_weight / total_weight) if total_weight > 0 else 0
+
+    matched.sort(key=lambda item: item["weight"], reverse=True)
+    missing.sort(key=lambda item: item["weight"], reverse=True)
+
+    return {
+        "market_fit_score": score,
+        "jobs_analyzed": len(jobs),
+        "total_weight": round(total_weight, 2),
+        "matched_weight": round(matched_weight, 2),
+        "matched_common_terms": matched,
+        "missing_common_terms": missing,
+    }
+

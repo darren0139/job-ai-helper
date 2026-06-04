@@ -73,11 +73,23 @@ from database.jd_library_manager import (
     delete_job_description_by_application_id,
 )
 
+from database.chat_history_manager import (
+    init_chat_history,
+    add_application_chat_message,
+    get_application_chat_messages,
+    clear_application_chat_history,
+    add_rag_chat_message,
+    get_rag_chat_messages,
+    clear_rag_chat_history,
+)
+
 from rag.jd_chroma_rag import (
     index_job_description_to_chroma,
     delete_job_description_from_chroma,
     rebuild_chroma_index,
     get_chroma_index_count,
+    get_common_jd_terms,
+    compare_resume_to_common_market_skills,
     answer_jd_library_question_chroma,
 )
 
@@ -121,6 +133,8 @@ def init_session_state() -> None:
     st.session_state.setdefault("input_reset_counter", 0)
     st.session_state.setdefault("revision_history", [])
     st.session_state.setdefault("analysis_chat", [])
+    st.session_state.setdefault("rag_resume_profile", None)
+    st.session_state.setdefault("rag_resume_source", "")
 
 
 def reset_current_application() -> None:
@@ -399,6 +413,7 @@ st.set_page_config(
 
 init_db()
 init_jd_library()
+init_chat_history()
 init_session_state()
 
 st.title("📄 Job AI Helper")
@@ -912,32 +927,62 @@ if page == "Application Sessions":
         st.divider()
         st.header("Ask About This Analysis")
 
-        analysis_question = st.text_input(
-            "Ask a question about the analysis",
-            placeholder="Example: What should I improve first?",
-        )
+        if current_application_id is None:
+            st.info("Save or load an application session before using saved chat.")
+        else:
+            st.caption("Chat history is saved for this application session.")
 
-        if st.button("Ask AI About Analysis", width="stretch"):
-            try:
-                with st.spinner("Answering question..."):
-                    answer = answer_analysis_question(report, analysis_question)
+            saved_analysis_messages = get_application_chat_messages(current_application_id)
 
-                st.session_state.setdefault("analysis_chat", []).append(
-                    {"question": analysis_question, "answer": answer}
-                )
+            if saved_analysis_messages:
+                for message in saved_analysis_messages:
+                    if message["role"] == "user":
+                        st.markdown(f"**You:** {message['content']}")
+                    else:
+                        st.markdown(f"**AI:** {message['content']}")
+            else:
+                st.caption("No questions asked for this session yet.")
 
-            except ValueError as exc:
-                st.warning(str(exc))
+            analysis_question = st.text_input(
+                "Ask a question about the analysis",
+                placeholder="Example: What should I improve first?",
+                key=f"analysis_question_{current_application_id}",
+            )
 
-            except RuntimeError as exc:
-                st.error(f"LLM/API error: {exc}")
+            chat_col, clear_col = st.columns([0.75, 0.25])
 
-            except Exception as exc:
-                st.error(f"Unexpected error while answering question: {exc}")
+            with chat_col:
+                if st.button("Ask AI About Analysis", width="stretch"):
+                    try:
+                        with st.spinner("Answering question..."):
+                            answer = answer_analysis_question(report, analysis_question)
 
-        for item in st.session_state.get("analysis_chat", []):
-            st.markdown(f"**You:** {item['question']}")
-            st.markdown(f"**AI:** {item['answer']}")
+                        add_application_chat_message(
+                            current_application_id,
+                            "user",
+                            analysis_question,
+                        )
+                        add_application_chat_message(
+                            current_application_id,
+                            "assistant",
+                            answer,
+                        )
+
+                        st.rerun()
+
+                    except ValueError as exc:
+                        st.warning(str(exc))
+
+                    except RuntimeError as exc:
+                        st.error(f"LLM/API error: {exc}")
+
+                    except Exception as exc:
+                        st.error(f"Unexpected error while answering question: {exc}")
+
+            with clear_col:
+                if st.button("Clear Chat", width="stretch"):
+                    clear_application_chat_history(current_application_id)
+                    st.rerun()
 
     elif current_application_id is not None:
         st.info(
@@ -949,25 +994,35 @@ if page == "Application Sessions":
 
 else:
     # ---------------------------------------------------------------------------
-    # Chroma RAG over analyzed job descriptions
+    # Job Market Insights / Chroma RAG page
     # ---------------------------------------------------------------------------
 
     st.divider()
     st.header("Job Market Insights from Analyzed Jobs")
 
     st.caption(
-        "This section uses job descriptions from previous **Analyze Resume** runs. "
-        "There is no separate JD paste/upload area here, so the RAG library stays tied "
-        "to actual application sessions."
+        "This page uses job descriptions from previous **Analyze Resume** runs. "
+        "Upload or paste a separate resume here to compare it against the aggregate job market data."
     )
+
+    # -----------------------------------------------------------------------
+    # Vector index status
+    # -----------------------------------------------------------------------
 
     st.subheader("Vector Index")
 
+    saved_jds = get_recent_job_descriptions(limit=200)
+    saved_jd_count = len(saved_jds)
+
     try:
         index_count = get_chroma_index_count()
+        st.write(f"Analyzed job descriptions: **{saved_jd_count}**")
         st.write(f"Indexed Chroma chunks: **{index_count}**")
     except Exception as exc:
         st.warning(f"Could not read Chroma index count: {exc}")
+
+    if saved_jd_count == 0:
+        st.info("No analyzed job descriptions yet. Go to **Application Sessions** and run **Analyze Resume** first.")
 
     if st.button("Rebuild Chroma Index from Analyzed Jobs", width="stretch"):
         try:
@@ -977,15 +1032,131 @@ else:
         except Exception as exc:
             st.error(f"Unexpected error while rebuilding Chroma index: {exc}")
 
+    # -----------------------------------------------------------------------
+    # RAG-specific resume input and market-fit score
+    # -----------------------------------------------------------------------
 
+    st.divider()
+    st.subheader("Resume for Market Comparison")
+
+    st.caption(
+        "This resume is only used on the Job Market Insights page. "
+        "It is separate from the currently loaded application session."
+    )
+
+    rag_resume_upload = st.file_uploader(
+        "Upload resume for market comparison",
+        type=["pdf", "docx"],
+        key="rag_resume_upload",
+        help="Upload a PDF or DOCX resume to compare against all analyzed job descriptions.",
+    )
+
+    rag_resume_text_input = st.text_area(
+        "Or paste resume text for market comparison",
+        height=180,
+        key="rag_resume_text_input",
+        placeholder="Optional: paste resume text here instead of uploading a file.",
+    )
+
+    if st.button("Analyze Resume for Market Fit", width="stretch"):
+        try:
+            if rag_resume_upload is not None:
+                rag_resume_text = read_uploaded_resume(rag_resume_upload)
+                rag_resume_source = rag_resume_upload.name
+            elif rag_resume_text_input.strip():
+                rag_resume_text = rag_resume_text_input.strip()
+                rag_resume_source = "pasted resume text"
+            else:
+                raise ValueError("Upload a resume or paste resume text first.")
+
+            with st.spinner("Extracting resume profile for market comparison..."):
+                rag_resume_profile = extract_resume_profile(rag_resume_text)
+
+            st.session_state["rag_resume_profile"] = rag_resume_profile
+            st.session_state["rag_resume_source"] = rag_resume_source
+
+            st.success(f"Resume loaded for market comparison: {rag_resume_source}")
+            st.rerun()
+
+        except ValueError as exc:
+            st.warning(str(exc))
+        except RuntimeError as exc:
+            st.error(f"LLM/API error: {exc}")
+        except Exception as exc:
+            st.error(f"Unexpected error while analyzing market resume: {exc}")
+
+    rag_resume_profile = st.session_state.get("rag_resume_profile")
+
+    if rag_resume_profile:
+        st.success(f"Using market comparison resume: {st.session_state.get('rag_resume_source', 'resume')}")
+
+        with st.expander("View extracted market resume profile"):
+            st.json(rag_resume_profile)
+
+        if saved_jd_count == 0:
+            st.info("Analyze at least one job description first before calculating market fit.")
+        else:
+            try:
+                market_fit = compare_resume_to_common_market_skills(
+                    rag_resume_profile,
+                    top_n=30,
+                    min_count=1,
+                )
+
+                st.subheader("Overall Market Fit Score")
+                st.metric(
+                    "Market Fit Against Frequent JD Skills",
+                    f"{market_fit.get('market_fit_score', 0)}/100",
+                )
+
+                st.caption(
+                    "This score compares the uploaded/pasted resume against common skills "
+                    "found across analyzed job descriptions. It is separate from the one-job ATS score."
+                )
+
+                st.write("### Common Skills Already Shown")
+                matched_terms = market_fit.get("matched_common_terms", [])
+
+                if matched_terms:
+                    st.dataframe(matched_terms, width="stretch")
+                else:
+                    st.info("No common terms were strongly matched.")
+
+                st.write("### Common Skills Missing or Weakly Evidenced")
+                missing_terms = market_fit.get("missing_common_terms", [])
+
+                if missing_terms:
+                    st.dataframe(missing_terms, width="stretch")
+                else:
+                    st.success("No common missing terms detected.")
+
+                with st.expander("Common JD terms used for scoring"):
+                    common_terms = get_common_jd_terms(top_n=20)
+                    st.write("Required skills")
+                    st.dataframe(common_terms.get("required_skills", []), width="stretch")
+                    st.write("Tools and technologies")
+                    st.dataframe(common_terms.get("tools_technologies", []), width="stretch")
+                    st.write("Preferred skills")
+                    st.dataframe(common_terms.get("preferred_skills", []), width="stretch")
+                    st.write("Soft skills")
+                    st.dataframe(common_terms.get("soft_skills", []), width="stretch")
+
+            except Exception as exc:
+                st.warning(f"Could not calculate market fit score: {exc}")
+    else:
+        st.info("Upload or paste a resume above to calculate your market fit score.")
+
+    # -----------------------------------------------------------------------
+    # Analyzed JD records
+    # -----------------------------------------------------------------------
+
+    st.divider()
     st.subheader("Analyzed Job Descriptions")
 
-    saved_jds = get_recent_job_descriptions(limit=20)
-
     if not saved_jds:
-        st.caption("No analyzed job descriptions saved yet. Run **Analyze Resume** first.")
+        st.caption("No analyzed job descriptions saved yet.")
     else:
-        for jd_id, application_id, title, company, source_type, created_at in saved_jds:
+        for jd_id, application_id, title, company, source_type, created_at in saved_jds[:20]:
             label = f"{title or 'Untitled Job'} @ {company or 'Unknown Company'}"
 
             with st.expander(label):
@@ -1014,30 +1185,59 @@ else:
                             st.success("Removed job description and vector chunks from RAG library.")
                             st.rerun()
 
+    # -----------------------------------------------------------------------
+    # Persistent RAG chatbot
+    # -----------------------------------------------------------------------
 
-    st.subheader("Ask Across Analyzed Job Descriptions")
+    st.divider()
+    st.subheader("RAG Chatbot Across Analyzed Jobs")
+
+    st.caption(
+        "This chat history is saved globally for the Job Market Insights page. "
+        "The chatbot uses all indexed analyzed job descriptions and the market comparison resume if one is loaded."
+    )
+
+    rag_messages = get_rag_chat_messages(limit=80)
+
+    if rag_messages:
+        for message in rag_messages:
+            if message["role"] == "user":
+                st.markdown(f"**You:** {message['content']}")
+            else:
+                st.markdown(f"**AI:** {message['content']}")
+    else:
+        st.caption("No RAG questions asked yet.")
 
     rag_question = st.text_input(
         "Ask a market/RAG question",
-        placeholder="Example: What skills appear often in the jobs I analyzed?",
+        placeholder="Example: Based on my uploaded resume, what common skills should I strengthen?",
+        key="rag_market_question",
     )
 
-    if st.button("Ask Chroma RAG", width="stretch"):
-        try:
-            report_for_rag = st.session_state.get("latest_report")
-            resume_profile = report_for_rag.get("resume_profile", {}) if report_for_rag else None
+    rag_chat_col, rag_clear_col = st.columns([0.75, 0.25])
 
-            answer = answer_jd_library_question_chroma(
-                rag_question,
-                resume_profile=resume_profile,
-                top_k=6,
-            )
+    with rag_chat_col:
+        if st.button("Ask Chroma RAG", width="stretch"):
+            try:
+                answer = answer_jd_library_question_chroma(
+                    rag_question,
+                    resume_profile=st.session_state.get("rag_resume_profile"),
+                    top_k=6,
+                )
 
-            st.markdown(answer)
+                add_rag_chat_message("user", rag_question)
+                add_rag_chat_message("assistant", answer)
 
-        except ValueError as exc:
-            st.warning(str(exc))
-        except RuntimeError as exc:
-            st.error(f"LLM/API error: {exc}")
-        except Exception as exc:
-            st.error(f"Unexpected error while answering Chroma RAG question: {exc}")
+                st.rerun()
+
+            except ValueError as exc:
+                st.warning(str(exc))
+            except RuntimeError as exc:
+                st.error(f"LLM/API error: {exc}")
+            except Exception as exc:
+                st.error(f"Unexpected error while answering Chroma RAG question: {exc}")
+
+    with rag_clear_col:
+        if st.button("Clear RAG Chat", width="stretch"):
+            clear_rag_chat_history()
+            st.rerun()
