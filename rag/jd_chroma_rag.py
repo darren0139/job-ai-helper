@@ -1,0 +1,312 @@
+"""
+rag/jd_chroma_rag.py — ChromaDB vector RAG over analyzed job descriptions.
+
+This version uses:
+- SQLite for JD metadata/text storage
+- ChromaDB for vector search over JD chunks
+- LiteLLM embeddings, defaulting to OpenAI text-embedding-3-small
+
+.env example:
+    OPENAI_API_KEY=your_key_here
+    EMBEDDING_MODEL=openai/text-embedding-3-small
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+import chromadb
+from litellm import embedding
+
+from database.jd_library_manager import get_all_job_descriptions, get_job_description_by_id
+from llm import ask_text
+
+
+CHROMA_PATH = Path("data/chroma_jd_library")
+COLLECTION_NAME = "job_description_chunks"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+
+
+JD_CHROMA_QA_PROMPT = """
+Instruction:
+Answer the user's question using the retrieved job-description chunks.
+
+Context:
+You are an AI career assistant. The user has analyzed multiple job descriptions.
+The retrieved context was selected using vector similarity search over those job descriptions.
+
+Constraints:
+- Use only the retrieved job-description context and optional resume profile.
+- Do not invent job requirements.
+- Do not claim a skill is common unless it appears in the retrieved context.
+- If the retrieved context is insufficient, say so clearly.
+- If a resume profile is provided, compare the user's existing skills against the retrieved job requirements.
+- Give honest advice. Do not tell the user to add skills or experience they do not truly have.
+- Keep the answer practical for a student or junior applicant.
+
+Output:
+Return a plain-text answer with clear headings or bullet points.
+"""
+
+
+def get_chroma_collection():
+    """Return the persistent Chroma collection used for JD chunks."""
+    CHROMA_PATH.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(CHROMA_PATH))
+    return client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        metadata={"description": "Job description chunks for Job AI Helper"},
+    )
+
+
+def split_text(text: str, *, max_chars: int = 1200, overlap: int = 200) -> list[str]:
+    """Split text into overlapping chunks using character windows."""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+
+    if not cleaned:
+        return []
+
+    chunks: list[str] = []
+    start = 0
+
+    while start < len(cleaned):
+        end = min(start + max_chars, len(cleaned))
+        chunk = cleaned[start:end].strip()
+
+        if chunk:
+            chunks.append(chunk)
+
+        if end >= len(cleaned):
+            break
+
+        start = max(0, end - overlap)
+
+    return chunks
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed a batch of texts using LiteLLM."""
+    if not texts:
+        return []
+
+    response = embedding(
+        model=os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL),
+        input=texts,
+    )
+
+    if isinstance(response, dict):
+        data = response.get("data", [])
+    else:
+        data = getattr(response, "data", [])
+
+    vectors: list[list[float]] = []
+
+    for item in data:
+        if isinstance(item, dict):
+            vectors.append(item["embedding"])
+        else:
+            vectors.append(item.embedding)
+
+    return vectors
+
+
+def delete_job_description_from_chroma(jd_id: int) -> None:
+    """Delete all vector chunks for one JD from Chroma."""
+    collection = get_chroma_collection()
+
+    try:
+        collection.delete(where={"job_id": str(jd_id)})
+    except Exception:
+        # Chroma can raise if no matching records exist. For app UX, no-op is fine.
+        pass
+
+
+def build_job_document_text(job: dict[str, Any]) -> str:
+    """Combine JD profile and raw text into one document for chunking."""
+    jd_profile = job.get("jd_profile", {})
+    profile_text = json.dumps(jd_profile, indent=2, ensure_ascii=False)
+
+    return f"""
+APPLICATION SESSION ID: {job.get("application_id", "")}
+TITLE: {job.get("title", "")}
+COMPANY: {job.get("company", "")}
+SOURCE TYPE: {job.get("source_type", "")}
+SOURCE URL: {job.get("source_url", "")}
+
+STRUCTURED JD PROFILE:
+{profile_text}
+
+RAW JOB DESCRIPTION:
+{job.get("raw_text", "")}
+""".strip()
+
+
+def index_job_description_to_chroma(jd_id: int) -> int:
+    """
+    Index one saved JD into Chroma.
+
+    Returns:
+        Number of chunks indexed.
+    """
+    job = get_job_description_by_id(jd_id)
+
+    if not job:
+        raise ValueError(f"Job description #{jd_id} was not found.")
+
+    collection = get_chroma_collection()
+
+    # Replace old chunks for this JD.
+    delete_job_description_from_chroma(jd_id)
+
+    document_text = build_job_document_text(job)
+    chunks = split_text(document_text)
+
+    if not chunks:
+        return 0
+
+    embeddings = embed_texts(chunks)
+
+    ids = [f"jd-{jd_id}-chunk-{index}" for index in range(len(chunks))]
+    metadatas = [
+        {
+            "job_id": str(jd_id),
+            "application_id": str(job.get("application_id", "") or ""),
+            "chunk_index": index,
+            "title": job.get("title", "") or "",
+            "company": job.get("company", "") or "",
+            "source_type": job.get("source_type", "") or "",
+            "source_url": job.get("source_url", "") or "",
+        }
+        for index in range(len(chunks))
+    ]
+
+    collection.upsert(
+        ids=ids,
+        documents=chunks,
+        embeddings=embeddings,
+        metadatas=metadatas,
+    )
+
+    return len(chunks)
+
+
+def rebuild_chroma_index(limit: int = 200) -> int:
+    """Rebuild the vector index from all saved JDs."""
+    jobs = get_all_job_descriptions(limit=limit)
+    total_chunks = 0
+
+    # Clear existing records for known jobs by deleting each job before re-indexing.
+    for job in jobs:
+        total_chunks += index_job_description_to_chroma(int(job["id"]))
+
+    return total_chunks
+
+
+def get_chroma_index_count() -> int:
+    """Return number of vector records in Chroma."""
+    collection = get_chroma_collection()
+    return int(collection.count())
+
+
+def retrieve_relevant_chunks(question: str, *, top_k: int = 6) -> list[dict[str, Any]]:
+    """Retrieve relevant JD chunks using vector similarity search."""
+    cleaned_question = question.strip()
+
+    if not cleaned_question:
+        raise ValueError("Please enter a question first.")
+
+    collection = get_chroma_collection()
+
+    if collection.count() == 0:
+        raise ValueError("The Chroma index is empty. Analyze at least one job first.")
+
+    query_embedding = embed_texts([cleaned_question])[0]
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = results.get("documents", [[]])[0]
+    metadatas = results.get("metadatas", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+
+    retrieved: list[dict[str, Any]] = []
+
+    for doc, meta, distance in zip(documents, metadatas, distances):
+        retrieved.append(
+            {
+                "document": doc,
+                "metadata": meta or {},
+                "distance": distance,
+            }
+        )
+
+    return retrieved
+
+
+def format_chunks_for_prompt(chunks: list[dict[str, Any]]) -> str:
+    """Format retrieved chunks for the LLM prompt."""
+    blocks: list[str] = []
+
+    for index, chunk in enumerate(chunks, start=1):
+        meta = chunk.get("metadata", {})
+        block = f"""
+CHUNK {index}
+Application Session ID: {meta.get("application_id", "")}
+Title: {meta.get("title", "")}
+Company: {meta.get("company", "")}
+Source Type: {meta.get("source_type", "")}
+Source URL: {meta.get("source_url", "")}
+Distance: {chunk.get("distance", "")}
+
+TEXT:
+{chunk.get("document", "")}
+""".strip()
+        blocks.append(block)
+
+    return "\n\n---\n\n".join(blocks)
+
+
+def answer_jd_library_question_chroma(
+    question: str,
+    *,
+    resume_profile: dict[str, Any] | None = None,
+    top_k: int = 6,
+) -> str:
+    """Ask a vector-RAG question across analyzed job descriptions."""
+    retrieved_chunks = retrieve_relevant_chunks(question, top_k=top_k)
+    context = format_chunks_for_prompt(retrieved_chunks)
+
+    if resume_profile:
+        resume_context = json.dumps(resume_profile, indent=2, ensure_ascii=False)
+    else:
+        resume_context = "No resume profile provided."
+
+    user_prompt = f"""
+USER QUESTION:
+{question}
+
+OPTIONAL RESUME PROFILE:
+{resume_context}
+
+RETRIEVED JOB DESCRIPTION CHUNKS:
+{context}
+"""
+
+    answer = ask_text(
+        JD_CHROMA_QA_PROMPT,
+        user_prompt,
+        temperature=0.3,
+        max_tokens=900,
+    ).strip()
+
+    if not answer:
+        raise RuntimeError("The AI returned an empty answer.")
+
+    return answer

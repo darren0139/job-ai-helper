@@ -63,6 +63,24 @@ from database.db_manager import (
     get_recent_applications,
     get_application_by_id,
 )
+from database.jd_library_manager import (
+    init_jd_library,
+    save_or_update_job_description_for_application,
+    get_recent_job_descriptions,
+    get_job_description_by_id,
+    get_job_description_by_application_id,
+    delete_job_description,
+    delete_job_description_by_application_id,
+)
+
+from rag.jd_chroma_rag import (
+    index_job_description_to_chroma,
+    delete_job_description_from_chroma,
+    rebuild_chroma_index,
+    get_chroma_index_count,
+    answer_jd_library_question_chroma,
+)
+
 from report import render_markdown
 from llm import ask_text
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
@@ -380,6 +398,7 @@ st.set_page_config(
 )
 
 init_db()
+init_jd_library()
 init_session_state()
 
 st.title("📄 Job AI Helper")
@@ -390,417 +409,522 @@ if flash_message:
     st.success(flash_message)
 
 
-with st.sidebar:
-    st.header("Settings")
+# Default values used by the Application Sessions page.
+page = "Application Sessions"
+degree = VALID_DEGREES[VALID_DEGREES.index("IMGD")]
+show_debug_text = False
 
-    degree = st.selectbox(
-        "Degree programme",
-        VALID_DEGREES,
-        index=VALID_DEGREES.index("IMGD"),
-        help="Used for the degree-alignment score.",
+with st.sidebar:
+    st.header("Navigation")
+
+    page = st.radio(
+        "Go to",
+        ["Application Sessions", "Job Market Insights"],
+        label_visibility="collapsed",
     )
+
+    st.divider()
 
     model_name = os.getenv("MODEL", "openai/gpt-4o-mini")
     st.write("**Model route:**")
     st.code(model_name)
 
-    show_debug_text = st.checkbox(
-        "Show debug resume text",
-        value=False,
-        help="Shows extracted resume text after upload. Useful for checking PDF/DOCX parsing.",
-    )
+    if page == "Application Sessions":
+        st.subheader("Settings")
 
-    st.divider()
-
-    if st.button("➕ New Application Session", width="stretch"):
-        application_id = create_empty_application_session(degree=degree)
-
-        reset_current_application()
-        st.session_state["current_application_id"] = application_id
-        st.session_state["flash_message"] = (
-            f"Started new application session #{application_id}. "
-            "Upload a resume and paste a job description."
+        degree = st.selectbox(
+            "Degree programme",
+            VALID_DEGREES,
+            index=VALID_DEGREES.index("IMGD"),
+            help="Used for the degree-alignment score.",
         )
 
-        st.rerun()
+        show_debug_text = st.checkbox(
+            "Show debug resume text",
+            value=False,
+            help="Shows extracted resume text after upload. Useful for checking PDF/DOCX parsing.",
+        )
 
-    st.subheader("Application Sessions")
+        st.divider()
 
-    recent_applications = get_recent_applications(limit=15)
-    current_application_id = st.session_state.get("current_application_id")
+        if st.button("➕ New Application Session", width="stretch"):
+            application_id = create_empty_application_session(degree=degree)
 
-    if not recent_applications:
-        st.caption("No application sessions yet.")
-    else:
-        for app_id, session_name, job_title, company, score, has_report, updated_at in recent_applications:
-            is_current = current_application_id == app_id
+            reset_current_application()
+            st.session_state["current_application_id"] = application_id
+            st.session_state["flash_message"] = (
+                f"Started new application session #{application_id}. "
+                "Upload a resume and paste a job description."
+            )
 
-            if has_report:
-                display_name = session_name or job_title or f"Application {app_id}"
+            st.rerun()
 
-                if score is not None:
-                    label = f"{display_name} — {score}/100"
+        st.subheader("Application Sessions")
+
+        recent_applications = get_recent_applications(limit=15)
+        current_application_id = st.session_state.get("current_application_id")
+
+        if not recent_applications:
+            st.caption("No application sessions yet.")
+        else:
+            for app_id, session_name, job_title, company, score, has_report, updated_at in recent_applications:
+                is_current = current_application_id == app_id
+
+                if has_report:
+                    display_name = session_name or job_title or f"Application {app_id}"
+
+                    if score is not None:
+                        label = f"{display_name} — {score}/100"
+                    else:
+                        label = display_name
+
+                    if is_current:
+                        label = f"✅ {label}"
+                    else:
+                        label = f"📄 {label}"
                 else:
-                    label = display_name
+                    display_name = session_name or f"Application {app_id}"
+                    label = f"✅ {display_name} (Draft)" if is_current else f"📝 {display_name} (Draft)"
 
-                if is_current:
-                    label = f"✅ {label}"
-                else:
-                    label = f"📄 {label}"
-            else:
-                display_name = session_name or f"Application {app_id}"
-                label = f"✅ {display_name} (Draft)" if is_current else f"📝 {display_name} (Draft)"
+                row_col, menu_col = st.columns([0.82, 0.18])
 
-            row_col, menu_col = st.columns([0.82, 0.18])
+                with row_col:
+                    if st.button(label, key=f"load_app_{app_id}", width="stretch"):
+                        saved = get_application_by_id(app_id)
 
-            with row_col:
-                if st.button(label, key=f"load_app_{app_id}", width="stretch"):
-                    saved = get_application_by_id(app_id)
+                        if saved:
+                            if saved.get("report") is None:
+                                st.session_state.pop("latest_report", None)
+                            else:
+                                st.session_state["latest_report"] = saved["report"]
 
-                    if saved:
-                        if saved.get("report") is None:
-                            st.session_state.pop("latest_report", None)
-                        else:
-                            st.session_state["latest_report"] = saved["report"]
+                            st.session_state["cover_letter"] = saved.get("cover_letter", "")
+                            st.session_state["resume_filename"] = saved.get("resume_filename", "")
+                            st.session_state["current_application_id"] = app_id
+                            st.session_state["revision_history"] = []
+                            st.session_state["analysis_chat"] = []
 
-                        st.session_state["cover_letter"] = saved.get("cover_letter", "")
-                        st.session_state["resume_filename"] = saved.get("resume_filename", "")
-                        st.session_state["current_application_id"] = app_id
-                        st.session_state["revision_history"] = []
-                        st.session_state["analysis_chat"] = []
-                        st.session_state["flash_message"] = f"Loaded application session #{app_id}."
-                        st.rerun()
+                            # Clear upload/JD inputs when switching sessions.
+                            # Saved sessions restore the report, not the original uploaded file.
+                            st.session_state["input_reset_counter"] += 1
 
-            with menu_col:
-                with st.popover("⋯", use_container_width=True):
-                    st.write(f"**{display_name}**")
-
-                    new_name = st.text_input(
-                        "Rename session",
-                        value=display_name,
-                        key=f"session_name_{app_id}",
-                    )
-
-                    if st.button("Rename", key=f"rename_app_{app_id}", width="stretch"):
-                        cleaned_name = new_name.strip()
-
-                        if cleaned_name:
-                            rename_application_session(app_id, cleaned_name)
-                            st.session_state["flash_message"] = "Session renamed."
+                            st.session_state["flash_message"] = f"Loaded application session #{app_id}."
                             st.rerun()
-                        else:
-                            st.warning("Session name cannot be empty.")
 
-                    st.divider()
+                with menu_col:
+                    with st.popover("⋯", width="stretch"):
+                        st.write(f"**{display_name}**")
 
-                    if st.button("Delete", key=f"delete_app_{app_id}", width="stretch"):
-                        st.session_state["pending_delete_application_id"] = app_id
-                        st.rerun()
+                        new_name = st.text_input(
+                            "Rename session",
+                            value=display_name,
+                            key=f"session_name_{app_id}",
+                        )
 
-            pending_delete_id = st.session_state.get("pending_delete_application_id")
+                        if st.button("Rename", key=f"rename_app_{app_id}", width="stretch"):
+                            cleaned_name = new_name.strip()
 
-            if pending_delete_id == app_id:
-                st.warning(f"Delete '{display_name}'? This cannot be undone.")
+                            if cleaned_name:
+                                rename_application_session(app_id, cleaned_name)
+                                st.session_state["flash_message"] = "Session renamed."
+                                st.rerun()
+                            else:
+                                st.warning("Session name cannot be empty.")
 
-                confirm_col, cancel_col = st.columns(2)
+                        st.divider()
 
-                with confirm_col:
-                    if st.button("Confirm", key=f"confirm_delete_{app_id}", width="stretch"):
-                        delete_application_session(app_id)
+                        if st.button("Delete", key=f"delete_app_{app_id}", width="stretch"):
+                            st.session_state["pending_delete_application_id"] = app_id
+                            st.rerun()
 
-                        if current_application_id == app_id:
-                            reset_current_application()
+                pending_delete_id = st.session_state.get("pending_delete_application_id")
 
-                        st.session_state.pop("pending_delete_application_id", None)
-                        st.session_state["flash_message"] = "Session deleted."
-                        st.rerun()
+                if pending_delete_id == app_id:
+                    st.warning(f"Delete '{display_name}'? This cannot be undone.")
 
-                with cancel_col:
-                    if st.button("Cancel", key=f"cancel_delete_{app_id}", width="stretch"):
-                        st.session_state.pop("pending_delete_application_id", None)
-                        st.rerun()
+                    confirm_col, cancel_col = st.columns(2)
 
-    st.divider()
+                    with confirm_col:
+                        if st.button("Confirm", key=f"confirm_delete_{app_id}", width="stretch"):
+                            # Also remove the linked job description from the RAG library.
+                            try:
+                                linked_jd = get_job_description_by_application_id(app_id)
+                                if linked_jd:
+                                    delete_job_description_from_chroma(int(linked_jd["id"]))
+                                    delete_job_description_by_application_id(app_id)
+                            except Exception:
+                                # Deleting the application session should still work even if RAG cleanup fails.
+                                pass
 
-    st.write("**How to use**")
-    st.write("1. Click **New Application Session** to start a blank session.")
-    st.write("2. Upload a PDF or DOCX resume.")
-    st.write("3. Paste the target job description.")
-    st.write("4. Click **Analyze Resume**.")
-    st.write("5. Optionally generate or revise a cover letter.")
+                            delete_application_session(app_id)
 
+                            if current_application_id == app_id:
+                                reset_current_application()
 
+                            st.session_state.pop("pending_delete_application_id", None)
+                            st.session_state["flash_message"] = "Session deleted."
+                            st.rerun()
 
-input_suffix = st.session_state["input_reset_counter"]
+                    with cancel_col:
+                        if st.button("Cancel", key=f"cancel_delete_{app_id}", width="stretch"):
+                            st.session_state.pop("pending_delete_application_id", None)
+                            st.rerun()
 
-uploaded_resume = st.file_uploader(
-    "Upload resume",
-    type=["pdf", "docx"],
-    key=f"resume_upload_{input_suffix}",
-    help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
-)
+        st.divider()
 
-jd_text_input = st.text_area(
-    "Paste job description",
-    height=260,
-    key=f"jd_text_{input_suffix}",
-    placeholder=(
-        "Paste the full job description here, including responsibilities, "
-        "requirements, tools, technologies, and soft skills..."
-    ),
-)
+        st.write("**How to use**")
+        st.write("1. Click **New Application Session** to start a blank session.")
+        st.write("2. Upload a PDF or DOCX resume.")
+        st.write("3. Paste the target job description.")
+        st.write("4. Click **Analyze Resume**.")
+        st.write("5. Optionally generate or revise a cover letter.")
 
-analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
-
-
-if analyze_clicked:
-    if uploaded_resume is None:
-        st.error("Please upload a resume first.")
-        st.stop()
-
-    if not jd_text_input.strip():
-        st.error("Please paste a job description first.")
-        st.stop()
-
-    try:
-        with st.status("Reading resume...", expanded=True) as status:
-            resume_text = read_uploaded_resume(uploaded_resume)
-
-            if show_debug_text:
-                with st.expander("Debug: Extracted resume text", expanded=True):
-                    st.text(resume_text[-3000:])
-
-            st.write(f"Extracted {len(resume_text)} characters from resume.")
-
-            jd_text = validate_jd_text(jd_text_input)
-            st.write(f"Read {len(jd_text)} characters from job description.")
-
-            status.update(label="Running AI analysis...", state="running")
-            report = run_resume_analysis(resume_text, jd_text, degree)
-            status.update(label="Analysis complete.", state="complete")
-
-        application_id = st.session_state.get("current_application_id")
-
-        if application_id is None:
-            # If the user did not click "New Application Session", create one automatically.
-            application_id = save_application(
-                resume_filename=uploaded_resume.name,
-                report=report,
-                cover_letter="",
-            )
-        else:
-            # If the user started or loaded a session, update that session with the analysis result.
-            update_application_report(
-                application_id=application_id,
-                resume_filename=uploaded_resume.name,
-                report=report,
-            )
-
-        st.session_state["latest_report"] = report
-        st.session_state["resume_filename"] = uploaded_resume.name
-        st.session_state["current_application_id"] = application_id
-
-        # Clear old generated content when a new resume/job is analysed.
-        st.session_state.pop("cover_letter", None)
-        st.session_state["revision_history"] = []
-        st.session_state["analysis_chat"] = []
-
-        st.session_state["flash_message"] = f"Saved application session #{application_id}."
-        st.rerun()
-
-    except ValueError as exc:
-        st.error(f"Input error: {exc}")
-        st.stop()
-
-    except RuntimeError as exc:
-        st.error(f"LLM/API error: {exc}")
-        st.info("Check your .env file locally, or Streamlit Cloud secrets after deployment.")
-        st.stop()
-
-    except Exception as exc:
-        st.error(f"Unexpected error: {exc}")
-        st.stop()
-
-
-report = st.session_state.get("latest_report")
-current_application_id = st.session_state.get("current_application_id")
-
-if report:
-    overall_score = int(report.get("overall_score", 0))
-    passed = bool(report.get("passes_ats_threshold", False))
-
-    st.divider()
-    st.header("Results")
-
-    if current_application_id is not None:
-        st.caption(f"Current application session: #{current_application_id}")
-
-    if passed:
-        st.success(f"Score: {overall_score}/100 ({score_label(overall_score)})")
     else:
-        st.error(f"Score: {overall_score}/100 ({score_label(overall_score)})")
+        st.subheader("Job Market Insights")
+        st.caption(
+            "This page aggregates job descriptions from all previous Analyze Resume runs."
+        )
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
-    col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
-    col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
-    col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
-    col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
+        try:
+            index_count = get_chroma_index_count()
+            st.metric("Indexed Chunks", index_count)
+        except Exception:
+            st.metric("Indexed Chunks", 0)
 
-    st.subheader("Executive Summary")
-    st.markdown(report.get("summary", "_No summary returned._"))
+        saved_jd_count = len(get_recent_job_descriptions(limit=200))
+        st.metric("Analyzed JDs", saved_jd_count)
 
-    tab_keywords, tab_bullets, tab_structure, tab_jargon, tab_degree, tab_raw = st.tabs(
-        ["Keywords", "Bullets", "Structure", "Jargon", "Degree Fit", "Raw JSON"]
+        st.info(
+            "Run Analyze Resume on one or more jobs first. Then this page can answer questions across those analyzed job descriptions."
+        )
+
+
+if page == "Application Sessions":
+    input_suffix = st.session_state["input_reset_counter"]
+
+    uploaded_resume = st.file_uploader(
+        "Upload resume",
+        type=["pdf", "docx"],
+        key=f"resume_upload_{input_suffix}",
+        help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
     )
 
-    with tab_keywords:
-        st.write("### Present Keywords")
-        present = report.get("keyword_match", {}).get("present", [])
-        if present:
-            st.dataframe(present, width="stretch")
-        else:
-            st.info("No present keywords returned.")
+    jd_text_input = st.text_area(
+        "Paste job description",
+        height=260,
+        key=f"jd_text_{input_suffix}",
+        placeholder=(
+            "Paste the full job description here, including responsibilities, "
+            "requirements, tools, technologies, and soft skills..."
+        ),
+    )
 
-        st.write("### Missing Keywords")
-        missing = report.get("keyword_match", {}).get("missing", [])
-        if missing:
-            st.dataframe(missing, width="stretch")
-        else:
-            st.success("No missing keywords returned.")
+    analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
 
-    with tab_bullets:
-        st.write("### Bullet Quality Audit")
-        bullet_rows = report.get("bullets", {}).get("bullets", [])
-        if bullet_rows:
-            st.dataframe(bullet_rows, width="stretch")
-        else:
-            st.info("No bullet audit rows returned.")
 
-    with tab_structure:
-        st.write("### Three-Thirds / ATS Structure")
-        st.json(report.get("structure", {}))
+    if analyze_clicked:
+        if uploaded_resume is None:
+            st.error("Please upload a resume first.")
+            st.stop()
 
-    with tab_jargon:
-        st.write("### Jargon Flags")
-        flags = report.get("jargon", {}).get("flags", [])
-        if flags:
-            st.dataframe(flags, width="stretch")
-        else:
-            st.success("No jargon flags returned.")
+        if not jd_text_input.strip():
+            st.error("Please paste a job description first.")
+            st.stop()
 
-    with tab_degree:
-        st.write("### Degree Alignment")
-        st.json(report.get("degree_alignment", {}))
-
-    with tab_raw:
-        st.write("### Full Report JSON")
-        st.json(report)
-
-    st.subheader("Download Reports")
-
-    json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
-    markdown_text, markdown_filename = create_markdown_report(report)
-
-    download_col1, download_col2 = st.columns(2)
-
-    with download_col1:
-        st.download_button(
-            "Download JSON Report",
-            data=json_bytes,
-            file_name=f"match_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json",
-            width="stretch",
-        )
-
-    with download_col2:
-        st.download_button(
-            "Download Markdown Report",
-            data=markdown_text,
-            file_name=markdown_filename,
-            mime="text/markdown",
-            width="stretch",
-        )
-
-    st.divider()
-    st.header("Tailored Cover Letter")
-
-    if st.button("Generate Cover Letter", type="primary", width="stretch"):
         try:
-            with st.spinner("Generating tailored cover letter..."):
-                cover_letter = generate_cover_letter(report)
+            with st.status("Reading resume...", expanded=True) as status:
+                resume_text = read_uploaded_resume(uploaded_resume)
 
-            st.session_state["cover_letter"] = cover_letter
-            st.session_state.setdefault("revision_history", [])
+                if show_debug_text:
+                    with st.expander("Debug: Extracted resume text", expanded=True):
+                        st.text(resume_text[-3000:])
+
+                st.write(f"Extracted {len(resume_text)} characters from resume.")
+
+                jd_text = validate_jd_text(jd_text_input)
+                st.write(f"Read {len(jd_text)} characters from job description.")
+
+                status.update(label="Running AI analysis...", state="running")
+                report = run_resume_analysis(resume_text, jd_text, degree)
+
+                # Store the full pasted job description in the saved report.
+                # This makes saved sessions self-contained for debugging/rebuilds.
+                report["raw_jd_text"] = jd_text
+
+                status.update(label="Analysis complete.", state="complete")
 
             application_id = st.session_state.get("current_application_id")
 
             if application_id is None:
+                # If the user did not click "New Application Session", create one automatically.
                 application_id = save_application(
-                    resume_filename=st.session_state.get("resume_filename", "uploaded_resume"),
+                    resume_filename=uploaded_resume.name,
                     report=report,
-                    cover_letter=cover_letter,
+                    cover_letter="",
                 )
-                st.session_state["current_application_id"] = application_id
             else:
-                update_application_cover_letter(application_id, cover_letter)
+                # If the user started or loaded a session, update that session with the analysis result.
+                update_application_report(
+                    application_id=application_id,
+                    resume_filename=uploaded_resume.name,
+                    report=report,
+                )
 
-            st.success("Cover letter saved to the current application session.")
+            jd_library_message = ""
+
+            try:
+                # Save/update the analyzed job description into the JD Library.
+                # This means the RAG feature only uses jobs that went through Analyze Resume.
+                jd_profile_for_library = report.get("jd_profile", {})
+
+                jd_library_id = save_or_update_job_description_for_application(
+                    application_id=application_id,
+                    raw_text=jd_text,
+                    jd_profile=jd_profile_for_library,
+                    title=jd_profile_for_library.get("job_title", ""),
+                    company=jd_profile_for_library.get("company", ""),
+                    source_type="application_session",
+                    source_url="",
+                )
+
+                chunk_count = index_job_description_to_chroma(jd_library_id)
+                jd_library_message = f" Indexed JD into Chroma with {chunk_count} chunks."
+
+            except Exception as rag_exc:
+                # The main resume analysis should still succeed even if RAG indexing fails.
+                jd_library_message = f" RAG indexing skipped: {rag_exc}"
+
+            st.session_state["latest_report"] = report
+            st.session_state["resume_filename"] = uploaded_resume.name
+            st.session_state["current_application_id"] = application_id
+
+            # Clear old generated content when a new resume/job is analysed.
+            st.session_state.pop("cover_letter", None)
+            st.session_state["revision_history"] = []
+            st.session_state["analysis_chat"] = []
+
+            st.session_state["flash_message"] = f"Saved application session #{application_id}.{jd_library_message}"
+            st.rerun()
+
+        except ValueError as exc:
+            st.error(f"Input error: {exc}")
+            st.stop()
 
         except RuntimeError as exc:
             st.error(f"LLM/API error: {exc}")
+            st.info("Check your .env file locally, or Streamlit Cloud secrets after deployment.")
+            st.stop()
 
         except Exception as exc:
-            st.error(f"Unexpected error while generating cover letter: {exc}")
+            st.error(f"Unexpected error: {exc}")
+            st.stop()
 
-    cover_letter = st.session_state.get("cover_letter", "")
 
-    if cover_letter:
-        st.text_area(
-            "Generated cover letter",
-            value=cover_letter,
-            height=360,
+    report = st.session_state.get("latest_report")
+    current_application_id = st.session_state.get("current_application_id")
+
+    if report:
+        overall_score = int(report.get("overall_score", 0))
+        passed = bool(report.get("passes_ats_threshold", False))
+
+        st.divider()
+        st.header("Results")
+
+        if current_application_id is not None:
+            st.caption(f"Current application session: #{current_application_id}")
+
+        if passed:
+            st.success(f"Score: {overall_score}/100 ({score_label(overall_score)})")
+        else:
+            st.error(f"Score: {overall_score}/100 ({score_label(overall_score)})")
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
+        col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
+        col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
+        col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
+        col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
+
+        st.subheader("Executive Summary")
+        st.markdown(report.get("summary", "_No summary returned._"))
+
+        tab_keywords, tab_bullets, tab_structure, tab_jargon, tab_degree, tab_raw = st.tabs(
+            ["Keywords", "Bullets", "Structure", "Jargon", "Degree Fit", "Raw JSON"]
         )
 
-        st.download_button(
-            "Download Cover Letter (.txt)",
-            data=cover_letter,
-            file_name=f"cover_letter_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain",
-            width="stretch",
-        )
+        with tab_keywords:
+            st.write("### Present Keywords")
+            present = report.get("keyword_match", {}).get("present", [])
+            if present:
+                st.dataframe(present, width="stretch")
+            else:
+                st.info("No present keywords returned.")
 
-        st.subheader("Ask for a revision")
+            st.write("### Missing Keywords")
+            missing = report.get("keyword_match", {}).get("missing", [])
+            if missing:
+                st.dataframe(missing, width="stretch")
+            else:
+                st.success("No missing keywords returned.")
 
-        revision_request = st.text_input(
-            "Revision request",
-            placeholder="Example: Make it shorter and more confident.",
-        )
+        with tab_bullets:
+            st.write("### Bullet Quality Audit")
+            bullet_rows = report.get("bullets", {}).get("bullets", [])
+            if bullet_rows:
+                st.dataframe(bullet_rows, width="stretch")
+            else:
+                st.info("No bullet audit rows returned.")
 
-        if st.button("Revise Cover Letter", width="stretch"):
+        with tab_structure:
+            st.write("### Three-Thirds / ATS Structure")
+            st.json(report.get("structure", {}))
+
+        with tab_jargon:
+            st.write("### Jargon Flags")
+            flags = report.get("jargon", {}).get("flags", [])
+            if flags:
+                st.dataframe(flags, width="stretch")
+            else:
+                st.success("No jargon flags returned.")
+
+        with tab_degree:
+            st.write("### Degree Alignment")
+            st.json(report.get("degree_alignment", {}))
+
+        with tab_raw:
+            st.write("### Full Report JSON")
+            st.json(report)
+
+        st.subheader("Download Reports")
+
+        json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
+        markdown_text, markdown_filename = create_markdown_report(report)
+
+        download_col1, download_col2 = st.columns(2)
+
+        with download_col1:
+            st.download_button(
+                "Download JSON Report",
+                data=json_bytes,
+                file_name=f"match_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                width="stretch",
+            )
+
+        with download_col2:
+            st.download_button(
+                "Download Markdown Report",
+                data=markdown_text,
+                file_name=markdown_filename,
+                mime="text/markdown",
+                width="stretch",
+            )
+
+        st.divider()
+        st.header("Tailored Cover Letter")
+
+        if st.button("Generate Cover Letter", type="primary", width="stretch"):
             try:
-                with st.spinner("Revising cover letter..."):
-                    revised_letter = revise_cover_letter(
-                        report,
-                        cover_letter,
-                        revision_request,
-                    )
+                with st.spinner("Generating tailored cover letter..."):
+                    cover_letter = generate_cover_letter(report)
 
-                st.session_state.setdefault("revision_history", []).append(
-                    {
-                        "request": revision_request,
-                        "before": cover_letter,
-                        "after": revised_letter,
-                    }
-                )
-
-                st.session_state["cover_letter"] = revised_letter
+                st.session_state["cover_letter"] = cover_letter
+                st.session_state.setdefault("revision_history", [])
 
                 application_id = st.session_state.get("current_application_id")
-                if application_id is not None:
-                    update_application_cover_letter(application_id, revised_letter)
 
-                st.rerun()
+                if application_id is None:
+                    application_id = save_application(
+                        resume_filename=st.session_state.get("resume_filename", "uploaded_resume"),
+                        report=report,
+                        cover_letter=cover_letter,
+                    )
+                    st.session_state["current_application_id"] = application_id
+                else:
+                    update_application_cover_letter(application_id, cover_letter)
+
+                st.success("Cover letter saved to the current application session.")
+
+            except RuntimeError as exc:
+                st.error(f"LLM/API error: {exc}")
+
+            except Exception as exc:
+                st.error(f"Unexpected error while generating cover letter: {exc}")
+
+        cover_letter = st.session_state.get("cover_letter", "")
+
+        if cover_letter:
+            st.text_area(
+                "Generated cover letter",
+                value=cover_letter,
+                height=360,
+            )
+
+            st.download_button(
+                "Download Cover Letter (.txt)",
+                data=cover_letter,
+                file_name=f"cover_letter_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                width="stretch",
+            )
+
+            st.subheader("Ask for a revision")
+
+            revision_request = st.text_input(
+                "Revision request",
+                placeholder="Example: Make it shorter and more confident.",
+            )
+
+            if st.button("Revise Cover Letter", width="stretch"):
+                try:
+                    with st.spinner("Revising cover letter..."):
+                        revised_letter = revise_cover_letter(
+                            report,
+                            cover_letter,
+                            revision_request,
+                        )
+
+                    st.session_state.setdefault("revision_history", []).append(
+                        {
+                            "request": revision_request,
+                            "before": cover_letter,
+                            "after": revised_letter,
+                        }
+                    )
+
+                    st.session_state["cover_letter"] = revised_letter
+
+                    application_id = st.session_state.get("current_application_id")
+                    if application_id is not None:
+                        update_application_cover_letter(application_id, revised_letter)
+
+                    st.rerun()
+
+                except ValueError as exc:
+                    st.warning(str(exc))
+
+                except RuntimeError as exc:
+                    st.error(f"LLM/API error: {exc}")
+
+                except Exception as exc:
+                    st.error(f"Unexpected error while revising cover letter: {exc}")
+
+        st.divider()
+        st.header("Ask About This Analysis")
+
+        analysis_question = st.text_input(
+            "Ask a question about the analysis",
+            placeholder="Example: What should I improve first?",
+        )
+
+        if st.button("Ask AI About Analysis", width="stretch"):
+            try:
+                with st.spinner("Answering question..."):
+                    answer = answer_analysis_question(report, analysis_question)
+
+                st.session_state.setdefault("analysis_chat", []).append(
+                    {"question": analysis_question, "answer": answer}
+                )
 
             except ValueError as exc:
                 st.warning(str(exc))
@@ -809,42 +933,111 @@ if report:
                 st.error(f"LLM/API error: {exc}")
 
             except Exception as exc:
-                st.error(f"Unexpected error while revising cover letter: {exc}")
+                st.error(f"Unexpected error while answering question: {exc}")
+
+        for item in st.session_state.get("analysis_chat", []):
+            st.markdown(f"**You:** {item['question']}")
+            st.markdown(f"**AI:** {item['answer']}")
+
+    elif current_application_id is not None:
+        st.info(
+            f"Application session #{current_application_id} is open. "
+            "Upload a resume, paste a job description, then click **Analyze Resume**."
+        )
+    else:
+        st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
+
+else:
+    # ---------------------------------------------------------------------------
+    # Chroma RAG over analyzed job descriptions
+    # ---------------------------------------------------------------------------
 
     st.divider()
-    st.header("Ask About This Analysis")
+    st.header("Job Market Insights from Analyzed Jobs")
 
-    analysis_question = st.text_input(
-        "Ask a question about the analysis",
-        placeholder="Example: What should I improve first?",
+    st.caption(
+        "This section uses job descriptions from previous **Analyze Resume** runs. "
+        "There is no separate JD paste/upload area here, so the RAG library stays tied "
+        "to actual application sessions."
     )
 
-    if st.button("Ask AI About Analysis", width="stretch"):
-        try:
-            with st.spinner("Answering question..."):
-                answer = answer_analysis_question(report, analysis_question)
+    st.subheader("Vector Index")
 
-            st.session_state.setdefault("analysis_chat", []).append(
-                {"question": analysis_question, "answer": answer}
+    try:
+        index_count = get_chroma_index_count()
+        st.write(f"Indexed Chroma chunks: **{index_count}**")
+    except Exception as exc:
+        st.warning(f"Could not read Chroma index count: {exc}")
+
+    if st.button("Rebuild Chroma Index from Analyzed Jobs", width="stretch"):
+        try:
+            total_chunks = rebuild_chroma_index(limit=200)
+            st.success(f"Rebuilt Chroma index with {total_chunks} chunks.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Unexpected error while rebuilding Chroma index: {exc}")
+
+
+    st.subheader("Analyzed Job Descriptions")
+
+    saved_jds = get_recent_job_descriptions(limit=20)
+
+    if not saved_jds:
+        st.caption("No analyzed job descriptions saved yet. Run **Analyze Resume** first.")
+    else:
+        for jd_id, application_id, title, company, source_type, created_at in saved_jds:
+            label = f"{title or 'Untitled Job'} @ {company or 'Unknown Company'}"
+
+            with st.expander(label):
+                saved_jd = get_job_description_by_id(jd_id)
+
+                if saved_jd:
+                    st.write(f"**Linked application session:** {saved_jd.get('application_id', '')}")
+                    st.write(f"**Source type:** {saved_jd.get('source_type', '')}")
+                    st.write(f"**Created:** {saved_jd.get('created_at', '')}")
+
+                    st.write("**JD Profile**")
+                    st.json(saved_jd.get("jd_profile", {}))
+
+                    col_a, col_b = st.columns(2)
+
+                    with col_a:
+                        if st.button("Re-index JD", key=f"reindex_jd_{jd_id}", width="stretch"):
+                            chunk_count = index_job_description_to_chroma(jd_id)
+                            st.success(f"Re-indexed {chunk_count} chunks.")
+                            st.rerun()
+
+                    with col_b:
+                        if st.button("Remove from RAG Library", key=f"delete_jd_{jd_id}", width="stretch"):
+                            delete_job_description_from_chroma(jd_id)
+                            delete_job_description(jd_id)
+                            st.success("Removed job description and vector chunks from RAG library.")
+                            st.rerun()
+
+
+    st.subheader("Ask Across Analyzed Job Descriptions")
+
+    rag_question = st.text_input(
+        "Ask a market/RAG question",
+        placeholder="Example: What skills appear often in the jobs I analyzed?",
+    )
+
+    if st.button("Ask Chroma RAG", width="stretch"):
+        try:
+            report_for_rag = st.session_state.get("latest_report")
+            resume_profile = report_for_rag.get("resume_profile", {}) if report_for_rag else None
+
+            answer = answer_jd_library_question_chroma(
+                rag_question,
+                resume_profile=resume_profile,
+                top_k=6,
             )
+
+            st.markdown(answer)
 
         except ValueError as exc:
             st.warning(str(exc))
-
         except RuntimeError as exc:
             st.error(f"LLM/API error: {exc}")
-
         except Exception as exc:
-            st.error(f"Unexpected error while answering question: {exc}")
-
-    for item in st.session_state.get("analysis_chat", []):
-        st.markdown(f"**You:** {item['question']}")
-        st.markdown(f"**AI:** {item['answer']}")
-
-elif current_application_id is not None:
-    st.info(
-        f"Application session #{current_application_id} is open. "
-        "Upload a resume, paste a job description, then click **Analyze Resume**."
-    )
-else:
-    st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
+            st.error(f"Unexpected error while answering Chroma RAG question: {exc}")
