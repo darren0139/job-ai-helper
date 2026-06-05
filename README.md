@@ -355,7 +355,7 @@ job-ai-helper/
 
 ## About the Author
 
-**Darren Lua** — AI Bootcamp Capstone Project
+**Darren Lua**
 
 
 [LinkedIn](https://www.linkedin.com/in/darren-lua/) · [GitHub](https://github.com/darren0139/job-ai-helper)
