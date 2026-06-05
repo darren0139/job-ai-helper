@@ -301,7 +301,7 @@ job-ai-helper/
 ├── README.md
 ├── .env.example
 ├── assets/
-│   ├── frontpage.png
+│   └── frontpage.png
 ├── database/
 │   ├── db_manager.py              # Application session storage
 │   ├── jd_library_manager.py      # Analysed JD library storage
