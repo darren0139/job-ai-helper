@@ -26,3 +26,6 @@ data/chroma_jd_library/
 # Keep the data folder in Git
 !data/.gitkeep
 
+# put your stuff for easy access
+input/*
+!input/.gitkeep

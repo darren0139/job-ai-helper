@@ -1,15 +1,9 @@
 """
-analyzer.py — the 8 analysis functions and the pure-Python score calculator.
-
-Task 4 of the Day 4 lab (Track A).
-Study material references:
-  §4 The Multi-Stage Pipeline
-  §7.2 Weighted Aggregation
+analyzer.py — 
 
 Each of the 8 analysis functions calls ask_json() or ask_text() exactly once.
 compute_overall_score() makes NO LLM call — it is pure Python arithmetic.
 
-Imports you will need (already written for you):
 """
 
 import json
@@ -28,7 +22,7 @@ from prompts import (
 
 
 # ---------------------------------------------------------------------------
-# Extraction functions (§6.1)
+# Extraction functions 
 # ---------------------------------------------------------------------------
 
 def extract_resume_profile(resume_text: str) -> dict:
@@ -74,28 +68,6 @@ def extract_jd_profile(jd_text: str) -> dict:
 # Evaluation functions 
 # ---------------------------------------------------------------------------
 
-# def analyse_keyword_match(resume_profile: dict, jd_profile: dict) -> dict:
-#     """
-#     Compare résumé keywords against JD requirements.
-
-#     Calls: ask_json(KEYWORD_MATCH_PROMPT, user, max_tokens=3000)
-#     User message format:
-#         "RÉSUMÉ PROFILE:\\n{json_dump}\\n\\nJD PROFILE:\\n{json_dump}"
-#     Use json.dumps(profile, indent=2) to serialise each profile.
-
-#     Returns:
-#         Keyword match dict with keys: present, missing, keyword_match_score.
-#     """
-#     user = (
-#         f"RÉSUMÉ PROFILE:\n{_dump(resume_profile)}"
-#         f"\n\nJD PROFILE:\n{_dump(jd_profile)}"
-#     )
-#     return ask_json(
-#         KEYWORD_MATCH_PROMPT,
-#         user,
-#         temperature=0.2,
-#         max_tokens=3000,
-#     )
 def analyse_keyword_match(
     resume_profile: dict,
     jd_profile: dict,
@@ -265,7 +237,7 @@ def summarise_overall(report: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Score aggregation (§7.2) — NO LLM call
+# Score aggregation 
 # ---------------------------------------------------------------------------
 
 def _safe_number(value: object) -> float:
