@@ -63,6 +63,13 @@ cd <your-repository-folder>
 
 ### 2. Create and activate a virtual environment
 
+Windows CMD (Command):
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -98,6 +105,12 @@ chromadb
 ### 4. Create your `.env` file
 
 Copy `.env.example` to `.env`.
+
+Windows CMD (Command):
+
+```cmd
+copy .env.example .env
+```
 
 Windows PowerShell:
 
