@@ -300,7 +300,7 @@ job-ai-helper/
 ├── requirements.txt
 ├── README.md
 ├── .env.example
-├── assets/
+├── assets/                        # App front page Screenshot
 │   └── frontpage.png
 ├── database/
 │   ├── db_manager.py              # Application session storage
