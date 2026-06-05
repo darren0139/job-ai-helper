@@ -358,7 +358,7 @@ job-ai-helper/
 **Darren Lua**
 
 
-[LinkedIn](https://www.linkedin.com/in/darren-lua/) · [GitHub](https://github.com/darren0139/job-ai-helper)
+[LinkedIn](https://www.linkedin.com/in/darren-lua/) · [GitHub](https://github.com/darren0139)
 
 
 ---
