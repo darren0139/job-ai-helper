@@ -1,5 +1,5 @@
 """
-app.py — Streamlit web version of the Job AI Helper capstone app.
+app.py — Streamlit of the Job AI Helper capstone app.
 
 Run locally:
     streamlit run app.py
@@ -41,6 +41,26 @@ except Exception:
 
 
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
+
+
+from database.user_profile_manager import (
+    init_user_profile_library,
+    create_evidence_item,
+    get_evidence_items,
+    delete_evidence_item,
+    update_evidence_item,
+    clear_evidence_library,
+)
+
+from tailoring.project_section_tailor import (
+    tailor_projects_section,
+    estimate_project_section_length,
+)
+
+
+
+
+
 from analyzer import (
     extract_resume_profile,
     extract_jd_profile,
@@ -415,6 +435,7 @@ init_db()
 init_jd_library()
 init_chat_history()
 init_session_state()
+init_user_profile_library()
 
 st.title("📄 Job AI Helper")
 st.caption("Analyze resume-job fit, save application sessions, and generate tailored cover letters.")
@@ -429,12 +450,25 @@ page = "Application Sessions"
 degree = VALID_DEGREES[VALID_DEGREES.index("IMGD")]
 show_debug_text = False
 
+CATEGORY_OPTIONS = [
+    "Project",
+    "Internship",
+    "Coursework",
+    "Certification",
+    "Skill",
+    "Achievement",
+    "Other",
+]
+
+
+
+
 with st.sidebar:
     st.header("Navigation")
 
     page = st.radio(
         "Go to",
-        ["Application Sessions", "Job Market Insights"],
+        ["Application Sessions", "Job Market Insights", "Profile & Evidence"],
         label_visibility="collapsed",
     )
 
@@ -992,7 +1026,7 @@ if page == "Application Sessions":
     else:
         st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
 
-else:
+elif page == "Job Market Insights":
     # ---------------------------------------------------------------------------
     # Job Market Insights / Chroma RAG page
     # ---------------------------------------------------------------------------
@@ -1241,3 +1275,280 @@ else:
         if st.button("Clear RAG Chat", width="stretch"):
             clear_rag_chat_history()
             st.rerun()
+elif page == "Profile & Evidence":
+    st.divider()
+    st.header("Profile & Evidence Library")
+
+    st.caption(
+        "Add truthful evidence that may not fit into your current one-page resume. "
+        "The app can use this later to recommend which projects or skills to include "
+        "without inventing experience."
+    )
+
+    st.subheader("Add Evidence Item")
+
+    with st.form("add_evidence_form"):
+        category = st.selectbox(
+            "Category",
+            ["Project", "Internship", "Coursework", "Certification", "Skill", "Achievement", "Other"],
+        )
+
+        title = st.text_input("Title", placeholder="Example: Job AI Helper")
+
+        description = st.text_area(
+            "What did you actually do?",
+            height=160,
+            placeholder="Describe real work done. Do not include fake experience.",
+        )
+
+        skills_text = st.text_input(
+            "Supported skills, comma-separated",
+            placeholder="Example: Python, Streamlit, RAG, prompt engineering",
+        )
+
+        tools_text = st.text_input(
+            "Tools/technologies, comma-separated",
+            placeholder="Example: OpenAI API, SQLite, ChromaDB",
+        )
+
+        impact = st.text_area(
+            "Impact or scope",
+            height=90,
+            placeholder="Example: Supports resume-job analysis, cover letter generation, and saved sessions.",
+        )
+
+        submitted = st.form_submit_button("Save Evidence")
+
+        if submitted:
+            try:
+                skills = [item.strip() for item in skills_text.split(",") if item.strip()]
+                tools = [item.strip() for item in tools_text.split(",") if item.strip()]
+
+                create_evidence_item(
+                    category=category,
+                    title=title,
+                    description=description,
+                    skills=skills,
+                    tools=tools,
+                    impact=impact,
+                    source_type="manual",
+                )
+
+                st.success("Evidence item saved.")
+                st.rerun()
+
+            except ValueError as exc:
+                st.warning(str(exc))
+            except Exception as exc:
+                st.error(f"Unexpected error while saving evidence: {exc}")
+
+    st.divider()
+    st.subheader("Saved Evidence")
+
+    evidence_items = get_evidence_items(limit=100)
+
+    if not evidence_items:
+        st.info("No evidence items saved yet.")
+    else:
+        for item in evidence_items:
+            with st.expander(f"{item['category']}: {item['title']}"):
+                st.write(item["description"])
+
+                if item.get("skills"):
+                    st.write("**Skills:** " + ", ".join(item["skills"]))
+
+                if item.get("tools"):
+                    st.write("**Tools:** " + ", ".join(item["tools"]))
+
+                if item.get("impact"):
+                    st.write("**Impact/scope:** " + item["impact"])
+
+                st.divider()
+
+                edit_mode = st.checkbox(
+                    "Edit evidence",
+                    key=f"edit_evidence_mode_{item['id']}",
+                )
+
+                if edit_mode:
+                    current_category = item.get("category", "Project")
+
+                    if current_category in CATEGORY_OPTIONS:
+                        category_index = CATEGORY_OPTIONS.index(current_category)
+                    else:
+                        category_index = 0
+
+                    with st.form(f"edit_evidence_form_{item['id']}"):
+                        edited_category = st.selectbox(
+                            "Category",
+                            CATEGORY_OPTIONS,
+                            index=category_index,
+                            key=f"edit_category_{item['id']}",
+                        )
+
+                        edited_title = st.text_input(
+                            "Title",
+                            value=item.get("title", ""),
+                            key=f"edit_title_{item['id']}",
+                        )
+
+                        edited_description = st.text_area(
+                            "What did you actually do?",
+                            value=item.get("description", ""),
+                            height=140,
+                            key=f"edit_description_{item['id']}",
+                        )
+
+                        edited_skills = st.text_input(
+                            "Supported skills, comma-separated",
+                            value=", ".join(item.get("skills", [])),
+                            key=f"edit_skills_{item['id']}",
+                        )
+
+                        edited_tools = st.text_input(
+                            "Tools/technologies, comma-separated",
+                            value=", ".join(item.get("tools", [])),
+                            key=f"edit_tools_{item['id']}",
+                        )
+
+                        edited_impact = st.text_area(
+                            "Impact or scope",
+                            value=item.get("impact", ""),
+                            height=90,
+                            key=f"edit_impact_{item['id']}",
+                        )
+
+                        save_changes = st.form_submit_button("Save Changes")
+
+                        if save_changes:
+                            try:
+                                update_evidence_item(
+                                    item["id"],
+                                    category=edited_category,
+                                    title=edited_title,
+                                    description=edited_description,
+                                    skills=[
+                                        skill.strip()
+                                        for skill in edited_skills.split(",")
+                                        if skill.strip()
+                                    ],
+                                    tools=[
+                                        tool.strip()
+                                        for tool in edited_tools.split(",")
+                                        if tool.strip()
+                                    ],
+                                    impact=edited_impact,
+                                    source_type=item.get("source_type", "manual"),
+                                )
+
+                                st.success("Evidence updated.")
+                                st.rerun()
+
+                            except ValueError as exc:
+                                st.warning(str(exc))
+
+                            except Exception as exc:
+                                st.error(f"Unexpected error while updating evidence: {exc}")
+
+                st.divider()
+
+                delete_col, spacer_col = st.columns([0.25, 0.75])
+
+                with delete_col:
+                    if st.button(
+                        "Delete Evidence",
+                        key=f"delete_evidence_{item['id']}",
+                        width="stretch",
+                    ):
+                        delete_evidence_item(item["id"])
+                        st.success("Evidence deleted.")
+                        st.rerun()
+        # for item in evidence_items:
+        #     with st.expander(f"{item['category']}: {item['title']}"):
+        #         st.write(item["description"])
+
+        #         if item.get("skills"):
+        #             st.write("**Skills:** " + ", ".join(item["skills"]))
+
+        #         if item.get("tools"):
+        #             st.write("**Tools:** " + ", ".join(item["tools"]))
+
+        #         if item.get("impact"):
+        #             st.write("**Impact/scope:** " + item["impact"])
+
+        #         if st.button("Delete Evidence", key=f"delete_evidence_{item['id']}", width="stretch"):
+        #             delete_evidence_item(item["id"])
+        #             st.success("Evidence deleted.")
+        #             st.rerun()
+
+    st.divider()
+    st.subheader("Tailor Projects Section")
+
+    current_report = st.session_state.get("latest_report")
+
+    if not current_report:
+        st.info("Load or run an application analysis first before tailoring the Projects section.")
+    else:
+        max_projects = st.slider("Maximum projects", 1, 4, 3)
+        max_bullets = st.slider("Maximum bullets per project", 1, 3, 2)
+
+        if st.button("Generate Tailored Projects Section", type="primary", width="stretch"):
+            try:
+                result = tailor_projects_section(
+                    resume_profile=current_report.get("resume_profile", {}),
+                    jd_profile=current_report.get("jd_profile", {}),
+                    evidence_items=get_evidence_items(limit=100),
+                    max_projects=max_projects,
+                    max_bullets_per_project=max_bullets,
+                )
+
+                fit_estimate = estimate_project_section_length(
+                    result,
+                    max_projects=max_projects,
+                    max_total_bullets=max_projects * max_bullets,
+                )
+
+                st.session_state["tailored_projects_result"] = result
+                st.session_state["tailored_projects_fit_estimate"] = fit_estimate
+                st.rerun()
+
+            except ValueError as exc:
+                st.warning(str(exc))
+            except RuntimeError as exc:
+                st.error(f"LLM/API error: {exc}")
+            except Exception as exc:
+                st.error(f"Unexpected error while tailoring projects: {exc}")
+
+        result = st.session_state.get("tailored_projects_result")
+        fit_estimate = st.session_state.get("tailored_projects_fit_estimate")
+
+        if result:
+            st.write("### Recommended Projects Section")
+
+            if fit_estimate:
+                risk = fit_estimate.get("risk", "unknown")
+                if risk == "low":
+                    st.success(f"One-page fit risk: {risk}")
+                elif risk == "medium":
+                    st.warning(f"One-page fit risk: {risk}")
+                else:
+                    st.error(f"One-page fit risk: {risk}")
+                st.caption(fit_estimate.get("reason", ""))
+
+            for project in result.get("recommended_projects", []):
+                st.write(f"#### {project.get('title', 'Untitled Project')}")
+                st.write(f"**Action:** {project.get('action', '')}")
+                st.write(f"**Source:** {project.get('source', '')}")
+                st.write(f"**Why relevant:** {project.get('why_relevant', '')}")
+
+                for bullet in project.get("draft_bullets", []):
+                    st.markdown(f"- {bullet}")
+
+            with st.expander("Projects to remove or deprioritize"):
+                st.json(result.get("projects_to_remove_or_deprioritize", []))
+
+            with st.expander("Unsupported JD skills"):
+                st.json(result.get("unsupported_jd_skills", []))
+
+            with st.expander("Full JSON"):
+                st.json(result)
