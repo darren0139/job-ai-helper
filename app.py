@@ -40,6 +40,16 @@ except Exception:
     pass
 
 
+from tailoring.skills_section_tailor import tailor_skills_section, skill_lines_to_plain_text
+
+from resume_builder.docx_projects_skills_replacer import (
+    save_uploaded_docx_for_editing,
+    generate_tailored_resume_copy,
+    extract_docx_preview_text,
+    convert_docx_to_pdf_if_possible,
+    pdf_to_iframe_html,
+)
+
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
 
 
@@ -658,6 +668,15 @@ if page == "Application Sessions":
         help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
     )
 
+    save_resume_docx_for_editing = st.checkbox(
+        "Save uploaded DOCX so the app can generate an edited resume copy",
+        value=False,
+        help=(
+            "Optional. Only DOCX files can be edited. The app saves a local copy "
+            "only when this is ticked. The original saved copy is not overwritten."
+        ),
+    )
+
     jd_text_input = st.text_area(
         "Paste job description",
         height=260,
@@ -711,6 +730,26 @@ if page == "Application Sessions":
                     report=report,
                     cover_letter="",
                 )
+            else:
+                update_application_report(
+                    application_id=application_id,
+                    resume_filename=uploaded_resume.name,
+                    report=report,
+                )
+
+            if save_resume_docx_for_editing:
+                if uploaded_resume.name.lower().endswith(".docx"):
+                    saved_resume_docx_path = save_uploaded_docx_for_editing(
+                        uploaded_resume,
+                        application_id=application_id,
+                    )
+                    st.session_state["saved_resume_docx_path"] = str(saved_resume_docx_path)
+                else:
+                    st.warning(
+                        "Analysis was saved, but editable resume-copy generation requires a DOCX file. "
+                        "PDF files are not saved for this feature."
+                    )
+
             else:
                 # If the user started or loaded a session, update that session with the analysis result.
                 update_application_report(
@@ -1294,6 +1333,11 @@ elif page == "Profile & Evidence":
         )
 
         title = st.text_input("Title", placeholder="Example: Job AI Helper")
+        
+        period = st.text_input(
+            "Date / Period, optional",
+            placeholder="Example: Jun 2024 – Jul 2024",
+        )
 
         description = st.text_area(
             "What did you actually do?",
@@ -1328,6 +1372,7 @@ elif page == "Profile & Evidence":
                     category=category,
                     title=title,
                     description=description,
+                    period=period,
                     skills=skills,
                     tools=tools,
                     impact=impact,
@@ -1342,10 +1387,35 @@ elif page == "Profile & Evidence":
             except Exception as exc:
                 st.error(f"Unexpected error while saving evidence: {exc}")
 
-    st.divider()
-    st.subheader("Saved Evidence")
 
-    evidence_items = get_evidence_items(limit=100)
+            st.divider()
+            st.subheader("Saved Evidence")
+
+        evidence_sort_mode = st.selectbox(
+        "Evidence display order",
+        [
+            "Earliest period first",
+            "Newest period first",
+            "Recently edited first",
+        ],
+    )
+
+        if evidence_sort_mode == "Earliest period first":
+            evidence_items = get_evidence_items(
+                limit=100,
+                sort_by_period=True,
+                period_order="earliest_first",
+            )
+        elif evidence_sort_mode == "Newest period first":
+            evidence_items = get_evidence_items(
+                limit=100,
+                sort_by_period=True,
+                period_order="newest_first",
+            )
+        else:
+            evidence_items = get_evidence_items(limit=100)
+
+   # evidence_items = get_evidence_items(limit=100)
 
     if not evidence_items:
         st.info("No evidence items saved yet.")
@@ -1353,6 +1423,9 @@ elif page == "Profile & Evidence":
         for item in evidence_items:
             with st.expander(f"{item['category']}: {item['title']}"):
                 st.write(item["description"])
+
+                if item.get("period"):
+                    st.write("**Period:** " + item["period"])
 
                 if item.get("skills"):
                     st.write("**Skills:** " + ", ".join(item["skills"]))
@@ -1392,6 +1465,12 @@ elif page == "Profile & Evidence":
                             key=f"edit_title_{item['id']}",
                         )
 
+                        edited_period = st.text_input(
+                            "Date / Period, optional",
+                            value=item.get("period", ""),
+                            key=f"edit_period_{item['id']}",
+                        )
+
                         edited_description = st.text_area(
                             "What did you actually do?",
                             value=item.get("description", ""),
@@ -1427,6 +1506,7 @@ elif page == "Profile & Evidence":
                                     category=edited_category,
                                     title=edited_title,
                                     description=edited_description,
+                                    period=edited_period,
                                     skills=[
                                         skill.strip()
                                         for skill in edited_skills.split(",")
@@ -1552,3 +1632,118 @@ elif page == "Profile & Evidence":
 
             with st.expander("Full JSON"):
                 st.json(result)
+
+    st.divider()
+    st.subheader("Tailor Skills Section")
+
+    if not current_report:
+        st.info("Load or run an application analysis first before tailoring the Skills section.")
+    else:
+        if st.button("Generate Tailored Skills Section", width="stretch"):
+            try:
+                with st.spinner("Generating tailored skills section..."):
+                    tailored_skills_result = tailor_skills_section(
+                        resume_profile=current_report.get("resume_profile", {}),
+                        jd_profile=current_report.get("jd_profile", {}),
+                        evidence_items=get_evidence_items(limit=100),
+                    )
+
+                st.session_state["tailored_skills_result"] = tailored_skills_result
+                st.rerun()
+
+            except ValueError as exc:
+                st.warning(str(exc))
+            except RuntimeError as exc:
+                st.error(f"LLM/API error: {exc}")
+            except Exception as exc:
+                st.error(f"Unexpected error while tailoring skills: {exc}")
+
+    tailored_skills_result = st.session_state.get("tailored_skills_result")
+
+    if tailored_skills_result:
+        st.write("### Recommended Skills Section")
+        st.text_area(
+            "Preview skills text",
+            value=skill_lines_to_plain_text(tailored_skills_result),
+            height=160,
+        )
+
+        with st.expander("Evidence-supported additions"):
+            st.json(tailored_skills_result.get("evidence_supported_additions", []))
+
+        with st.expander("Unsupported JD skills"):
+            st.json(tailored_skills_result.get("unsupported_jd_skills", []))
+    
+
+
+    st.divider()
+    st.subheader("Generate Edited Resume Copy")
+
+st.caption(
+    "This changes only the Skills and Projects sections in a copied DOCX. "
+    "Work Experience is not changed."
+)
+
+saved_resume_docx_path = st.session_state.get("saved_resume_docx_path")
+project_result = st.session_state.get("tailored_projects_result")
+skills_result = st.session_state.get("tailored_skills_result")
+
+if not saved_resume_docx_path:
+    st.info(
+        "No saved DOCX found. Go to Application Sessions, upload a DOCX resume, "
+        "tick the save checkbox, and run Analyze Resume again."
+    )
+elif not project_result:
+    st.info("Generate a Tailored Projects Section first.")
+elif not skills_result:
+    st.info("Generate a Tailored Skills Section first.")
+else:
+    if st.button("Generate Tailored Resume Copy DOCX", type="primary", width="stretch"):
+        try:
+            tailored_resume_path = generate_tailored_resume_copy(
+                saved_resume_docx_path=saved_resume_docx_path,
+                tailored_projects=project_result,
+                tailored_skills=skills_result,
+                application_id=st.session_state.get("current_application_id"),
+                max_projects=max_projects,
+                max_bullets_per_project=max_bullets,
+            )
+
+            st.session_state["tailored_resume_copy_path"] = str(tailored_resume_path)
+            st.success("Tailored resume copy generated.")
+            st.rerun()
+
+        except ValueError as exc:
+            st.warning(str(exc))
+        except Exception as exc:
+            st.error(f"Unexpected error while generating tailored resume copy: {exc}")
+
+tailored_resume_copy_path = st.session_state.get("tailored_resume_copy_path")
+
+if tailored_resume_copy_path and Path(tailored_resume_copy_path).exists():
+    st.write("### Preview")
+
+    preview_text = extract_docx_preview_text(tailored_resume_copy_path)
+    st.text_area("Text preview", value=preview_text, height=360)
+
+    pdf_preview_path = convert_docx_to_pdf_if_possible(tailored_resume_copy_path)
+
+    if pdf_preview_path:
+        st.markdown(
+            pdf_to_iframe_html(pdf_preview_path, height=800),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption(
+            "PDF visual preview is unavailable because LibreOffice is not installed. "
+            "Text preview and DOCX download are still available."
+        )
+
+    with open(tailored_resume_copy_path, "rb") as file:
+        st.download_button(
+            "Download Tailored Resume Copy",
+            data=file,
+            file_name=Path(tailored_resume_copy_path).name,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            width="stretch",
+        )

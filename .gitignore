@@ -22,7 +22,7 @@ data/*.db-journal
 data/*.sqlite
 data/*.sqlite3
 data/chroma_jd_library/
-
+data/saved_resumes/
 # Keep the data folder in Git
 !data/.gitkeep
 

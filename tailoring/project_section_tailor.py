@@ -1,9 +1,12 @@
 """
+tailoring/project_section_tailor.py
+
 AI-assisted Projects Section tailoring.
 
-Recommends which projects to keep, shorten, remove, or add from the user's
-Evidence Library for a target job description, while keeping the resume
-one-page friendly.
+Updated version:
+- Period/date is optional.
+- The AI may include period if known from resume or Evidence Library.
+- Only the Projects section is changed later; Work Experience stays unchanged.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ Recommend a tailored Projects section for a target job description using:
 3. the user's Evidence Library.
 
 Critical truthfulness rules:
-- Do not invent projects, tools, skills, metrics, companies, or achievements.
+- Do not invent projects, tools, skills, metrics, companies, dates, or achievements.
 - Only use evidence from the resume profile or evidence library.
 - If a skill is in the job description but not supported by resume/evidence, mark it as a gap.
 - You may rephrase for clarity, but the meaning must stay truthful.
@@ -38,12 +41,15 @@ One-page constraints:
 - Each bullet should be 18-28 words where possible.
 - Prioritize projects that match required skills/tools from the JD.
 - If space is limited, prefer stronger relevant projects over weaker unrelated projects.
+- Recency is useful, but relevance should matter more than date.
+- If a project period/date is known, include it. If unknown, leave period empty.
 
 Output only valid JSON matching this schema:
 {
   "recommended_projects": [
     {
       "title": "string",
+      "period": "string",
       "source": "resume|evidence_library|both",
       "action": "keep|add|shorten|replace",
       "matched_jd_requirements": ["string"],
