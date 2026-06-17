@@ -1,15 +1,26 @@
 """
 resume_builder/docx_projects_skills_replacer.py
 
-Option 2 workflow:
-    upload original_resume.docx
-    -> save a local copy only if user opts in
-    -> generate tailored project and skill recommendations
+Updated DOCX resume copy replacer.
+
+Workflow:
+    Upload original_resume.docx
+    -> optionally save a local copy
+    -> generate tailored projects + tailored skills
     -> copy original DOCX
     -> replace only SKILLS and PROJECTS sections
-    -> download tailored DOCX copy
+    -> download tailored resume copy
 
-Work Experience is not changed.
+This version improves formatting preservation:
+1. Copies paragraph style from the original Projects section.
+2. Copies bullet style/numbering from the original bullet paragraphs.
+3. Uses a right-aligned tab stop for project dates.
+4. Preserves spacing between projects where possible.
+5. Inserts real bullet paragraphs instead of plain text paragraphs.
+
+Important:
+    This does not overwrite the original uploaded file.
+    Work Experience is not changed.
 """
 
 from __future__ import annotations
@@ -18,12 +29,14 @@ import base64
 import re
 import shutil
 import subprocess
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from docx import Document
 from docx.document import Document as DocumentObject
+from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 
@@ -48,6 +61,10 @@ KNOWN_SECTION_HEADINGS = {
     "PROFILE",
 }
 
+
+# ---------------------------------------------------------------------------
+# File save helpers
+# ---------------------------------------------------------------------------
 
 def _safe_filename(filename: str) -> str:
     """Create a safe filename for local storage."""
@@ -84,6 +101,10 @@ def save_uploaded_docx_for_editing(
     return saved_path
 
 
+# ---------------------------------------------------------------------------
+# Section detection helpers
+# ---------------------------------------------------------------------------
+
 def _paragraph_text(paragraph: Paragraph) -> str:
     """Return normalized paragraph text."""
     return " ".join(paragraph.text.replace("\xa0", " ").split())
@@ -98,6 +119,11 @@ def _is_heading_named(paragraph: Paragraph, names: set[str]) -> bool:
 def _is_probable_section_heading(paragraph: Paragraph) -> bool:
     """
     Detect the next resume section heading.
+
+    This is intentionally conservative. It checks:
+    - Word heading styles
+    - known resume heading names
+    - short all-caps headings
     """
     text = _paragraph_text(paragraph).strip().rstrip(":")
     if not text:
@@ -117,6 +143,8 @@ def _is_probable_section_heading(paragraph: Paragraph) -> bool:
     if upper_text in KNOWN_SECTION_HEADINGS:
         return True
 
+    # Example: "EDUCATION", "PROJECTS", "TECHNICAL SKILLS"
+    # Avoid treating long bullet sentences as headings.
     if (
         text == upper_text
         and 1 <= len(text.split()) <= 4
@@ -127,31 +155,6 @@ def _is_probable_section_heading(paragraph: Paragraph) -> bool:
         return True
 
     return False
-
-
-def _delete_paragraph(paragraph: Paragraph) -> None:
-    """Remove a paragraph from the DOCX XML tree."""
-    element = paragraph._element
-    parent = element.getparent()
-    parent.remove(element)
-
-
-def _insert_paragraph_after(paragraph: Paragraph, text: str = "", style: str | None = None) -> Paragraph:
-    """Insert a paragraph after another paragraph."""
-    new_p = OxmlElement("w:p")
-    paragraph._p.addnext(new_p)
-    new_paragraph = Paragraph(new_p, paragraph._parent)
-
-    if style:
-        try:
-            new_paragraph.style = style
-        except Exception:
-            pass
-
-    if text:
-        new_paragraph.add_run(text)
-
-    return new_paragraph
 
 
 def _find_section_range(
@@ -185,6 +188,185 @@ def _find_section_range(
     return start_index, end_index
 
 
+def _is_bullet_paragraph(paragraph: Paragraph) -> bool:
+    """Return True if paragraph appears to be a bullet/list item."""
+    text = paragraph.text.strip()
+    style_name = paragraph.style.name if paragraph.style else ""
+
+    has_numbering = (
+        paragraph._p.pPr is not None
+        and paragraph._p.pPr.numPr is not None
+    )
+
+    return has_numbering or "Bullet" in style_name or text.startswith("•")
+
+
+def _find_templates_in_section(
+    document: DocumentObject,
+    heading_names: set[str],
+) -> tuple[Paragraph | None, Paragraph | None]:
+    """
+    Find likely title/normal paragraph template and bullet template in a section.
+
+    Returns:
+        normal_template: first non-empty non-bullet paragraph
+        bullet_template: first bullet/list paragraph
+    """
+    start_index, end_index = _find_section_range(document, heading_names)
+    paragraphs = document.paragraphs
+    section_end = end_index if end_index is not None else len(paragraphs)
+
+    normal_template = None
+    bullet_template = None
+
+    for paragraph in paragraphs[start_index + 1 : section_end]:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+
+        if bullet_template is None and _is_bullet_paragraph(paragraph):
+            bullet_template = paragraph
+            continue
+
+        if normal_template is None and not _is_bullet_paragraph(paragraph):
+            normal_template = paragraph
+
+        if normal_template is not None and bullet_template is not None:
+            break
+
+    return normal_template, bullet_template
+
+
+# ---------------------------------------------------------------------------
+# Paragraph insertion and formatting helpers
+# ---------------------------------------------------------------------------
+
+def _delete_paragraph(paragraph: Paragraph) -> None:
+    """Remove a paragraph from the DOCX XML tree."""
+    element = paragraph._element
+    parent = element.getparent()
+    parent.remove(element)
+
+
+def _insert_paragraph_after(
+    paragraph: Paragraph,
+    text: str = "",
+    style: str | None = None,
+) -> Paragraph:
+    """Insert a paragraph after another paragraph."""
+    new_p = OxmlElement("w:p")
+    paragraph._p.addnext(new_p)
+    new_paragraph = Paragraph(new_p, paragraph._parent)
+
+    if style:
+        try:
+            new_paragraph.style = style
+        except Exception:
+            pass
+
+    if text:
+        new_paragraph.add_run(text)
+
+    return new_paragraph
+
+
+def _copy_paragraph_format(source: Paragraph | None, target: Paragraph) -> None:
+    """Copy basic paragraph styling/formatting from source to target."""
+    if source is None:
+        return
+
+    try:
+        target.style = source.style
+    except Exception:
+        pass
+
+    source_format = source.paragraph_format
+    target_format = target.paragraph_format
+
+    for attr in (
+        "left_indent",
+        "right_indent",
+        "first_line_indent",
+        "space_before",
+        "space_after",
+        "line_spacing",
+        "alignment",
+        "keep_together",
+        "keep_with_next",
+        "page_break_before",
+        "widow_control",
+    ):
+        try:
+            setattr(target_format, attr, getattr(source_format, attr))
+        except Exception:
+            pass
+
+
+def _copy_run_format(source_run: Any, target_run: Any) -> None:
+    """Copy basic run/font formatting from source run to target run."""
+    if source_run is None:
+        return
+
+    try:
+        target_run.style = source_run.style
+    except Exception:
+        pass
+
+    for attr in ("bold", "italic", "underline"):
+        try:
+            setattr(target_run, attr, getattr(source_run, attr))
+        except Exception:
+            pass
+
+    try:
+        target_run.font.name = source_run.font.name
+    except Exception:
+        pass
+
+    try:
+        target_run.font.size = source_run.font.size
+    except Exception:
+        pass
+
+    try:
+        if source_run.font.color and source_run.font.color.rgb:
+            target_run.font.color.rgb = source_run.font.color.rgb
+    except Exception:
+        pass
+
+
+def _get_first_run_template(paragraph: Paragraph | None) -> Any:
+    """Return first run from a paragraph, or None."""
+    if paragraph is not None and paragraph.runs:
+        return paragraph.runs[0]
+    return None
+
+
+def _copy_numbering(source: Paragraph | None, target: Paragraph) -> None:
+    """
+    Copy bullet/numbering XML from source paragraph to target paragraph.
+
+    This helps preserve bullet indentation and bullet style.
+    """
+    if source is None:
+        return
+
+    source_ppr = source._p.pPr
+    if source_ppr is None or source_ppr.numPr is None:
+        return
+
+    target_ppr = target._p.get_or_add_pPr()
+
+    # Remove existing numbering if present.
+    if target_ppr.numPr is not None:
+        try:
+            target_ppr.remove(target_ppr.numPr)
+        except Exception:
+            pass
+
+    target_ppr.append(deepcopy(source_ppr.numPr))
+
+
 def _clear_section_content(
     document: DocumentObject,
     heading_names: set[str],
@@ -207,46 +389,47 @@ def _clear_section_content(
     return document.paragraphs[start_index]
 
 
-def _add_skill_line_after(anchor: Paragraph, category: str, items: list[str]) -> Paragraph:
-    """Add one compact skill line after anchor."""
-    line = f"{category}: {', '.join(items)}" if category else ", ".join(items)
+# ---------------------------------------------------------------------------
+# Skills replacement
+# ---------------------------------------------------------------------------
+
+def _add_skill_line_after(
+    anchor: Paragraph,
+    *,
+    category: str,
+    items: list[str],
+    template: Paragraph | None = None,
+) -> Paragraph:
+    """
+    Add one skill line after anchor.
+
+    If the original Skills section used bullets, this preserves that bullet style.
+    """
     new_paragraph = _insert_paragraph_after(anchor)
-    new_paragraph.paragraph_format.space_before = 0
-    new_paragraph.paragraph_format.space_after = 0
+
+    if template is not None:
+        _copy_paragraph_format(template, new_paragraph)
+        _copy_numbering(template, new_paragraph)
+    else:
+        try:
+            new_paragraph.style = "List Bullet"
+        except Exception:
+            pass
+
+    source_run = _get_first_run_template(template)
 
     if category:
         category_run = new_paragraph.add_run(f"{category}: ")
+        _copy_run_format(source_run, category_run)
         category_run.bold = True
-        new_paragraph.add_run(", ".join(items))
+
+        items_run = new_paragraph.add_run(", ".join(items))
+        _copy_run_format(source_run, items_run)
+        items_run.bold = False
     else:
-        new_paragraph.add_run(line)
+        line_run = new_paragraph.add_run(", ".join(items))
+        _copy_run_format(source_run, line_run)
 
-    return new_paragraph
-
-
-def _add_project_title_after(anchor: Paragraph, title: str, period: str = "") -> Paragraph:
-    """Add project title line after anchor."""
-    new_paragraph = _insert_paragraph_after(anchor)
-    new_paragraph.paragraph_format.space_before = 3
-    new_paragraph.paragraph_format.space_after = 0
-
-    title_run = new_paragraph.add_run(title)
-    title_run.bold = True
-
-    if period:
-        period_run = new_paragraph.add_run(f"    {period}")
-        period_run.bold = False
-
-    return new_paragraph
-
-
-def _add_bullet_after(anchor: Paragraph, bullet: str) -> Paragraph:
-    """Add bullet after anchor."""
-    new_paragraph = _insert_paragraph_after(anchor, style="List Bullet")
-    new_paragraph.paragraph_format.space_before = 0
-    new_paragraph.paragraph_format.space_after = 0
-    new_paragraph.paragraph_format.line_spacing = 1.0
-    new_paragraph.add_run(str(bullet).strip())
     return new_paragraph
 
 
@@ -255,13 +438,15 @@ def replace_skills_section(
     tailored_skills: dict[str, Any],
 ) -> None:
     """
-    Replace SKILLS / TECHNICAL SKILLS section content.
+    Replace SKILLS / TECHNICAL SKILLS section content while preserving formatting.
     """
+    _, skill_bullet_template = _find_templates_in_section(document, {"SKILLS", "TECHNICAL SKILLS"})
+
     anchor = _clear_section_content(document, {"SKILLS", "TECHNICAL SKILLS"})
     skill_lines = tailored_skills.get("skill_lines", [])
 
     if not skill_lines:
-        anchor = _insert_paragraph_after(anchor, "No tailored skills were generated.")
+        _insert_paragraph_after(anchor, "No tailored skills were generated.")
         return
 
     for row in skill_lines:
@@ -269,7 +454,122 @@ def replace_skills_section(
         items = [str(item).strip() for item in row.get("items", []) if str(item).strip()]
 
         if items:
-            anchor = _add_skill_line_after(anchor, category, items)
+            anchor = _add_skill_line_after(
+                anchor,
+                category=category,
+                items=items,
+                template=skill_bullet_template,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Projects replacement
+# ---------------------------------------------------------------------------
+
+def _format_project_heading(project: dict[str, Any]) -> str:
+    """
+    Build a project heading from optional project fields.
+
+    Supported fields:
+        title: "QueryAI"
+        role: "AI Programmer"
+        display_details: "React, Team of 4"
+
+    Output examples:
+        QueryAI (React, Team of 4)
+        Job AI Helper – AI Programmer (Python, Streamlit, Solo)
+
+    If your title already contains bracket details, you can leave role/details empty.
+    """
+    title = str(project.get("title", "Untitled Project")).strip() or "Untitled Project"
+    role = str(project.get("role", "")).strip()
+    details = str(project.get("display_details", "")).strip()
+
+    heading = title
+
+    if role and role.lower() not in heading.lower():
+        heading += f" – {role}"
+
+    if details and details.lower() not in heading.lower():
+        heading += f" ({details})"
+
+    return heading
+
+
+def _add_project_title_after(
+    anchor: Paragraph,
+    *,
+    title: str,
+    period: str = "",
+    template: Paragraph | None = None,
+    right_tab_position: Any = None,
+) -> Paragraph:
+    """
+    Add project title line after anchor, preserving original formatting.
+
+    Uses a right-aligned tab stop for the period/date.
+    """
+    new_paragraph = _insert_paragraph_after(anchor)
+
+    if template is not None:
+        _copy_paragraph_format(template, new_paragraph)
+
+    # Keep title and following bullet together where Word supports it.
+    try:
+        new_paragraph.paragraph_format.keep_with_next = True
+    except Exception:
+        pass
+
+    # Right tab stop for date.
+    if right_tab_position is not None:
+        try:
+            new_paragraph.paragraph_format.tab_stops.add_tab_stop(
+                right_tab_position,
+                WD_TAB_ALIGNMENT.RIGHT,
+            )
+        except Exception:
+            pass
+
+    source_run = _get_first_run_template(template)
+
+    title_run = new_paragraph.add_run(title)
+    _copy_run_format(source_run, title_run)
+    title_run.bold = True
+
+    if period:
+        date_run = new_paragraph.add_run(f"\t{period}")
+        _copy_run_format(source_run, date_run)
+        date_run.bold = False
+
+    return new_paragraph
+
+
+def _add_project_bullet_after(
+    anchor: Paragraph,
+    *,
+    bullet: str,
+    template: Paragraph | None = None,
+) -> Paragraph:
+    """
+    Add bullet after anchor, preserving original bullet formatting.
+    """
+    new_paragraph = _insert_paragraph_after(anchor)
+
+    if template is not None:
+        _copy_paragraph_format(template, new_paragraph)
+        _copy_numbering(template, new_paragraph)
+    else:
+        try:
+            new_paragraph.style = "List Bullet"
+        except Exception:
+            pass
+
+    source_run = _get_first_run_template(template)
+
+    run = new_paragraph.add_run(str(bullet).strip())
+    _copy_run_format(source_run, run)
+
+    return new_paragraph
 
 
 def replace_projects_section(
@@ -280,26 +580,45 @@ def replace_projects_section(
     max_bullets_per_project: int = 2,
 ) -> None:
     """
-    Replace PROJECTS section content.
+    Replace PROJECTS section content while preserving original formatting.
     """
+    project_title_template, project_bullet_template = _find_templates_in_section(document, {"PROJECTS"})
+
+    section = document.sections[0]
+    right_tab_position = section.page_width - section.left_margin - section.right_margin
+
     anchor = _clear_section_content(document, {"PROJECTS"})
     projects = tailored_projects.get("recommended_projects", [])[:max_projects]
 
     if not projects:
-        anchor = _insert_paragraph_after(anchor, "No tailored projects were generated.")
+        _insert_paragraph_after(anchor, "No tailored projects were generated.")
         return
 
     for project in projects:
-        title = str(project.get("title", "Untitled Project")).strip() or "Untitled Project"
+        title = _format_project_heading(project)
         period = str(project.get("period", "")).strip()
         bullets = project.get("draft_bullets", [])[:max_bullets_per_project]
 
-        anchor = _add_project_title_after(anchor, title, period=period)
+        anchor = _add_project_title_after(
+            anchor,
+            title=title,
+            period=period,
+            template=project_title_template,
+            right_tab_position=right_tab_position,
+        )
 
         for bullet in bullets:
             if str(bullet).strip():
-                anchor = _add_bullet_after(anchor, str(bullet).strip())
+                anchor = _add_project_bullet_after(
+                    anchor,
+                    bullet=str(bullet).strip(),
+                    template=project_bullet_template,
+                )
 
+
+# ---------------------------------------------------------------------------
+# Main generation function
+# ---------------------------------------------------------------------------
 
 def generate_tailored_resume_copy(
     *,
@@ -327,6 +646,7 @@ def generate_tailored_resume_copy(
     app_part = f"app_{application_id}_" if application_id is not None else ""
     output_path = TAILORED_RESUME_DIR / f"{app_part}tailored_resume_{timestamp}.docx"
 
+    # Never edit the saved original directly. Always copy first.
     shutil.copy2(saved_resume_docx_path, output_path)
 
     document = Document(output_path)
@@ -344,6 +664,10 @@ def generate_tailored_resume_copy(
 
     return output_path
 
+
+# ---------------------------------------------------------------------------
+# Preview helpers
+# ---------------------------------------------------------------------------
 
 def extract_docx_preview_text(docx_path: str | Path) -> str:
     """
