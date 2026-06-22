@@ -242,6 +242,13 @@ def _find_templates_in_section(
     return normal_template, bullet_template
 
 
+def count_pdf_pages(pdf_path: str | Path) -> int:
+    """Count pages in a generated PDF."""
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(pdf_path))
+    return len(reader.pages)
+
 # ---------------------------------------------------------------------------
 # Paragraph insertion and formatting helpers
 # ---------------------------------------------------------------------------

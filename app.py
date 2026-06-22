@@ -1606,7 +1606,7 @@ elif page == "Profile & Evidence":
         st.info("Load or run an application analysis first before tailoring the Projects section.")
     else:
         max_projects = st.slider("Maximum projects", 1, 4, 3)
-        max_bullets = st.slider("Maximum bullets per project", 1, 3, 2)
+        max_bullets = st.slider("Maximum bullets for strongest project", 1, 3, 3)
 
         if st.button("Generate Tailored Projects Section", type="primary", width="stretch"):
             try:
@@ -1669,6 +1669,9 @@ elif page == "Profile & Evidence":
 
             with st.expander("Projects to remove or deprioritize"):
                 st.json(result.get("projects_to_remove_or_deprioritize", []))
+
+            with st.expander("All candidate projects considered"):
+                st.json(result.get("candidate_project_ranking", []))
 
             with st.expander("Unsupported JD skills"):
                 st.json(result.get("unsupported_jd_skills", []))
