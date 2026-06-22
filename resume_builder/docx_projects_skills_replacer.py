@@ -23,6 +23,8 @@ Important:
     Work Experience is not changed.
 """
 
+
+
 from __future__ import annotations
 
 import base64
@@ -35,6 +37,9 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.enum.text import WD_TAB_ALIGNMENT
+from docx.shared import Pt
+
 from docx.document import Document as DocumentObject
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
@@ -495,7 +500,6 @@ def _format_project_heading(project: dict[str, Any]) -> str:
 
     return heading
 
-
 def _add_project_title_after(
     anchor: Paragraph,
     *,
@@ -503,6 +507,7 @@ def _add_project_title_after(
     period: str = "",
     template: Paragraph | None = None,
     right_tab_position: Any = None,
+    add_space_before: bool = False,
 ) -> Paragraph:
     """
     Add project title line after anchor, preserving original formatting.
@@ -513,6 +518,9 @@ def _add_project_title_after(
 
     if template is not None:
         _copy_paragraph_format(template, new_paragraph)
+    
+    if add_space_before:
+        new_paragraph.paragraph_format.space_before = Pt(10)
 
     # Keep title and following bullet together where Word supports it.
     try:
@@ -542,6 +550,53 @@ def _add_project_title_after(
         date_run.bold = False
 
     return new_paragraph
+
+# def _add_project_title_after(
+#     anchor: Paragraph,
+#     *,
+#     title: str,
+#     period: str = "",
+#     template: Paragraph | None = None,
+#     right_tab_position: Any = None,
+# ) -> Paragraph:
+#     """
+#     Add project title line after anchor, preserving original formatting.
+
+#     Uses a right-aligned tab stop for the period/date.
+#     """
+#     new_paragraph = _insert_paragraph_after(anchor)
+
+#     if template is not None:
+#         _copy_paragraph_format(template, new_paragraph)
+
+#     # Keep title and following bullet together where Word supports it.
+#     try:
+#         new_paragraph.paragraph_format.keep_with_next = True
+#     except Exception:
+#         pass
+
+#     # Right tab stop for date.
+#     if right_tab_position is not None:
+#         try:
+#             new_paragraph.paragraph_format.tab_stops.add_tab_stop(
+#                 right_tab_position,
+#                 WD_TAB_ALIGNMENT.RIGHT,
+#             )
+#         except Exception:
+#             pass
+
+#     source_run = _get_first_run_template(template)
+
+#     title_run = new_paragraph.add_run(title)
+#     _copy_run_format(source_run, title_run)
+#     title_run.bold = True
+
+#     if period:
+#         date_run = new_paragraph.add_run(f"\t{period}")
+#         _copy_run_format(source_run, date_run)
+#         date_run.bold = False
+
+#     return new_paragraph
 
 
 def _add_project_bullet_after(
@@ -594,7 +649,7 @@ def replace_projects_section(
         _insert_paragraph_after(anchor, "No tailored projects were generated.")
         return
 
-    for project in projects:
+    for project_index, project in  enumerate(projects):
         title = _format_project_heading(project)
         period = str(project.get("period", "")).strip()
         bullets = project.get("draft_bullets", [])[:max_bullets_per_project]
@@ -605,6 +660,7 @@ def replace_projects_section(
             period=period,
             template=project_title_template,
             right_tab_position=right_tab_position,
+            add_space_before=project_index > 0,
         )
 
         for bullet in bullets:

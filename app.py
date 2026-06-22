@@ -13,7 +13,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
+import pandas as pd
 import streamlit as st
 
 
@@ -431,6 +431,38 @@ def score_label(score: int) -> str:
     return f"FAIL — below {ATS_PASS_THRESHOLD}% ATS threshold"
 
 
+def show_result_table(rows: Any, empty_message: str) -> None:
+    """Display AI result rows safely without Streamlit dataframe rendering issues."""
+    if not rows:
+        st.info(empty_message)
+        return
+
+    try:
+        if isinstance(rows, list):
+            df = pd.json_normalize(rows)
+        elif isinstance(rows, dict):
+            df = pd.json_normalize([rows])
+        else:
+            df = pd.DataFrame(rows)
+
+        if df.empty:
+            st.info(empty_message)
+            return
+
+        # Convert nested/list values into readable strings.
+        for column in df.columns:
+            df[column] = df[column].apply(
+                lambda value: json.dumps(value, ensure_ascii=False)
+                if isinstance(value, (dict, list))
+                else value
+            )
+
+        st.table(df.astype(str))
+
+    except Exception:
+        st.write(rows)
+
+
 # ---------------------------------------------------------------------------
 # Streamlit app
 # ---------------------------------------------------------------------------
@@ -843,25 +875,28 @@ if page == "Application Sessions":
         with tab_keywords:
             st.write("### Present Keywords")
             present = report.get("keyword_match", {}).get("present", [])
-            if present:
-                st.dataframe(present, width="stretch")
-            else:
-                st.info("No present keywords returned.")
+            show_result_table(present, "No present keywords returned.")
+            # if present:
+            #     st.dataframe(present, width="stretch")
+            # else:
+            #     st.info("No present keywords returned.")
 
             st.write("### Missing Keywords")
             missing = report.get("keyword_match", {}).get("missing", [])
-            if missing:
-                st.dataframe(missing, width="stretch")
-            else:
-                st.success("No missing keywords returned.")
+            # if missing:
+            #     st.dataframe(missing, width="stretch")
+            # else:
+            #     st.success("No missing keywords returned.")
+            show_result_table(missing, "No missing keywords returned.")
 
         with tab_bullets:
             st.write("### Bullet Quality Audit")
             bullet_rows = report.get("bullets", {}).get("bullets", [])
-            if bullet_rows:
-                st.dataframe(bullet_rows, width="stretch")
-            else:
-                st.info("No bullet audit rows returned.")
+            # if bullet_rows:
+            #     st.dataframe(bullet_rows, width="stretch")
+            # else:
+            #     st.info("No bullet audit rows returned.")
+            show_result_table(bullet_rows, "No missing keywords returned.")
 
         with tab_structure:
             st.write("### Three-Thirds / ATS Structure")
@@ -870,10 +905,11 @@ if page == "Application Sessions":
         with tab_jargon:
             st.write("### Jargon Flags")
             flags = report.get("jargon", {}).get("flags", [])
-            if flags:
-                st.dataframe(flags, width="stretch")
-            else:
-                st.success("No jargon flags returned.")
+            # if flags:
+            #     st.dataframe(flags, width="stretch")
+            # else:
+            #     st.success("No jargon flags returned.")
+            show_result_table(flags, "No jargon flags returned.")
 
         with tab_degree:
             st.write("### Degree Alignment")
