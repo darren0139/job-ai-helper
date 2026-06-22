@@ -1652,7 +1652,14 @@ elif page == "Profile & Evidence":
                 st.caption(fit_estimate.get("reason", ""))
 
             for project in result.get("recommended_projects", []):
-                st.write(f"#### {project.get('title', 'Untitled Project')}")
+                # st.write(f"#### {project.get('title', 'Untitled Project')}")
+                display_name = (
+                    project.get("display_title")
+                    or project.get("title")
+                    or "Untitled Project"
+                )
+
+                st.write(f"#### {display_name}")
                 st.write(f"**Action:** {project.get('action', '')}")
                 st.write(f"**Source:** {project.get('source', '')}")
                 st.write(f"**Why relevant:** {project.get('why_relevant', '')}")

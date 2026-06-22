@@ -34,6 +34,10 @@ Critical truthfulness rules:
 - You may rephrase for clarity, but the meaning must stay truthful.
 - If impact is not quantified, use scope indicators instead of fake numbers.
 - Keep wording suitable for a student or junior applicant.
+- Preserve the exact project display title from the resume or Evidence Library when available.
+- The display_title should include role, tools, team size, or publication details if they were provided.
+- Do not simplify "QueryAI (React, Team of 4)" into "QueryAI".
+- Do not add generic role labels such as "Programmer" unless explicitly provided.
 
 One-page constraints:
 - Recommend at most 3 projects.
@@ -49,6 +53,7 @@ Output only valid JSON matching this schema:
   "recommended_projects": [
     {
       "title": "string",
+      "display_title": "string",
       "period": "string",
       "source": "resume|evidence_library|both",
       "action": "keep|add|shorten|replace",
@@ -77,6 +82,39 @@ Output only valid JSON matching this schema:
   },
   "notes_for_user": ["string"]
 }
+
+Example of correct output:
+{
+  "recommended_projects": [
+    {
+      "title": "QueryAI",
+      "display_title": "QueryAI (React, Team of 4)",
+      "period": "Mar 2025 - Apr 2025",
+      "source": "resume",
+      "action": "keep",
+      "matched_jd_requirements": ["React", "Supabase", "PostgreSQL"],
+      "why_relevant": "Shows backend integration and database-backed application work.",
+      "draft_bullets": [
+        "Integrated React with Supabase/PostgreSQL, enabling authenticated database-backed workflows for a team-built query application.",
+        "Implemented backend query workflows using PostgREST, supporting real-time database retrieval and updates."
+      ]
+    }
+  ],
+  "projects_to_remove_or_deprioritize": [],
+  "unsupported_jd_skills": [],
+  "one_page_fit": {
+    "risk": "low",
+    "reason": "The recommended section uses one project with two concise bullets.",
+    "recommended_project_count": 1,
+    "recommended_bullet_count": 2
+  },
+  "notes_for_user": [
+    "Preserved the full project display title including tools and team size."
+  ]
+}
+
+
+
 """
 
 

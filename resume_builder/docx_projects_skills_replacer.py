@@ -471,21 +471,48 @@ def replace_skills_section(
 # Projects replacement
 # ---------------------------------------------------------------------------
 
+# def _format_project_heading(project: dict[str, Any]) -> str:
+#     """
+#     Build a project heading from optional project fields.
+
+#     Supported fields:
+#         title: "QueryAI"
+#         role: "AI Programmer"
+#         display_details: "React, Team of 4"
+
+#     Output examples:
+#         QueryAI (React, Team of 4)
+#         Job AI Helper – AI Programmer (Python, Streamlit, Solo)
+
+#     If your title already contains bracket details, you can leave role/details empty.
+#     """
+#     title = str(project.get("title", "Untitled Project")).strip() or "Untitled Project"
+#     role = str(project.get("role", "")).strip()
+#     details = str(project.get("display_details", "")).strip()
+
+#     heading = title
+
+#     if role and role.lower() not in heading.lower():
+#         heading += f" – {role}"
+
+#     if details and details.lower() not in heading.lower():
+#         heading += f" ({details})"
+
+#     return heading
+
 def _format_project_heading(project: dict[str, Any]) -> str:
     """
-    Build a project heading from optional project fields.
+    Build the project heading used in the DOCX.
 
-    Supported fields:
-        title: "QueryAI"
-        role: "AI Programmer"
-        display_details: "React, Team of 4"
-
-    Output examples:
-        QueryAI (React, Team of 4)
-        Job AI Helper – AI Programmer (Python, Streamlit, Solo)
-
-    If your title already contains bracket details, you can leave role/details empty.
+    Priority:
+    1. display_title from the tailored project JSON
+    2. title
+    3. title + optional role/display_details fallback
     """
+    display_title = str(project.get("display_title", "")).strip()
+    if display_title:
+        return display_title
+
     title = str(project.get("title", "Untitled Project")).strip() or "Untitled Project"
     role = str(project.get("role", "")).strip()
     details = str(project.get("display_details", "")).strip()
