@@ -863,8 +863,8 @@ def get_latest_saved_docx_for_application(application_id: int | None) -> Path | 
 def generate_tailored_resume_copy(
     *,
     saved_resume_docx_path: str | Path,
-    tailored_projects: dict[str, Any],
-    tailored_skills: dict[str, Any],
+    tailored_projects: dict[str, Any] | None = None,
+    tailored_skills: dict[str, Any] | None = None,
     application_id: int | None = None,
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
@@ -891,14 +891,29 @@ def generate_tailored_resume_copy(
 
     document = Document(output_path)
 
-    # Change only these sections.
-    replace_skills_section(document, tailored_skills)
-    replace_projects_section(
-        document,
-        tailored_projects,
-        max_projects=max_projects,
-        max_bullets_per_project=max_bullets_per_project,
-    )
+    # Change only the sections that were generated.
+    if not tailored_projects and not tailored_skills:
+        raise ValueError("Generate a tailored Projects section or Skills section first.")
+
+    if tailored_skills:
+        replace_skills_section(document, tailored_skills)
+
+    if tailored_projects:
+        replace_projects_section(
+            document,
+            tailored_projects,
+            max_projects=max_projects,
+            max_bullets_per_project=max_bullets_per_project,
+        )
+
+    # # Change only these sections.
+    # replace_skills_section(document, tailored_skills)
+    # replace_projects_section(
+    #     document,
+    #     tailored_projects,
+    #     max_projects=max_projects,
+    #     max_bullets_per_project=max_bullets_per_project,
+    # )
 
     document.save(output_path)
 
@@ -1010,8 +1025,8 @@ def compact_tailored_projects_for_space(
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
-    tailored_projects: dict[str, Any],
-    tailored_skills: dict[str, Any],
+    tailored_projects: dict[str, Any] | None = None,
+    tailored_skills: dict[str, Any] | None = None,
     application_id: int | None = None,
     max_projects: int = 3,
     max_bullets_per_project: int = 3,
@@ -1023,15 +1038,30 @@ def generate_tailored_resume_copy_fit_one_page(
     Requires LibreOffice for DOCX-to-PDF conversion.
     If LibreOffice is unavailable, the DOCX is still generated but page count is unavailable.
     """
+    # attempt_logs = []
+    # working_projects = deepcopy(tailored_projects)
+
+    if not tailored_projects and not tailored_skills:
+        raise ValueError("Generate a tailored Projects section or Skills section first.")
+
     attempt_logs = []
-    working_projects = deepcopy(tailored_projects)
+    working_projects = deepcopy(tailored_projects) if tailored_projects else None
+
+    # If only Skills is being changed, there is no Projects section to compact.
+    attempt_limit = max_attempts if tailored_projects else 1
 
     last_docx_path = None
     last_pdf_path = None
     last_page_count = None
 
-    for attempt_index in range(max_attempts):
-        if attempt_index > 0:
+    #for attempt_index in range(max_attempts):
+    for attempt_index in range(attempt_limit):
+        # if attempt_index > 0:
+        #     working_projects = compact_tailored_projects_for_space(
+        #         tailored_projects,
+        #         attempt=attempt_index,
+        #     )
+        if attempt_index > 0 and tailored_projects:
             working_projects = compact_tailored_projects_for_space(
                 tailored_projects,
                 attempt=attempt_index,

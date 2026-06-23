@@ -1114,8 +1114,8 @@ if page == "Application Sessions":
             st.subheader("Generate Edited Resume Copy")
 
             st.caption(
-                "This changes only the Skills and Projects sections in a copied DOCX. "
-                "Work Experience is not changed."
+            "This can change the Skills section, Projects section, or both in a copied DOCX. "
+            "Work Experience is not changed."
             )
 
             saved_resume_docx_path = st.session_state.get(saved_docx_key)
@@ -1126,17 +1126,24 @@ if page == "Application Sessions":
                     saved_resume_docx_path = str(latest_saved_docx)
                     st.session_state[saved_docx_key] = saved_resume_docx_path
 
-            if not saved_resume_docx_path:
+            # if not saved_resume_docx_path:
                 st.info(
                     "No saved DOCX found for this session. Upload a DOCX resume, "
                     "tick the save checkbox, and run Analyze Resume again."
                 )
-            elif not project_result:
-                st.info("Generate a Tailored Projects Section first.")
-            elif not skills_result:
-                st.info("Generate a Tailored Skills Section first.")
+            elif not project_result and not skills_result:
+                st.info("Generate a Tailored Projects Section or Tailored Skills Section first.")
             else:
+                selected_sections = []
+
+                if project_result:
+                    selected_sections.append("Projects")
+
+                if skills_result:
+                    selected_sections.append("Skills")
+
                 st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
+                st.caption(f"Will update: {', '.join(selected_sections)}")
 
                 if st.button(
                     "Generate Tailored Resume Copy DOCX",
