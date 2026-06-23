@@ -394,6 +394,21 @@ def _clear_section_content(
     return document.paragraphs[start_index]
 
 
+def _add_blank_line_after(anchor: Paragraph) -> Paragraph:
+    """
+    Insert a blank paragraph after anchor.
+    This behaves like pressing Enter once in Word.
+    """
+    spacer = _insert_paragraph_after(anchor)
+
+    try:
+        spacer.paragraph_format.space_before = Pt(0)
+        spacer.paragraph_format.space_after = Pt(0)
+        spacer.paragraph_format.line_spacing = 1
+    except Exception:
+        pass
+
+    return spacer
 
 # ---------------------------------------------------------------------------
 # One page helpers
@@ -661,6 +676,7 @@ def _add_project_title_after(
     template: Paragraph | None = None,
     right_tab_position: Any = None,
     add_space_before: bool = False,
+    space_before_pt: int = 10,
 ) -> Paragraph:
     """
     Add project title line after anchor, preserving original formatting.
@@ -673,7 +689,7 @@ def _add_project_title_after(
         _copy_paragraph_format(template, new_paragraph)
     
     if add_space_before:
-        new_paragraph.paragraph_format.space_before = Pt(10)
+        new_paragraph.paragraph_format.space_before = Pt(space_before_pt)
 
     # Keep title and following bullet together where Word supports it.
     try:
@@ -703,6 +719,57 @@ def _add_project_title_after(
         date_run.bold = False
 
     return new_paragraph
+
+# def _add_project_title_after(
+#     anchor: Paragraph,
+#     *,
+#     title: str,
+#     period: str = "",
+#     template: Paragraph | None = None,
+#     right_tab_position: Any = None,
+#     add_space_before: bool = False,
+# ) -> Paragraph:
+#     """
+#     Add project title line after anchor, preserving original formatting.
+
+#     Uses a right-aligned tab stop for the period/date.
+#     """
+#     new_paragraph = _insert_paragraph_after(anchor)
+
+#     if template is not None:
+#         _copy_paragraph_format(template, new_paragraph)
+    
+#     if add_space_before:
+#         new_paragraph.paragraph_format.space_before = Pt(10)
+
+#     # Keep title and following bullet together where Word supports it.
+#     try:
+#         new_paragraph.paragraph_format.keep_with_next = True
+#     except Exception:
+#         pass
+
+#     # Right tab stop for date.
+#     if right_tab_position is not None:
+#         try:
+#             new_paragraph.paragraph_format.tab_stops.add_tab_stop(
+#                 right_tab_position,
+#                 WD_TAB_ALIGNMENT.RIGHT,
+#             )
+#         except Exception:
+#             pass
+
+#     source_run = _get_first_run_template(template)
+
+#     title_run = new_paragraph.add_run(title)
+#     _copy_run_format(source_run, title_run)
+#     title_run.bold = True
+
+#     if period:
+#         date_run = new_paragraph.add_run(f"\t{period}")
+#         _copy_run_format(source_run, date_run)
+#         date_run.bold = False
+
+#     return new_paragraph
 
 # def _add_project_title_after(
 #     anchor: Paragraph,
@@ -786,6 +853,12 @@ def replace_projects_section(
     *,
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
+    spacing_mode: str = "paragraph_spacing",
+    project_spacing_pt: int = 10,
+    after_projects_spacing_pt: int = 10,
+    blank_lines_between_projects: int = 1,
+    blank_lines_after_projects: int = 1,
+    add_spacing_before_first_project: bool = False,
 ) -> None:
     """
     Replace PROJECTS section content while preserving original formatting.
@@ -801,11 +874,17 @@ def replace_projects_section(
     if not projects:
         _insert_paragraph_after(anchor, "No tailored projects were generated.")
         return
-
-    for project_index, project in  enumerate(projects):
+    
+    for project_index, project in enumerate(projects):
         title = _format_project_heading(project)
         period = str(project.get("period", "")).strip()
         bullets = project.get("draft_bullets", [])[:max_bullets_per_project]
+
+        should_add_spacing_before = project_index > 0 or add_spacing_before_first_project
+
+        if spacing_mode == "blank_line" and should_add_spacing_before:
+            for _ in range(blank_lines_between_projects):
+                anchor = _add_blank_line_after(anchor)
 
         anchor = _add_project_title_after(
             anchor,
@@ -813,7 +892,11 @@ def replace_projects_section(
             period=period,
             template=project_title_template,
             right_tab_position=right_tab_position,
-            add_space_before=project_index > 0,
+            add_space_before=(
+                spacing_mode == "paragraph_spacing"
+                and should_add_spacing_before
+            ),
+            space_before_pt=project_spacing_pt,
         )
 
         for bullet in bullets:
@@ -823,12 +906,43 @@ def replace_projects_section(
                     bullet=str(bullet).strip(),
                     template=project_bullet_template,
                 )
+
+    if spacing_mode == "blank_line":
+        for _ in range(blank_lines_after_projects):
+            anchor = _add_blank_line_after(anchor)
+    else:
+        try:
+            anchor.paragraph_format.space_after = Pt(after_projects_spacing_pt)
+        except Exception:
+            pass
+
+    # for project_index, project in  enumerate(projects):
+    #     title = _format_project_heading(project)
+    #     period = str(project.get("period", "")).strip()
+    #     bullets = project.get("draft_bullets", [])[:max_bullets_per_project]
+
+    #     anchor = _add_project_title_after(
+    #         anchor,
+    #         title=title,
+    #         period=period,
+    #         template=project_title_template,
+    #         right_tab_position=right_tab_position,
+    #         add_space_before=project_index > 0,
+    #     )
+
+    #     for bullet in bullets:
+    #         if str(bullet).strip():
+    #             anchor = _add_project_bullet_after(
+    #                 anchor,
+    #                 bullet=str(bullet).strip(),
+    #                 template=project_bullet_template,
+    #             )
     
-        # Add spacing between the final project entry and the next section heading, e.g. SKILLS.
-    try:
-        anchor.paragraph_format.space_after = Pt(10)
-    except Exception:
-        pass
+    #     # Add spacing between the final project entry and the next section heading, e.g. SKILLS.
+    # try:
+    #     anchor.paragraph_format.space_after = Pt(10)
+    # except Exception:
+    #     pass
 
 # ---------------------------------------------------------------------------
 # Saved Docx Loader
@@ -868,6 +982,12 @@ def generate_tailored_resume_copy(
     application_id: int | None = None,
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
+    spacing_mode: str = "paragraph_spacing",
+    project_spacing_pt: int = 10,
+    after_projects_spacing_pt: int = 10,
+    blank_lines_between_projects: int = 1,
+    blank_lines_after_projects: int = 1,
+    add_spacing_before_first_project: bool = False,
 ) -> Path:
     """
     Generate a new tailored resume DOCX copy.
@@ -904,6 +1024,12 @@ def generate_tailored_resume_copy(
             tailored_projects,
             max_projects=max_projects,
             max_bullets_per_project=max_bullets_per_project,
+            spacing_mode=spacing_mode,
+            project_spacing_pt=project_spacing_pt,
+            after_projects_spacing_pt=after_projects_spacing_pt,
+            blank_lines_between_projects=blank_lines_between_projects,
+            blank_lines_after_projects=blank_lines_after_projects,
+            add_spacing_before_first_project=add_spacing_before_first_project,
         )
 
     # # Change only these sections.
@@ -1031,6 +1157,12 @@ def generate_tailored_resume_copy_fit_one_page(
     max_projects: int = 3,
     max_bullets_per_project: int = 3,
     max_attempts: int = 3,
+    spacing_mode: str = "paragraph_spacing",
+    project_spacing_pt: int = 10,
+    after_projects_spacing_pt: int = 10,
+    blank_lines_between_projects: int = 1,
+    blank_lines_after_projects: int = 1,
+    add_spacing_before_first_project: bool = False,
 ) -> dict[str, Any]:
     """
     Generate a tailored DOCX and try to keep it to one page.
@@ -1074,6 +1206,12 @@ def generate_tailored_resume_copy_fit_one_page(
             application_id=application_id,
             max_projects=max_projects,
             max_bullets_per_project=max_bullets_per_project,
+            spacing_mode=spacing_mode,
+            project_spacing_pt=project_spacing_pt,
+            after_projects_spacing_pt=after_projects_spacing_pt,
+            blank_lines_between_projects=blank_lines_between_projects,
+            blank_lines_after_projects=blank_lines_after_projects,
+            add_spacing_before_first_project=add_spacing_before_first_project,
         )
 
         last_docx_path = docx_path
@@ -1155,23 +1293,86 @@ def extract_docx_preview_text(docx_path: str | Path) -> str:
     return "\n".join(lines)
 
 
+# def _find_libreoffice_executable() -> str | None:
+#     """Find LibreOffice executable on Windows/Linux/Mac."""
+#     soffice = shutil.which("soffice") or shutil.which("libreoffice")
+
+#     if soffice:
+#         return soffice
+
+#     common_windows_paths = [
+#         r"C:\Program Files\LibreOffice\program\soffice.exe",
+#         r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+#     ]
+
+#     for path in common_windows_paths:
+#         if Path(path).exists():
+#             return path
+
+#     return None
+
+
+# def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
+#     """
+#     Convert DOCX to PDF using LibreOffice if it is installed.
+
+#     Returns:
+#         PDF path, or None if LibreOffice is unavailable or conversion fails.
+#     """
+#     docx_path = Path(docx_path)
+#     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+
+#     # soffice = shutil.which("soffice") or shutil.which("libreoffice")
+#     soffice = _find_libreoffice_executable()
+#     if not soffice:
+#         return None
+
+#     try:
+#         subprocess.run(
+#             [
+#                 soffice,
+#                 "--headless",
+#                 "--convert-to",
+#                 "pdf",
+#                 "--outdir",
+#                 str(PREVIEW_DIR),
+#                 str(docx_path),
+#             ],
+#             check=True,
+#             stdout=subprocess.PIPE,
+#             stderr=subprocess.PIPE,
+#             timeout=60,
+#             text=True,
+#         )
+#     except Exception as exc:
+#         print(f"[LibreOffice conversion failed] {exc}")
+#         return None
+
+#     pdf_path = PREVIEW_DIR / f"{docx_path.stem}.pdf"
+
+#     if pdf_path.exists():
+#         return pdf_path
+
+#     return None
+
+
 def _find_libreoffice_executable() -> str | None:
     """Find LibreOffice executable on Windows/Linux/Mac."""
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
 
-    if soffice:
-        return soffice
-
+    # Prefer the normal Windows install path first.
+    # This avoids accidentally picking soffice.COM from PATH.
     common_windows_paths = [
         r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files\LibreOffice\program\soffice.com",
         r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.com",
     ]
 
     for path in common_windows_paths:
         if Path(path).exists():
             return path
 
-    return None
+    return shutil.which("soffice") or shutil.which("libreoffice")
 
 
 def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
@@ -1181,42 +1382,74 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
     Returns:
         PDF path, or None if LibreOffice is unavailable or conversion fails.
     """
-    docx_path = Path(docx_path)
+    docx_path = Path(docx_path).resolve()
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    preview_dir = PREVIEW_DIR.resolve()
 
-    # soffice = shutil.which("soffice") or shutil.which("libreoffice")
     soffice = _find_libreoffice_executable()
     if not soffice:
+        print("[LibreOffice conversion failed] LibreOffice executable not found.")
         return None
 
+    expected_pdf_path = preview_dir / f"{docx_path.stem}.pdf"
+
+    # Remove old preview with the same name so we know whether this conversion produced a new file.
+    if expected_pdf_path.exists():
+        try:
+            expected_pdf_path.unlink()
+        except OSError:
+            pass
+
+    # Give headless LibreOffice its own profile folder.
+    # This helps avoid failures when normal LibreOffice is already open.
+    lo_profile_dir = (preview_dir / "lo_profile").resolve()
+    lo_profile_dir.mkdir(parents=True, exist_ok=True)
+    lo_profile_uri = lo_profile_dir.as_uri()
+
+    command = [
+        soffice,
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--nolockcheck",
+        f"-env:UserInstallation={lo_profile_uri}",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(preview_dir),
+        str(docx_path),
+    ]
+
     try:
-        subprocess.run(
-            [
-                soffice,
-                "--headless",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                str(PREVIEW_DIR),
-                str(docx_path),
-            ],
-            check=True,
+        result = subprocess.run(
+            command,
+            check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=60,
             text=True,
         )
     except Exception as exc:
-        print(f"[LibreOffice conversion failed] {exc}")
+        print(f"[LibreOffice conversion crashed] {exc}")
         return None
 
-    pdf_path = PREVIEW_DIR / f"{docx_path.stem}.pdf"
+    if result.returncode != 0:
+        print("[LibreOffice conversion failed]")
+        print("Command:", command)
+        print("Return code:", result.returncode)
+        print("STDOUT:", result.stdout)
+        print("STDERR:", result.stderr)
+        return None
 
-    if pdf_path.exists():
-        return pdf_path
+    if expected_pdf_path.exists():
+        return expected_pdf_path
 
+    print("[LibreOffice conversion failed] Command succeeded but PDF was not created.")
+    print("Expected PDF:", expected_pdf_path)
+    print("STDOUT:", result.stdout)
+    print("STDERR:", result.stderr)
     return None
-
 
 def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
     """Create HTML iframe for PDF preview in Streamlit."""

@@ -1145,6 +1145,77 @@ if page == "Application Sessions":
                 st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
                 st.caption(f"Will update: {', '.join(selected_sections)}")
 
+            with st.expander("Spacing options", expanded=False):
+                spacing_mode_label = st.radio(
+                    "Spacing mode",
+                    ["Paragraph spacing", "Blank line"],
+                    horizontal=True,
+                    key=f"spacing_mode_{current_application_id}",
+                    help=(
+                        "Paragraph spacing uses Word spacing values. "
+                        "Blank line inserts real empty paragraphs, similar to pressing Enter."
+                    ),
+                )
+
+                spacing_mode = (
+                    "blank_line"
+                    if spacing_mode_label == "Blank line"
+                    else "paragraph_spacing"
+                )
+
+                add_spacing_before_first_project = st.checkbox(
+                    "Add spacing before the first project too",
+                    value=False,
+                    key=f"spacing_before_first_project_{current_application_id}",
+                )
+
+                if spacing_mode == "paragraph_spacing":
+                    project_spacing_pt = st.slider(
+                        "Spacing before each next project (pt)",
+                        0,
+                        20,
+                        10,
+                        key=f"project_spacing_pt_{current_application_id}",
+                    )
+
+                    after_projects_spacing_pt = st.slider(
+                        "Spacing after final project / before Skills (pt)",
+                        0,
+                        20,
+                        10,
+                        key=f"after_projects_spacing_pt_{current_application_id}",
+                    )
+
+                    blank_lines_between_projects = 0
+                    blank_lines_after_projects = 0
+
+                else:
+                    blank_lines_between_projects = st.number_input(
+                        "Blank lines before each project",
+                        min_value=0,
+                        max_value=3,
+                        value=1,
+                        step=1,
+                        key=f"blank_lines_between_projects_{current_application_id}",
+                    )
+
+                    blank_lines_after_projects = st.number_input(
+                        "Blank lines after final project / before Skills",
+                        min_value=0,
+                        max_value=3,
+                        value=1,
+                        step=1,
+                        key=f"blank_lines_after_projects_{current_application_id}",
+                    )
+
+                    project_spacing_pt = 0
+                    after_projects_spacing_pt = 0
+
+                st.caption(
+                    "Changing spacing only affects DOCX formatting. "
+                    "You can regenerate the DOCX without re-tailoring the projects or skills."
+                )
+
                 if st.button(
                     "Generate Tailored Resume Copy DOCX",
                     type="primary",
@@ -1160,6 +1231,12 @@ if page == "Application Sessions":
                             max_projects=max_projects,
                             max_bullets_per_project=max_bullets,
                             max_attempts=3,
+                            spacing_mode=spacing_mode,
+                            project_spacing_pt=project_spacing_pt,
+                            after_projects_spacing_pt=after_projects_spacing_pt,
+                            blank_lines_between_projects=blank_lines_between_projects,
+                            blank_lines_after_projects=blank_lines_after_projects,
+                            add_spacing_before_first_project=add_spacing_before_first_project,
                         )
 
                         tailored_resume_path = fit_result["docx_path"]
