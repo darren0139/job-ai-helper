@@ -67,6 +67,16 @@ Critical truthfulness rules:
 - projects_to_remove_or_deprioritize should focus on projects currently in the resume that should be replaced, shortened, or removed.
 - Evidence-only projects that are not selected should still appear in candidate_project_ranking with recommendation "deprioritize" or "exclude".
 
+Candidate scoring rules:
+- Score every project in the COMBINED PROJECT CANDIDATE POOL.
+- relevance_score should measure how well the project matches the target JD.
+- evidence_strength_score should measure how much truthful supporting evidence exists.
+- final_score should be based on relevance_score and evidence_strength_score.
+- Do not add points just because a project is already in the resume.
+- Do not subtract points just because a project only appears in the Evidence Library.
+- recommended_projects must be selected from the highest final_score candidates unless there is a clear one-page or truthfulness reason.
+- If a lower-scoring project is selected over a higher-scoring project, explain why in notes_for_user.
+
 Output only valid JSON matching this schema:
 {
   "recommended_projects": [
@@ -83,16 +93,20 @@ Output only valid JSON matching this schema:
       "draft_bullets": ["string"]
     }
   ],
-    "candidate_project_ranking": [
-    {
-      "title": "string",
-      "display_title": "string",
-      "source": "resume|evidence_library|both",
-      "priority": "high|medium|low",
-      "recommendation": "include|deprioritize|exclude",
-      "reason": "string"
-    }
-  ],
+"candidate_project_ranking": [
+  {
+    "title": "string",
+    "display_title": "string",
+    "source": "resume|evidence_library|both",
+    "currently_in_resume": true,
+    "in_evidence_library": true,
+    "relevance_score": 0,
+    "evidence_strength_score": 0,
+    "final_score": 0,
+    "recommendation": "include|deprioritize|exclude",
+    "reason": "string"
+  }
+],
   "projects_to_remove_or_deprioritize": [
     {
       "title": "string",
@@ -244,6 +258,305 @@ Expected behavior:
 #   ]
 # }
 
+def _normalise_project_key(title: str) -> str:
+    """
+    Normalise project names so:
+    'QueryAI (React, Team of 4)' and 'QueryAI' are treated as the same project.
+    """
+    text = str(title or "").lower().strip()
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"[-–—].*$", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _split_description_into_bullets(description: str) -> list[str]:
+    """
+    Convert evidence description into clean bullet-like lines.
+    Works for newline bullets and inline bullet symbols.
+    """
+    text = str(description or "").strip()
+
+    if not text:
+        return []
+
+    # Handle cases like: "• did A • did B • did C"
+    text = text.replace("●", "\n").replace("•", "\n")
+
+    bullets = []
+
+    for line in text.splitlines():
+        cleaned = line.strip().lstrip("-*•● ").strip()
+
+        if cleaned:
+            bullets.append(cleaned)
+
+    return bullets
+
+
+def _find_resume_project_lists(value: Any) -> list[dict[str, Any]]:
+    """
+    Recursively find likely project dictionaries inside resume_profile.
+
+    This is defensive because different extract_resume_profile outputs may use
+    slightly different keys.
+    """
+    found: list[dict[str, Any]] = []
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_lower = str(key).lower()
+
+            if "project" in key_lower and isinstance(child, list):
+                for item in child:
+                    if isinstance(item, dict):
+                        found.append(item)
+
+            found.extend(_find_resume_project_lists(child))
+
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_find_resume_project_lists(item))
+
+    return found
+
+
+def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert one resume project dict into a standard candidate shape."""
+    title = (
+        project.get("display_title")
+        or project.get("title")
+        or project.get("name")
+        or project.get("project_name")
+        or ""
+    )
+
+    if not str(title).strip():
+        return None
+
+    bullets = (
+        project.get("bullets")
+        or project.get("draft_bullets")
+        or project.get("description_bullets")
+        or []
+    )
+
+    if isinstance(bullets, str):
+        bullets = _split_description_into_bullets(bullets)
+
+    description = (
+        project.get("description")
+        or project.get("summary")
+        or project.get("details")
+        or ""
+    )
+
+    if not bullets and description:
+        bullets = _split_description_into_bullets(description)
+
+    skills = project.get("skills") or project.get("technologies") or []
+    tools = project.get("tools") or project.get("tech_stack") or []
+
+    return {
+        "title": str(title).strip(),
+        "display_title": str(project.get("display_title") or title).strip(),
+        "period": str(project.get("period") or project.get("date") or "").strip(),
+        "sources": ["resume"],
+        "currently_in_resume": True,
+        "in_evidence_library": False,
+        "resume_evidence": {
+            "description": str(description).strip(),
+            "bullets": bullets,
+            "skills": skills,
+            "tools": tools,
+            "impact": str(project.get("impact") or project.get("scope") or "").strip(),
+        },
+        "evidence_library_evidence": None,
+    }
+
+
+def _evidence_item_to_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert one Evidence Library item into a standard candidate shape."""
+    category = str(item.get("category", "")).lower().strip()
+
+    if category != "project":
+        return None
+
+    title = str(item.get("title", "")).strip()
+
+    if not title:
+        return None
+
+    description = str(item.get("description", "")).strip()
+    bullets = _split_description_into_bullets(description)
+
+    return {
+        "title": title,
+        "display_title": title,
+        "period": str(item.get("period", "")).strip(),
+        "sources": ["evidence_library"],
+        "currently_in_resume": False,
+        "in_evidence_library": True,
+        "resume_evidence": None,
+        "evidence_library_evidence": {
+            "description": description,
+            "bullets": bullets,
+            "skills": item.get("skills", []) or [],
+            "tools": item.get("tools", []) or [],
+            "impact": str(item.get("impact", "")).strip(),
+        },
+    }
+
+
+def build_project_candidate_pool(
+    *,
+    resume_profile: dict[str, Any],
+    evidence_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Build one combined project candidate pool from resume projects + Evidence Library.
+
+    This reduces LLM inconsistency because the model no longer has to infer
+    and merge project candidates from two separate sections by itself.
+    """
+    candidates_by_key: dict[str, dict[str, Any]] = {}
+
+    # 1. Add resume projects.
+    for resume_project in _find_resume_project_lists(resume_profile):
+        candidate = _resume_project_to_candidate(resume_project)
+
+        if not candidate:
+            continue
+
+        key = _normalise_project_key(candidate["title"])
+
+        if not key:
+            continue
+
+        candidates_by_key[key] = candidate
+
+    # 2. Merge Evidence Library projects.
+    for item in evidence_items:
+        candidate = _evidence_item_to_candidate(item)
+
+        if not candidate:
+            continue
+
+        key = _normalise_project_key(candidate["title"])
+
+        if not key:
+            continue
+
+        if key in candidates_by_key:
+            existing = candidates_by_key[key]
+
+            existing["sources"] = sorted(set(existing.get("sources", []) + ["evidence_library"]))
+            existing["in_evidence_library"] = True
+            existing["evidence_library_evidence"] = candidate["evidence_library_evidence"]
+
+            # Prefer evidence title if it contains fuller display info.
+            if len(candidate["display_title"]) > len(existing.get("display_title", "")):
+                existing["display_title"] = candidate["display_title"]
+
+            if not existing.get("period") and candidate.get("period"):
+                existing["period"] = candidate["period"]
+
+        else:
+            candidates_by_key[key] = candidate
+
+    candidates = list(candidates_by_key.values())
+
+    return sorted(candidates, key=lambda candidate: candidate.get("title", "").lower())
+    # # Stable order: resume/evidence both first, then evidence-only, then resume-only.
+    # def sort_key(candidate: dict[str, Any]) -> tuple[int, str]:
+    #     sources = set(candidate.get("sources", []))
+
+    #     if sources == {"resume", "evidence_library"}:
+    #         source_rank = 0
+    #     elif "evidence_library" in sources:
+    #         source_rank = 1
+    #     else:
+    #         source_rank = 2
+
+    #     return (source_rank, candidate.get("title", "").lower())
+
+    # return sorted(candidates, key=sort_key)
+
+
+
+
+def _postprocess_project_tailoring_result(
+    result: dict[str, Any],
+    *,
+    project_candidates: list[dict[str, Any]],
+    max_projects: int,
+) -> dict[str, Any]:
+    """
+    Add debug notes and auto-fill removed/deprioritized current resume projects.
+    """
+    selected_keys = {
+        _normalise_project_key(project.get("title", ""))
+        for project in result.get("recommended_projects", [])
+    }
+
+    existing_removed_keys = {
+        _normalise_project_key(project.get("title", ""))
+        for project in result.get("projects_to_remove_or_deprioritize", [])
+    }
+
+    # Auto-fill resume projects that were not selected.
+    auto_removed = []
+
+    for candidate in project_candidates:
+        candidate_key = _normalise_project_key(candidate.get("title", ""))
+
+        if not candidate_key:
+            continue
+
+        if (
+            candidate.get("currently_in_resume")
+            and candidate_key not in selected_keys
+            and candidate_key not in existing_removed_keys
+        ):
+            auto_removed.append(
+                {
+                    "title": candidate.get("display_title") or candidate.get("title"),
+                    "reason": (
+                        "Currently in the resume but not selected for this tailored version. "
+                        "Another project was judged more relevant to the target job."
+                    ),
+                }
+            )
+
+    if auto_removed:
+        result.setdefault("projects_to_remove_or_deprioritize", [])
+        result["projects_to_remove_or_deprioritize"].extend(auto_removed)
+
+    # Warn if selected projects do not match the AI's own score ranking.
+    ranked = sorted(
+        result.get("candidate_project_ranking", []),
+        key=lambda item: item.get("final_score", 0),
+        reverse=True,
+    )
+
+    selected_titles = {
+        _normalise_project_key(project.get("title", ""))
+        for project in result.get("recommended_projects", [])
+    }
+
+    top_titles = {
+        _normalise_project_key(project.get("title", ""))
+        for project in ranked[:max_projects]
+    }
+
+    if ranked and not top_titles.issubset(selected_titles):
+        result.setdefault("notes_for_user", []).append(
+            "Debug note: selected projects do not exactly match the top scored candidates. "
+            "Review candidate_project_ranking."
+        )
+
+    return result
+    
 
 def tailor_projects_section(
     *,
@@ -260,10 +573,23 @@ def tailor_projects_section(
     if not jd_profile:
         raise ValueError("Missing job description profile. Analyze a job description first.")
 
+
+    project_candidates = build_project_candidate_pool(
+      resume_profile=resume_profile,
+      evidence_items=evidence_items,
+    )
+
+
     user_prompt = f"""
 PROJECT SELECTION GOAL:
 Create the strongest truthful Projects section for this target job.
 Use the page well, but do not force extra bullets if the evidence is weak.
+
+IMPORTANT:
+Use COMBINED PROJECT CANDIDATE POOL as the main source of project candidates.
+The current resume profile is context, not a preference signal.
+Do not choose a project just because it is already in the resume.
+Do not ignore a project just because it only appears in the Evidence Library.
 
 LIMITS:
 - Maximum projects: {max_projects}
@@ -271,29 +597,79 @@ LIMITS:
 - Prefer 4-6 total project bullets when supported by evidence.
 - Do not invent, exaggerate, or pad content just to fill space.
 - Preserve strong existing truthful bullets when they match the job.
-- Consider projects from both the current resume and Evidence Library equally.
-- A project from the Evidence Library may replace a current resume project if it is more relevant.
 - If fewer than 4 total bullets are used, explain why in notes_for_user.
 
-CURRENT RESUME PROFILE:
-{json.dumps(resume_profile, indent=2, ensure_ascii=False)}
+COMBINED PROJECT CANDIDATE POOL:
+{json.dumps(project_candidates, indent=2, ensure_ascii=False)}
+
 
 TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
-USER EVIDENCE LIBRARY:
-{json.dumps(evidence_items, indent=2, ensure_ascii=False)}
+CURRENT RESUME PROFILE CONTEXT:
+{json.dumps(resume_profile, indent=2, ensure_ascii=False)}
 
 TASK:
 Recommend a tailored Projects section for this target job.
+
+Selection rules:
+- Pick from COMBINED PROJECT CANDIDATE POOL only.
+- For source:
+  - use "resume" only if currently_in_resume is true and in_evidence_library is false
+  - use "evidence_library" only if currently_in_resume is false and in_evidence_library is true
+  - use "both" if currently_in_resume and in_evidence_library are both true
+- For action:
+  - use "keep" if the selected project is already in the resume
+  - use "add" if the selected project only comes from Evidence Library
+  - use "replace" if an Evidence Library project should replace a less relevant resume project
+  - use "shorten" if an existing resume project should stay but with fewer/shorter bullets
+- Include every candidate from COMBINED PROJECT CANDIDATE POOL in candidate_project_ranking.
 """
 
-    return ask_json(
-        PROJECT_SECTION_TAILOR_PROMPT,
-        user_prompt,
-        temperature=0.2,
-        max_tokens=2500,
+    result = ask_json(
+    PROJECT_SECTION_TAILOR_PROMPT,
+    user_prompt,
+    temperature=0.0,
+    max_tokens=2500,
     )
+
+    result = _postprocess_project_tailoring_result(
+    result,
+    project_candidates=project_candidates,
+    max_projects=max_projects,
+    )
+
+
+    ranked = sorted(
+        result.get("candidate_project_ranking", []),
+        key=lambda item: item.get("final_score", 0),
+        reverse=True,
+    )
+
+    selected_titles = {
+        _normalise_project_key(project.get("title", ""))
+        for project in result.get("recommended_projects", [])
+    }
+
+    top_titles = {
+        _normalise_project_key(project.get("title", ""))
+        for project in ranked[:max_projects]
+    }
+
+    if ranked and not top_titles.issubset(selected_titles):
+        result.setdefault("notes_for_user", []).append(
+            "Debug note: selected projects do not exactly match the top scored candidates. "
+            "Review candidate_project_ranking."
+        )
+
+    return result
+
+    # return ask_json(
+    #     PROJECT_SECTION_TAILOR_PROMPT,
+    #     user_prompt,
+    #     temperature=0.0,
+    #     max_tokens=2500,
+    # )
 
 
 def estimate_project_section_length(

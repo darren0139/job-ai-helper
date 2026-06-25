@@ -68,6 +68,7 @@ from database.user_profile_manager import (
 from tailoring.project_section_tailor import (
     tailor_projects_section,
     estimate_project_section_length,
+    build_project_candidate_pool,
 )
 
 
@@ -808,6 +809,12 @@ if page == "Application Sessions":
                 f"tailored_resume_copy_path_{application_id}",
                 f"tailored_resume_fit_result_{application_id}",
                 f"saved_resume_docx_path_{application_id}",
+
+                # Add these debug keys too
+                f"debug_project_tailor_inputs_{application_id}",
+                f"project_candidate_pool_{application_id}",
+                f"project_tailor_debug_path_{application_id}",
+                f"project_tailor_input_fingerprint_{application_id}",
             ]:
                 st.session_state.pop(key, None)
 
@@ -1046,11 +1053,18 @@ if page == "Application Sessions":
                             "evidence_items": evidence_items,
                         }
 
+                        debug_candidate_pool = build_project_candidate_pool(
+                        resume_profile=report.get("resume_profile", {}),
+                        evidence_items=evidence_items,
+                        )
+
+                        st.session_state[f"project_candidate_pool_{current_application_id}"] = debug_candidate_pool
+
                         with st.spinner("Generating tailored projects..."):
                             project_result = tailor_projects_section(
                                 resume_profile=report.get("resume_profile", {}),
                                 jd_profile=report.get("jd_profile", {}),
-                                evidence_items=get_evidence_items(limit=100),
+                                evidence_items=get_evidence_items,
                                 max_projects=max_projects,
                                 max_bullets_per_project=max_bullets,
                             )
@@ -1099,6 +1113,14 @@ if page == "Application Sessions":
             project_result = st.session_state.get(tailored_projects_key)
             fit_estimate = st.session_state.get(tailored_fit_key)
             skills_result = st.session_state.get(tailored_skills_key)
+            
+            candidate_pool = st.session_state.get(
+                f"project_candidate_pool_{current_application_id}"
+            )
+
+            if candidate_pool:
+                with st.expander("Debug: Combined project candidate pool"):
+                    st.json(candidate_pool)
 
             debug_inputs = st.session_state.get(f"debug_project_tailor_inputs_{current_application_id}")
 
@@ -1143,6 +1165,10 @@ if page == "Application Sessions":
 
                 with st.expander("Projects to remove or deprioritize"):
                     st.json(project_result.get("projects_to_remove_or_deprioritize", []))
+
+
+                with st.expander("All candidate projects scored"):
+                    st.json(project_result.get("candidate_project_ranking", []))
 
                 with st.expander("Unsupported JD skills"):
                     st.json(project_result.get("unsupported_jd_skills", []))
