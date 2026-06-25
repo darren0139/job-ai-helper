@@ -39,19 +39,26 @@ Critical truthfulness rules:
 - Do not simplify "QueryAI (React, Team of 4)" into "QueryAI".
 - Do not add generic role labels such as "Programmer" unless explicitly provided.
 
-One-page constraints:
-- Target 3 projects when at least 3 truthful and relevant project candidates exist.
-- Recommend fewer than 3 projects only if there are not enough supported projects or the section would likely exceed one page.
-- Use variable bullet counts based on relevance and space.
-- Highly relevant projects may use 2-3 bullets.
-- Moderately relevant projects should use 1-2 bullets.
-- Weakly relevant projects should be removed or limited to 1 bullet.
-- If space is tight, reduce bullet count before removing highly relevant projects.
-- If there is room for another relevant project, prefer adding a third project with 1 concise bullet.
-- Each bullet should be 18-28 words where possible.
-- Prioritize projects that match required skills/tools from the JD.
-- Recency is useful, but relevance should matter more than date.
+Project selection and page-use rules:
+- Create the strongest truthful Projects section for the target job.
+- Use the full candidate pool from both the current resume profile and Evidence Library.
+- Do not prefer a project only because it is already in the resume.
+- Do not ignore a project only because it appears only in the Evidence Library.
+- Select projects based on relevance to the target JD, strength of evidence, and usefulness for the role.
+- Target up to 3 projects when at least 3 truthful and relevant candidates exist.
+- Use available page space sensibly, but never invent, exaggerate, or pad weak points.
+- Prefer 4-6 total project bullets when supported by truthful evidence.
+- Use 5-7 total project bullets only when the selected projects are strongly relevant, the evidence is strong, and the bullets remain concise.
+- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or the page is likely crowded.
+- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
+- Moderately relevant projects should usually have 1-2 bullets.
+- Use 1 bullet only when the project is lower priority, weakly related, or has limited evidence.
+- If the original resume already has strong truthful bullets that match the JD, preserve or lightly rephrase them.
+- If space is tight later, the DOCX fitting step will compact the section. Do not over-compact in this first recommendation.
+- Each bullet should usually be 14-24 words.
 - If a project period/date is known, include it. If unknown, leave period empty.
+- If fewer than 4 total project bullets are used, explain why in notes_for_user.
+
 
 Critical truthfulness rules:
 - Evaluate all project candidates found in the resume profile and Evidence Library.
@@ -106,129 +113,135 @@ Output only valid JSON matching this schema:
   "notes_for_user": ["string"]
 }
 
-Example of correct output:
-{
-  "recommended_projects": [
-    {
-      "title": "QueryAI",
-      "display_title": "QueryAI (React, Team of 4)",
-      "period": "Mar 2025 - Apr 2025",
-      "source": "both",
-      "action": "keep",
-      "priority": "high",
-      "space_action": "keep_full",
-      "matched_jd_requirements": ["team collaboration", "quality assurance", "database-backed workflows"],
-      "why_relevant": "Shows backend integration, access control, and team-built application workflows relevant to configuration and QA work.",
-      "draft_bullets": [
-        "Set up the project environment and integrated React with Supabase, supporting secure database-backed workflows for a team-built application.",
-        "Implemented backend query workflows using PostgREST, improving data retrieval and update reliability."
-      ]
-    },
-    {
-      "title": "CyberSphere",
-      "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
-      "period": "Jan 2018 - Feb 2018",
-      "source": "both",
-      "action": "keep",
-      "priority": "high",
-      "space_action": "keep_full",
-      "matched_jd_requirements": ["gaming product", "quality assurance", "attention to detail"],
-      "why_relevant": "Shows practical game development experience and quality-focused gameplay/UI implementation.",
-      "draft_bullets": [
-        "Scripted gameplay features, UI elements, and high-score tracking for a published Unity mobile game."
-      ]
-    },
-    {
-      "title": "The Great Migration",
-      "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
-      "period": "Sep 2023 - Apr 2024",
-      "source": "both",
-      "action": "keep",
-      "priority": "medium",
-      "space_action": "single_bullet",
-      "matched_jd_requirements": ["gaming industry", "technical detail", "team collaboration"],
-      "why_relevant": "Shows game engine development, technical attention to detail, and collaboration in a larger team project.",
-      "draft_bullets": [
-        "Built a C++ asset manager for a custom game engine, centralising asset loading for an 8-person project."
-      ]
-    }
-  ],
-  "candidate_project_ranking": [
-    {
-      "title": "QueryAI",
-      "display_title": "QueryAI (React, Team of 4)",
-      "source": "both",
-      "priority": "high",
-      "recommendation": "include",
-      "reason": "Relevant to configuration-style workflows, database-backed systems, and team-built application quality."
-    },
-    {
-      "title": "CyberSphere",
-      "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
-      "source": "both",
-      "priority": "high",
-      "recommendation": "include",
-      "reason": "Strongest direct game product project and useful for gaming operations roles."
-    },
-    {
-      "title": "The Great Migration",
-      "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
-      "source": "both",
-      "priority": "medium",
-      "recommendation": "include",
-      "reason": "Shows game engine systems, technical detail, and team collaboration."
-    },
-    {
-      "title": "Workout Buddy",
-      "display_title": "Workout Buddy (Android Studio, Team of 5)",
-      "source": "evidence_library",
-      "priority": "medium",
-      "recommendation": "deprioritize",
-      "reason": "Shows team coordination, but is less directly related to gaming operations than the game projects."
-    },
-    {
-      "title": "Job AI Helper",
-      "display_title": "Job AI Helper (Python, Streamlit, Solo)",
-      "source": "evidence_library",
-      "priority": "low",
-      "recommendation": "exclude",
-      "reason": "Useful AI project, but less relevant to a game operations QA role than game and configuration-related projects."
-    }
-  ],
-  "projects_to_remove_or_deprioritize": [
-    {
-      "title": "Workout Buddy",
-      "reason": "Less directly related to gaming operations and QA than CyberSphere or The Great Migration."
-    },
-    {
-      "title": "Job AI Helper",
-      "reason": "Strong technical project, but not as aligned with game operations QA for this specific job."
-    }
-  ],
-  "unsupported_jd_skills": [
-    {
-      "skill": "minimum 1 year of experience in quality assurance",
-      "reason": "No clear evidence found in resume or evidence library."
-    },
-    {
-      "skill": "live operations",
-      "reason": "No clear evidence found in resume or evidence library."
-    }
-  ],
-  "one_page_fit": {
-    "risk": "low",
-    "reason": "The section uses three projects with four total bullets, keeping the weaker third project compact.",
-    "recommended_project_count": 3,
-    "recommended_bullet_count": 4
-  },
-  "notes_for_user": [
-    "Used three projects because space is available and at least three relevant supported candidates exist.",
-    "Gave more detail to stronger projects and only one bullet to the third project."
-  ]
-}
-
-
+Expected behavior:
+- If three relevant projects exist, recommend up to three projects.
+- Give stronger projects more bullets.
+- Give weaker projects fewer bullets.
+- Evidence Library projects can replace current resume projects when more relevant.
+- Do not invent missing details.
 """
+
+
+# Example of correct output:
+# {
+#   "recommended_projects": [
+#     {
+#       "title": "QueryAI",
+#       "display_title": "QueryAI (React, Team of 4)",
+#       "period": "Mar 2025 - Apr 2025",
+#       "source": "both",
+#       "action": "keep",
+#       "priority": "high",
+#       "space_action": "keep_full",
+#       "matched_jd_requirements": ["team collaboration", "quality assurance", "database-backed workflows"],
+#       "why_relevant": "Shows backend integration, access control, and team-built application workflows relevant to configuration and QA work.",
+#       "draft_bullets": [
+#         "Set up the project environment and integrated React with Supabase, supporting secure database-backed workflows for a team-built application.",
+#         "Implemented backend query workflows using PostgREST, improving data retrieval and update reliability."
+#       ]
+#     },
+#     {
+#       "title": "CyberSphere",
+#       "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
+#       "period": "Jan 2018 - Feb 2018",
+#       "source": "both",
+#       "action": "keep",
+#       "priority": "high",
+#       "space_action": "keep_full",
+#       "matched_jd_requirements": ["gaming product", "quality assurance", "attention to detail"],
+#       "why_relevant": "Shows practical game development experience and quality-focused gameplay/UI implementation.",
+#       "draft_bullets": [
+#         "Scripted gameplay features, UI elements, and high-score tracking for a published Unity mobile game."
+#       ]
+#     },
+#     {
+#       "title": "The Great Migration",
+#       "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
+#       "period": "Sep 2023 - Apr 2024",
+#       "source": "both",
+#       "action": "keep",
+#       "priority": "medium",
+#       "space_action": "single_bullet",
+#       "matched_jd_requirements": ["gaming industry", "technical detail", "team collaboration"],
+#       "why_relevant": "Shows game engine development, technical attention to detail, and collaboration in a larger team project.",
+#       "draft_bullets": [
+#         "Built a C++ asset manager for a custom game engine, centralising asset loading for an 8-person project."
+#       ]
+#     }
+#   ],
+#   "candidate_project_ranking": [
+#     {
+#       "title": "QueryAI",
+#       "display_title": "QueryAI (React, Team of 4)",
+#       "source": "both",
+#       "priority": "high",
+#       "recommendation": "include",
+#       "reason": "Relevant to configuration-style workflows, database-backed systems, and team-built application quality."
+#     },
+#     {
+#       "title": "CyberSphere",
+#       "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
+#       "source": "both",
+#       "priority": "high",
+#       "recommendation": "include",
+#       "reason": "Strongest direct game product project and useful for gaming operations roles."
+#     },
+#     {
+#       "title": "The Great Migration",
+#       "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
+#       "source": "both",
+#       "priority": "medium",
+#       "recommendation": "include",
+#       "reason": "Shows game engine systems, technical detail, and team collaboration."
+#     },
+#     {
+#       "title": "Workout Buddy",
+#       "display_title": "Workout Buddy (Android Studio, Team of 5)",
+#       "source": "evidence_library",
+#       "priority": "medium",
+#       "recommendation": "deprioritize",
+#       "reason": "Shows team coordination, but is less directly related to gaming operations than the game projects."
+#     },
+#     {
+#       "title": "Job AI Helper",
+#       "display_title": "Job AI Helper (Python, Streamlit, Solo)",
+#       "source": "evidence_library",
+#       "priority": "low",
+#       "recommendation": "exclude",
+#       "reason": "Useful AI project, but less relevant to a game operations QA role than game and configuration-related projects."
+#     }
+#   ],
+#   "projects_to_remove_or_deprioritize": [
+#     {
+#       "title": "Workout Buddy",
+#       "reason": "Less directly related to gaming operations and QA than CyberSphere or The Great Migration."
+#     },
+#     {
+#       "title": "Job AI Helper",
+#       "reason": "Strong technical project, but not as aligned with game operations QA for this specific job."
+#     }
+#   ],
+#   "unsupported_jd_skills": [
+#     {
+#       "skill": "minimum 1 year of experience in quality assurance",
+#       "reason": "No clear evidence found in resume or evidence library."
+#     },
+#     {
+#       "skill": "live operations",
+#       "reason": "No clear evidence found in resume or evidence library."
+#     }
+#   ],
+#   "one_page_fit": {
+#     "risk": "low",
+#     "reason": "The section uses three projects with four total bullets, keeping the weaker third project compact.",
+#     "recommended_project_count": 3,
+#     "recommended_bullet_count": 4
+#   },
+#   "notes_for_user": [
+#     "Used three projects because space is available and at least three relevant supported candidates exist.",
+#     "Gave more detail to stronger projects and only one bullet to the third project."
+#   ]
+# }
 
 
 def tailor_projects_section(
@@ -247,11 +260,19 @@ def tailor_projects_section(
         raise ValueError("Missing job description profile. Analyze a job description first.")
 
     user_prompt = f"""
-ONE-PAGE CONSTRAINTS:
+PROJECT SELECTION GOAL:
+Create the strongest truthful Projects section for this target job.
+Use the page well, but do not force extra bullets if the evidence is weak.
+
+LIMITS:
 - Maximum projects: {max_projects}
 - Maximum bullets per project: {max_bullets_per_project}
-- Medium or low relevance projects should use fewer bullets.
-- Use the priority and space_action fields to show which content should be kept or reduced first.
+- Prefer 4-6 total project bullets when supported by evidence.
+- Do not invent, exaggerate, or pad content just to fill space.
+- Preserve strong existing truthful bullets when they match the job.
+- Consider projects from both the current resume and Evidence Library equally.
+- A project from the Evidence Library may replace a current resume project if it is more relevant.
+- If fewer than 4 total bullets are used, explain why in notes_for_user.
 
 CURRENT RESUME PROFILE:
 {json.dumps(resume_profile, indent=2, ensure_ascii=False)}

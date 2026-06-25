@@ -82,11 +82,15 @@ def save_uploaded_docx_for_editing(
     uploaded_file: Any,
     *,
     application_id: int | None = None,
+    replace_existing: bool = True,
 ) -> Path:
     """
     Save the uploaded DOCX so the app can later generate an edited copy.
 
     This should only be called if the user ticks the save checkbox.
+
+    Keeps only the latest saved DOCX for the same application session
+    when replace_existing=True.
     """
     if uploaded_file is None:
         raise ValueError("No uploaded file provided.")
@@ -102,6 +106,14 @@ def save_uploaded_docx_for_editing(
     saved_path = SAVED_RESUME_DIR / filename
 
     saved_path.write_bytes(uploaded_file.getbuffer())
+
+    if replace_existing and application_id is not None:
+        for old_path in SAVED_RESUME_DIR.glob(f"app_{application_id}_*.docx"):
+            if old_path != saved_path:
+                try:
+                    old_path.unlink()
+                except OSError:
+                    pass
 
     return saved_path
 
@@ -455,14 +467,16 @@ def compact_tailored_projects_for_space(
     attempt: int,
 ) -> dict[str, Any]:
     """
-    Reduce Projects section size when generated resume exceeds one page.
+    Reduce Projects section size only after the generated DOCX exceeds one page.
 
     attempt 1:
-        Keep 3 projects. High priority can have 2 bullets. Others get 1.
+        Keep projects and bullet counts mostly intact, only trim long bullets.
     attempt 2:
-        Keep 3 projects. Everyone gets 1 shorter bullet.
+        Keep 3 projects. High priority gets up to 2 bullets, others up to 1-2.
     attempt 3:
-        Keep 2 strongest projects. Everyone gets 1 short bullet.
+        Keep 3 projects. Everyone gets 1 concise bullet.
+    attempt 4+:
+        Keep 2 strongest projects with 1 concise bullet each.
     """
     compacted = deepcopy(tailored_projects)
     projects = compacted.get("recommended_projects", [])
@@ -475,29 +489,49 @@ def compact_tailored_projects_for_space(
 
     if attempt == 1:
         max_projects = 3
-        high_bullets = 2
-        other_bullets = 1
-        max_words = 24
+        max_words = 22
+        bullet_limits_by_priority = {
+            "high": 3,
+            "medium": 2,
+            "low": 1,
+        }
+        note = "Trimmed long project bullets but kept useful evidence where possible."
+
     elif attempt == 2:
         max_projects = 3
-        high_bullets = 1
-        other_bullets = 1
         max_words = 20
+        bullet_limits_by_priority = {
+            "high": 2,
+            "medium": 2,
+            "low": 1,
+        }
+        note = "Reduced lower-priority project detail because the resume exceeded one page."
+
+    elif attempt == 3:
+        max_projects = 3
+        max_words = 18
+        bullet_limits_by_priority = {
+            "high": 1,
+            "medium": 1,
+            "low": 1,
+        }
+        note = "Reduced each project to one concise bullet because the resume still exceeded one page."
+
     else:
         max_projects = 2
-        high_bullets = 1
-        other_bullets = 1
         max_words = 18
+        bullet_limits_by_priority = {
+            "high": 1,
+            "medium": 1,
+            "low": 1,
+        }
+        note = "Kept only the two strongest projects because the resume still exceeded one page."
 
     kept_projects = []
 
     for project in projects[:max_projects]:
         priority = str(project.get("priority", "")).lower()
-
-        if priority == "high":
-            bullet_limit = high_bullets
-        else:
-            bullet_limit = other_bullets
+        bullet_limit = bullet_limits_by_priority.get(priority, 1)
 
         bullets = project.get("draft_bullets", []) or []
         project["draft_bullets"] = [
@@ -508,7 +542,7 @@ def compact_tailored_projects_for_space(
 
         if len(project["draft_bullets"]) == 1:
             project["space_action"] = "single_bullet"
-        elif len(project["draft_bullets"]) >= 2:
+        elif attempt >= 1:
             project["space_action"] = "shorten"
 
         kept_projects.append(project)
@@ -530,10 +564,95 @@ def compact_tailored_projects_for_space(
         )
 
     compacted.setdefault("notes_for_user", []).append(
-        f"Applied compact mode attempt {attempt} to reduce page overflow."
+        f"Applied compact mode attempt {attempt}: {note}"
     )
 
     return compacted
+# def compact_tailored_projects_for_space(
+#     tailored_projects: dict[str, Any],
+#     *,
+#     attempt: int,
+# ) -> dict[str, Any]:
+#     """
+#     Reduce Projects section size when generated resume exceeds one page.
+
+#     attempt 1:
+#         Keep 3 projects. High priority can have 2 bullets. Others get 1.
+#     attempt 2:
+#         Keep 3 projects. Everyone gets 1 shorter bullet.
+#     attempt 3:
+#         Keep 2 strongest projects. Everyone gets 1 short bullet.
+#     """
+#     compacted = deepcopy(tailored_projects)
+#     projects = compacted.get("recommended_projects", [])
+
+#     projects = sorted(
+#         projects,
+#         key=_project_priority_score,
+#         reverse=True,
+#     )
+
+#     if attempt == 1:
+#         max_projects = 3
+#         high_bullets = 2
+#         other_bullets = 1
+#         max_words = 24
+#     elif attempt == 2:
+#         max_projects = 3
+#         high_bullets = 1
+#         other_bullets = 1
+#         max_words = 20
+#     else:
+#         max_projects = 2
+#         high_bullets = 1
+#         other_bullets = 1
+#         max_words = 18
+
+#     kept_projects = []
+
+#     for project in projects[:max_projects]:
+#         priority = str(project.get("priority", "")).lower()
+
+#         if priority == "high":
+#             bullet_limit = high_bullets
+#         else:
+#             bullet_limit = other_bullets
+
+#         bullets = project.get("draft_bullets", []) or []
+#         project["draft_bullets"] = [
+#             _trim_words(bullet, max_words)
+#             for bullet in bullets[:bullet_limit]
+#             if str(bullet).strip()
+#         ]
+
+#         if len(project["draft_bullets"]) == 1:
+#             project["space_action"] = "single_bullet"
+#         elif len(project["draft_bullets"]) >= 2:
+#             project["space_action"] = "shorten"
+
+#         kept_projects.append(project)
+
+#     removed_projects = projects[max_projects:]
+
+#     compacted["recommended_projects"] = kept_projects
+#     compacted["projects_to_remove_or_deprioritize"] = compacted.get(
+#         "projects_to_remove_or_deprioritize",
+#         [],
+#     )
+
+#     for project in removed_projects:
+#         compacted["projects_to_remove_or_deprioritize"].append(
+#             {
+#                 "title": project.get("display_title") or project.get("title", "Untitled Project"),
+#                 "reason": "Removed during compacting because the resume exceeded one page.",
+#             }
+#         )
+
+#     compacted.setdefault("notes_for_user", []).append(
+#         f"Applied compact mode attempt {attempt} to reduce page overflow."
+#     )
+
+#     return compacted
 
 # ---------------------------------------------------------------------------
 # Skills replacement
@@ -1002,6 +1121,8 @@ def generate_tailored_resume_copy(
 
     TAILORED_RESUME_DIR.mkdir(parents=True, exist_ok=True)
 
+    cleanup_old_tailored_outputs_for_application(application_id)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     app_part = f"app_{application_id}_" if application_id is not None else ""
     output_path = TAILORED_RESUME_DIR / f"{app_part}tailored_resume_{timestamp}.docx"
@@ -1156,7 +1277,7 @@ def generate_tailored_resume_copy_fit_one_page(
     application_id: int | None = None,
     max_projects: int = 3,
     max_bullets_per_project: int = 3,
-    max_attempts: int = 3,
+    max_attempts: int = 4,
     spacing_mode: str = "paragraph_spacing",
     project_spacing_pt: int = 10,
     after_projects_spacing_pt: int = 10,
@@ -1165,39 +1286,35 @@ def generate_tailored_resume_copy_fit_one_page(
     add_spacing_before_first_project: bool = False,
 ) -> dict[str, Any]:
     """
-    Generate a tailored DOCX and try to keep it to one page.
+    Generate a tailored DOCX and keep it to one page if possible.
 
-    Requires LibreOffice for DOCX-to-PDF conversion.
-    If LibreOffice is unavailable, the DOCX is still generated but page count is unavailable.
+    Flow:
+    1. Generate full truthful tailored version first.
+    2. Convert to PDF and count pages.
+    3. If it fits, keep it.
+    4. If it exceeds one page, compact and retry.
     """
-    # attempt_logs = []
-    # working_projects = deepcopy(tailored_projects)
-
     if not tailored_projects and not tailored_skills:
         raise ValueError("Generate a tailored Projects section or Skills section first.")
 
     attempt_logs = []
-    working_projects = deepcopy(tailored_projects) if tailored_projects else None
-
-    # If only Skills is being changed, there is no Projects section to compact.
-    attempt_limit = max_attempts if tailored_projects else 1
-
     last_docx_path = None
     last_pdf_path = None
     last_page_count = None
+    last_projects_used = deepcopy(tailored_projects) if tailored_projects else None
 
-    #for attempt_index in range(max_attempts):
+    attempt_limit = max_attempts if tailored_projects else 1
+
     for attempt_index in range(attempt_limit):
-        # if attempt_index > 0:
-        #     working_projects = compact_tailored_projects_for_space(
-        #         tailored_projects,
-        #         attempt=attempt_index,
-        #     )
-        if attempt_index > 0 and tailored_projects:
+        if attempt_index == 0:
+            working_projects = deepcopy(tailored_projects) if tailored_projects else None
+            attempt_type = "full"
+        else:
             working_projects = compact_tailored_projects_for_space(
                 tailored_projects,
                 attempt=attempt_index,
             )
+            attempt_type = f"compact_{attempt_index}"
 
         docx_path = generate_tailored_resume_copy(
             saved_resume_docx_path=saved_resume_docx_path,
@@ -1215,6 +1332,7 @@ def generate_tailored_resume_copy_fit_one_page(
         )
 
         last_docx_path = docx_path
+        last_projects_used = working_projects
 
         pdf_path = convert_docx_to_pdf_if_possible(docx_path)
 
@@ -1227,7 +1345,7 @@ def generate_tailored_resume_copy_fit_one_page(
                 "attempts": attempt_logs,
                 "tailored_projects_used": working_projects,
                 "note": (
-                    "Could not check page count because LibreOffice is not installed "
+                    "Could not check page count because LibreOffice is unavailable "
                     "or DOCX-to-PDF conversion failed. DOCX generation still worked."
                 ),
             }
@@ -1240,9 +1358,15 @@ def generate_tailored_resume_copy_fit_one_page(
         attempt_logs.append(
             {
                 "attempt": attempt_index + 1,
+                "attempt_type": attempt_type,
                 "docx_path": str(docx_path),
                 "pdf_path": str(pdf_path),
                 "page_count": page_count,
+                "project_count": len(working_projects.get("recommended_projects", [])) if working_projects else 0,
+                "bullet_count": sum(
+                    len(project.get("draft_bullets", []) or [])
+                    for project in working_projects.get("recommended_projects", [])
+                ) if working_projects else 0,
             }
         )
 
@@ -1254,7 +1378,11 @@ def generate_tailored_resume_copy_fit_one_page(
                 "fit_one_page": True,
                 "attempts": attempt_logs,
                 "tailored_projects_used": working_projects,
-                "note": "Generated resume fits within one page.",
+                "note": (
+                    "Generated resume fits within one page."
+                    if attempt_index == 0
+                    else "Generated resume fits within one page after compacting."
+                ),
             }
 
     return {
@@ -1263,12 +1391,135 @@ def generate_tailored_resume_copy_fit_one_page(
         "page_count": last_page_count,
         "fit_one_page": False,
         "attempts": attempt_logs,
-        "tailored_projects_used": working_projects,
+        "tailored_projects_used": last_projects_used,
         "note": (
             "Resume still appears to exceed one page after compacting. "
             "Try fewer projects, fewer bullets, or shorter skills."
         ),
     }
+
+
+# def generate_tailored_resume_copy_fit_one_page(
+#     *,
+#     saved_resume_docx_path: str | Path,
+#     tailored_projects: dict[str, Any] | None = None,
+#     tailored_skills: dict[str, Any] | None = None,
+#     application_id: int | None = None,
+#     max_projects: int = 3,
+#     max_bullets_per_project: int = 3,
+#     max_attempts: int = 3,
+#     spacing_mode: str = "paragraph_spacing",
+#     project_spacing_pt: int = 10,
+#     after_projects_spacing_pt: int = 10,
+#     blank_lines_between_projects: int = 1,
+#     blank_lines_after_projects: int = 1,
+#     add_spacing_before_first_project: bool = False,
+# ) -> dict[str, Any]:
+#     """
+#     Generate a tailored DOCX and try to keep it to one page.
+
+#     Requires LibreOffice for DOCX-to-PDF conversion.
+#     If LibreOffice is unavailable, the DOCX is still generated but page count is unavailable.
+#     """
+#     # attempt_logs = []
+#     # working_projects = deepcopy(tailored_projects)
+
+#     if not tailored_projects and not tailored_skills:
+#         raise ValueError("Generate a tailored Projects section or Skills section first.")
+
+#     attempt_logs = []
+#     working_projects = deepcopy(tailored_projects) if tailored_projects else None
+
+#     # If only Skills is being changed, there is no Projects section to compact.
+#     attempt_limit = max_attempts if tailored_projects else 1
+
+#     last_docx_path = None
+#     last_pdf_path = None
+#     last_page_count = None
+
+#     #for attempt_index in range(max_attempts):
+#     for attempt_index in range(attempt_limit):
+#         # if attempt_index > 0:
+#         #     working_projects = compact_tailored_projects_for_space(
+#         #         tailored_projects,
+#         #         attempt=attempt_index,
+#         #     )
+#         if attempt_index > 0 and tailored_projects:
+#             working_projects = compact_tailored_projects_for_space(
+#                 tailored_projects,
+#                 attempt=attempt_index,
+#             )
+
+#         docx_path = generate_tailored_resume_copy(
+#             saved_resume_docx_path=saved_resume_docx_path,
+#             tailored_projects=working_projects,
+#             tailored_skills=tailored_skills,
+#             application_id=application_id,
+#             max_projects=max_projects,
+#             max_bullets_per_project=max_bullets_per_project,
+#             spacing_mode=spacing_mode,
+#             project_spacing_pt=project_spacing_pt,
+#             after_projects_spacing_pt=after_projects_spacing_pt,
+#             blank_lines_between_projects=blank_lines_between_projects,
+#             blank_lines_after_projects=blank_lines_after_projects,
+#             add_spacing_before_first_project=add_spacing_before_first_project,
+#         )
+
+#         last_docx_path = docx_path
+
+#         pdf_path = convert_docx_to_pdf_if_possible(docx_path)
+
+#         if pdf_path is None:
+#             return {
+#                 "docx_path": docx_path,
+#                 "pdf_path": None,
+#                 "page_count": None,
+#                 "fit_one_page": None,
+#                 "attempts": attempt_logs,
+#                 "tailored_projects_used": working_projects,
+#                 "note": (
+#                     "Could not check page count because LibreOffice is not installed "
+#                     "or DOCX-to-PDF conversion failed. DOCX generation still worked."
+#                 ),
+#             }
+
+#         page_count = count_pdf_pages(pdf_path)
+
+#         last_pdf_path = pdf_path
+#         last_page_count = page_count
+
+#         attempt_logs.append(
+#             {
+#                 "attempt": attempt_index + 1,
+#                 "docx_path": str(docx_path),
+#                 "pdf_path": str(pdf_path),
+#                 "page_count": page_count,
+#             }
+#         )
+
+#         if page_count <= 1:
+#             return {
+#                 "docx_path": docx_path,
+#                 "pdf_path": pdf_path,
+#                 "page_count": page_count,
+#                 "fit_one_page": True,
+#                 "attempts": attempt_logs,
+#                 "tailored_projects_used": working_projects,
+#                 "note": "Generated resume fits within one page.",
+#             }
+
+#     return {
+#         "docx_path": last_docx_path,
+#         "pdf_path": last_pdf_path,
+#         "page_count": last_page_count,
+#         "fit_one_page": False,
+#         "attempts": attempt_logs,
+#         "tailored_projects_used": working_projects,
+#         "note": (
+#             "Resume still appears to exceed one page after compacting. "
+#             "Try fewer projects, fewer bullets, or shorter skills."
+#         ),
+#     }
 
 
 
@@ -1459,3 +1710,30 @@ def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
         f'<iframe src="data:application/pdf;base64,{encoded}" '
         f'width="100%" height="{height}" type="application/pdf"></iframe>'
     )
+
+
+# ---------------------------------------------------------------------------
+# Cleaner
+# ---------------------------------------------------------------------------
+
+def cleanup_old_tailored_outputs_for_application(application_id: int | None) -> None:
+    """
+    Remove old generated DOCX/PDF/PNG outputs for this application session.
+
+    Does not remove data/saved_resumes, because that is the original saved DOCX copy.
+    """
+    if application_id is None:
+        return
+
+    patterns = [
+        TAILORED_RESUME_DIR / f"app_{application_id}_tailored_resume_*.docx",
+        PREVIEW_DIR / f"app_{application_id}_tailored_resume_*.pdf",
+        PREVIEW_DIR / f"app_{application_id}_tailored_resume_*.png",
+    ]
+
+    for pattern in patterns:
+        for path in pattern.parent.glob(pattern.name):
+            try:
+                path.unlink()
+            except OSError:
+                pass

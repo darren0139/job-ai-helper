@@ -50,6 +50,7 @@ from resume_builder.docx_projects_skills_replacer import (
     extract_docx_preview_text,
     convert_docx_to_pdf_if_possible,
     pdf_to_iframe_html,
+    cleanup_old_tailored_outputs_for_application,
 )
 
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
@@ -302,26 +303,53 @@ USER QUESTION:
 # File and report helpers
 # ---------------------------------------------------------------------------
 
+# def create_markdown_report(report: dict) -> tuple[str, str]:
+#     """
+#     Create a Markdown report using the existing report.py renderer.
+
+#     Returns:
+#         markdown_text: The report content as text.
+#         filename: Suggested filename for download.
+#     """
+#     output_dir = Path("outputs")
+#     output_dir.mkdir(parents=True, exist_ok=True)
+
+#     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+#     filename = f"match_report_{timestamp}.md"
+#     md_path = output_dir / filename
+
+#     render_markdown(report, out_path=md_path)
+#     markdown_text = md_path.read_text(encoding="utf-8")
+
+#     return markdown_text, filename
+
 def create_markdown_report(report: dict) -> tuple[str, str]:
     """
-    Create a Markdown report using the existing report.py renderer.
+    Create a Markdown report for download.
 
-    Returns:
-        markdown_text: The report content as text.
-        filename: Suggested filename for download.
+    Uses a temporary file so match reports do not keep piling up in outputs/.
     """
-    output_dir = Path("outputs")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"match_report_{timestamp}.md"
-    md_path = output_dir / filename
 
-    render_markdown(report, out_path=md_path)
-    markdown_text = md_path.read_text(encoding="utf-8")
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".md",
+        mode="w",
+        encoding="utf-8",
+    ) as tmp_file:
+        tmp_path = Path(tmp_file.name)
+
+    try:
+        render_markdown(report, out_path=tmp_path)
+        markdown_text = tmp_path.read_text(encoding="utf-8")
+    finally:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
 
     return markdown_text, filename
-
 
 def validate_jd_text(jd_text: str) -> str:
     """Validate job description text pasted into the Streamlit text area."""
@@ -771,6 +799,21 @@ if page == "Application Sessions":
                     report=report,
                 )
 
+            # Clear old tailored resume state when this session is re-analysed.
+            # This prevents old tailored projects/skills/DOCX preview from showing after a new analysis.
+            for key in [
+                f"tailored_projects_result_{application_id}",
+                f"tailored_projects_fit_{application_id}",
+                f"tailored_skills_result_{application_id}",
+                f"tailored_resume_copy_path_{application_id}",
+                f"tailored_resume_fit_result_{application_id}",
+                f"saved_resume_docx_path_{application_id}",
+            ]:
+                st.session_state.pop(key, None)
+
+            cleanup_old_tailored_outputs_for_application(application_id)
+            st.session_state.pop("saved_resume_docx_path", None)
+
             if save_resume_docx_for_editing:
                 if uploaded_resume.name.lower().endswith(".docx"):
                     saved_resume_docx_path = save_uploaded_docx_for_editing(
@@ -996,6 +1039,13 @@ if page == "Application Sessions":
                     key=f"generate_projects_{current_application_id}",
                 ):
                     try:
+                        evidence_items = get_evidence_items(limit=100)
+
+                        st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
+                            "resume_projects": report.get("resume_profile", {}).get("projects", []),
+                            "evidence_items": evidence_items,
+                        }
+
                         with st.spinner("Generating tailored projects..."):
                             project_result = tailor_projects_section(
                                 resume_profile=report.get("resume_profile", {}),
@@ -1049,6 +1099,12 @@ if page == "Application Sessions":
             project_result = st.session_state.get(tailored_projects_key)
             fit_estimate = st.session_state.get(tailored_fit_key)
             skills_result = st.session_state.get(tailored_skills_key)
+
+            # debug_inputs = st.session_state.get(f"debug_project_tailor_inputs_{current_application_id}")
+
+            # if debug_inputs:
+            #     with st.expander("Debug: Project tailoring inputs"):
+            #         st.json(debug_inputs)
 
             if project_result:
                 st.write("### Recommended Projects Section")
@@ -1273,11 +1329,13 @@ if page == "Application Sessions":
                 st.write("### Preview")
 
                 preview_text = extract_docx_preview_text(tailored_resume_copy_path)
+                preview_key = f"docx_preview_{current_application_id}_{Path(tailored_resume_copy_path).stem}"
                 st.text_area(
                     "Text preview",
                     value=preview_text,
                     height=360,
-                    key=f"docx_preview_{current_application_id}",
+                    #key=f"docx_preview_{current_application_id}",
+                    key=preview_key,
                 )
 
                 pdf_preview_path = convert_docx_to_pdf_if_possible(tailored_resume_copy_path)
@@ -1817,7 +1875,20 @@ elif page == "Profile & Evidence":
     else:
         for item in evidence_items:
             with st.expander(f"{item['category']}: {item['title']}"):
-                st.write(item["description"])
+
+                description = str(item.get("description", "")).strip()
+
+                if description:
+                    lines = [line.strip() for line in description.splitlines() if line.strip()]
+
+                    if lines:
+                        for line in lines:
+                            cleaned_line = line.lstrip("•-* ").strip()
+
+                            if cleaned_line:
+                                st.markdown(f"- {cleaned_line}")
+                    else:
+                        st.write(description)
 
                 if item.get("period"):
                     st.write("**Period:** " + item["period"])
@@ -1830,6 +1901,9 @@ elif page == "Profile & Evidence":
 
                 if item.get("impact"):
                     st.write("**Impact/scope:** " + item["impact"])
+
+                # with st.expander("Debug raw evidence value"):
+                #     st.code(item.get("description", ""), language=None)
 
                 st.divider()
 
