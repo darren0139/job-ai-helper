@@ -1039,12 +1039,12 @@ if page == "Application Sessions":
                     key=f"generate_projects_{current_application_id}",
                 ):
                     try:
-                        # evidence_items = get_evidence_items(limit=100)
+                        evidence_items = get_evidence_items(limit=100)
 
-                        # st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
-                        #     "resume_projects": report.get("resume_profile", {}).get("projects", []),
-                        #     "evidence_items": evidence_items,
-                        # }
+                        st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
+                            "resume_projects": report.get("resume_profile", {}).get("projects", []),
+                            "evidence_items": evidence_items,
+                        }
 
                         with st.spinner("Generating tailored projects..."):
                             project_result = tailor_projects_section(
@@ -1100,11 +1100,11 @@ if page == "Application Sessions":
             fit_estimate = st.session_state.get(tailored_fit_key)
             skills_result = st.session_state.get(tailored_skills_key)
 
-            # debug_inputs = st.session_state.get(f"debug_project_tailor_inputs_{current_application_id}")
+            debug_inputs = st.session_state.get(f"debug_project_tailor_inputs_{current_application_id}")
 
-            # if debug_inputs:
-            #     with st.expander("Debug: Project tailoring inputs"):
-            #         st.json(debug_inputs)
+            if debug_inputs:
+                with st.expander("Debug: Project tailoring inputs"):
+                    st.json(debug_inputs)
 
             if project_result:
                 st.write("### Recommended Projects Section")

@@ -11,6 +11,7 @@ Updated version:
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any
 
