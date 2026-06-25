@@ -1039,12 +1039,12 @@ if page == "Application Sessions":
                     key=f"generate_projects_{current_application_id}",
                 ):
                     try:
-                        evidence_items = get_evidence_items(limit=100)
+                        # evidence_items = get_evidence_items(limit=100)
 
-                        st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
-                            "resume_projects": report.get("resume_profile", {}).get("projects", []),
-                            "evidence_items": evidence_items,
-                        }
+                        # st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
+                        #     "resume_projects": report.get("resume_profile", {}).get("projects", []),
+                        #     "evidence_items": evidence_items,
+                        # }
 
                         with st.spinner("Generating tailored projects..."):
                             project_result = tailor_projects_section(
