@@ -127,6 +127,13 @@ from rag.jd_chroma_rag import (
     answer_jd_library_question_chroma,
 )
 
+
+from tailoring.canonical_bullet_suggester import (
+    suggest_canonical_project_bullets,
+    canonical_bullets_to_description,
+)
+
+
 from report import render_markdown
 from llm import ask_text
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
@@ -1064,7 +1071,7 @@ if page == "Application Sessions":
                             project_result = tailor_projects_section(
                                 resume_profile=report.get("resume_profile", {}),
                                 jd_profile=report.get("jd_profile", {}),
-                                evidence_items=get_evidence_items,
+                                evidence_items=evidence_items,
                                 max_projects=max_projects,
                                 max_bullets_per_project=max_bullets,
                             )
@@ -1933,6 +1940,71 @@ elif page == "Profile & Evidence":
 
                 st.divider()
 
+                if item.get("category") == "Project":
+                    with st.expander("Suggest canonical CAR bullets"):
+                        st.caption(
+                            "Uses the current Evidence Library description, skills, tools, and impact "
+                            "to suggest stable master bullets. Review before saving."
+                        )
+
+                        suggestion_key = f"canonical_bullet_suggestion_{item['id']}"
+
+                        if st.button(
+                            "Suggest canonical bullets",
+                            key=f"suggest_canonical_bullets_{item['id']}",
+                            width="stretch",
+                        ):
+                            try:
+                                with st.spinner("Suggesting canonical bullets..."):
+                                    suggestion = suggest_canonical_project_bullets(
+                                        title=item.get("title", ""),
+                                        period=item.get("period", ""),
+                                        description=item.get("description", ""),
+                                        skills=item.get("skills", []),
+                                        tools=item.get("tools", []),
+                                        impact=item.get("impact", ""),
+                                    )
+
+                                st.session_state[suggestion_key] = suggestion
+                                st.rerun()
+
+                            except ValueError as exc:
+                                st.warning(str(exc))
+                            except RuntimeError as exc:
+                                st.error(f"LLM/API error: {exc}")
+                            except Exception as exc:
+                                st.error(f"Unexpected error while suggesting bullets: {exc}")
+
+                        suggestion = st.session_state.get(suggestion_key)
+
+                        if suggestion:
+                            suggested_description = canonical_bullets_to_description(suggestion)
+
+                            st.write("**Suggested canonical bullets:**")
+                            for bullet in suggestion.get("canonical_bullets", []):
+                                st.markdown(f"- {bullet}")
+
+                            if suggestion.get("notes"):
+                                with st.expander("Suggestion notes"):
+                                    st.json(suggestion.get("notes", []))
+
+                            st.text_area(
+                                "Suggested Evidence Library description",
+                                value=suggested_description,
+                                height=180,
+                                key=f"suggested_canonical_description_{item['id']}",
+                            )
+
+                            if st.button(
+                                "Apply suggestion to edit form",
+                                key=f"apply_canonical_suggestion_{item['id']}",
+                                width="stretch",
+                            ):
+                                st.session_state[f"edit_evidence_mode_{item['id']}"] = True
+                                st.session_state[f"edit_description_{item['id']}"] = suggested_description
+                                st.success("Suggestion applied to the edit form. Review it, then click Save Changes.")
+                                st.rerun()
+
                 edit_mode = st.checkbox(
                     "Edit evidence",
                     key=f"edit_evidence_mode_{item['id']}",
@@ -1967,10 +2039,14 @@ elif page == "Profile & Evidence":
                         )
 
                         edited_description = st.text_area(
-                            "What did you actually do?",
+                            "Canonical bullets / master evidence",
                             value=item.get("description", ""),
-                            height=140,
+                            height=180,
                             key=f"edit_description_{item['id']}",
+                            help=(
+                                "These are the user-approved master bullets. "
+                                "Tailoring should select or lightly rephrase from these, not rewrite from scratch."
+                            ),
                         )
 
                         edited_skills = st.text_input(

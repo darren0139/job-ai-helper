@@ -35,11 +35,15 @@ Rules:
 - A skill/tool can be recommended only if it appears in the current resume profile or is clearly supported by the Evidence Library.
 - Do not modify work experience.
 - Prefer skills/tools required or preferred by the JD.
-- Avoid overstuffing.
+- Avoid overstuffing, but do not remove useful supported skills that are relevant to the JD.
 - Use concise resume-friendly categories.
+- Prefer stable, reusable skill names over overly tailored wording.
+- Preserve important existing skills when they are relevant to the target JD.
+- Prefer skills/tools supported by multiple evidence items or strong project evidence.
 - If a JD skill is not supported by resume/evidence, put it under unsupported_jd_skills.
 - If a skill is supported by evidence but missing from the current resume, put it under evidence_supported_additions.
 - Keep output suitable for a one-page resume.
+- Do not add generic soft skills unless clearly supported by project, internship, or teamwork evidence.
 
 Recommended categories:
 - Programming
@@ -105,7 +109,7 @@ Create a concise tailored Skills section for this target job.
     return ask_json(
         SKILLS_SECTION_TAILOR_PROMPT,
         user_prompt,
-        temperature=0.2,
+        temperature=0.0,
         max_tokens=1600,
     )
 

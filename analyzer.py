@@ -88,7 +88,7 @@ def analyse_keyword_match(
     return ask_json(
         KEYWORD_MATCH_PROMPT,
         user,
-        temperature=0.2,
+        temperature=0.0,
         max_tokens=3000,
     )
 
@@ -231,7 +231,7 @@ def summarise_overall(report: dict) -> str:
     return ask_text(
         OVERALL_SUMMARY_PROMPT,
         user,
-        temperature=0.3,
+        temperature=0.1,
         max_tokens=400,
     )
 

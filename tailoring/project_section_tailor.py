@@ -50,8 +50,7 @@ Project selection and page-use rules:
 - Use available page space sensibly, but never invent, exaggerate, or pad weak points.
 - Prefer 4-6 total project bullets when supported by truthful evidence.
 - Use 5-7 total project bullets only when the selected projects are strongly relevant, the evidence is strong, and the bullets remain concise.
-- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or the page is likely crowded.
-- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
+- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or there are not enough suitable selected bullets.- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
 - Moderately relevant projects should usually have 1-2 bullets.
 - Use 1 bullet only when the project is lower priority, weakly related, or has limited evidence.
 - If the original resume already has strong truthful bullets that match the JD, preserve or lightly rephrase them.
@@ -60,8 +59,7 @@ Project selection and page-use rules:
 - If a project period/date is known, include it. If unknown, leave period empty.
 - If fewer than 4 total project bullets are used, explain why in notes_for_user.
 
-
-Critical truthfulness rules:
+Candidate coverage rules:
 - Evaluate all project candidates found in the resume profile and Evidence Library.
 - Include every project candidate in candidate_project_ranking, even if it is not selected.
 - projects_to_remove_or_deprioritize should focus on projects currently in the resume that should be replaced, shortened, or removed.
@@ -77,6 +75,46 @@ Candidate scoring rules:
 - recommended_projects must be selected from the highest final_score candidates unless there is a clear one-page or truthfulness reason.
 - If a lower-scoring project is selected over a higher-scoring project, explain why in notes_for_user.
 
+Stricter scoring rules:
+- final_score must equal relevance_score * 2 + evidence_strength_score.
+- Relevance should matter more than evidence strength.
+- A project with no specific matched_jd_requirements should usually have relevance_score 3 or lower.
+- Do not recommend "include" for a project with empty matched_jd_requirements unless fewer than the allowed number of projects have clear JD matches.
+- Reasons must reference specific JD requirements, not generic phrases like "technical skills are useful".
+- For this output, candidate_project_ranking must be sorted from highest final_score to lowest final_score.
+
+Canonical blueprint rules:
+- Treat Evidence Library project bullets as the user-approved canonical blueprint when available.
+- Prefer selecting existing canonical bullets instead of rewriting from scratch.
+- Do not change canonical wording just to sound more tailored.
+- Lightly rephrase a canonical bullet only if it improves clarity, reduces length, or naturally matches the JD wording without changing meaning.
+- If a canonical bullet is already clear and relevant, preserve it closely.
+- Any rewritten bullet must preserve the same meaning as the canonical bullet.
+- If the resume is too long, reduce bullet count before heavily rewriting bullet wording.
+- Do not split one idea into multiple weak bullets just to fill space.
+- Do not create a separate collaboration/teamwork bullet if team size is already clear in the project title, unless the JD strongly emphasizes coordination or collaboration.
+- Avoid repetitive bullets that say the same thing in different words.
+
+CAR bullet rules:
+- Each draft bullet should follow compact CAR structure where possible: Context + Action + Result/Scope.
+- Start each bullet with a strong action verb.
+- Include the technology, system, feature, or workflow involved when relevant.
+- Include a truthful result, impact, or scope indicator.
+- If no metric exists, use scope indicators such as team size, published product, system area, workflow supported, or user-facing feature.
+- Do not write pure task bullets that only say what was done without context or scope.
+- Do not invent measurable results.
+- Keep each bullet concise and resume-friendly.
+
+Unsupported JD skill rules:
+- unsupported_jd_skills must include JD requirements that are not clearly supported by the resume or Evidence Library.
+- Do not leave unsupported_jd_skills empty unless every major JD requirement has clear evidence.
+- If evidence is only indirect or transferable, mention it in notes_for_user instead of treating it as fully supported.
+
+Display order rules:
+- candidate_project_ranking should be sorted by final_score from highest to lowest.
+- recommended_projects should contain the selected projects, but final display order may be reverse chronological by period.
+- Do not change project selection just to satisfy date order.
+
 Output only valid JSON matching this schema:
 {
   "recommended_projects": [
@@ -90,6 +128,9 @@ Output only valid JSON matching this schema:
       "space_action": "keep_full|shorten|single_bullet|remove",
       "matched_jd_requirements": ["string"],
       "why_relevant": "string",
+      "selected_blueprint_bullets": ["string"],
+      "rewritten_bullets": ["string"],
+      "rewrite_reason": "string",
       "draft_bullets": ["string"]
     }
   ],
@@ -134,6 +175,8 @@ Expected behavior:
 - Give weaker projects fewer bullets.
 - Evidence Library projects can replace current resume projects when more relevant.
 - Do not invent missing details.
+- draft_bullets should usually be the same as selected_blueprint_bullets or a light rewrite of them.
+- If draft_bullets differ from selected_blueprint_bullets, explain why in rewrite_reason.
 """
 
 
@@ -270,6 +313,84 @@ def _normalise_project_key(title: str) -> str:
     return " ".join(text.split())
 
 
+_MONTH_TO_NUMBER = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def _period_sort_value(period: str) -> tuple[int, int]:
+    """
+    Convert a project period into a sortable latest date.
+
+    Examples:
+    'Mar 2025 - Apr 2025' -> (2025, 4)
+    'Sep 2023 - Apr 2024' -> (2024, 4)
+    'Jan 2018 - Feb 2018' -> (2018, 2)
+    Unknown dates go last.
+    """
+    text = str(period or "").lower().strip()
+
+    if not text:
+        return (0, 0)
+
+    if "present" in text or "current" in text:
+        return (9999, 12)
+
+    matches = re.findall(
+        r"(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)?\s*(20\d{2}|19\d{2})",
+        text,
+    )
+
+    if not matches:
+        return (0, 0)
+
+    month_text, year_text = matches[-1]
+    year = int(year_text)
+    month = _MONTH_TO_NUMBER.get(month_text, 12) if month_text else 12
+
+    return (year, month)
+
+
+def _sort_recommended_projects_latest_first(result: dict[str, Any]) -> dict[str, Any]:
+    """
+    Sort only the final displayed recommended_projects by latest date first.
+
+    Keep candidate_project_ranking as score/ranking order for debugging.
+    """
+    projects = result.get("recommended_projects", [])
+
+    if isinstance(projects, list):
+        result["recommended_projects"] = sorted(
+            projects,
+            key=lambda project: _period_sort_value(project.get("period", "")),
+            reverse=True,
+        )
+
+    return result
+
 def _split_description_into_bullets(description: str) -> list[str]:
     """
     Convert evidence description into clean bullet-like lines.
@@ -281,12 +402,14 @@ def _split_description_into_bullets(description: str) -> list[str]:
         return []
 
     # Handle cases like: "• did A • did B • did C"
-    text = text.replace("●", "\n").replace("•", "\n")
+    # text = text.replace("●", "\n").replace("•", "\n")
+    text = text.replace("●", "\n").replace("•", "\n").replace("", "\n")
 
     bullets = []
 
     for line in text.splitlines():
-        cleaned = line.strip().lstrip("-*•● ").strip()
+        # cleaned = line.strip().lstrip("-*•● ").strip()
+        cleaned = line.strip().lstrip("-*•● ").strip()
 
         if cleaned:
             bullets.append(cleaned)
@@ -539,6 +662,8 @@ def _postprocess_project_tailoring_result(
         reverse=True,
     )
 
+    result["candidate_project_ranking"] = ranked
+
     selected_titles = {
         _normalise_project_key(project.get("title", ""))
         for project in result.get("recommended_projects", [])
@@ -554,6 +679,8 @@ def _postprocess_project_tailoring_result(
             "Debug note: selected projects do not exactly match the top scored candidates. "
             "Review candidate_project_ranking."
         )
+    
+    result = _sort_recommended_projects_latest_first(result)
 
     return result
     
@@ -586,7 +713,8 @@ Create the strongest truthful Projects section for this target job.
 Use the page well, but do not force extra bullets if the evidence is weak.
 
 IMPORTANT:
-Use COMBINED PROJECT CANDIDATE POOL as the main source of project candidates.
+Use COMBINED PROJECT CANDIDATE POOL as the main source of project candidates and bullet wording.
+When evidence_library_evidence.bullets exists, treat those bullets as the preferred master bullets.
 The current resume profile is context, not a preference signal.
 Do not choose a project just because it is already in the resume.
 Do not ignore a project just because it only appears in the Evidence Library.
@@ -596,7 +724,7 @@ LIMITS:
 - Maximum bullets per project: {max_bullets_per_project}
 - Prefer 4-6 total project bullets when supported by evidence.
 - Do not invent, exaggerate, or pad content just to fill space.
-- Preserve strong existing truthful bullets when they match the job.
+- Preserve strong existing truthful bullets from the Evidence Library or resume when they match the job.
 - If fewer than 4 total bullets are used, explain why in notes_for_user.
 
 COMBINED PROJECT CANDIDATE POOL:
@@ -606,8 +734,16 @@ COMBINED PROJECT CANDIDATE POOL:
 TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
-CURRENT RESUME PROFILE CONTEXT:
-{json.dumps(resume_profile, indent=2, ensure_ascii=False)}
+CURRENT RESUME PROJECT TITLES ONLY:
+{json.dumps(
+    [
+        candidate.get("title", "")
+        for candidate in project_candidates
+        if candidate.get("currently_in_resume")
+    ],
+    indent=2,
+    ensure_ascii=False,
+)}
 
 TASK:
 Recommend a tailored Projects section for this target job.
@@ -639,28 +775,6 @@ Selection rules:
     max_projects=max_projects,
     )
 
-
-    ranked = sorted(
-        result.get("candidate_project_ranking", []),
-        key=lambda item: item.get("final_score", 0),
-        reverse=True,
-    )
-
-    selected_titles = {
-        _normalise_project_key(project.get("title", ""))
-        for project in result.get("recommended_projects", [])
-    }
-
-    top_titles = {
-        _normalise_project_key(project.get("title", ""))
-        for project in ranked[:max_projects]
-    }
-
-    if ranked and not top_titles.issubset(selected_titles):
-        result.setdefault("notes_for_user", []).append(
-            "Debug note: selected projects do not exactly match the top scored candidates. "
-            "Review candidate_project_ranking."
-        )
 
     return result
 
