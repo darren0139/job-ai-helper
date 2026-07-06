@@ -44,7 +44,7 @@ from docx.document import Document as DocumentObject
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
-
+from utils.date_sorting import period_sort_value
 
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -547,7 +547,15 @@ def compact_tailored_projects_for_space(
 
         kept_projects.append(project)
 
+        
+
     removed_projects = projects[max_projects:]
+
+    kept_projects = sorted(
+    kept_projects,
+    key=lambda project: period_sort_value(project.get("period", "")),
+    reverse=True,
+    )
 
     compacted["recommended_projects"] = kept_projects
     compacted["projects_to_remove_or_deprioritize"] = compacted.get(

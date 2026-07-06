@@ -16,7 +16,7 @@ import json
 from typing import Any
 
 from llm import ask_json
-
+from utils.date_sorting import period_sort_value
 
 PROJECT_SECTION_TAILOR_PROMPT = """
 Instruction:
@@ -341,37 +341,37 @@ _MONTH_TO_NUMBER = {
 }
 
 
-def _period_sort_value(period: str) -> tuple[int, int]:
-    """
-    Convert a project period into a sortable latest date.
+# def _period_sort_value(period: str) -> tuple[int, int]:
+#     """
+#     Convert a project period into a sortable latest date.
 
-    Examples:
-    'Mar 2025 - Apr 2025' -> (2025, 4)
-    'Sep 2023 - Apr 2024' -> (2024, 4)
-    'Jan 2018 - Feb 2018' -> (2018, 2)
-    Unknown dates go last.
-    """
-    text = str(period or "").lower().strip()
+#     Examples:
+#     'Mar 2025 - Apr 2025' -> (2025, 4)
+#     'Sep 2023 - Apr 2024' -> (2024, 4)
+#     'Jan 2018 - Feb 2018' -> (2018, 2)
+#     Unknown dates go last.
+#     """
+#     text = str(period or "").lower().strip()
 
-    if not text:
-        return (0, 0)
+#     if not text:
+#         return (0, 0)
 
-    if "present" in text or "current" in text:
-        return (9999, 12)
+#     if "present" in text or "current" in text:
+#         return (9999, 12)
 
-    matches = re.findall(
-        r"(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)?\s*(20\d{2}|19\d{2})",
-        text,
-    )
+#     matches = re.findall(
+#         r"(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)?\s*(20\d{2}|19\d{2})",
+#         text,
+#     )
 
-    if not matches:
-        return (0, 0)
+#     if not matches:
+#         return (0, 0)
 
-    month_text, year_text = matches[-1]
-    year = int(year_text)
-    month = _MONTH_TO_NUMBER.get(month_text, 12) if month_text else 12
+#     month_text, year_text = matches[-1]
+#     year = int(year_text)
+#     month = _MONTH_TO_NUMBER.get(month_text, 12) if month_text else 12
 
-    return (year, month)
+#     return (year, month)
 
 
 def _sort_recommended_projects_latest_first(result: dict[str, Any]) -> dict[str, Any]:
@@ -385,7 +385,7 @@ def _sort_recommended_projects_latest_first(result: dict[str, Any]) -> dict[str,
     if isinstance(projects, list):
         result["recommended_projects"] = sorted(
             projects,
-            key=lambda project: _period_sort_value(project.get("period", "")),
+            key=lambda project: period_sort_value(project.get("period", "")),
             reverse=True,
         )
 
