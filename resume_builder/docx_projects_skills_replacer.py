@@ -474,7 +474,9 @@ def compact_tailored_projects_for_space(
     attempt 2:
         Keep 3 projects. High priority gets up to 2 bullets, others up to 1-2.
     attempt 3:
-        Keep 3 projects. Everyone gets 1 concise bullet.
+        Keep 3 projects. High priority gets up to 2 bullets;
+        medium and low priority get 1 bullet.
+
     attempt 4+:
         Keep 2 strongest projects with 1 concise bullet each.
     """
@@ -489,7 +491,7 @@ def compact_tailored_projects_for_space(
 
     if attempt == 1:
         max_projects = 3
-        max_words = 22
+        max_words = 24
         bullet_limits_by_priority = {
             "high": 3,
             "medium": 2,
@@ -499,7 +501,7 @@ def compact_tailored_projects_for_space(
 
     elif attempt == 2:
         max_projects = 3
-        max_words = 20
+        max_words = 22
         bullet_limits_by_priority = {
             "high": 2,
             "medium": 2,
@@ -509,13 +511,16 @@ def compact_tailored_projects_for_space(
 
     elif attempt == 3:
         max_projects = 3
-        max_words = 18
+        max_words = 20
         bullet_limits_by_priority = {
-            "high": 1,
+            "high": 2,
             "medium": 1,
             "low": 1,
         }
-        note = "Reduced each project to one concise bullet because the resume still exceeded one page."
+        note = note = (
+        "Kept up to two bullets for high-priority projects and one bullet "
+        "for medium- and low-priority projects."
+        )
 
     else:
         max_projects = 2
@@ -533,17 +538,35 @@ def compact_tailored_projects_for_space(
         priority = str(project.get("priority", "")).lower()
         bullet_limit = bullet_limits_by_priority.get(priority, 1)
 
-        bullets = project.get("draft_bullets", []) or []
-        project["draft_bullets"] = [
+        original_bullets = project.get("draft_bullets", []) or []
+
+
+        compacted_bullets = [
             _trim_words(bullet, max_words)
-            for bullet in bullets[:bullet_limit]
+            for bullet in original_bullets[:bullet_limit]
             if str(bullet).strip()
         ]
 
-        if len(project["draft_bullets"]) == 1:
+        project["draft_bullets"] = compacted_bullets
+
+        if len(compacted_bullets) == 1:
             project["space_action"] = "single_bullet"
-        elif attempt >= 1:
+        elif compacted_bullets != original_bullets:
             project["space_action"] = "shorten"
+        else:
+            project["space_action"] = "keep_full"
+
+        # bullets = project.get("draft_bullets", []) or []
+        # project["draft_bullets"] = [
+        #     _trim_words(bullet, max_words)
+        #     for bullet in bullets[:bullet_limit]
+        #     if str(bullet).strip()
+        # ]
+
+        # if len(project["draft_bullets"]) == 1:
+        #     project["space_action"] = "single_bullet"
+        # elif attempt >= 1:
+        #     project["space_action"] = "shorten"
 
         kept_projects.append(project)
 
@@ -1129,9 +1152,11 @@ def generate_tailored_resume_copy(
 
     TAILORED_RESUME_DIR.mkdir(parents=True, exist_ok=True)
 
-    cleanup_old_tailored_outputs_for_application(application_id)
+    # cleanup_old_tailored_outputs_for_application(application_id)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
     app_part = f"app_{application_id}_" if application_id is not None else ""
     output_path = TAILORED_RESUME_DIR / f"{app_part}tailored_resume_{timestamp}.docx"
 
@@ -1203,6 +1228,78 @@ def _trim_words(text: str, max_words: int) -> str:
     trimmed = " ".join(words[:max_words]).rstrip(".,;:")
     return trimmed + "."
 
+# old version
+# def compact_tailored_projects_for_space(
+#     tailored_projects: dict[str, Any],
+#     *,
+#     attempt: int,
+# ) -> dict[str, Any]:
+#     """
+#     Reduce Projects section size when the generated resume exceeds one page.
+
+#     attempt 1: keep 3 projects, high priority gets up to 2 bullets, others 1.
+#     attempt 2: keep 3 projects, everyone gets 1 shorter bullet.
+#     attempt 3: keep 2 strongest projects, everyone gets 1 short bullet.
+#     """
+#     compacted = deepcopy(tailored_projects)
+#     projects = compacted.get("recommended_projects", [])
+
+#     projects = sorted(projects, key=_project_priority_score, reverse=True)
+
+#     if attempt == 1:
+#         max_projects = 3
+#         high_bullets = 2
+#         other_bullets = 1
+#         max_words = 24
+#     elif attempt == 2:
+#         max_projects = 3
+#         high_bullets = 1
+#         other_bullets = 1
+#         max_words = 20
+#     else:
+#         max_projects = 2
+#         high_bullets = 1
+#         other_bullets = 1
+#         max_words = 18
+
+#     kept_projects = []
+
+#     for project in projects[:max_projects]:
+#         priority = str(project.get("priority", "")).lower()
+#         bullet_limit = high_bullets if priority == "high" else other_bullets
+
+#         bullets = project.get("draft_bullets", []) or []
+#         project["draft_bullets"] = [
+#             _trim_words(bullet, max_words)
+#             for bullet in bullets[:bullet_limit]
+#             if str(bullet).strip()
+#         ]
+
+#         if len(project["draft_bullets"]) <= 1:
+#             project["space_action"] = "single_bullet"
+#         else:
+#             project["space_action"] = "shorten"
+
+#         kept_projects.append(project)
+
+#     removed_projects = projects[max_projects:]
+#     compacted["recommended_projects"] = kept_projects
+
+#     compacted.setdefault("projects_to_remove_or_deprioritize", [])
+
+#     for project in removed_projects:
+#         compacted["projects_to_remove_or_deprioritize"].append(
+#             {
+#                 "title": project.get("display_title") or project.get("title", "Untitled Project"),
+#                 "reason": "Removed during compacting because the generated resume exceeded one page.",
+#             }
+#         )
+
+#     compacted.setdefault("notes_for_user", []).append(
+#         f"Applied compact mode attempt {attempt} to reduce page overflow."
+#     )
+
+#     return compacted
 
 def compact_tailored_projects_for_space(
     tailored_projects: dict[str, Any],
@@ -1210,68 +1307,141 @@ def compact_tailored_projects_for_space(
     attempt: int,
 ) -> dict[str, Any]:
     """
-    Reduce Projects section size when the generated resume exceeds one page.
+    Reduce the Projects section only after the full generated resume
+    exceeds one page.
 
-    attempt 1: keep 3 projects, high priority gets up to 2 bullets, others 1.
-    attempt 2: keep 3 projects, everyone gets 1 shorter bullet.
-    attempt 3: keep 2 strongest projects, everyone gets 1 short bullet.
+    attempt 1:
+        Keep 3 projects.
+        High priority: up to 3 bullets.
+        Medium priority: up to 2 bullets.
+        Low priority: up to 1 bullet.
+
+    attempt 2:
+        Keep 3 projects.
+        High and medium priority: up to 2 bullets.
+        Low priority: 1 bullet.
+
+    attempt 3:
+        Keep 3 projects.
+        High priority: up to 2 bullets.
+        Medium and low priority: 1 bullet.
+
+    attempt 4+:
+        Keep the 2 strongest projects with 1 bullet each.
     """
     compacted = deepcopy(tailored_projects)
     projects = compacted.get("recommended_projects", [])
 
-    projects = sorted(projects, key=_project_priority_score, reverse=True)
+    # Sort by relevance only to decide which projects survive compaction.
+    projects = sorted(
+        projects,
+        key=_project_priority_score,
+        reverse=True,
+    )
 
     if attempt == 1:
         max_projects = 3
-        high_bullets = 2
-        other_bullets = 1
         max_words = 24
+        bullet_limits_by_priority = {
+            "high": 3,
+            "medium": 2,
+            "low": 1,
+        }
+        note = (
+            "Kept most selected content while trimming long bullets. "
+            "Medium-priority projects retain up to two bullets."
+        )
+
     elif attempt == 2:
         max_projects = 3
-        high_bullets = 1
-        other_bullets = 1
+        max_words = 22
+        bullet_limits_by_priority = {
+            "high": 2,
+            "medium": 2,
+            "low": 1,
+        }
+        note = (
+            "Reduced project detail moderately because the resume "
+            "still exceeded one page."
+        )
+
+    elif attempt == 3:
+        max_projects = 3
         max_words = 20
+        bullet_limits_by_priority = {
+            "high": 2,
+            "medium": 1,
+            "low": 1,
+        }
+        note = (
+            "Reduced lower-priority project detail further because "
+            "the resume still exceeded one page."
+        )
+
     else:
         max_projects = 2
-        high_bullets = 1
-        other_bullets = 1
         max_words = 18
+        bullet_limits_by_priority = {
+            "high": 1,
+            "medium": 1,
+            "low": 1,
+        }
+        note = (
+            "Kept only the two strongest projects because the resume "
+            "still exceeded one page."
+        )
 
     kept_projects = []
 
     for project in projects[:max_projects]:
         priority = str(project.get("priority", "")).lower()
-        bullet_limit = high_bullets if priority == "high" else other_bullets
+        bullet_limit = bullet_limits_by_priority.get(priority, 1)
 
-        bullets = project.get("draft_bullets", []) or []
+        original_bullets = project.get("draft_bullets", []) or []
+
         project["draft_bullets"] = [
             _trim_words(bullet, max_words)
-            for bullet in bullets[:bullet_limit]
+            for bullet in original_bullets[:bullet_limit]
             if str(bullet).strip()
         ]
 
-        if len(project["draft_bullets"]) <= 1:
+        if len(project["draft_bullets"]) == 1:
             project["space_action"] = "single_bullet"
-        else:
+        elif len(project["draft_bullets"]) < len(original_bullets):
             project["space_action"] = "shorten"
+        else:
+            project["space_action"] = "keep_full"
 
         kept_projects.append(project)
 
     removed_projects = projects[max_projects:]
-    compacted["recommended_projects"] = kept_projects
 
+    # Sort the final displayed projects by latest period first.
+    kept_projects = sorted(
+        kept_projects,
+        key=lambda project: period_sort_value(project.get("period", "")),
+        reverse=True,
+    )
+
+    compacted["recommended_projects"] = kept_projects
     compacted.setdefault("projects_to_remove_or_deprioritize", [])
 
     for project in removed_projects:
         compacted["projects_to_remove_or_deprioritize"].append(
             {
-                "title": project.get("display_title") or project.get("title", "Untitled Project"),
-                "reason": "Removed during compacting because the generated resume exceeded one page.",
+                "title": (
+                    project.get("display_title")
+                    or project.get("title", "Untitled Project")
+                ),
+                "reason": (
+                    "Removed during compacting because the generated "
+                    "resume exceeded one page."
+                ),
             }
         )
 
     compacted.setdefault("notes_for_user", []).append(
-        f"Applied compact mode attempt {attempt} to reduce page overflow."
+        f"Applied compact mode attempt {attempt}: {note}"
     )
 
     return compacted
@@ -1285,7 +1455,7 @@ def generate_tailored_resume_copy_fit_one_page(
     application_id: int | None = None,
     max_projects: int = 3,
     max_bullets_per_project: int = 3,
-    max_attempts: int = 4,
+    max_attempts: int = 5,
     spacing_mode: str = "paragraph_spacing",
     project_spacing_pt: int = 10,
     after_projects_spacing_pt: int = 10,
@@ -1305,6 +1475,8 @@ def generate_tailored_resume_copy_fit_one_page(
     if not tailored_projects and not tailored_skills:
         raise ValueError("Generate a tailored Projects section or Skills section first.")
 
+    cleanup_old_tailored_outputs_for_application(application_id)
+    
     attempt_logs = []
     last_docx_path = None
     last_pdf_path = None

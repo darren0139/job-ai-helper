@@ -682,6 +682,18 @@ def _postprocess_project_tailoring_result(
     
     result = _sort_recommended_projects_latest_first(result)
 
+
+
+    # new
+    # Warn when selected projects have no specific JD matches.
+    for project in result.get("recommended_projects", []):
+        if not project.get("matched_jd_requirements"):
+            result.setdefault("notes_for_user", []).append(
+                f"Debug note: selected project '{project.get('display_title') or project.get('title')}' "
+                "has no matched_jd_requirements. Review whether it should be selected."
+            )
+            
+
     return result
     
 

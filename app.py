@@ -1319,7 +1319,7 @@ if page == "Application Sessions":
                             application_id=current_application_id,
                             max_projects=max_projects,
                             max_bullets_per_project=max_bullets,
-                            max_attempts=3,
+                            max_attempts=5,
                             spacing_mode=spacing_mode,
                             project_spacing_pt=project_spacing_pt,
                             after_projects_spacing_pt=after_projects_spacing_pt,
@@ -1353,6 +1353,11 @@ if page == "Application Sessions":
             if fit_result:
                 with st.expander("One-page fitting attempts"):
                     st.json(fit_result.get("attempts", []))
+
+                # Debug
+                with st.expander("Debug: Final projects used in DOCX"):
+                    final_projects_used = fit_result.get("tailored_projects_used", {})
+                    st.json(final_projects_used.get("recommended_projects", []))
 
                 page_count = fit_result.get("page_count")
                 if page_count is not None:

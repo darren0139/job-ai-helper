@@ -45,6 +45,13 @@ Rules:
 - Keep output suitable for a one-page resume.
 - Do not add generic soft skills unless clearly supported by project, internship, or teamwork evidence.
 
+Transferable evidence rules:
+- If a JD requirement is not directly proven but has related evidence, do not mark it as fully unsupported.
+- Put it in notes as "transferable evidence" instead.
+- For example, game projects can support basic gaming industry knowledge, but not necessarily live operations.
+- Do not list soft traits such as "Attention to Detail" as a hard skill line unless strongly supported; mention them in notes instead.
+
+
 Recommended categories:
 - Programming
 - AI & Data
