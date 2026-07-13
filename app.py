@@ -1211,11 +1211,12 @@ if page == "Application Sessions":
 
             if not saved_resume_docx_path:
                 latest_saved_docx = get_latest_saved_docx_for_application(current_application_id)
+                
                 if latest_saved_docx:
                     saved_resume_docx_path = str(latest_saved_docx)
                     st.session_state[saved_docx_key] = saved_resume_docx_path
 
-            # if not saved_resume_docx_path:
+            if not saved_resume_docx_path:
                 st.info(
                     "No saved DOCX found for this session. Upload a DOCX resume, "
                     "tick the save checkbox, and run Analyze Resume again."
@@ -1234,118 +1235,117 @@ if page == "Application Sessions":
                 st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
                 st.caption(f"Will update: {', '.join(selected_sections)}")
 
-            with st.expander("Spacing options", expanded=False):
-                spacing_mode_label = st.radio(
-                    "Spacing mode",
-                    ["Paragraph spacing", "Blank line"],
-                    horizontal=True,
-                    key=f"spacing_mode_{current_application_id}",
-                    help=(
-                        "Paragraph spacing uses Word spacing values. "
-                        "Blank line inserts real empty paragraphs, similar to pressing Enter."
-                    ),
-                )
-
-                spacing_mode = (
-                    "blank_line"
-                    if spacing_mode_label == "Blank line"
-                    else "paragraph_spacing"
-                )
-
-                add_spacing_before_first_project = st.checkbox(
-                    "Add spacing before the first project too",
-                    value=False,
-                    key=f"spacing_before_first_project_{current_application_id}",
-                )
-
-                if spacing_mode == "paragraph_spacing":
-                    project_spacing_pt = st.slider(
-                        "Spacing before each next project (pt)",
-                        0,
-                        20,
-                        10,
-                        key=f"project_spacing_pt_{current_application_id}",
+                with st.expander("Spacing options", expanded=False):
+                    spacing_mode_label = st.radio(
+                        "Spacing mode",
+                        ["Paragraph spacing", "Blank line"],
+                        horizontal=True,
+                        key=f"spacing_mode_{current_application_id}",
+                        help=(
+                            "Paragraph spacing uses Word spacing values. "
+                            "Blank line inserts real empty paragraphs, similar to pressing Enter."
+                        ),
                     )
 
-                    after_projects_spacing_pt = st.slider(
-                        "Spacing after final project / before Skills (pt)",
-                        0,
-                        20,
-                        10,
-                        key=f"after_projects_spacing_pt_{current_application_id}",
+                    spacing_mode = (
+                        "blank_line"
+                        if spacing_mode_label == "Blank line"
+                        else "paragraph_spacing"
                     )
 
-                    blank_lines_between_projects = 0
-                    blank_lines_after_projects = 0
-
-                else:
-                    blank_lines_between_projects = st.number_input(
-                        "Blank lines before each project",
-                        min_value=0,
-                        max_value=3,
-                        value=1,
-                        step=1,
-                        key=f"blank_lines_between_projects_{current_application_id}",
+                    add_spacing_before_first_project = st.checkbox(
+                        "Add spacing before the first project too",
+                        value=False,
+                        key=f"spacing_before_first_project_{current_application_id}",
                     )
 
-                    blank_lines_after_projects = st.number_input(
-                        "Blank lines after final project / before Skills",
-                        min_value=0,
-                        max_value=3,
-                        value=1,
-                        step=1,
-                        key=f"blank_lines_after_projects_{current_application_id}",
-                    )
-
-                    project_spacing_pt = 0
-                    after_projects_spacing_pt = 0
-
-                st.caption(
-                    "Changing spacing only affects DOCX formatting. "
-                    "You can regenerate the DOCX without re-tailoring the projects or skills."
-                )
-
-                if st.button(
-                    "Generate Tailored Resume Copy DOCX",
-                    type="primary",
-                    width="stretch",
-                    key=f"generate_docx_{current_application_id}",
-                ):
-                    try:
-                        fit_result = generate_tailored_resume_copy_fit_one_page(
-                            saved_resume_docx_path=saved_resume_docx_path,
-                            tailored_projects=project_result,
-                            tailored_skills=skills_result,
-                            application_id=current_application_id,
-                            max_projects=max_projects,
-                            max_bullets_per_project=max_bullets,
-                            max_attempts=5,
-                            spacing_mode=spacing_mode,
-                            project_spacing_pt=project_spacing_pt,
-                            after_projects_spacing_pt=after_projects_spacing_pt,
-                            blank_lines_between_projects=blank_lines_between_projects,
-                            blank_lines_after_projects=blank_lines_after_projects,
-                            add_spacing_before_first_project=add_spacing_before_first_project,
+                    if spacing_mode == "paragraph_spacing":
+                        project_spacing_pt = st.slider(
+                            "Spacing before each next project (pt)",
+                            0,
+                            20,
+                            10,
+                            key=f"project_spacing_pt_{current_application_id}",
                         )
 
-                        tailored_resume_path = fit_result["docx_path"]
+                        after_projects_spacing_pt = st.slider(
+                            "Spacing after final project / before Skills (pt)",
+                            0,
+                            20,
+                            10,
+                            key=f"after_projects_spacing_pt_{current_application_id}",
+                        )
 
-                        st.session_state[tailored_docx_key] = str(tailored_resume_path)
-                        st.session_state[tailored_fit_result_key] = fit_result
+                        blank_lines_between_projects = 0
+                        blank_lines_after_projects = 0
 
-                        if fit_result["fit_one_page"] is True:
-                            st.success("Tailored resume copy generated and fits within one page.")
-                        elif fit_result["fit_one_page"] is False:
-                            st.warning(fit_result["note"])
-                        else:
-                            st.warning(fit_result["note"])
+                    else:
+                        blank_lines_between_projects = st.number_input(
+                            "Blank lines before each project",
+                            min_value=0,
+                            max_value=3,
+                            value=1,
+                            step=1,
+                            key=f"blank_lines_between_projects_{current_application_id}",
+                        )
 
-                        st.rerun()
+                        blank_lines_after_projects = st.number_input(
+                            "Blank lines after final project / before Skills",
+                            min_value=0,
+                            max_value=3,
+                            value=1,
+                            step=1,
+                            key=f"blank_lines_after_projects_{current_application_id}",
+                        )
 
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                    except Exception as exc:
-                        st.error(f"Unexpected error while generating tailored resume copy: {exc}")
+                        project_spacing_pt = 0
+                        after_projects_spacing_pt = 0
+
+                    st.caption(
+                        "Changing spacing only affects DOCX formatting. "
+                        "You can regenerate the DOCX without re-tailoring the projects or skills."
+                    )
+
+                    if st.button(
+                        "Generate Tailored Resume Copy DOCX",
+                        type="primary",
+                        width="stretch",
+                        key=f"generate_docx_{current_application_id}",
+                    ):
+                        try:
+                            fit_result = generate_tailored_resume_copy_fit_one_page(
+                                saved_resume_docx_path=saved_resume_docx_path,
+                                tailored_projects=project_result,
+                                tailored_skills=skills_result,
+                                application_id=current_application_id,
+                                max_projects=max_projects,
+                                max_bullets_per_project=max_bullets,
+                                spacing_mode=spacing_mode,
+                                project_spacing_pt=project_spacing_pt,
+                                after_projects_spacing_pt=after_projects_spacing_pt,
+                                blank_lines_between_projects=blank_lines_between_projects,
+                                blank_lines_after_projects=blank_lines_after_projects,
+                                add_spacing_before_first_project=add_spacing_before_first_project,
+                            )
+
+                            tailored_resume_path = fit_result["docx_path"]
+
+                            st.session_state[tailored_docx_key] = str(tailored_resume_path)
+                            st.session_state[tailored_fit_result_key] = fit_result
+
+                            if fit_result["fit_one_page"] is True:
+                                st.success("Tailored resume copy generated and fits within one page.")
+                            elif fit_result["fit_one_page"] is False:
+                                st.warning(fit_result["note"])
+                            else:
+                                st.warning(fit_result["note"])
+
+                            st.rerun()
+
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                        except Exception as exc:
+                            st.error(f"Unexpected error while generating tailored resume copy: {exc}")
 
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)
@@ -2137,209 +2137,4 @@ elif page == "Profile & Evidence":
         #             st.success("Evidence deleted.")
         #             st.rerun()
 
-#     st.divider()
-#     st.subheader("Tailor Projects Section")
 
-#     current_report = st.session_state.get("latest_report")
-
-#     if not current_report:
-#         st.info("Load or run an application analysis first before tailoring the Projects section.")
-#     else:
-#         max_projects = st.slider("Maximum projects", 1, 4, 3)
-#         max_bullets = st.slider("Maximum bullets for strongest project", 1, 3, 3)
-
-#         if st.button("Generate Tailored Projects Section", type="primary", width="stretch"):
-#             try:
-#                 result = tailor_projects_section(
-#                     resume_profile=current_report.get("resume_profile", {}),
-#                     jd_profile=current_report.get("jd_profile", {}),
-#                     evidence_items=get_evidence_items(limit=100),
-#                     max_projects=max_projects,
-#                     max_bullets_per_project=max_bullets,
-#                 )
-
-#                 fit_estimate = estimate_project_section_length(
-#                     result,
-#                     max_projects=max_projects,
-#                     max_total_bullets=max_projects * max_bullets,
-#                 )
-
-#                 st.session_state["tailored_projects_result"] = result
-#                 st.session_state["tailored_projects_fit_estimate"] = fit_estimate
-#                 st.rerun()
-
-#             except ValueError as exc:
-#                 st.warning(str(exc))
-#             except RuntimeError as exc:
-#                 st.error(f"LLM/API error: {exc}")
-#             except Exception as exc:
-#                 st.error(f"Unexpected error while tailoring projects: {exc}")
-
-#         result = st.session_state.get("tailored_projects_result")
-#         fit_estimate = st.session_state.get("tailored_projects_fit_estimate")
-
-#         if result:
-#             st.write("### Recommended Projects Section")
-
-#             if fit_estimate:
-#                 risk = fit_estimate.get("risk", "unknown")
-#                 if risk == "low":
-#                     st.success(f"One-page fit risk: {risk}")
-#                 elif risk == "medium":
-#                     st.warning(f"One-page fit risk: {risk}")
-#                 else:
-#                     st.error(f"One-page fit risk: {risk}")
-#                 st.caption(fit_estimate.get("reason", ""))
-
-#             for project in result.get("recommended_projects", []):
-#                 # st.write(f"#### {project.get('title', 'Untitled Project')}")
-#                 display_name = (
-#                     project.get("display_title")
-#                     or project.get("title")
-#                     or "Untitled Project"
-#                 )
-
-#                 st.write(f"#### {display_name}")
-#                 st.write(f"**Action:** {project.get('action', '')}")
-#                 st.write(f"**Source:** {project.get('source', '')}")
-#                 st.write(f"**Why relevant:** {project.get('why_relevant', '')}")
-
-#                 for bullet in project.get("draft_bullets", []):
-#                     st.markdown(f"- {bullet}")
-
-#             with st.expander("Projects to remove or deprioritize"):
-#                 st.json(result.get("projects_to_remove_or_deprioritize", []))
-
-#             with st.expander("All candidate projects considered"):
-#                 st.json(result.get("candidate_project_ranking", []))
-
-#             with st.expander("Unsupported JD skills"):
-#                 st.json(result.get("unsupported_jd_skills", []))
-
-#             with st.expander("Full JSON"):
-#                 st.json(result)
-
-#     st.divider()
-#     st.subheader("Tailor Skills Section")
-
-#     if not current_report:
-#         st.info("Load or run an application analysis first before tailoring the Skills section.")
-#     else:
-#         if st.button("Generate Tailored Skills Section", width="stretch"):
-#             try:
-#                 with st.spinner("Generating tailored skills section..."):
-#                     tailored_skills_result = tailor_skills_section(
-#                         resume_profile=current_report.get("resume_profile", {}),
-#                         jd_profile=current_report.get("jd_profile", {}),
-#                         evidence_items=get_evidence_items(limit=100),
-#                     )
-
-#                 st.session_state["tailored_skills_result"] = tailored_skills_result
-#                 st.rerun()
-
-#             except ValueError as exc:
-#                 st.warning(str(exc))
-#             except RuntimeError as exc:
-#                 st.error(f"LLM/API error: {exc}")
-#             except Exception as exc:
-#                 st.error(f"Unexpected error while tailoring skills: {exc}")
-
-#     tailored_skills_result = st.session_state.get("tailored_skills_result")
-
-#     if tailored_skills_result:
-#         st.write("### Recommended Skills Section")
-#         st.text_area(
-#             "Preview skills text",
-#             value=skill_lines_to_plain_text(tailored_skills_result),
-#             height=160,
-#         )
-
-#         with st.expander("Evidence-supported additions"):
-#             st.json(tailored_skills_result.get("evidence_supported_additions", []))
-
-#         with st.expander("Unsupported JD skills"):
-#             st.json(tailored_skills_result.get("unsupported_jd_skills", []))
-    
-
-
-#     st.divider()
-#     st.subheader("Generate Edited Resume Copy")
-
-# st.caption(
-#     "This changes only the Skills and Projects sections in a copied DOCX. "
-#     "Work Experience is not changed."
-# )
-
-# saved_resume_docx_path = st.session_state.get("saved_resume_docx_path")
-# project_result = st.session_state.get("tailored_projects_result")
-# skills_result = st.session_state.get("tailored_skills_result")
-
-# saved_resume_docx_path = st.session_state.get(saved_docx_key)
-
-# if not saved_resume_docx_path:
-#     # latest_saved_docx = get_latest_saved_docx_for_application(current_application_id)
-#     # if latest_saved_docx:
-#     #     saved_resume_docx_path = str(latest_saved_docx)
-#     #     st.session_state[saved_docx_key] = saved_resume_docx_path
-
-#     st.info(
-#         "No saved DOCX found. Go to Application Sessions, upload a DOCX resume, "
-#         "tick the save checkbox, and run Analyze Resume again."
-#     )
-# elif not project_result:
-#     st.info("Generate a Tailored Projects Section first.")
-# elif not skills_result:
-#     st.info("Generate a Tailored Skills Section first.")
-# else:
-#     if st.button("Generate Tailored Resume Copy DOCX", type="primary", width="stretch"):
-#         try:
-
-            
-
-#             tailored_resume_path = generate_tailored_resume_copy(
-#                 saved_resume_docx_path=saved_resume_docx_path,
-#                 tailored_projects=project_result,
-#                 tailored_skills=skills_result,
-#                 application_id=st.session_state.get("current_application_id"),
-#                 max_projects=max_projects,
-#                 max_bullets_per_project=max_bullets,
-#             )
-
-#             st.session_state["tailored_resume_copy_path"] = str(tailored_resume_path)
-#             st.success("Tailored resume copy generated.")
-#             st.rerun()
-
-#         except ValueError as exc:
-#             st.warning(str(exc))
-#         except Exception as exc:
-#             st.error(f"Unexpected error while generating tailored resume copy: {exc}")
-
-# tailored_resume_copy_path = st.session_state.get("tailored_resume_copy_path")
-
-# if tailored_resume_copy_path and Path(tailored_resume_copy_path).exists():
-#     st.write("### Preview")
-
-#     preview_text = extract_docx_preview_text(tailored_resume_copy_path)
-#     st.text_area("Text preview", value=preview_text, height=360)
-
-#     pdf_preview_path = convert_docx_to_pdf_if_possible(tailored_resume_copy_path)
-
-#     if pdf_preview_path:
-#         st.markdown(
-#             pdf_to_iframe_html(pdf_preview_path, height=800),
-#             unsafe_allow_html=True,
-#         )
-#     else:
-#         st.caption(
-#             "PDF visual preview is unavailable because LibreOffice is not installed. "
-#             "Text preview and DOCX download are still available."
-#         )
-
-#     with open(tailored_resume_copy_path, "rb") as file:
-#         st.download_button(
-#             "Download Tailored Resume Copy",
-#             data=file,
-#             file_name=Path(tailored_resume_copy_path).name,
-#             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-#             width="stretch",
-#         )
