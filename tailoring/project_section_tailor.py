@@ -83,6 +83,11 @@ Stricter scoring rules:
 - Reasons must reference specific JD requirements, not generic phrases like "technical skills are useful".
 - For this output, candidate_project_ranking must be sorted from highest final_score to lowest final_score.
 
+Tie-breaking rules:
+- When projects have equal final_score, rank the project with more specific matched_jd_requirements higher.
+- A project with no matched_jd_requirements must not rank above an equal-scoring project with clear JD matches.
+- Generic technical usefulness is not enough to count as a JD match.
+
 Canonical blueprint rules:
 - Treat Evidence Library project bullets as the user-approved canonical blueprint when available.
 - Prefer selecting existing canonical bullets instead of rewriting from scratch.
@@ -104,6 +109,13 @@ CAR bullet rules:
 - Do not write pure task bullets that only say what was done without context or scope.
 - Do not invent measurable results.
 - Keep each bullet concise and resume-friendly.
+
+Bullet ordering rules:
+- Within each selected project, order draft_bullets from most relevant and valuable to least relevant.
+- The first bullet should be the strongest bullet for the target JD.
+- The final bullet should be the safest bullet to remove if space becomes limited.
+- Keep selected_blueprint_bullets in the same relevance order as draft_bullets.
+- Do not place a core achievement or the strongest JD evidence as the final bullet merely because it is longer.
 
 Unsupported JD skill rules:
 - unsupported_jd_skills must include JD requirements that are not clearly supported by the resume or Evidence Library.
@@ -141,6 +153,7 @@ Output only valid JSON matching this schema:
     "source": "resume|evidence_library|both",
     "currently_in_resume": true,
     "in_evidence_library": true,
+    "matched_jd_requirements": ["string"],
     "relevance_score": 0,
     "evidence_strength_score": 0,
     "final_score": 0,
@@ -657,10 +670,22 @@ def _postprocess_project_tailoring_result(
 
     # Warn if selected projects do not match the AI's own score ranking.
     ranked = sorted(
-        result.get("candidate_project_ranking", []),
-        key=lambda item: item.get("final_score", 0),
-        reverse=True,
+    result.get("candidate_project_ranking", []),
+    key=lambda item: (
+        item.get("final_score", 0),
+        len(item.get("matched_jd_requirements", []) or []),
+        item.get("relevance_score", 0),
+        item.get("evidence_strength_score", 0),
+    ),
+    reverse=True,
     )
+    
+    # old
+    # ranked = sorted(
+    #     result.get("candidate_project_ranking", []),
+    #     key=lambda item: item.get("final_score", 0),
+    #     reverse=True,
+    # )
 
     result["candidate_project_ranking"] = ranked
 
@@ -692,7 +717,7 @@ def _postprocess_project_tailoring_result(
                 f"Debug note: selected project '{project.get('display_title') or project.get('title')}' "
                 "has no matched_jd_requirements. Review whether it should be selected."
             )
-            
+
 
     return result
     

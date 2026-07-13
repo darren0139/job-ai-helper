@@ -450,15 +450,69 @@ def _project_priority_score(project: dict[str, Any]) -> int:
     return base + matched_count
 
 
+_WEAK_TRAILING_WORDS = {
+    "and",
+    "or",
+    "but",
+    "for",
+    "to",
+    "of",
+    "in",
+    "on",
+    "with",
+    "by",
+    "as",
+    "the",
+    "a",
+    "an",
+    "that",
+    "which",
+    "including",
+}
+
+
 def _trim_words(text: str, max_words: int) -> str:
-    """Trim a bullet to a rough word limit."""
-    words = str(text).split()
+    """
+    Trim a bullet to a rough word limit without ending on a weak
+    connector such as 'and', 'to', or 'with'.
+    """
+    cleaned_text = " ".join(str(text).split())
+    words = cleaned_text.split()
 
     if len(words) <= max_words:
-        return str(text).strip()
+        return cleaned_text
 
-    trimmed = " ".join(words[:max_words]).rstrip(".,;:")
-    return trimmed + "."
+    trimmed_words = words[:max_words]
+
+    # Avoid results such as:
+    # "... degree fit, and."
+    while trimmed_words:
+        final_word = re.sub(
+            r"[^a-z0-9]+",
+            "",
+            trimmed_words[-1].lower(),
+        )
+
+        if final_word not in _WEAK_TRAILING_WORDS:
+            break
+
+        trimmed_words.pop()
+
+    if not trimmed_words:
+        return cleaned_text
+
+    trimmed_text = " ".join(trimmed_words).rstrip(" ,;:.-")
+    return trimmed_text + "."
+
+# def _trim_words(text: str, max_words: int) -> str:
+#     """Trim a bullet to a rough word limit."""
+#     words = str(text).split()
+
+#     if len(words) <= max_words:
+#         return str(text).strip()
+
+#     trimmed = " ".join(words[:max_words]).rstrip(".,;:")
+#     return trimmed + "."
 
 
 def compact_tailored_projects_for_space(
@@ -501,7 +555,7 @@ def compact_tailored_projects_for_space(
 
     elif attempt == 2:
         max_projects = 3
-        max_words = 22
+        max_words = 24
         bullet_limits_by_priority = {
             "high": 2,
             "medium": 2,
@@ -517,7 +571,7 @@ def compact_tailored_projects_for_space(
             "medium": 1,
             "low": 1,
         }
-        note = note = (
+        note = (
         "Kept up to two bullets for high-priority projects and one bullet "
         "for medium- and low-priority projects."
         )
@@ -1476,7 +1530,7 @@ def generate_tailored_resume_copy_fit_one_page(
         raise ValueError("Generate a tailored Projects section or Skills section first.")
 
     cleanup_old_tailored_outputs_for_application(application_id)
-    
+
     attempt_logs = []
     last_docx_path = None
     last_pdf_path = None
