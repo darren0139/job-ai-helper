@@ -37,9 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
-from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.shared import Pt
-
 from docx.document import Document as DocumentObject
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
@@ -1599,7 +1597,7 @@ def generate_tailored_resume_copy_fit_one_page(
         else None
     )
 
-        # Make the fitting data match exactly what the DOCX generator can display.
+    # Make the fitting data match exactly what the DOCX generator can display.
     if working_projects:
         visible_projects = working_projects.get(
             "recommended_projects",

@@ -50,7 +50,8 @@ Project selection and page-use rules:
 - Use available page space sensibly, but never invent, exaggerate, or pad weak points.
 - Prefer 4-6 total project bullets when supported by truthful evidence.
 - Use 5-7 total project bullets only when the selected projects are strongly relevant, the evidence is strong, and the bullets remain concise.
-- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or there are not enough suitable selected bullets.- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
+- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or there are not enough suitable selected bullets.
+- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
 - Moderately relevant projects should usually have 1-2 bullets.
 - Use 1 bullet only when the project is lower priority, weakly related, or has limited evidence.
 - If the original resume already has strong truthful bullets that match the JD, preserve or lightly rephrase them.
