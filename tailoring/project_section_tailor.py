@@ -194,126 +194,7 @@ Expected behavior:
 """
 
 
-# Example of correct output:
-# {
-#   "recommended_projects": [
-#     {
-#       "title": "QueryAI",
-#       "display_title": "QueryAI (React, Team of 4)",
-#       "period": "Mar 2025 - Apr 2025",
-#       "source": "both",
-#       "action": "keep",
-#       "priority": "high",
-#       "space_action": "keep_full",
-#       "matched_jd_requirements": ["team collaboration", "quality assurance", "database-backed workflows"],
-#       "why_relevant": "Shows backend integration, access control, and team-built application workflows relevant to configuration and QA work.",
-#       "draft_bullets": [
-#         "Set up the project environment and integrated React with Supabase, supporting secure database-backed workflows for a team-built application.",
-#         "Implemented backend query workflows using PostgREST, improving data retrieval and update reliability."
-#       ]
-#     },
-#     {
-#       "title": "CyberSphere",
-#       "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
-#       "period": "Jan 2018 - Feb 2018",
-#       "source": "both",
-#       "action": "keep",
-#       "priority": "high",
-#       "space_action": "keep_full",
-#       "matched_jd_requirements": ["gaming product", "quality assurance", "attention to detail"],
-#       "why_relevant": "Shows practical game development experience and quality-focused gameplay/UI implementation.",
-#       "draft_bullets": [
-#         "Scripted gameplay features, UI elements, and high-score tracking for a published Unity mobile game."
-#       ]
-#     },
-#     {
-#       "title": "The Great Migration",
-#       "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
-#       "period": "Sep 2023 - Apr 2024",
-#       "source": "both",
-#       "action": "keep",
-#       "priority": "medium",
-#       "space_action": "single_bullet",
-#       "matched_jd_requirements": ["gaming industry", "technical detail", "team collaboration"],
-#       "why_relevant": "Shows game engine development, technical attention to detail, and collaboration in a larger team project.",
-#       "draft_bullets": [
-#         "Built a C++ asset manager for a custom game engine, centralising asset loading for an 8-person project."
-#       ]
-#     }
-#   ],
-#   "candidate_project_ranking": [
-#     {
-#       "title": "QueryAI",
-#       "display_title": "QueryAI (React, Team of 4)",
-#       "source": "both",
-#       "priority": "high",
-#       "recommendation": "include",
-#       "reason": "Relevant to configuration-style workflows, database-backed systems, and team-built application quality."
-#     },
-#     {
-#       "title": "CyberSphere",
-#       "display_title": "CyberSphere (Unity Engine, Team of 2, Published on Google Play)",
-#       "source": "both",
-#       "priority": "high",
-#       "recommendation": "include",
-#       "reason": "Strongest direct game product project and useful for gaming operations roles."
-#     },
-#     {
-#       "title": "The Great Migration",
-#       "display_title": "The Great Migration (C++ Custom Engine, Team of 8)",
-#       "source": "both",
-#       "priority": "medium",
-#       "recommendation": "include",
-#       "reason": "Shows game engine systems, technical detail, and team collaboration."
-#     },
-#     {
-#       "title": "Workout Buddy",
-#       "display_title": "Workout Buddy (Android Studio, Team of 5)",
-#       "source": "evidence_library",
-#       "priority": "medium",
-#       "recommendation": "deprioritize",
-#       "reason": "Shows team coordination, but is less directly related to gaming operations than the game projects."
-#     },
-#     {
-#       "title": "Job AI Helper",
-#       "display_title": "Job AI Helper (Python, Streamlit, Solo)",
-#       "source": "evidence_library",
-#       "priority": "low",
-#       "recommendation": "exclude",
-#       "reason": "Useful AI project, but less relevant to a game operations QA role than game and configuration-related projects."
-#     }
-#   ],
-#   "projects_to_remove_or_deprioritize": [
-#     {
-#       "title": "Workout Buddy",
-#       "reason": "Less directly related to gaming operations and QA than CyberSphere or The Great Migration."
-#     },
-#     {
-#       "title": "Job AI Helper",
-#       "reason": "Strong technical project, but not as aligned with game operations QA for this specific job."
-#     }
-#   ],
-#   "unsupported_jd_skills": [
-#     {
-#       "skill": "minimum 1 year of experience in quality assurance",
-#       "reason": "No clear evidence found in resume or evidence library."
-#     },
-#     {
-#       "skill": "live operations",
-#       "reason": "No clear evidence found in resume or evidence library."
-#     }
-#   ],
-#   "one_page_fit": {
-#     "risk": "low",
-#     "reason": "The section uses three projects with four total bullets, keeping the weaker third project compact.",
-#     "recommended_project_count": 3,
-#     "recommended_bullet_count": 4
-#   },
-#   "notes_for_user": [
-#     "Used three projects because space is available and at least three relevant supported candidates exist.",
-#     "Gave more detail to stronger projects and only one bullet to the third project."
-#   ]
-# }
+
 
 def _normalise_project_key(title: str) -> str:
     """
@@ -353,40 +234,6 @@ _MONTH_TO_NUMBER = {
     "dec": 12,
     "december": 12,
 }
-
-
-# def _period_sort_value(period: str) -> tuple[int, int]:
-#     """
-#     Convert a project period into a sortable latest date.
-
-#     Examples:
-#     'Mar 2025 - Apr 2025' -> (2025, 4)
-#     'Sep 2023 - Apr 2024' -> (2024, 4)
-#     'Jan 2018 - Feb 2018' -> (2018, 2)
-#     Unknown dates go last.
-#     """
-#     text = str(period or "").lower().strip()
-
-#     if not text:
-#         return (0, 0)
-
-#     if "present" in text or "current" in text:
-#         return (9999, 12)
-
-#     matches = re.findall(
-#         r"(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)?\s*(20\d{2}|19\d{2})",
-#         text,
-#     )
-
-#     if not matches:
-#         return (0, 0)
-
-#     month_text, year_text = matches[-1]
-#     year = int(year_text)
-#     month = _MONTH_TO_NUMBER.get(month_text, 12) if month_text else 12
-
-#     return (year, month)
-
 
 def _sort_recommended_projects_latest_first(result: dict[str, Any]) -> dict[str, Any]:
     """
@@ -604,20 +451,7 @@ def build_project_candidate_pool(
     candidates = list(candidates_by_key.values())
 
     return sorted(candidates, key=lambda candidate: candidate.get("title", "").lower())
-    # # Stable order: resume/evidence both first, then evidence-only, then resume-only.
-    # def sort_key(candidate: dict[str, Any]) -> tuple[int, str]:
-    #     sources = set(candidate.get("sources", []))
 
-    #     if sources == {"resume", "evidence_library"}:
-    #         source_rank = 0
-    #     elif "evidence_library" in sources:
-    #         source_rank = 1
-    #     else:
-    #         source_rank = 2
-
-    #     return (source_rank, candidate.get("title", "").lower())
-
-    # return sorted(candidates, key=sort_key)
 
 
 
@@ -803,145 +637,7 @@ def _postprocess_project_tailoring_result(
     return result
 
 
-# def _postprocess_project_tailoring_result(
-#     result: dict[str, Any],
-#     *,
-#     project_candidates: list[dict[str, Any]],
-#     max_projects: int,
-# ) -> dict[str, Any]:
-#     """
-#     Add debug notes and auto-fill removed/deprioritized current resume projects.
-#     """
-#     selected_keys = {
-#         _normalise_project_key(project.get("title", ""))
-#         for project in result.get("recommended_projects", [])
-#     }
 
-#     existing_removed_keys = {
-#         _normalise_project_key(project.get("title", ""))
-#         for project in result.get("projects_to_remove_or_deprioritize", [])
-#     }
-
-#     # Auto-fill resume projects that were not selected.
-#     auto_removed = []
-
-#     for candidate in project_candidates:
-#         candidate_key = _normalise_project_key(candidate.get("title", ""))
-
-#         if not candidate_key:
-#             continue
-
-#         if (
-#             candidate.get("currently_in_resume")
-#             and candidate_key not in selected_keys
-#             and candidate_key not in existing_removed_keys
-#         ):
-#             auto_removed.append(
-#                 {
-#                     "title": candidate.get("display_title") or candidate.get("title"),
-#                     "reason": (
-#                         "Currently in the resume but not selected for this tailored version. "
-#                         "Another project was judged more relevant to the target job."
-#                     ),
-#                 }
-#             )
-
-#     if auto_removed:
-#         result.setdefault("projects_to_remove_or_deprioritize", [])
-#         result["projects_to_remove_or_deprioritize"].extend(auto_removed)
-
-#     # Warn if selected projects do not match the AI's own score ranking.
-#     # ranked = sorted(
-#     # result.get("candidate_project_ranking", []),
-#     # key=lambda item: (
-#     #     item.get("final_score", 0),
-#     #     len(item.get("matched_jd_requirements", []) or []),
-#     #     item.get("relevance_score", 0),
-#     #     item.get("evidence_strength_score", 0),
-#     #     ),
-#     #     reverse=True,
-#     # )
-
-#     ranking_rows = result.get(
-#     "candidate_project_ranking",
-#     [],
-#     )
-
-# # Apply the score formula in Python instead of trusting
-# # the arithmetic returned by the AI.
-#     for item in ranking_rows:
-#         relevance_score = int(
-#             item.get("relevance_score", 0) or 0
-#         )
-
-#         evidence_strength_score = int(
-#             item.get("evidence_strength_score", 0) or 0
-#         )
-
-#         item["final_score"] = (
-#             relevance_score * 2
-#             + evidence_strength_score
-#         )
-
-#     ranked = sorted(
-#         ranking_rows,
-#         key=lambda item: (
-#             item.get("final_score", 0),
-#             len(
-#                 item.get(
-#                     "matched_jd_requirements",
-#                     [],
-#                 )
-#                 or []
-#             ),
-#             item.get("relevance_score", 0),
-#             item.get("evidence_strength_score", 0),
-#         ),
-#         reverse=True,
-#     )
-
-    
-#     # old
-#     # ranked = sorted(
-#     #     result.get("candidate_project_ranking", []),
-#     #     key=lambda item: item.get("final_score", 0),
-#     #     reverse=True,
-#     # )
-
-#     result["candidate_project_ranking"] = ranked
-
-#     selected_titles = {
-#         _normalise_project_key(project.get("title", ""))
-#         for project in result.get("recommended_projects", [])
-#     }
-
-#     top_titles = {
-#         _normalise_project_key(project.get("title", ""))
-#         for project in ranked[:max_projects]
-#     }
-
-#     if ranked and not top_titles.issubset(selected_titles):
-#         result.setdefault("notes_for_user", []).append(
-#             "Debug note: selected projects do not exactly match the top scored candidates. "
-#             "Review candidate_project_ranking."
-#         )
-    
-#     result = _sort_recommended_projects_latest_first(result)
-
-
-
-#     # new
-#     # Warn when selected projects have no specific JD matches.
-#     for project in result.get("recommended_projects", []):
-#         if not project.get("matched_jd_requirements"):
-#             result.setdefault("notes_for_user", []).append(
-#                 f"Debug note: selected project '{project.get('display_title') or project.get('title')}' "
-#                 "has no matched_jd_requirements. Review whether it should be selected."
-#             )
-
-
-#     return result
-    
 
 def tailor_projects_section(
     *,
@@ -1036,12 +732,7 @@ Selection rules:
 
     return result
 
-    # return ask_json(
-    #     PROJECT_SECTION_TAILOR_PROMPT,
-    #     user_prompt,
-    #     temperature=0.0,
-    #     max_tokens=2500,
-    # )
+
 
 
 def estimate_project_section_length(
