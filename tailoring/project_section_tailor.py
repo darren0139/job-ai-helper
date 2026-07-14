@@ -621,7 +621,6 @@ def build_project_candidate_pool(
 
 
 
-
 def _postprocess_project_tailoring_result(
     result: dict[str, Any],
     *,
@@ -629,23 +628,36 @@ def _postprocess_project_tailoring_result(
     max_projects: int,
 ) -> dict[str, Any]:
     """
-    Add debug notes and auto-fill removed/deprioritized current resume projects.
+    Add debug notes and auto-fill removed/deprioritized
+    current-resume projects.
     """
+    recommended_projects = result.get(
+        "recommended_projects",
+        [],
+    )
+
     selected_keys = {
         _normalise_project_key(project.get("title", ""))
-        for project in result.get("recommended_projects", [])
+        for project in recommended_projects
+        if _normalise_project_key(project.get("title", ""))
     }
 
     existing_removed_keys = {
         _normalise_project_key(project.get("title", ""))
-        for project in result.get("projects_to_remove_or_deprioritize", [])
+        for project in result.get(
+            "projects_to_remove_or_deprioritize",
+            [],
+        )
+        if _normalise_project_key(project.get("title", ""))
     }
 
-    # Auto-fill resume projects that were not selected.
+    # Auto-fill current-resume projects that were not selected.
     auto_removed = []
 
     for candidate in project_candidates:
-        candidate_key = _normalise_project_key(candidate.get("title", ""))
+        candidate_key = _normalise_project_key(
+            candidate.get("title", "")
+        )
 
         if not candidate_key:
             continue
@@ -657,70 +669,278 @@ def _postprocess_project_tailoring_result(
         ):
             auto_removed.append(
                 {
-                    "title": candidate.get("display_title") or candidate.get("title"),
+                    "title": (
+                        candidate.get("display_title")
+                        or candidate.get("title")
+                    ),
                     "reason": (
-                        "Currently in the resume but not selected for this tailored version. "
-                        "Another project was judged more relevant to the target job."
+                        "Currently in the resume but not selected for "
+                        "this tailored version. Another project was "
+                        "judged more relevant to the target job."
                     ),
                 }
             )
 
     if auto_removed:
-        result.setdefault("projects_to_remove_or_deprioritize", [])
-        result["projects_to_remove_or_deprioritize"].extend(auto_removed)
+        result.setdefault(
+            "projects_to_remove_or_deprioritize",
+            [],
+        )
+        result[
+            "projects_to_remove_or_deprioritize"
+        ].extend(auto_removed)
 
-    # Warn if selected projects do not match the AI's own score ranking.
-    ranked = sorted(
-    result.get("candidate_project_ranking", []),
-    key=lambda item: (
-        item.get("final_score", 0),
-        len(item.get("matched_jd_requirements", []) or []),
-        item.get("relevance_score", 0),
-        item.get("evidence_strength_score", 0),
-    ),
-    reverse=True,
+    # Recalculate every final score in Python instead of trusting
+    # arithmetic returned by the AI.
+    ranking_rows = result.get(
+        "candidate_project_ranking",
+        [],
     )
-    
-    # old
-    # ranked = sorted(
-    #     result.get("candidate_project_ranking", []),
-    #     key=lambda item: item.get("final_score", 0),
-    #     reverse=True,
-    # )
+
+    for item in ranking_rows:
+        relevance_score = int(
+            item.get("relevance_score", 0) or 0
+        )
+
+        evidence_strength_score = int(
+            item.get("evidence_strength_score", 0) or 0
+        )
+
+        item["final_score"] = (
+            relevance_score * 2
+            + evidence_strength_score
+        )
+
+    # Sort once after every score has been recalculated.
+    ranked = sorted(
+        ranking_rows,
+        key=lambda item: (
+            item.get("final_score", 0),
+            len(
+                item.get(
+                    "matched_jd_requirements",
+                    [],
+                )
+                or []
+            ),
+            item.get("relevance_score", 0),
+            item.get("evidence_strength_score", 0),
+        ),
+        reverse=True,
+    )
 
     result["candidate_project_ranking"] = ranked
 
+    # Compare against only the number of projects actually selected.
+    # This avoids a false warning when fewer than max_projects are used.
+    selected_count = min(
+        len(recommended_projects),
+        max_projects,
+        len(ranked),
+    )
+
     selected_titles = {
         _normalise_project_key(project.get("title", ""))
-        for project in result.get("recommended_projects", [])
+        for project in recommended_projects[:selected_count]
+        if _normalise_project_key(project.get("title", ""))
     }
 
-    top_titles = {
+    expected_titles = {
         _normalise_project_key(project.get("title", ""))
-        for project in ranked[:max_projects]
+        for project in ranked[:selected_count]
+        if _normalise_project_key(project.get("title", ""))
     }
 
-    if ranked and not top_titles.issubset(selected_titles):
+    selection_matches = (
+        len(selected_titles) == selected_count
+        and selected_titles == expected_titles
+    )
+
+    if ranked and selected_count > 0 and not selection_matches:
+        expected_display_titles = [
+            str(
+                project.get("display_title")
+                or project.get("title")
+                or ""
+            ).strip()
+            for project in ranked[:selected_count]
+        ]
+
+        actual_display_titles = [
+            str(
+                project.get("display_title")
+                or project.get("title")
+                or ""
+            ).strip()
+            for project in recommended_projects[:selected_count]
+        ]
+
         result.setdefault("notes_for_user", []).append(
-            "Debug note: selected projects do not exactly match the top scored candidates. "
-            "Review candidate_project_ranking."
+            "Debug note: selected projects do not match the "
+            "highest-ranked candidates. "
+            f"Expected: {expected_display_titles}. "
+            f"Selected: {actual_display_titles}."
         )
-    
-    result = _sort_recommended_projects_latest_first(result)
 
-
-
-    # new
-    # Warn when selected projects have no specific JD matches.
-    for project in result.get("recommended_projects", []):
+    # Warn when a selected project has no specific JD matches.
+    for project in recommended_projects:
         if not project.get("matched_jd_requirements"):
-            result.setdefault("notes_for_user", []).append(
-                f"Debug note: selected project '{project.get('display_title') or project.get('title')}' "
-                "has no matched_jd_requirements. Review whether it should be selected."
+            project_title = (
+                project.get("display_title")
+                or project.get("title")
+                or "Untitled Project"
             )
 
+            result.setdefault("notes_for_user", []).append(
+                f"Debug note: selected project '{project_title}' "
+                "has no matched_jd_requirements. Review whether "
+                "it should be selected."
+            )
+
+    # Score order decides selection; date order decides display order.
+    result = _sort_recommended_projects_latest_first(result)
 
     return result
+
+
+# def _postprocess_project_tailoring_result(
+#     result: dict[str, Any],
+#     *,
+#     project_candidates: list[dict[str, Any]],
+#     max_projects: int,
+# ) -> dict[str, Any]:
+#     """
+#     Add debug notes and auto-fill removed/deprioritized current resume projects.
+#     """
+#     selected_keys = {
+#         _normalise_project_key(project.get("title", ""))
+#         for project in result.get("recommended_projects", [])
+#     }
+
+#     existing_removed_keys = {
+#         _normalise_project_key(project.get("title", ""))
+#         for project in result.get("projects_to_remove_or_deprioritize", [])
+#     }
+
+#     # Auto-fill resume projects that were not selected.
+#     auto_removed = []
+
+#     for candidate in project_candidates:
+#         candidate_key = _normalise_project_key(candidate.get("title", ""))
+
+#         if not candidate_key:
+#             continue
+
+#         if (
+#             candidate.get("currently_in_resume")
+#             and candidate_key not in selected_keys
+#             and candidate_key not in existing_removed_keys
+#         ):
+#             auto_removed.append(
+#                 {
+#                     "title": candidate.get("display_title") or candidate.get("title"),
+#                     "reason": (
+#                         "Currently in the resume but not selected for this tailored version. "
+#                         "Another project was judged more relevant to the target job."
+#                     ),
+#                 }
+#             )
+
+#     if auto_removed:
+#         result.setdefault("projects_to_remove_or_deprioritize", [])
+#         result["projects_to_remove_or_deprioritize"].extend(auto_removed)
+
+#     # Warn if selected projects do not match the AI's own score ranking.
+#     # ranked = sorted(
+#     # result.get("candidate_project_ranking", []),
+#     # key=lambda item: (
+#     #     item.get("final_score", 0),
+#     #     len(item.get("matched_jd_requirements", []) or []),
+#     #     item.get("relevance_score", 0),
+#     #     item.get("evidence_strength_score", 0),
+#     #     ),
+#     #     reverse=True,
+#     # )
+
+#     ranking_rows = result.get(
+#     "candidate_project_ranking",
+#     [],
+#     )
+
+# # Apply the score formula in Python instead of trusting
+# # the arithmetic returned by the AI.
+#     for item in ranking_rows:
+#         relevance_score = int(
+#             item.get("relevance_score", 0) or 0
+#         )
+
+#         evidence_strength_score = int(
+#             item.get("evidence_strength_score", 0) or 0
+#         )
+
+#         item["final_score"] = (
+#             relevance_score * 2
+#             + evidence_strength_score
+#         )
+
+#     ranked = sorted(
+#         ranking_rows,
+#         key=lambda item: (
+#             item.get("final_score", 0),
+#             len(
+#                 item.get(
+#                     "matched_jd_requirements",
+#                     [],
+#                 )
+#                 or []
+#             ),
+#             item.get("relevance_score", 0),
+#             item.get("evidence_strength_score", 0),
+#         ),
+#         reverse=True,
+#     )
+
+    
+#     # old
+#     # ranked = sorted(
+#     #     result.get("candidate_project_ranking", []),
+#     #     key=lambda item: item.get("final_score", 0),
+#     #     reverse=True,
+#     # )
+
+#     result["candidate_project_ranking"] = ranked
+
+#     selected_titles = {
+#         _normalise_project_key(project.get("title", ""))
+#         for project in result.get("recommended_projects", [])
+#     }
+
+#     top_titles = {
+#         _normalise_project_key(project.get("title", ""))
+#         for project in ranked[:max_projects]
+#     }
+
+#     if ranked and not top_titles.issubset(selected_titles):
+#         result.setdefault("notes_for_user", []).append(
+#             "Debug note: selected projects do not exactly match the top scored candidates. "
+#             "Review candidate_project_ranking."
+#         )
+    
+#     result = _sort_recommended_projects_latest_first(result)
+
+
+
+#     # new
+#     # Warn when selected projects have no specific JD matches.
+#     for project in result.get("recommended_projects", []):
+#         if not project.get("matched_jd_requirements"):
+#             result.setdefault("notes_for_user", []).append(
+#                 f"Debug note: selected project '{project.get('display_title') or project.get('title')}' "
+#                 "has no matched_jd_requirements. Review whether it should be selected."
+#             )
+
+
+#     return result
     
 
 def tailor_projects_section(
