@@ -1,205 +1,187 @@
 """
 tailoring/project_section_tailor.py
 
-AI-assisted Projects Section tailoring.
+Two-stage (Option B) Projects-section tailoring.
 
-Updated version:
-- Period/date is optional.
-- The AI may include period if known from resume or Evidence Library.
-- Only the Projects section is changed later; Work Experience stays unchanged.
+Stage 1:
+    AI evaluates every project candidate against the target JD.
+    Python recalculates scores, sorts the ranking, and selects the projects.
+
+Stage 2:
+    AI writes bullets only for the Python-selected projects.
+    Existing Evidence Library and resume bullets are treated as canonical
+    blueprints and are preserved unless a concise, truthful rewrite is useful.
+
+Public functions kept compatible with the existing app:
+    - build_project_candidate_pool(...)
+    - tailor_projects_section(...)
+    - estimate_project_section_length(...)
 """
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from typing import Any
 
 from llm import ask_json
 from utils.date_sorting import period_sort_value
 
-PROJECT_SECTION_TAILOR_PROMPT = """
+
+# ---------------------------------------------------------------------------
+# Stage 1 prompt: analyse and score every project candidate
+# ---------------------------------------------------------------------------
+
+PROJECT_CANDIDATE_SCORING_PROMPT = """
 Instruction:
-You are an expert resume editor for students and junior technical applicants.
+You are an evidence-based project-fit analyst for student and junior resumes.
 
 Task:
-Recommend a tailored Projects section for a target job description using:
-1. the current resume profile,
-2. the target job description profile,
-3. the user's Evidence Library.
+Evaluate every supplied project candidate against the target job-description
+profile. Do not write resume bullets and do not choose project titles directly.
+Return component scores and a recommended number of projects to display.
 
-Critical truthfulness rules:
-- Do not invent projects, tools, skills, metrics, companies, dates, or achievements.
-- Only use evidence from the resume profile or evidence library.
-- If a skill is in the job description but not supported by resume/evidence, mark it as a gap.
-- You may rephrase for clarity, but the meaning must stay truthful.
-- If impact is not quantified, use scope indicators instead of fake numbers.
-- Keep wording suitable for a student or junior applicant.
-- Preserve the exact project display title from the resume or Evidence Library when available.
-- The display_title should include role, tools, team size, or publication details if they were provided.
-- Do not simplify "QueryAI (React, Team of 4)" into "QueryAI".
-- Do not add generic role labels such as "Programmer" unless explicitly provided.
+Truthfulness rules:
+- Use only the supplied project evidence and JD profile.
+- Do not invent projects, skills, tools, dates, metrics, responsibilities, or impact.
+- Evidence Library bullets and resume bullets are evidence, not permission to infer
+  experience that is not written.
+- Distinguish direct evidence from transferable evidence.
+- A generic technical project is not automatically relevant to every technical job.
+- Do not award points because a project is already in the resume.
+- Do not subtract points because a project appears only in the Evidence Library.
 
-Project selection and page-use rules:
-- Create the strongest truthful Projects section for the target job.
-- Use the full candidate pool from both the current resume profile and Evidence Library.
-- Do not prefer a project only because it is already in the resume.
-- Do not ignore a project only because it appears only in the Evidence Library.
-- Select projects based on relevance to the target JD, strength of evidence, and usefulness for the role.
-- Target up to 3 projects when at least 3 truthful and relevant candidates exist.
-- Use available page space sensibly, but never invent, exaggerate, or pad weak points.
-- Prefer 4-6 total project bullets when supported by truthful evidence.
-- Use 5-7 total project bullets only when the selected projects are strongly relevant, the evidence is strong, and the bullets remain concise.
-- Use fewer than 4 total bullets only if evidence is limited, relevance is weak, or there are not enough suitable selected bullets.
-- Highly relevant projects should usually have 2-3 bullets if there is enough truthful evidence.
-- Moderately relevant projects should usually have 1-2 bullets.
-- Use 1 bullet only when the project is lower priority, weakly related, or has limited evidence.
-- If the original resume already has strong truthful bullets that match the JD, preserve or lightly rephrase them.
-- If space is tight later, the DOCX fitting step will compact the section. Do not over-compact in this first recommendation.
-- Each bullet should usually be 14-24 words.
-- If a project period/date is known, include it. If unknown, leave period empty.
-- If fewer than 4 total project bullets are used, explain why in notes_for_user.
+Scoring rules:
+- Score every candidate exactly once.
+- All component scores must be integers from 0 to 5.
+- must_have_match_score:
+  Direct support for required skills, qualifications, or critical requirements.
+- responsibility_match_score:
+  Support for the actual work and responsibilities described by the JD.
+- tool_domain_match_score:
+  Support for named tools, technologies, platforms, product type, or industry domain.
+- evidence_strength_score:
+  Strength, specificity, and completeness of the supplied truthful evidence.
+- impact_scope_score:
+  Demonstrated result, ownership, team/product scope, publication, users, or workflow.
+- matched_jd_requirements must contain only clearly supported direct matches.
+- transferable_jd_requirements may contain related but indirect evidence.
+- Do not put the same requirement in both matched and transferable lists.
+- Reasons must name specific JD requirements or responsibilities.
 
-Candidate coverage rules:
-- Evaluate all project candidates found in the resume profile and Evidence Library.
-- Include every project candidate in candidate_project_ranking, even if it is not selected.
-- projects_to_remove_or_deprioritize should focus on projects currently in the resume that should be replaced, shortened, or removed.
-- Evidence-only projects that are not selected should still appear in candidate_project_ranking with recommendation "deprioritize" or "exclude".
-
-Candidate scoring rules:
-- Score every project in the COMBINED PROJECT CANDIDATE POOL.
-- relevance_score should measure how well the project matches the target JD.
-- evidence_strength_score should measure how much truthful supporting evidence exists.
-- final_score should be based on relevance_score and evidence_strength_score.
-- Do not add points just because a project is already in the resume.
-- Do not subtract points just because a project only appears in the Evidence Library.
-- recommended_projects must be selected from the highest final_score candidates unless there is a clear one-page or truthfulness reason.
-- If a lower-scoring project is selected over a higher-scoring project, explain why in notes_for_user.
-
-Stricter scoring rules:
-- final_score must equal relevance_score * 2 + evidence_strength_score.
-- Relevance should matter more than evidence strength.
-- A project with no specific matched_jd_requirements should usually have relevance_score 3 or lower.
-- Do not recommend "include" for a project with empty matched_jd_requirements unless fewer than the allowed number of projects have clear JD matches.
-- Reasons must reference specific JD requirements, not generic phrases like "technical skills are useful".
-- For this output, candidate_project_ranking must be sorted from highest final_score to lowest final_score.
-
-Tie-breaking rules:
-- When projects have equal final_score, rank the project with more specific matched_jd_requirements higher.
-- A project with no matched_jd_requirements must not rank above an equal-scoring project with clear JD matches.
-- Generic technical usefulness is not enough to count as a JD match.
-
-Canonical blueprint rules:
-- Treat Evidence Library project bullets as the user-approved canonical blueprint when available.
-- Prefer selecting existing canonical bullets instead of rewriting from scratch.
-- Do not change canonical wording just to sound more tailored.
-- Lightly rephrase a canonical bullet only if it improves clarity, reduces length, or naturally matches the JD wording without changing meaning.
-- If a canonical bullet is already clear and relevant, preserve it closely.
-- Any rewritten bullet must preserve the same meaning as the canonical bullet.
-- If the resume is too long, reduce bullet count before heavily rewriting bullet wording.
-- Do not split one idea into multiple weak bullets just to fill space.
-- Do not create a separate collaboration/teamwork bullet if team size is already clear in the project title, unless the JD strongly emphasizes coordination or collaboration.
-- Avoid repetitive bullets that say the same thing in different words.
-
-CAR bullet rules:
-- Each draft bullet should follow compact CAR structure where possible: Context + Action + Result/Scope.
-- Start each bullet with a strong action verb.
-- Include the technology, system, feature, or workflow involved when relevant.
-- Include a truthful result, impact, or scope indicator.
-- If no metric exists, use scope indicators such as team size, published product, system area, workflow supported, or user-facing feature.
-- Do not write pure task bullets that only say what was done without context or scope.
-- Do not invent measurable results.
-- Keep each bullet concise and resume-friendly.
-
-Bullet ordering rules:
-- Within each selected project, order draft_bullets from most relevant and valuable to least relevant.
-- The first bullet should be the strongest bullet for the target JD.
-- The final bullet should be the safest bullet to remove if space becomes limited.
-- Keep selected_blueprint_bullets in the same relevance order as draft_bullets.
-- Do not place a core achievement or the strongest JD evidence as the final bullet merely because it is longer.
-
-Unsupported JD skill rules:
-- unsupported_jd_skills must include JD requirements that are not clearly supported by the resume or Evidence Library.
-- Do not leave unsupported_jd_skills empty unless every major JD requirement has clear evidence.
-- If evidence is only indirect or transferable, mention it in notes_for_user instead of treating it as fully supported.
-
-Display order rules:
-- candidate_project_ranking should be sorted by final_score from highest to lowest.
-- recommended_projects should contain the selected projects, but final display order may be reverse chronological by period.
-- Do not change project selection just to satisfy date order.
+Project-count rules:
+- Recommend no more than the supplied maximum.
+- Prefer up to 3 projects when that many projects have useful, truthful relevance.
+- Recommend fewer projects when the remaining candidates are weak, repetitive, or
+  unsupported for the target role.
+- The project count controls selection only. Bullet allocation happens later.
 
 Output only valid JSON matching this schema:
 {
-  "recommended_projects": [
+  "candidate_project_scores": [
     {
       "title": "string",
-      "display_title": "string",
-      "period": "string",
-      "source": "resume|evidence_library|both",
-      "action": "keep|add|shorten|replace",
-      "priority": "high|medium|low",
-      "space_action": "keep_full|shorten|single_bullet|remove",
       "matched_jd_requirements": ["string"],
-      "why_relevant": "string",
+      "transferable_jd_requirements": ["string"],
+      "must_have_match_score": 0,
+      "responsibility_match_score": 0,
+      "tool_domain_match_score": 0,
+      "evidence_strength_score": 0,
+      "impact_scope_score": 0,
+      "reason": "string"
+    }
+  ],
+  "recommended_project_count": 0,
+  "project_count_reason": "string",
+  "unsupported_jd_skills": [
+    {
+      "skill": "string",
+      "reason": "No clear project evidence found in the supplied candidate pool."
+    }
+  ],
+  "notes_for_user": ["string"]
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 prompt: write bullets for already-selected projects only
+# ---------------------------------------------------------------------------
+
+PROJECT_BULLET_WRITING_PROMPT = """
+Instruction:
+You are an honest resume bullet editor for students and junior technical
+applicants.
+
+Task:
+Write the Projects-section bullets only for the supplied selected project
+candidates. Project selection has already been completed by Python. Do not add,
+remove, replace, or re-rank project titles.
+
+Canonical-bullet rules:
+- Treat preferred_canonical_bullets as the primary user-approved blueprint.
+- Evidence Library bullets are preferred when available because they are the
+  user's maintained canonical evidence.
+- Resume bullets remain valid alternate canonical evidence.
+- Prefer selecting and reordering existing canonical bullets over rewriting them.
+- draft_bullets should normally be identical to selected_blueprint_bullets.
+- Lightly rewrite only when needed to:
+  1. improve clarity,
+  2. remove repetition,
+  3. make a bullet more concise,
+  4. naturally use truthful JD wording, or
+  5. combine overlapping evidence without changing meaning.
+- Never rewrite merely to sound more impressive.
+- Never add a result, metric, tool, responsibility, or skill that is not supplied.
+- When no usable canonical bullet exists, a concise bullet may be synthesised only
+  from the supplied description, skills, tools, impact, and scope. Explain this in
+  rewrite_reason.
+
+CAR and ordering rules:
+- Preserve existing strong CAR bullets.
+- Each final bullet should start with an action verb where practical.
+- Keep truthful Context + Action + Result/Scope where the evidence supports it.
+- Order bullets from strongest JD relevance to weakest.
+- The final bullet must be the safest bullet to remove during page fitting.
+- Do not split one idea into several weak bullets.
+- Do not create a separate teamwork bullet when team size is already clear in the
+  title unless collaboration is a major JD requirement.
+
+Length and page-use rules:
+- Use no more than the supplied maximum bullets per project.
+- Prefer 4-6 total bullets across all selected projects when supported.
+- Stronger projects may receive more bullets; weaker selected projects may receive
+  one bullet.
+- Do not aggressively shorten wording for page fit. The DOCX fitting stage removes
+  complete lower-priority bullets one at a time.
+- Bullets should usually be concise and resume-friendly, commonly 14-24 words, but
+  preserving meaning is more important than meeting a fixed word count.
+
+Output only valid JSON matching this schema:
+{
+  "project_bullet_plans": [
+    {
+      "title": "string",
       "selected_blueprint_bullets": ["string"],
       "rewritten_bullets": ["string"],
       "rewrite_reason": "string",
       "draft_bullets": ["string"]
     }
   ],
-"candidate_project_ranking": [
-  {
-    "title": "string",
-    "display_title": "string",
-    "source": "resume|evidence_library|both",
-    "currently_in_resume": true,
-    "in_evidence_library": true,
-    "matched_jd_requirements": ["string"],
-    "relevance_score": 0,
-    "evidence_strength_score": 0,
-    "final_score": 0,
-    "recommendation": "include|deprioritize|exclude",
-    "reason": "string"
-  }
-],
-  "projects_to_remove_or_deprioritize": [
-    {
-      "title": "string",
-      "reason": "string"
-    }
-  ],
-  "unsupported_jd_skills": [
-    {
-      "skill": "string",
-      "reason": "No clear evidence found in resume or evidence library."
-    }
-  ],
-  "one_page_fit": {
-    "risk": "low|medium|high",
-    "reason": "string",
-    "recommended_project_count": 0,
-    "recommended_bullet_count": 0
-  },
   "notes_for_user": ["string"]
 }
-
-Expected behavior:
-- If three relevant projects exist, recommend up to three projects.
-- Give stronger projects more bullets.
-- Give weaker projects fewer bullets.
-- Evidence Library projects can replace current resume projects when more relevant.
-- Do not invent missing details.
-- draft_bullets should usually be the same as selected_blueprint_bullets or a light rewrite of them.
-- If draft_bullets differ from selected_blueprint_bullets, explain why in rewrite_reason.
 """
 
 
+# ---------------------------------------------------------------------------
+# General helpers
+# ---------------------------------------------------------------------------
 
 
 def _normalise_project_key(title: str) -> str:
     """
-    Normalise project names so:
-    'QueryAI (React, Team of 4)' and 'QueryAI' are treated as the same project.
+    Normalise project names so titles such as:
+    'QueryAI (React, Team of 4)' and 'QueryAI' match.
     """
     text = str(title or "").lower().strip()
     text = re.sub(r"\(.*?\)", "", text)
@@ -208,83 +190,45 @@ def _normalise_project_key(title: str) -> str:
     return " ".join(text.split())
 
 
-_MONTH_TO_NUMBER = {
-    "jan": 1,
-    "january": 1,
-    "feb": 2,
-    "february": 2,
-    "mar": 3,
-    "march": 3,
-    "apr": 4,
-    "april": 4,
-    "may": 5,
-    "jun": 6,
-    "june": 6,
-    "jul": 7,
-    "july": 7,
-    "aug": 8,
-    "august": 8,
-    "sep": 9,
-    "sept": 9,
-    "september": 9,
-    "oct": 10,
-    "october": 10,
-    "nov": 11,
-    "november": 11,
-    "dec": 12,
-    "december": 12,
-}
+def _clean_string_list(value: Any) -> list[str]:
+    """Return a clean, deduplicated list of non-empty strings."""
+    if not isinstance(value, list):
+        return []
 
-def _sort_recommended_projects_latest_first(result: dict[str, Any]) -> dict[str, Any]:
-    """
-    Sort only the final displayed recommended_projects by latest date first.
+    cleaned: list[str] = []
+    seen: set[str] = set()
 
-    Keep candidate_project_ranking as score/ranking order for debugging.
-    """
-    projects = result.get("recommended_projects", [])
+    for item in value:
+        text = " ".join(str(item or "").split()).strip()
+        key = text.lower()
 
-    if isinstance(projects, list):
-        result["recommended_projects"] = sorted(
-            projects,
-            key=lambda project: period_sort_value(project.get("period", "")),
-            reverse=True,
-        )
+        if text and key not in seen:
+            cleaned.append(text)
+            seen.add(key)
 
-    return result
+    return cleaned
+
 
 def _split_description_into_bullets(description: str) -> list[str]:
-    """
-    Convert evidence description into clean bullet-like lines.
-    Works for newline bullets and inline bullet symbols.
-    """
+    """Convert newline or symbol-separated evidence text into clean bullets."""
     text = str(description or "").strip()
 
     if not text:
         return []
 
-    # Handle cases like: "• did A • did B • did C"
-    # text = text.replace("●", "\n").replace("•", "\n")
     text = text.replace("●", "\n").replace("•", "\n").replace("", "\n")
-
-    bullets = []
+    bullets: list[str] = []
 
     for line in text.splitlines():
-        # cleaned = line.strip().lstrip("-*•● ").strip()
         cleaned = line.strip().lstrip("-*•● ").strip()
-
         if cleaned:
             bullets.append(cleaned)
 
-    return bullets
+    return _clean_string_list(bullets)
 
 
 def _find_resume_project_lists(value: Any) -> list[dict[str, Any]]:
-    """
-    Recursively find likely project dictionaries inside resume_profile.
-
-    This is defensive because different extract_resume_profile outputs may use
-    slightly different keys.
-    """
+    """Recursively find likely project dictionaries in a resume profile."""
     found: list[dict[str, Any]] = []
 
     if isinstance(value, dict):
@@ -305,8 +249,86 @@ def _find_resume_project_lists(value: Any) -> list[dict[str, Any]]:
     return found
 
 
+def _candidate_source(candidate: dict[str, Any]) -> str:
+    """Return the public source label expected by the existing UI."""
+    in_resume = bool(candidate.get("currently_in_resume"))
+    in_library = bool(candidate.get("in_evidence_library"))
+
+    if in_resume and in_library:
+        return "both"
+    if in_library:
+        return "evidence_library"
+    return "resume"
+
+
+def _candidate_action(candidate: dict[str, Any]) -> str:
+    """Return the initial action for a selected project."""
+    if candidate.get("currently_in_resume"):
+        return "keep"
+    return "add"
+
+
+def _safe_component_score(value: Any) -> int:
+    """Convert an AI component score to a clamped integer from 0 to 5."""
+    try:
+        numeric = int(round(float(value)))
+    except (TypeError, ValueError):
+        numeric = 0
+
+    return max(0, min(5, numeric))
+
+
+def _calculate_project_final_score(row: dict[str, Any]) -> int:
+    """
+    Calculate a deterministic 0-100 project-fit score.
+
+    Weighting is based on project-level parts of the uploaded optimisation rubric:
+        must-have match       35%
+        responsibility match  25%
+        tools/domain match    15%
+        evidence strength     20%
+        impact/scope           5%
+
+    Every component is scored from 0 to 5.
+    """
+    return int(
+        row["must_have_match_score"] * 7
+        + row["responsibility_match_score"] * 5
+        + row["tool_domain_match_score"] * 3
+        + row["evidence_strength_score"] * 4
+        + row["impact_scope_score"] * 1
+    )
+
+
+def _calculate_relevance_score(row: dict[str, Any]) -> float:
+    """Return a compatible 0-5 relevance score from the three JD-fit dimensions."""
+    weighted_total = (
+        row["must_have_match_score"] * 7
+        + row["responsibility_match_score"] * 5
+        + row["tool_domain_match_score"] * 3
+    )
+    return round(weighted_total / 15, 2)
+
+
+def _priority_from_ranking_row(row: dict[str, Any]) -> str:
+    """Convert the project-fit result into the priority used by page compaction."""
+    final_score = int(row.get("final_score", 0) or 0)
+    direct_matches = len(row.get("matched_jd_requirements", []) or [])
+
+    if final_score >= 70 or direct_matches >= 3:
+        return "high"
+    if final_score >= 40 or direct_matches >= 1:
+        return "medium"
+    return "low"
+
+
+# ---------------------------------------------------------------------------
+# Candidate-pool construction
+# ---------------------------------------------------------------------------
+
+
 def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert one resume project dict into a standard candidate shape."""
+    """Convert one resume project dictionary into the shared candidate shape."""
     title = (
         project.get("display_title")
         or project.get("title")
@@ -327,6 +349,8 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
 
     if isinstance(bullets, str):
         bullets = _split_description_into_bullets(bullets)
+    else:
+        bullets = _clean_string_list(bullets)
 
     description = (
         project.get("description")
@@ -338,9 +362,6 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
     if not bullets and description:
         bullets = _split_description_into_bullets(description)
 
-    skills = project.get("skills") or project.get("technologies") or []
-    tools = project.get("tools") or project.get("tech_stack") or []
-
     return {
         "title": str(title).strip(),
         "display_title": str(project.get("display_title") or title).strip(),
@@ -351,8 +372,8 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
         "resume_evidence": {
             "description": str(description).strip(),
             "bullets": bullets,
-            "skills": skills,
-            "tools": tools,
+            "skills": project.get("skills") or project.get("technologies") or [],
+            "tools": project.get("tools") or project.get("tech_stack") or [],
             "impact": str(project.get("impact") or project.get("scope") or "").strip(),
         },
         "evidence_library_evidence": None,
@@ -360,19 +381,15 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _evidence_item_to_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert one Evidence Library item into a standard candidate shape."""
-    category = str(item.get("category", "")).lower().strip()
-
-    if category != "project":
+    """Convert one Project Evidence Library item into the shared candidate shape."""
+    if str(item.get("category", "")).lower().strip() != "project":
         return None
 
     title = str(item.get("title", "")).strip()
-
     if not title:
         return None
 
     description = str(item.get("description", "")).strip()
-    bullets = _split_description_into_bullets(description)
 
     return {
         "title": title,
@@ -384,7 +401,7 @@ def _evidence_item_to_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
         "resume_evidence": None,
         "evidence_library_evidence": {
             "description": description,
-            "bullets": bullets,
+            "bullets": _split_description_into_bullets(description),
             "skills": item.get("skills", []) or [],
             "tools": item.get("tools", []) or [],
             "impact": str(item.get("impact", "")).strip(),
@@ -397,246 +414,432 @@ def build_project_candidate_pool(
     resume_profile: dict[str, Any],
     evidence_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """
-    Build one combined project candidate pool from resume projects + Evidence Library.
-
-    This reduces LLM inconsistency because the model no longer has to infer
-    and merge project candidates from two separate sections by itself.
-    """
+    """Merge resume projects and Project Evidence Library records."""
     candidates_by_key: dict[str, dict[str, Any]] = {}
 
-    # 1. Add resume projects.
     for resume_project in _find_resume_project_lists(resume_profile):
         candidate = _resume_project_to_candidate(resume_project)
-
         if not candidate:
             continue
 
         key = _normalise_project_key(candidate["title"])
+        if key:
+            candidates_by_key[key] = candidate
 
-        if not key:
-            continue
-
-        candidates_by_key[key] = candidate
-
-    # 2. Merge Evidence Library projects.
     for item in evidence_items:
         candidate = _evidence_item_to_candidate(item)
-
         if not candidate:
             continue
 
         key = _normalise_project_key(candidate["title"])
-
         if not key:
             continue
 
         if key in candidates_by_key:
             existing = candidates_by_key[key]
-
-            existing["sources"] = sorted(set(existing.get("sources", []) + ["evidence_library"]))
+            existing["sources"] = sorted(
+                set(existing.get("sources", []) + ["evidence_library"])
+            )
             existing["in_evidence_library"] = True
-            existing["evidence_library_evidence"] = candidate["evidence_library_evidence"]
+            existing["evidence_library_evidence"] = candidate[
+                "evidence_library_evidence"
+            ]
 
-            # Prefer evidence title if it contains fuller display info.
             if len(candidate["display_title"]) > len(existing.get("display_title", "")):
                 existing["display_title"] = candidate["display_title"]
 
             if not existing.get("period") and candidate.get("period"):
                 existing["period"] = candidate["period"]
-
         else:
             candidates_by_key[key] = candidate
 
-    candidates = list(candidates_by_key.values())
-
-    return sorted(candidates, key=lambda candidate: candidate.get("title", "").lower())
-
-
-
-
-def _postprocess_project_tailoring_result(
-    result: dict[str, Any],
-    *,
-    project_candidates: list[dict[str, Any]],
-    max_projects: int,
-) -> dict[str, Any]:
-    """
-    Add debug notes and auto-fill removed/deprioritized
-    current-resume projects.
-    """
-    recommended_projects = result.get(
-        "recommended_projects",
-        [],
+    return sorted(
+        candidates_by_key.values(),
+        key=lambda candidate: candidate.get("title", "").lower(),
     )
 
-    selected_keys = {
-        _normalise_project_key(project.get("title", ""))
-        for project in recommended_projects
-        if _normalise_project_key(project.get("title", ""))
+
+# ---------------------------------------------------------------------------
+# Canonical-bullet preparation
+# ---------------------------------------------------------------------------
+
+
+def _candidate_canonical_bullets(candidate: dict[str, Any]) -> dict[str, list[str]]:
+    """
+    Prepare canonical bullet sources for the writing call.
+
+    Evidence Library bullets are primary when available. Resume-profile bullets are
+    retained as alternate approved evidence and become primary when no library
+    bullets exist.
+    """
+    library_evidence = candidate.get("evidence_library_evidence") or {}
+    resume_evidence = candidate.get("resume_evidence") or {}
+
+    library_bullets = _clean_string_list(library_evidence.get("bullets", []))
+    resume_bullets = _clean_string_list(resume_evidence.get("bullets", []))
+
+    preferred = library_bullets or resume_bullets
+    alternate = [
+        bullet
+        for bullet in resume_bullets
+        if bullet.lower() not in {item.lower() for item in preferred}
+    ]
+
+    return {
+        "preferred_canonical_bullets": preferred,
+        "alternate_resume_bullets": alternate,
+        "all_approved_source_bullets": _clean_string_list(preferred + alternate),
     }
 
-    existing_removed_keys = {
-        _normalise_project_key(project.get("title", ""))
-        for project in result.get(
-            "projects_to_remove_or_deprioritize",
-            [],
-        )
-        if _normalise_project_key(project.get("title", ""))
+
+def _prepare_selected_candidate_for_writer(
+    candidate: dict[str, Any],
+    ranking_row: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a compact, evidence-rich record for the bullet-writing call."""
+    canonical = _candidate_canonical_bullets(candidate)
+
+    return {
+        "title": candidate.get("title", ""),
+        "display_title": candidate.get("display_title", ""),
+        "period": candidate.get("period", ""),
+        "source": _candidate_source(candidate),
+        "currently_in_resume": bool(candidate.get("currently_in_resume")),
+        "in_evidence_library": bool(candidate.get("in_evidence_library")),
+        "matched_jd_requirements": ranking_row.get("matched_jd_requirements", []),
+        "transferable_jd_requirements": ranking_row.get(
+            "transferable_jd_requirements", []
+        ),
+        "ranking_reason": ranking_row.get("reason", ""),
+        **canonical,
+        "resume_evidence": candidate.get("resume_evidence"),
+        "evidence_library_evidence": candidate.get("evidence_library_evidence"),
     }
 
-    # Auto-fill current-resume projects that were not selected.
-    auto_removed = []
 
-    for candidate in project_candidates:
-        candidate_key = _normalise_project_key(
-            candidate.get("title", "")
-        )
+# ---------------------------------------------------------------------------
+# Stage 1: AI analysis, Python scoring, sorting, and selection
+# ---------------------------------------------------------------------------
 
-        if not candidate_key:
+
+def _build_complete_ranked_rows(
+    *,
+    scoring_result: dict[str, Any],
+    project_candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Recalculate every score in Python and return a complete deterministic ranking.
+
+    Unknown AI rows are ignored. Missing candidate rows are added with zero scores so
+    every candidate remains visible for debugging.
+    """
+    candidates_by_key = {
+        _normalise_project_key(candidate.get("title", "")): candidate
+        for candidate in project_candidates
+        if _normalise_project_key(candidate.get("title", ""))
+    }
+
+    ai_rows_by_key: dict[str, dict[str, Any]] = {}
+
+    for raw_row in scoring_result.get("candidate_project_scores", []) or []:
+        if not isinstance(raw_row, dict):
             continue
 
-        if (
-            candidate.get("currently_in_resume")
-            and candidate_key not in selected_keys
-            and candidate_key not in existing_removed_keys
-        ):
-            auto_removed.append(
-                {
-                    "title": (
-                        candidate.get("display_title")
-                        or candidate.get("title")
-                    ),
-                    "reason": (
-                        "Currently in the resume but not selected for "
-                        "this tailored version. Another project was "
-                        "judged more relevant to the target job."
-                    ),
-                }
-            )
+        key = _normalise_project_key(raw_row.get("title", ""))
+        if key and key in candidates_by_key and key not in ai_rows_by_key:
+            ai_rows_by_key[key] = raw_row
 
-    if auto_removed:
-        result.setdefault(
-            "projects_to_remove_or_deprioritize",
-            [],
+    ranking_rows: list[dict[str, Any]] = []
+
+    for key, candidate in candidates_by_key.items():
+        raw_row = ai_rows_by_key.get(key, {})
+
+        component_row = {
+            "must_have_match_score": _safe_component_score(
+                raw_row.get("must_have_match_score", 0)
+            ),
+            "responsibility_match_score": _safe_component_score(
+                raw_row.get("responsibility_match_score", 0)
+            ),
+            "tool_domain_match_score": _safe_component_score(
+                raw_row.get("tool_domain_match_score", 0)
+            ),
+            "evidence_strength_score": _safe_component_score(
+                raw_row.get("evidence_strength_score", 0)
+            ),
+            "impact_scope_score": _safe_component_score(
+                raw_row.get("impact_scope_score", 0)
+            ),
+        }
+
+        matched = _clean_string_list(raw_row.get("matched_jd_requirements", []))
+        transferable = _clean_string_list(
+            raw_row.get("transferable_jd_requirements", [])
         )
-        result[
-            "projects_to_remove_or_deprioritize"
-        ].extend(auto_removed)
+        matched_lower = {item.lower() for item in matched}
+        transferable = [
+            item for item in transferable if item.lower() not in matched_lower
+        ]
 
-    # Recalculate every final score in Python instead of trusting
-    # arithmetic returned by the AI.
-    ranking_rows = result.get(
-        "candidate_project_ranking",
-        [],
-    )
+        row = {
+            "title": candidate.get("title", ""),
+            "display_title": candidate.get("display_title")
+            or candidate.get("title", ""),
+            "source": _candidate_source(candidate),
+            "currently_in_resume": bool(candidate.get("currently_in_resume")),
+            "in_evidence_library": bool(candidate.get("in_evidence_library")),
+            "matched_jd_requirements": matched,
+            "transferable_jd_requirements": transferable,
+            **component_row,
+            "relevance_score": _calculate_relevance_score(component_row),
+            "reason": str(raw_row.get("reason", "")).strip()
+            or "The scoring response did not provide a project-specific reason.",
+        }
+        row["final_score"] = _calculate_project_final_score(row)
+        ranking_rows.append(row)
 
-    for item in ranking_rows:
-        relevance_score = int(
-            item.get("relevance_score", 0) or 0
-        )
-
-        evidence_strength_score = int(
-            item.get("evidence_strength_score", 0) or 0
-        )
-
-        item["final_score"] = (
-            relevance_score * 2
-            + evidence_strength_score
-        )
-
-    # Sort once after every score has been recalculated.
-    ranked = sorted(
-        ranking_rows,
+    ranking_rows.sort(
         key=lambda item: (
             item.get("final_score", 0),
-            len(
-                item.get(
-                    "matched_jd_requirements",
-                    [],
-                )
-                or []
-            ),
-            item.get("relevance_score", 0),
+            len(item.get("matched_jd_requirements", []) or []),
+            item.get("must_have_match_score", 0),
+            item.get("responsibility_match_score", 0),
             item.get("evidence_strength_score", 0),
+            item.get("impact_scope_score", 0),
         ),
         reverse=True,
     )
 
-    result["candidate_project_ranking"] = ranked
+    return ranking_rows
 
-    # Compare against only the number of projects actually selected.
-    # This avoids a false warning when fewer than max_projects are used.
-    selected_count = min(
-        len(recommended_projects),
-        max_projects,
-        len(ranked),
-    )
 
-    selected_titles = {
-        _normalise_project_key(project.get("title", ""))
-        for project in recommended_projects[:selected_count]
-        if _normalise_project_key(project.get("title", ""))
+def _resolve_selected_project_count(
+    *,
+    scoring_result: dict[str, Any],
+    ranked_rows: list[dict[str, Any]],
+    max_projects: int,
+) -> int:
+    """Clamp the AI's project-count recommendation to safe available limits."""
+    if not ranked_rows:
+        return 0
+
+    try:
+        requested = int(scoring_result.get("recommended_project_count", max_projects))
+    except (TypeError, ValueError):
+        requested = max_projects
+
+    requested = max(1, requested)
+    return min(requested, max_projects, len(ranked_rows))
+
+
+def _select_candidates_from_ranking(
+    *,
+    ranked_rows: list[dict[str, Any]],
+    project_candidates: list[dict[str, Any]],
+    selected_count: int,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Return exact candidate/ranking pairs for the Python-selected top rows."""
+    candidates_by_key = {
+        _normalise_project_key(candidate.get("title", "")): candidate
+        for candidate in project_candidates
+        if _normalise_project_key(candidate.get("title", ""))
     }
 
-    expected_titles = {
-        _normalise_project_key(project.get("title", ""))
-        for project in ranked[:selected_count]
-        if _normalise_project_key(project.get("title", ""))
-    }
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
-    selection_matches = (
-        len(selected_titles) == selected_count
-        and selected_titles == expected_titles
+    for ranking_row in ranked_rows[:selected_count]:
+        key = _normalise_project_key(ranking_row.get("title", ""))
+        candidate = candidates_by_key.get(key)
+        if candidate:
+            selected.append((candidate, ranking_row))
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: bullet writing and deterministic result assembly
+# ---------------------------------------------------------------------------
+
+
+def _normalise_writer_plans(writer_result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Index valid writer plans by normalised project title."""
+    plans: dict[str, dict[str, Any]] = {}
+
+    for plan in writer_result.get("project_bullet_plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+
+        key = _normalise_project_key(plan.get("title", ""))
+        if key and key not in plans:
+            plans[key] = plan
+
+    return plans
+
+
+def _filter_selected_blueprints(
+    requested: Any,
+    approved_source_bullets: list[str],
+) -> list[str]:
+    """Keep only blueprint bullets that actually came from supplied evidence."""
+    approved_by_key = {
+        " ".join(bullet.lower().split()): bullet for bullet in approved_source_bullets
+    }
+    selected: list[str] = []
+
+    for bullet in _clean_string_list(requested):
+        key = " ".join(bullet.lower().split())
+        approved = approved_by_key.get(key)
+        if approved and approved not in selected:
+            selected.append(approved)
+
+    return selected
+
+
+def _build_project_from_writer_plan(
+    *,
+    candidate: dict[str, Any],
+    ranking_row: dict[str, Any],
+    writer_plan: dict[str, Any] | None,
+    max_bullets_per_project: int,
+) -> dict[str, Any]:
+    """
+    Build one complete recommended-project record.
+
+    Python owns the project identity and ranking metadata. The AI contributes only
+    the selected/rephrased bullet wording.
+    """
+    canonical = _candidate_canonical_bullets(candidate)
+    approved_bullets = canonical["all_approved_source_bullets"]
+    plan = writer_plan or {}
+
+    selected_blueprints = _filter_selected_blueprints(
+        plan.get("selected_blueprint_bullets", []),
+        approved_bullets,
     )
 
-    if ranked and selected_count > 0 and not selection_matches:
-        expected_display_titles = [
-            str(
-                project.get("display_title")
-                or project.get("title")
-                or ""
-            ).strip()
-            for project in ranked[:selected_count]
-        ]
+    if not selected_blueprints:
+        selected_blueprints = approved_bullets[:max_bullets_per_project]
 
-        actual_display_titles = [
-            str(
-                project.get("display_title")
-                or project.get("title")
-                or ""
-            ).strip()
-            for project in recommended_projects[:selected_count]
-        ]
+    selected_blueprints = selected_blueprints[:max_bullets_per_project]
 
-        result.setdefault("notes_for_user", []).append(
-            "Debug note: selected projects do not match the "
-            "highest-ranked candidates. "
-            f"Expected: {expected_display_titles}. "
-            f"Selected: {actual_display_titles}."
+    draft_bullets = _clean_string_list(plan.get("draft_bullets", []))[
+        :max_bullets_per_project
+    ]
+    rewritten_bullets = _clean_string_list(plan.get("rewritten_bullets", []))[
+        :max_bullets_per_project
+    ]
+    rewrite_reason = str(plan.get("rewrite_reason", "")).strip()
+
+    # When the AI changes canonical wording without explaining why, preserve the
+    # exact approved bullets instead of silently accepting an unexplained rewrite.
+    if draft_bullets and selected_blueprints:
+        exact_blueprint_set = {
+            " ".join(item.lower().split()) for item in selected_blueprints
+        }
+        contains_changed_wording = any(
+            " ".join(item.lower().split()) not in exact_blueprint_set
+            for item in draft_bullets
         )
 
-    # Warn when a selected project has no specific JD matches.
-    for project in recommended_projects:
-        if not project.get("matched_jd_requirements"):
-            project_title = (
-                project.get("display_title")
-                or project.get("title")
-                or "Untitled Project"
-            )
+        if contains_changed_wording and not rewrite_reason:
+            draft_bullets = list(selected_blueprints)
+            rewritten_bullets = []
 
-            result.setdefault("notes_for_user", []).append(
-                f"Debug note: selected project '{project_title}' "
-                "has no matched_jd_requirements. Review whether "
-                "it should be selected."
-            )
+    if not draft_bullets:
+        draft_bullets = list(selected_blueprints)
 
-    # Score order decides selection; date order decides display order.
-    result = _sort_recommended_projects_latest_first(result)
+    # A project may have descriptive evidence but no pre-existing bullet. In that
+    # case the writer can create a truthful bullet. Keep that result only when a
+    # reason is supplied; otherwise leave the project with no generated bullet and
+    # surface the issue in notes later.
+    if not draft_bullets and rewrite_reason:
+        draft_bullets = _clean_string_list(plan.get("draft_bullets", []))[
+            :max_bullets_per_project
+        ]
 
+    if draft_bullets and not selected_blueprints and not rewrite_reason:
+        rewrite_reason = (
+            "No canonical bullet was available; the final wording was synthesised "
+            "from the supplied project evidence."
+        )
+
+    space_action = "single_bullet" if len(draft_bullets) <= 1 else "keep_full"
+
+    return {
+        "title": candidate.get("title", ""),
+        "display_title": candidate.get("display_title")
+        or candidate.get("title", ""),
+        "period": candidate.get("period", ""),
+        "source": _candidate_source(candidate),
+        "action": _candidate_action(candidate),
+        "priority": _priority_from_ranking_row(ranking_row),
+        "space_action": space_action,
+        "matched_jd_requirements": ranking_row.get(
+            "matched_jd_requirements", []
+        ),
+        "transferable_jd_requirements": ranking_row.get(
+            "transferable_jd_requirements", []
+        ),
+        "why_relevant": ranking_row.get("reason", ""),
+        "selected_blueprint_bullets": selected_blueprints,
+        "rewritten_bullets": rewritten_bullets,
+        "rewrite_reason": rewrite_reason,
+        "draft_bullets": draft_bullets,
+        "project_fit_score": ranking_row.get("final_score", 0),
+    }
+
+
+def _build_projects_to_remove(
+    *,
+    project_candidates: list[dict[str, Any]],
+    ranked_rows: list[dict[str, Any]],
+    selected_keys: set[str],
+) -> list[dict[str, str]]:
+    """List current-resume projects that Python did not select."""
+    rank_by_key = {
+        _normalise_project_key(row.get("title", "")): (index, row)
+        for index, row in enumerate(ranked_rows, start=1)
+    }
+    removed: list[dict[str, str]] = []
+
+    for candidate in project_candidates:
+        key = _normalise_project_key(candidate.get("title", ""))
+
+        if not candidate.get("currently_in_resume") or key in selected_keys:
+            continue
+
+        rank_number, row = rank_by_key.get(key, (None, {}))
+        rank_text = f"ranked #{rank_number}" if rank_number is not None else "not ranked"
+        removed.append(
+            {
+                "title": candidate.get("display_title")
+                or candidate.get("title", "Untitled Project"),
+                "reason": (
+                    f"Not selected by the Python top-project step ({rank_text}, "
+                    f"fit score {row.get('final_score', 0)}/100). "
+                    "Higher-ranked projects were more relevant to the target JD."
+                ),
+            }
+        )
+
+    return removed
+
+
+def _sort_recommended_projects_latest_first(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Sort final display by latest period without changing selected membership."""
+    result["recommended_projects"] = sorted(
+        result.get("recommended_projects", []),
+        key=lambda project: period_sort_value(project.get("period", "")),
+        reverse=True,
+    )
     return result
 
 
+# ---------------------------------------------------------------------------
+# Public orchestration function
+# ---------------------------------------------------------------------------
 
 
 def tailor_projects_section(
@@ -646,93 +849,206 @@ def tailor_projects_section(
     evidence_items: list[dict[str, Any]],
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
+    keyword_match: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate a tailored Projects section recommendation."""
+    """
+    Generate a tailored Projects section using the Option B two-stage pipeline.
+
+    The public return shape remains compatible with the existing Streamlit and
+    DOCX-generation code.
+    """
     if not resume_profile:
         raise ValueError("Missing resume profile. Analyze a resume first.")
 
     if not jd_profile:
         raise ValueError("Missing job description profile. Analyze a job description first.")
 
-
     project_candidates = build_project_candidate_pool(
-      resume_profile=resume_profile,
-      evidence_items=evidence_items,
+        resume_profile=resume_profile,
+        evidence_items=evidence_items,
     )
 
+    if not project_candidates:
+        raise ValueError(
+            "No project candidates were found in the resume profile or Evidence Library."
+        )
 
-    user_prompt = f"""
-PROJECT SELECTION GOAL:
-Create the strongest truthful Projects section for this target job.
-Use the page well, but do not force extra bullets if the evidence is weak.
-
-IMPORTANT:
-Use COMBINED PROJECT CANDIDATE POOL as the main source of project candidates and bullet wording.
-When evidence_library_evidence.bullets exists, treat those bullets as the preferred master bullets.
-The current resume profile is context, not a preference signal.
-Do not choose a project just because it is already in the resume.
-Do not ignore a project just because it only appears in the Evidence Library.
-
-LIMITS:
-- Maximum projects: {max_projects}
-- Maximum bullets per project: {max_bullets_per_project}
-- Prefer 4-6 total project bullets when supported by evidence.
-- Do not invent, exaggerate, or pad content just to fill space.
-- Preserve strong existing truthful bullets from the Evidence Library or resume when they match the job.
-- If fewer than 4 total bullets are used, explain why in notes_for_user.
+    scoring_user_prompt = f"""
+MAXIMUM PROJECTS:
+{max_projects}
 
 COMBINED PROJECT CANDIDATE POOL:
 {json.dumps(project_candidates, indent=2, ensure_ascii=False)}
 
+TARGET JOB DESCRIPTION PROFILE:
+{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
+
+CURRENT RESUME-JD KEYWORD ANALYSIS (context only):
+{json.dumps(keyword_match or {}, indent=2, ensure_ascii=False)}
+
+IMPORTANT:
+- The keyword analysis describes the current resume, not necessarily the Evidence
+  Library. Award project points only when the candidate's own evidence supports the
+  requirement.
+- Include every candidate exactly once in candidate_project_scores.
+"""
+
+    scoring_result = ask_json(
+        PROJECT_CANDIDATE_SCORING_PROMPT,
+        scoring_user_prompt,
+        temperature=0.0,
+        max_tokens=2600,
+    )
+
+    ranked_rows = _build_complete_ranked_rows(
+        scoring_result=scoring_result,
+        project_candidates=project_candidates,
+    )
+
+    selected_count = _resolve_selected_project_count(
+        scoring_result=scoring_result,
+        ranked_rows=ranked_rows,
+        max_projects=max_projects,
+    )
+
+    selected_pairs = _select_candidates_from_ranking(
+        ranked_rows=ranked_rows,
+        project_candidates=project_candidates,
+        selected_count=selected_count,
+    )
+
+    selected_writer_candidates = [
+        _prepare_selected_candidate_for_writer(candidate, ranking_row)
+        for candidate, ranking_row in selected_pairs
+    ]
+
+    writing_user_prompt = f"""
+MAXIMUM BULLETS PER PROJECT:
+{max_bullets_per_project}
+
+PYTHON-SELECTED PROJECT CANDIDATES:
+{json.dumps(selected_writer_candidates, indent=2, ensure_ascii=False)}
 
 TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
-CURRENT RESUME PROJECT TITLES ONLY:
-{json.dumps(
-    [
-        candidate.get("title", "")
-        for candidate in project_candidates
-        if candidate.get("currently_in_resume")
-    ],
-    indent=2,
-    ensure_ascii=False,
-)}
-
-TASK:
-Recommend a tailored Projects section for this target job.
-
-Selection rules:
-- Pick from COMBINED PROJECT CANDIDATE POOL only.
-- For source:
-  - use "resume" only if currently_in_resume is true and in_evidence_library is false
-  - use "evidence_library" only if currently_in_resume is false and in_evidence_library is true
-  - use "both" if currently_in_resume and in_evidence_library are both true
-- For action:
-  - use "keep" if the selected project is already in the resume
-  - use "add" if the selected project only comes from Evidence Library
-  - use "replace" if an Evidence Library project should replace a less relevant resume project
-  - use "shorten" if an existing resume project should stay but with fewer/shorter bullets
-- Include every candidate from COMBINED PROJECT CANDIDATE POOL in candidate_project_ranking.
+IMPORTANT:
+- Return one project_bullet_plans row for each supplied selected candidate.
+- Do not return any project not present in PYTHON-SELECTED PROJECT CANDIDATES.
+- Preserve canonical bullets unless a specific allowed rewrite reason applies.
 """
 
-    result = ask_json(
-    PROJECT_SECTION_TAILOR_PROMPT,
-    user_prompt,
-    temperature=0.0,
-    max_tokens=2500,
+    writer_result = ask_json(
+        PROJECT_BULLET_WRITING_PROMPT,
+        writing_user_prompt,
+        temperature=0.0,
+        max_tokens=2200,
     )
 
-    result = _postprocess_project_tailoring_result(
-    result,
-    project_candidates=project_candidates,
-    max_projects=max_projects,
+    writer_plans = _normalise_writer_plans(writer_result)
+    recommended_projects: list[dict[str, Any]] = []
+
+    for candidate, ranking_row in selected_pairs:
+        key = _normalise_project_key(candidate.get("title", ""))
+        recommended_projects.append(
+            _build_project_from_writer_plan(
+                candidate=candidate,
+                ranking_row=ranking_row,
+                writer_plan=writer_plans.get(key),
+                max_bullets_per_project=max_bullets_per_project,
+            )
+        )
+
+    selected_keys = {
+        _normalise_project_key(project.get("title", ""))
+        for project in recommended_projects
+    }
+
+    for index, row in enumerate(ranked_rows):
+        if index < selected_count:
+            row["recommendation"] = "include"
+        elif row.get("final_score", 0) > 0:
+            row["recommendation"] = "deprioritize"
+        else:
+            row["recommendation"] = "exclude"
+
+    notes = _clean_string_list(scoring_result.get("notes_for_user", []))
+    notes.extend(_clean_string_list(writer_result.get("notes_for_user", [])))
+    notes.append(
+        f"Python selected the top {selected_count} project(s) after recalculating "
+        "and sorting the project-fit scores."
     )
 
+    missing_writer_titles = [
+        candidate.get("display_title") or candidate.get("title", "")
+        for candidate, _ in selected_pairs
+        if _normalise_project_key(candidate.get("title", "")) not in writer_plans
+    ]
 
-    return result
+    if missing_writer_titles:
+        notes.append(
+            "The bullet-writing response omitted these selected projects, so their "
+            f"canonical bullets were used as a fallback: {missing_writer_titles}."
+        )
+
+    no_bullet_titles = [
+        project.get("display_title") or project.get("title", "")
+        for project in recommended_projects
+        if not project.get("draft_bullets")
+    ]
+
+    if no_bullet_titles:
+        notes.append(
+            "No usable canonical or generated bullet was available for: "
+            f"{no_bullet_titles}. Add stronger Evidence Library bullets."
+        )
+
+    result = {
+        "recommended_projects": recommended_projects,
+        "candidate_project_ranking": ranked_rows,
+        "projects_to_remove_or_deprioritize": _build_projects_to_remove(
+            project_candidates=project_candidates,
+            ranked_rows=ranked_rows,
+            selected_keys=selected_keys,
+        ),
+        "unsupported_jd_skills": scoring_result.get(
+            "unsupported_jd_skills", []
+        )
+        or [],
+        "one_page_fit": {},
+        "notes_for_user": _clean_string_list(notes),
+        "selection_debug": {
+            "selection_owner": "python",
+            "requested_project_count": scoring_result.get(
+                "recommended_project_count"
+            ),
+            "selected_project_count": selected_count,
+            "selected_titles_by_rank": [
+                ranking_row.get("display_title") or ranking_row.get("title", "")
+                for _, ranking_row in selected_pairs
+            ],
+            "project_count_reason": scoring_result.get("project_count_reason", ""),
+        },
+    }
+
+    fit = estimate_project_section_length(
+        result,
+        max_projects=max_projects,
+        max_total_bullets=max_projects * max_bullets_per_project,
+    )
+    result["one_page_fit"] = {
+        "risk": fit["risk"],
+        "reason": fit["reason"],
+        "recommended_project_count": fit["project_count"],
+        "recommended_bullet_count": fit["bullet_count"],
+    }
+
+    return _sort_recommended_projects_latest_first(result)
 
 
+# ---------------------------------------------------------------------------
+# Existing UI warning helper
+# ---------------------------------------------------------------------------
 
 
 def estimate_project_section_length(
@@ -742,18 +1058,14 @@ def estimate_project_section_length(
     max_total_bullets: int = 6,
     max_words_per_bullet: int = 28,
 ) -> dict[str, Any]:
-    """
-    Estimate one-page fit using simple rules.
-
-    This is not exact Word/PDF pagination. It is a warning system.
-    """
+    """Estimate page risk; the generated PDF remains the final authority."""
     projects = tailored_result.get("recommended_projects", [])
     project_count = len(projects)
     bullet_count = 0
     long_bullets = 0
 
     for project in projects:
-        bullets = project.get("draft_bullets", [])
+        bullets = project.get("draft_bullets", []) or []
         bullet_count += len(bullets)
 
         for bullet in bullets:
@@ -765,18 +1077,25 @@ def estimate_project_section_length(
 
     if project_count > max_projects:
         risk = "high"
-        reasons.append(f"{project_count} projects exceeds recommended limit of {max_projects}.")
+        reasons.append(
+            f"{project_count} projects exceeds the configured limit of {max_projects}."
+        )
 
     if bullet_count > max_total_bullets:
         risk = "high"
-        reasons.append(f"{bullet_count} bullets exceeds recommended limit of {max_total_bullets}.")
+        reasons.append(
+            f"{bullet_count} bullets exceeds the configured limit of "
+            f"{max_total_bullets}."
+        )
 
     if long_bullets > 0 and risk != "high":
         risk = "medium"
-        reasons.append(f"{long_bullets} bullet(s) may be too long for a one-page resume.")
+        reasons.append(
+            f"{long_bullets} bullet(s) may wrap across additional resume lines."
+        )
 
     if not reasons:
-        reasons.append("Project count and bullet count look one-page friendly.")
+        reasons.append("Project and bullet counts look one-page friendly.")
 
     return {
         "risk": risk,

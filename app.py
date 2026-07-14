@@ -1074,6 +1074,7 @@ if page == "Application Sessions":
                                 evidence_items=evidence_items,
                                 max_projects=max_projects,
                                 max_bullets_per_project=max_bullets,
+                                keyword_match=report.get("keyword_match", {}),
                             )
 
                             fit_estimate = estimate_project_section_length(
