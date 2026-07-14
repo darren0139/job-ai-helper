@@ -51,6 +51,10 @@ Transferable evidence rules:
 - For example, game projects can support basic gaming industry knowledge, but not necessarily live operations.
 - Do not list soft traits such as "Attention to Detail" as a hard skill line unless strongly supported; mention them in notes instead.
 
+Strict QA evidence rules:
+- Do not add Quality Assurance or QA under evidence_supported_additions unless the supplied evidence explicitly mentions testing, test cases, defect identification, bug reporting, regression testing, validation, or QA responsibilities.
+- Game development alone does not prove quality-assurance experience.
+- Game-development evidence may support gaming-industry knowledge, but QA must remain unsupported or be described only as transferable exposure when no explicit testing evidence exists.
 
 Recommended categories:
 - Programming

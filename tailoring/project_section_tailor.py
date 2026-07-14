@@ -9,8 +9,9 @@ Stage 1:
 
 Stage 2:
     AI writes bullets only for the Python-selected projects.
-    Existing Evidence Library and resume bullets are treated as canonical
-    blueprints and are preserved unless a concise, truthful rewrite is useful.
+    Evidence Library bullets are treated as the canonical blueprints.
+    Resume evidence may inform project scoring but is not used for final
+    bullet writing.
 
 Public functions kept compatible with the existing app:
     - build_project_candidate_pool(...)
@@ -69,12 +70,39 @@ Scoring rules:
 - Do not put the same requirement in both matched and transferable lists.
 - Reasons must name specific JD requirements or responsibilities.
 
+Domain and transferable-evidence interpretation:
+- tool_domain_match_score includes relevant industry, product type, platform, and technical environment; it is not limited to exact named tools.
+- A completed game-development project is direct evidence of basic gaming-industry and game-product knowledge.
+- A published game provides stronger gaming-product evidence than a generic software project.
+- A custom game-engine project supports gaming-industry, game-development workflow, and technical systems knowledge.
+- Game-development evidence does not by itself prove professional quality-assurance or live-operations experience.
+- Explicit team-project and collaboration evidence may support collaboration requirements.
+- Secure database, access-control, configuration, integration, and structured workflow evidence may support configuration or meticulous operational work as transferable evidence.
+- Do not set every JD-fit component to zero when a project clearly supports the role's industry, product type, tools, responsibilities, or transferable competencies.
+- Evidence strength and impact measure how well a project is documented; they must not replace actual role relevance.
+
+Scoring consistency rules:
+- If matched_jd_requirements is not empty, at least one of must_have_match_score,
+  responsibility_match_score, or tool_domain_match_score must be greater than 0.
+- If transferable_jd_requirements is not empty, at least one of
+  responsibility_match_score or tool_domain_match_score should normally be greater
+  than 0.
+- When a project directly proves an industry or product-domain requirement, put the
+  requirement in matched_jd_requirements, not transferable_jd_requirements.
+- A game-development project directly supports a requirement for basic gaming-industry
+  knowledge.
+- A published game should receive a non-zero tool_domain_match_score for a gaming role.
+- A custom game-engine project should receive a non-zero tool_domain_match_score for a
+  gaming role.
+- Do not give a project all-zero JD-fit scores while simultaneously saying that it
+  supports a JD requirement.
+
 Project-count rules:
-- Recommend no more than the supplied maximum.
-- Prefer up to 3 projects when that many projects have useful, truthful relevance.
-- Recommend fewer projects when the remaining candidates are weak, repetitive, or
-  unsupported for the target role.
-- The project count controls selection only. Bullet allocation happens later.
+- Python will select exactly the supplied maximum number of projects when enough candidates exist.
+- Do not reduce the project count merely because no project proves every critical requirement.
+- Rank the strongest available transferable projects when direct matches are limited.
+- recommended_project_count must equal the supplied maximum, capped only by the number of available candidates.
+- Bullet allocation happens later.
 
 Output only valid JSON matching this schema:
 {
@@ -113,29 +141,37 @@ Instruction:
 You are an honest resume bullet editor for students and junior technical
 applicants.
 
+- Do not rewrite a grammatically correct canonical bullet merely to replace words
+  with synonyms.
+- If a canonical bullet is clear, truthful, non-repetitive, and reasonably concise,
+  copy it exactly.
+- A generic reason such as "improved clarity" is not sufficient when the only change
+  is a synonym substitution.
+
+
 Task:
 Write the Projects-section bullets only for the supplied selected project
 candidates. Project selection has already been completed by Python. Do not add,
 remove, replace, or re-rank project titles.
 
 Canonical-bullet rules:
-- Treat preferred_canonical_bullets as the primary user-approved blueprint.
-- Evidence Library bullets are preferred when available because they are the
-  user's maintained canonical evidence.
-- Resume bullets remain valid alternate canonical evidence.
-- Prefer selecting and reordering existing canonical bullets over rewriting them.
+- Treat Evidence Library bullets as the only user-approved canonical bullets.
+- Do not select, copy, paraphrase, or reuse bullets extracted from the resume profile.
+- Prefer selecting and reordering existing Evidence Library bullets over rewriting them.
 - draft_bullets should normally be identical to selected_blueprint_bullets.
-- Lightly rewrite only when needed to:
+- Lightly rewrite an Evidence Library bullet only when needed to:
   1. improve clarity,
   2. remove repetition,
-  3. make a bullet more concise,
+  3. make the bullet more concise,
   4. naturally use truthful JD wording, or
-  5. combine overlapping evidence without changing meaning.
+  5. combine overlapping Evidence Library evidence without changing meaning.
 - Never rewrite merely to sound more impressive.
 - Never add a result, metric, tool, responsibility, or skill that is not supplied.
-- When no usable canonical bullet exists, a concise bullet may be synthesised only
-  from the supplied description, skills, tools, impact, and scope. Explain this in
-  rewrite_reason.
+- When no usable Evidence Library bullet exists, synthesise a bullet only from
+  non-bullet Evidence Library fields such as description, tools, skills, impact,
+  scope, and contribution.
+- Do not use resume bullet wording as fallback evidence.
+- Explain any synthesised bullet in rewrite_reason.
 
 CAR and ordering rules:
 - Preserve existing strong CAR bullets.
@@ -277,50 +313,180 @@ def _safe_component_score(value: Any) -> int:
 
     return max(0, min(5, numeric))
 
-
-def _calculate_project_final_score(row: dict[str, Any]) -> int:
+def _calculate_project_final_score(
+    row: dict[str, Any],
+) -> int:
     """
     Calculate a deterministic 0-100 project-fit score.
 
-    Weighting is based on project-level parts of the uploaded optimisation rubric:
-        must-have match       35%
-        responsibility match  25%
-        tools/domain match    15%
-        evidence strength     20%
-        impact/scope           5%
-
-    Every component is scored from 0 to 5.
+    AI component scores remain primary. Direct and transferable
+    match lists provide a small consistency fallback.
     """
-    return int(
-        row["must_have_match_score"] * 7
-        + row["responsibility_match_score"] * 5
-        + row["tool_domain_match_score"] * 3
-        + row["evidence_strength_score"] * 4
-        + row["impact_scope_score"] * 1
+    must_have = row["must_have_match_score"]
+    responsibility = row["responsibility_match_score"]
+    tool_domain = row["tool_domain_match_score"]
+    evidence_strength = row["evidence_strength_score"]
+    impact_scope = row["impact_scope_score"]
+
+    component_relevance = (
+        must_have * 7
+        + responsibility * 5
+        + tool_domain * 4
     )
 
+    direct_match_count = len(
+        row.get("matched_jd_requirements", [])
+        or []
+    )
 
-def _calculate_relevance_score(row: dict[str, Any]) -> float:
-    """Return a compatible 0-5 relevance score from the three JD-fit dimensions."""
-    weighted_total = (
+    transferable_match_count = len(
+        row.get("transferable_jd_requirements", [])
+        or []
+    )
+
+    # Safeguard against inconsistent responses such as:
+    # transferable match present, but every relevance score is zero.
+    list_based_relevance = min(
+        25,
+        direct_match_count * 8
+        + transferable_match_count * 4,
+    )
+
+    relevance_points = max(
+        component_relevance,
+        list_based_relevance,
+    )
+
+    if relevance_points == 0:
+        return 0
+
+    support_points = (
+        evidence_strength * 3
+        + impact_scope
+    )
+
+    return min(
+        100,
+        relevance_points + support_points,
+    )
+# def _calculate_project_final_score(
+#     row: dict[str, Any],
+# ) -> int:
+#     """
+#     Calculate a deterministic 0-100 project-fit score.
+
+#     Evidence strength improves the score only after the project has
+#     some actual JD relevance.
+#     """
+#     must_have = row["must_have_match_score"]
+#     responsibility = row["responsibility_match_score"]
+#     tool_domain = row["tool_domain_match_score"]
+#     evidence_strength = row["evidence_strength_score"]
+#     impact_scope = row["impact_scope_score"]
+
+#     # JD relevance: maximum 80 points.
+#     relevance_points = (
+#         must_have * 7
+#         + responsibility * 5
+#         + tool_domain * 4
+#     )
+
+#     # Evidence quality: maximum 20 points.
+#     support_points = (
+#         evidence_strength * 3
+#         + impact_scope
+#     )
+
+#     # Strong evidence alone must not make an irrelevant project win.
+#     if relevance_points == 0:
+#         return 0
+
+#     return relevance_points + support_points
+
+def _calculate_relevance_score(
+    row: dict[str, Any],
+) -> float:
+    """
+    Return a 0-5 relevance score with a consistency fallback
+    for direct and transferable match lists.
+    """
+    component_score = (
         row["must_have_match_score"] * 7
         + row["responsibility_match_score"] * 5
-        + row["tool_domain_match_score"] * 3
+        + row["tool_domain_match_score"] * 4
+    ) / 16
+
+    direct_match_count = len(
+        row.get("matched_jd_requirements", [])
+        or []
     )
-    return round(weighted_total / 15, 2)
+
+    transferable_match_count = len(
+        row.get("transferable_jd_requirements", [])
+        or []
+    )
+
+    list_based_score = min(
+        5.0,
+        direct_match_count * 1.0
+        + transferable_match_count * 0.5,
+    )
+
+    return round(
+        max(component_score, list_based_score),
+        2,
+    )
+
+# def _calculate_relevance_score(row: dict[str, Any]) -> float:
+#     """Return a compatible 0-5 relevance score from the three JD-fit dimensions."""
+#     weighted_total = (
+#         row["must_have_match_score"] * 7
+#         + row["responsibility_match_score"] * 5
+#         + row["tool_domain_match_score"] * 4
+#     )
+#     return round(weighted_total / 16, 2)
 
 
-def _priority_from_ranking_row(row: dict[str, Any]) -> str:
-    """Convert the project-fit result into the priority used by page compaction."""
-    final_score = int(row.get("final_score", 0) or 0)
-    direct_matches = len(row.get("matched_jd_requirements", []) or [])
+# def _priority_from_ranking_row(row: dict[str, Any]) -> str:
+#     """Convert the project-fit result into the priority used by page compaction."""
+#     final_score = int(row.get("final_score", 0) or 0)
+#     direct_matches = len(row.get("matched_jd_requirements", []) or [])
 
-    if final_score >= 70 or direct_matches >= 3:
+#     if final_score >= 70 or direct_matches >= 3:
+#         return "high"
+#     if final_score >= 40 or direct_matches >= 1:
+#         return "medium"
+#     return "low"
+def _priority_from_ranking_row(
+    row: dict[str, Any],
+) -> str:
+    """Convert project fit into page-compaction priority."""
+    final_score = int(
+        row.get("final_score", 0)
+        or 0
+    )
+
+    direct_matches = len(
+        row.get("matched_jd_requirements", [])
+        or []
+    )
+
+    transferable_matches = len(
+        row.get("transferable_jd_requirements", [])
+        or []
+    )
+
+    if final_score >= 60 or direct_matches >= 2:
         return "high"
-    if final_score >= 40 or direct_matches >= 1:
-        return "medium"
-    return "low"
 
+    if (
+        final_score >= 20
+        or direct_matches >= 1
+        or transferable_matches >= 1
+    ):
+        return "medium"
+
+    return "low"
 
 # ---------------------------------------------------------------------------
 # Candidate-pool construction
@@ -466,30 +632,24 @@ def build_project_candidate_pool(
 
 def _candidate_canonical_bullets(candidate: dict[str, Any]) -> dict[str, list[str]]:
     """
-    Prepare canonical bullet sources for the writing call.
-
-    Evidence Library bullets are primary when available. Resume-profile bullets are
-    retained as alternate approved evidence and become primary when no library
-    bullets exist.
+    Use Evidence Library bullets as the only approved canonical
+    bullet source.
     """
-    library_evidence = candidate.get("evidence_library_evidence") or {}
-    resume_evidence = candidate.get("resume_evidence") or {}
+    library_evidence = (
+        candidate.get("evidence_library_evidence")
+        or {}
+    )
 
-    library_bullets = _clean_string_list(library_evidence.get("bullets", []))
-    resume_bullets = _clean_string_list(resume_evidence.get("bullets", []))
-
-    preferred = library_bullets or resume_bullets
-    alternate = [
-        bullet
-        for bullet in resume_bullets
-        if bullet.lower() not in {item.lower() for item in preferred}
-    ]
+    library_bullets = _clean_string_list(
+        library_evidence.get("bullets", [])
+    )
 
     return {
-        "preferred_canonical_bullets": preferred,
-        "alternate_resume_bullets": alternate,
-        "all_approved_source_bullets": _clean_string_list(preferred + alternate),
+        "preferred_canonical_bullets": library_bullets,
+        "alternate_resume_bullets": [],
+        "all_approved_source_bullets": library_bullets,
     }
+
 
 
 def _prepare_selected_candidate_for_writer(
@@ -512,7 +672,6 @@ def _prepare_selected_candidate_for_writer(
         ),
         "ranking_reason": ranking_row.get("reason", ""),
         **canonical,
-        "resume_evidence": candidate.get("resume_evidence"),
         "evidence_library_evidence": candidate.get("evidence_library_evidence"),
     }
 
@@ -520,6 +679,33 @@ def _prepare_selected_candidate_for_writer(
 # ---------------------------------------------------------------------------
 # Stage 1: AI analysis, Python scoring, sorting, and selection
 # ---------------------------------------------------------------------------
+
+def _find_missing_scoring_candidates(
+    *,
+    scoring_result: dict[str, Any],
+    project_candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Return candidates omitted from the AI scoring response.
+    """
+    returned_keys = {
+        _normalise_project_key(row.get("title", ""))
+        for row in scoring_result.get(
+            "candidate_project_scores",
+            [],
+        )
+        if isinstance(row, dict)
+        and _normalise_project_key(row.get("title", ""))
+    }
+
+    return [
+        candidate
+        for candidate in project_candidates
+        if _normalise_project_key(
+            candidate.get("title", "")
+        )
+        not in returned_keys
+    ]
 
 
 def _build_complete_ranked_rows(
@@ -581,29 +767,73 @@ def _build_complete_ranked_rows(
             item for item in transferable if item.lower() not in matched_lower
         ]
 
+        # row = {
+        #     "title": candidate.get("title", ""),
+        #     "display_title": candidate.get("display_title")
+        #     or candidate.get("title", ""),
+        #     "source": _candidate_source(candidate),
+        #     "currently_in_resume": bool(candidate.get("currently_in_resume")),
+        #     "in_evidence_library": bool(candidate.get("in_evidence_library")),
+        #     "matched_jd_requirements": matched,
+        #     "transferable_jd_requirements": transferable,
+        #     **component_row,
+        #     "relevance_score": _calculate_relevance_score(component_row),
+        #     "reason": str(raw_row.get("reason", "")).strip()
+        #     or "The scoring response did not provide a project-specific reason.",
+        # }
+        # row["final_score"] = _calculate_project_final_score(row)
         row = {
             "title": candidate.get("title", ""),
-            "display_title": candidate.get("display_title")
-            or candidate.get("title", ""),
+            "display_title": (
+                candidate.get("display_title")
+                or candidate.get("title", "")
+            ),
             "source": _candidate_source(candidate),
-            "currently_in_resume": bool(candidate.get("currently_in_resume")),
-            "in_evidence_library": bool(candidate.get("in_evidence_library")),
+            "currently_in_resume": bool(
+                candidate.get("currently_in_resume")
+            ),
+            "in_evidence_library": bool(
+                candidate.get("in_evidence_library")
+            ),
             "matched_jd_requirements": matched,
             "transferable_jd_requirements": transferable,
             **component_row,
-            "relevance_score": _calculate_relevance_score(component_row),
-            "reason": str(raw_row.get("reason", "")).strip()
-            or "The scoring response did not provide a project-specific reason.",
+            "reason": (
+                str(raw_row.get("reason", "")).strip()
+                or (
+                    "The scoring response did not provide "
+                    "a project-specific reason."
+                )
+            ),
         }
+
+        # Calculate these only after the complete row contains
+        # both component scores and requirement-match lists.
+        row["relevance_score"] = _calculate_relevance_score(row)
         row["final_score"] = _calculate_project_final_score(row)
+
         ranking_rows.append(row)
 
     ranking_rows.sort(
         key=lambda item: (
             item.get("final_score", 0),
-            len(item.get("matched_jd_requirements", []) or []),
+            len(
+                item.get(
+                    "matched_jd_requirements",
+                    [],
+                )
+                or []
+            ),
+            len(
+                item.get(
+                    "transferable_jd_requirements",
+                    [],
+                )
+                or []
+            ),
             item.get("must_have_match_score", 0),
             item.get("responsibility_match_score", 0),
+            item.get("tool_domain_match_score", 0),
             item.get("evidence_strength_score", 0),
             item.get("impact_scope_score", 0),
         ),
@@ -613,23 +843,30 @@ def _build_complete_ranked_rows(
     return ranking_rows
 
 
+
+
+
+
 def _resolve_selected_project_count(
     *,
     scoring_result: dict[str, Any],
     ranked_rows: list[dict[str, Any]],
     max_projects: int,
 ) -> int:
-    """Clamp the AI's project-count recommendation to safe available limits."""
+    """
+    Always select the configured number of projects when enough
+    candidates are available.
+
+    The AI evaluates project relevance, but Python controls the
+    exact number selected.
+    """
     if not ranked_rows:
         return 0
 
-    try:
-        requested = int(scoring_result.get("recommended_project_count", max_projects))
-    except (TypeError, ValueError):
-        requested = max_projects
-
-    requested = max(1, requested)
-    return min(requested, max_projects, len(ranked_rows))
+    return min(
+        max_projects,
+        len(ranked_rows),
+    )
 
 
 def _select_candidates_from_ranking(
@@ -897,9 +1134,72 @@ IMPORTANT:
         PROJECT_CANDIDATE_SCORING_PROMPT,
         scoring_user_prompt,
         temperature=0.0,
-        max_tokens=2600,
+        max_tokens=4200,
     )
 
+    # Check whether the scoring AI returned one row for every
+    # project in the combined candidate pool.
+    missing_candidates = _find_missing_scoring_candidates(
+        scoring_result=scoring_result,
+        project_candidates=project_candidates,
+    )
+
+    # Make one bounded retry for omitted projects only.
+    if missing_candidates:
+        retry_user_prompt = f"""
+The previous response omitted some required candidates.
+
+SCORE ONLY THESE MISSING PROJECT CANDIDATES:
+{json.dumps(missing_candidates, indent=2, ensure_ascii=False)}
+
+TARGET JOB DESCRIPTION PROFILE:
+{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
+
+IMPORTANT:
+- Return exactly one candidate_project_scores row for every
+supplied missing candidate.
+- Do not return projects that are not listed above.
+- Use the same 0-5 component scoring rubric.
+"""
+
+        retry_result = ask_json(
+            PROJECT_CANDIDATE_SCORING_PROMPT,
+            retry_user_prompt,
+            temperature=0.0,
+            max_tokens=2200,
+        )
+
+        scoring_result.setdefault(
+            "candidate_project_scores",
+            [],
+        ).extend(
+            retry_result.get(
+                "candidate_project_scores",
+                [],
+            )
+            or []
+        )
+
+        # Validate the combined first and retry responses.
+        missing_candidates = _find_missing_scoring_candidates(
+            scoring_result=scoring_result,
+            project_candidates=project_candidates,
+        )
+
+        if missing_candidates:
+            missing_titles = [
+                candidate.get("display_title")
+                or candidate.get("title")
+                or "Untitled Project"
+                for candidate in missing_candidates
+            ]
+
+            raise RuntimeError(
+                "Project scoring remained incomplete after one retry. "
+                f"Missing projects: {missing_titles}"
+            )
+
+    # Build the ranking only after every project has been scored.
     ranked_rows = _build_complete_ranked_rows(
         scoring_result=scoring_result,
         project_candidates=project_candidates,
@@ -1019,7 +1319,7 @@ IMPORTANT:
         "notes_for_user": _clean_string_list(notes),
         "selection_debug": {
             "selection_owner": "python",
-            "requested_project_count": scoring_result.get(
+            "ai_requested_project_count": scoring_result.get(
                 "recommended_project_count"
             ),
             "selected_project_count": selected_count,
@@ -1092,6 +1392,13 @@ def estimate_project_section_length(
         risk = "medium"
         reasons.append(
             f"{long_bullets} bullet(s) may wrap across additional resume lines."
+        )
+
+    if bullet_count >= 7 and risk == "low":
+        risk = "medium"
+        reasons.append(
+            f"{bullet_count} project bullets may be difficult to fit "
+            "alongside the existing experience and education sections."
         )
 
     if not reasons:

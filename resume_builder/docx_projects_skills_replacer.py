@@ -430,9 +430,30 @@ def count_pdf_pages(pdf_path: str | Path) -> int:
     reader = PdfReader(str(pdf_path))
     return len(reader.pages)
 
-def _project_priority_score(project: dict[str, Any]) -> int:
+# def _project_priority_score(project: dict[str, Any]) -> int:
+#     """Rank projects for space reduction."""
+#     priority = str(project.get("priority", "")).lower()
+
+#     if priority == "high":
+#         base = 300
+#     elif priority == "medium":
+#         base = 200
+#     elif priority == "low":
+#         base = 100
+#     else:
+#         base = 150
+
+#     matched_count = len(project.get("matched_jd_requirements", []) or [])
+
+#     return base + matched_count
+
+def _project_priority_score(
+    project: dict[str, Any],
+) -> int:
     """Rank projects for space reduction."""
-    priority = str(project.get("priority", "")).lower()
+    priority = str(
+        project.get("priority", "")
+    ).lower()
 
     if priority == "high":
         base = 300
@@ -443,10 +464,30 @@ def _project_priority_score(project: dict[str, Any]) -> int:
     else:
         base = 150
 
-    matched_count = len(project.get("matched_jd_requirements", []) or [])
+    fit_score = int(
+        project.get("project_fit_score", 0)
+        or 0
+    )
 
-    return base + matched_count
+    direct_matches = len(
+        project.get("matched_jd_requirements", [])
+        or []
+    )
 
+    transferable_matches = len(
+        project.get(
+            "transferable_jd_requirements",
+            [],
+        )
+        or []
+    )
+
+    return (
+        base
+        + fit_score
+        + direct_matches * 10
+        + transferable_matches * 5
+    )
 
 # _WEAK_TRAILING_WORDS = {
 #     "and",
@@ -656,6 +697,7 @@ def compact_tailored_projects_one_step(
     tailored_projects: dict[str, Any],
     *,
     minimum_bullets_per_project: int = 1,
+    minimum_projects_to_keep: int = 3,
 ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
     """
     Remove one complete low-priority project bullet.
@@ -736,7 +778,7 @@ def compact_tailored_projects_one_step(
 
     # Every retained project is already down to one bullet.
     # Remove the least relevant project only as a final fallback.
-    if len(projects) > 2:
+    if len(projects) > minimum_projects_to_keep:
         removed_project = min(
             projects,
             key=_project_priority_score,
