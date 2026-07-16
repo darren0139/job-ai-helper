@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 import streamlit as st
-
-
+from pypdf import PdfReader
 # ---------------------------------------------------------------------------
 # Streamlit Cloud secrets -> environment variables
 # ---------------------------------------------------------------------------
@@ -311,6 +310,113 @@ USER QUESTION:
 # File and report helpers
 # ---------------------------------------------------------------------------
 
+def create_full_debug_bundle(
+    *,
+    application_id: int | None,
+    resume_filename: str,
+    report: dict[str, Any] | None,
+    candidate_pool: list[dict[str, Any]] | None,
+    project_inputs: dict[str, Any] | None,
+    project_result: dict[str, Any] | None,
+    skills_result: dict[str, Any] | None,
+    fit_estimate: dict[str, Any] | None,
+    fit_result: dict[str, Any] | None,
+) -> tuple[bytes, str]:
+    """
+    Combine all analysis and resume-tailoring debug data
+    into one downloadable JSON file.
+
+    API keys and Streamlit secrets are intentionally excluded.
+    """
+    final_projects_used: list[dict[str, Any]] = []
+
+    if isinstance(fit_result, dict):
+        tailored_projects_used = fit_result.get(
+            "tailored_projects_used",
+            {},
+        )
+
+        if isinstance(tailored_projects_used, dict):
+            final_projects_used = (
+                tailored_projects_used.get(
+                    "recommended_projects",
+                    [],
+                )
+                or []
+            )
+
+    active_model = os.getenv(
+        "MODEL",
+        "openai/gpt-4o-mini",
+    )
+
+    debug_bundle = {
+        "debug_meta": {
+            "created_at": datetime.now().isoformat(
+                timespec="seconds"
+            ),
+            "application_id": application_id,
+            "resume_filename": resume_filename,
+            "active_model": active_model,
+            "reasoning_effort": os.getenv(
+                "REASONING_EFFORT",
+                "provider_default",
+            ),
+        },
+        "analysis_report": report or {},
+        "combined_project_candidate_pool": (
+            candidate_pool or []
+        ),
+        "project_tailoring_inputs": (
+            project_inputs or {}
+        ),
+        "project_length_estimate": (
+            fit_estimate or {}
+        ),
+        "tailored_projects_result": (
+            project_result or {}
+        ),
+        "tailored_skills_result": (
+            skills_result or {}
+        ),
+        "one_page_fitting_result": (
+            fit_result or {}
+        ),
+        "final_projects_used_in_docx": (
+            final_projects_used
+        ),
+    }
+
+    json_bytes = json.dumps(
+        debug_bundle,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+
+    model_slug = (
+        active_model
+        .replace("/", "_")
+        .replace(":", "_")
+    )
+
+    app_label = (
+        str(application_id)
+        if application_id is not None
+        else "unsaved"
+    )
+
+    timestamp = datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
+    )
+
+    filename = (
+        f"app_{app_label}_{model_slug}_"
+        f"debug_bundle_{timestamp}.json"
+    )
+
+    return json_bytes, filename
+
 # def create_markdown_report(report: dict) -> tuple[str, str]:
 #     """
 #     Create a Markdown report using the existing report.py renderer.
@@ -399,7 +505,103 @@ def read_uploaded_resume(uploaded_file: Any) -> str:
             pass
 
 
-def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
+def calculate_uploaded_resume_page_count(
+    uploaded_file: Any,
+) -> int | None:
+    """
+    Calculate the rendered page count of an uploaded PDF or DOCX.
+
+    PDF:
+        Count its pages directly using pypdf.
+
+    DOCX:
+        Convert a temporary copy to PDF using LibreOffice,
+        then count the PDF pages.
+
+    Returns None when page counting is unavailable.
+    """
+    if uploaded_file is None:
+        return None
+
+    filename = str(
+        getattr(uploaded_file, "name", "")
+    ).lower()
+
+    if filename.endswith(".pdf"):
+        suffix = ".pdf"
+    elif filename.endswith(".docx"):
+        suffix = ".docx"
+    else:
+        return None
+
+    temporary_path: Path | None = None
+    generated_pdf_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=suffix,
+        ) as temporary_file:
+            temporary_file.write(
+                uploaded_file.getbuffer()
+            )
+            temporary_path = Path(
+                temporary_file.name
+            )
+
+        # A PDF already has an explicit page structure.
+        if suffix == ".pdf":
+            reader = PdfReader(
+                str(temporary_path)
+            )
+            return len(reader.pages)
+
+        # A DOCX must be rendered before its page count is known.
+        generated_pdf_path = (
+            convert_docx_to_pdf_if_possible(
+                temporary_path
+            )
+        )
+
+        if generated_pdf_path is None:
+            return None
+
+        reader = PdfReader(
+            str(generated_pdf_path)
+        )
+
+        return len(reader.pages)
+
+    except Exception:
+        # Page counting should not prevent the main analysis
+        # from running.
+        return None
+
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
+        if generated_pdf_path is not None:
+            try:
+                generated_pdf_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
+
+def run_resume_analysis(
+    resume_text: str,
+    jd_text: str,
+    degree: str,
+    *,
+    actual_page_count: int | None = None,
+) -> dict:
     """Run the full resume-job analysis pipeline and return the report dict."""
     progress = st.progress(0)
     log = st.container()
@@ -416,7 +618,7 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
     progress.progress(37)
 
     log.write("[4/8] Analysing keyword match...")
-    keyword_match = analyse_keyword_match(resume_profile, jd_profile, resume_text)
+    keyword_match = analyse_keyword_match(resume_profile, jd_profile, resume_text, jd_text,)
     progress.progress(50)
 
     log.write("[5/8] Analysing bullet quality...")
@@ -424,11 +626,16 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
     progress.progress(62)
 
     log.write("[6/8] Auditing jargon...")
-    jargon = analyse_jargon(resume_profile, degree, jd_profile)
+    jargon = analyse_jargon(resume_profile, degree, jd_profile, jd_text)
     progress.progress(75)
 
     log.write("[7/8] Auditing resume structure...")
-    structure = analyse_structure(resume_text)
+    # structure = analyse_structure(resume_text)
+    structure = analyse_structure(
+    resume_text,
+    actual_page_count=actual_page_count,
+    resume_profile=resume_profile,
+    )
     progress.progress(87)
 
     log.write("[8/8] Analysing degree alignment...")
@@ -441,6 +648,7 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
             "model": os.getenv("MODEL", "openai/gpt-4o-mini"),
             "degree": degree,
             "ats_pass_threshold": ATS_PASS_THRESHOLD,
+            "actual_page_count": (actual_page_count),
         },
         "resume_profile": resume_profile,
         "jd_profile": jd_profile,
@@ -460,6 +668,69 @@ def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
     progress.progress(100)
 
     return report
+
+
+# def run_resume_analysis(resume_text: str, jd_text: str, degree: str) -> dict:
+#     """Run the full resume-job analysis pipeline and return the report dict."""
+#     progress = st.progress(0)
+#     log = st.container()
+
+#     log.write("[1/8] Reading resume and job description...")
+#     progress.progress(12)
+
+#     log.write("[2/8] Extracting resume profile...")
+#     resume_profile = extract_resume_profile(resume_text)
+#     progress.progress(25)
+
+#     log.write("[3/8] Extracting job description profile...")
+#     jd_profile = extract_jd_profile(jd_text)
+#     progress.progress(37)
+
+#     log.write("[4/8] Analysing keyword match...")
+#     keyword_match = analyse_keyword_match(resume_profile, jd_profile, resume_text, jd_text,)
+#     progress.progress(50)
+
+#     log.write("[5/8] Analysing bullet quality...")
+#     bullets = analyse_bullets(resume_profile)
+#     progress.progress(62)
+
+#     log.write("[6/8] Auditing jargon...")
+#     jargon = analyse_jargon(resume_profile, degree, jd_profile)
+#     progress.progress(75)
+
+#     log.write("[7/8] Auditing resume structure...")
+#     structure = analyse_structure(resume_text)
+#     progress.progress(87)
+
+#     log.write("[8/8] Analysing degree alignment...")
+#     degree_alignment = analyse_degree_alignment(jd_profile, degree)
+#     progress.progress(95)
+
+#     report = {
+#         "meta": {
+#             "created_at": datetime.now().isoformat(timespec="seconds"),
+#             "model": os.getenv("MODEL", "openai/gpt-4o-mini"),
+#             "degree": degree,
+#             "ats_pass_threshold": ATS_PASS_THRESHOLD,
+#         },
+#         "resume_profile": resume_profile,
+#         "jd_profile": jd_profile,
+#         "keyword_match": keyword_match,
+#         "bullets": bullets,
+#         "jargon": jargon,
+#         "structure": structure,
+#         "degree_alignment": degree_alignment,
+#     }
+
+#     log.write("[Final] Computing overall score and summary...")
+#     overall_score = compute_overall_score(report)
+#     report["overall_score"] = overall_score
+#     report["passes_ats_threshold"] = overall_score >= ATS_PASS_THRESHOLD
+#     report["summary"] = summarise_overall(report)
+
+#     progress.progress(100)
+
+#     return report
 
 
 def score_label(score: int) -> str:
@@ -779,11 +1050,29 @@ if page == "Application Sessions":
 
                 st.write(f"Extracted {len(resume_text)} characters from resume.")
 
+                actual_page_count = (
+                    calculate_uploaded_resume_page_count(
+                        uploaded_resume
+                    )
+                )
+
+                if actual_page_count is None:
+                    st.write(
+                        "Rendered page count could not be "
+                        "determined. Structure analysis will "
+                        "treat the page count as unknown."
+                    )
+                else:
+                    st.write(
+                        f"Detected {actual_page_count} "
+                        "rendered résumé page(s)."
+                    )
+
                 jd_text = validate_jd_text(jd_text_input)
                 st.write(f"Read {len(jd_text)} characters from job description.")
 
                 status.update(label="Running AI analysis...", state="running")
-                report = run_resume_analysis(resume_text, jd_text, degree)
+                report = run_resume_analysis(resume_text, jd_text, degree, actual_page_count=actual_page_count,)
 
                 # Store the full pasted job description in the saved report.
                 # This makes saved sessions self-contained for debugging/rebuilds.
@@ -1075,6 +1364,7 @@ if page == "Application Sessions":
                                 max_projects=max_projects,
                                 max_bullets_per_project=max_bullets,
                                 keyword_match=report.get("keyword_match", {}),
+                                raw_jd_text=report.get("raw_jd_text","",),
                             )
 
                             fit_estimate = estimate_project_section_length(
@@ -1351,18 +1641,91 @@ if page == "Application Sessions":
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)
 
-            if fit_result:
-                with st.expander("One-page fitting attempts"):
-                    st.json(fit_result.get("attempts", []))
+            has_debug_content = any(
+            (
+                report,
+                candidate_pool,
+                debug_inputs,
+                project_result,
+                skills_result,
+                fit_estimate,
+                fit_result,
+            )
+        )
 
-                # Debug
-                with st.expander("Debug: Final projects used in DOCX"):
-                    final_projects_used = fit_result.get("tailored_projects_used", {})
-                    st.json(final_projects_used.get("recommended_projects", []))
+            if has_debug_content:
+                debug_bytes, debug_filename = (
+                    create_full_debug_bundle(
+                        application_id=current_application_id,
+                        resume_filename=st.session_state.get(
+                            "resume_filename",
+                            "",
+                        ),
+                        report=report,
+                        candidate_pool=candidate_pool,
+                        project_inputs=debug_inputs,
+                        project_result=project_result,
+                        skills_result=skills_result,
+                        fit_estimate=fit_estimate,
+                        fit_result=fit_result,
+                    )
+                )
 
-                page_count = fit_result.get("page_count")
-                if page_count is not None:
-                    st.caption(f"Detected PDF page count: {page_count}")
+                st.download_button(
+                    "Download Full Debug Bundle JSON",
+                    data=debug_bytes,
+                    file_name=debug_filename,
+                    mime="application/json",
+                    width="stretch",
+                    key=(
+                        "download_debug_bundle_"
+                        f"{current_application_id}"
+                    ),
+                )
+                
+                if isinstance(fit_result, dict):
+                    with st.expander("One-page fitting attempts"):
+                        st.json(
+                            fit_result.get(
+                                "attempts",
+                                [],
+                            )
+                            or []
+                        )
+
+                    with st.expander(
+                        "Debug: Final projects used in DOCX"
+                    ):
+                        final_projects_used = fit_result.get(
+                            "tailored_projects_used"
+                        )
+
+                        if not isinstance(
+                            final_projects_used,
+                            dict,
+                        ):
+                            final_projects_used = {}
+
+                        recommended_projects = (
+                            final_projects_used.get(
+                                "recommended_projects",
+                                [],
+                            )
+                            or []
+                        )
+
+                        st.json(recommended_projects)
+
+                    page_count = fit_result.get(
+                        "page_count"
+                    )
+
+                    if page_count is not None:
+                        st.caption(
+                            f"Detected PDF page count: {page_count}"
+                        )
+
+
 
             if tailored_resume_copy_path and Path(tailored_resume_copy_path).exists():
                 st.write("### Preview")
@@ -1880,32 +2243,32 @@ elif page == "Profile & Evidence":
                 st.error(f"Unexpected error while saving evidence: {exc}")
 
 
-            st.divider()
-            st.subheader("Saved Evidence")
+    st.divider()
+    st.subheader("Saved Evidence")
 
-        evidence_sort_mode = st.selectbox(
-        "Evidence display order",
-        [
-            "Earliest period first",
-            "Newest period first",
-            "Recently edited first",
-        ],
-    )
+    evidence_sort_mode = st.selectbox(
+    "Evidence display order",
+    [
+        "Earliest period first",
+        "Newest period first",
+        "Recently edited first",
+    ],
+)
 
-        if evidence_sort_mode == "Earliest period first":
-            evidence_items = get_evidence_items(
-                limit=100,
-                sort_by_period=True,
-                period_order="earliest_first",
-            )
-        elif evidence_sort_mode == "Newest period first":
-            evidence_items = get_evidence_items(
-                limit=100,
-                sort_by_period=True,
-                period_order="newest_first",
-            )
-        else:
-            evidence_items = get_evidence_items(limit=100)
+    if evidence_sort_mode == "Earliest period first":
+        evidence_items = get_evidence_items(
+            limit=100,
+            sort_by_period=True,
+            period_order="earliest_first",
+        )
+    elif evidence_sort_mode == "Newest period first":
+        evidence_items = get_evidence_items(
+            limit=100,
+            sort_by_period=True,
+            period_order="newest_first",
+        )
+    else:
+        evidence_items = get_evidence_items(limit=100)
 
    # evidence_items = get_evidence_items(limit=100)
 

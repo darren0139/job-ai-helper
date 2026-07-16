@@ -167,6 +167,47 @@ Return this exact JSON schema with every field included:
 Output ONLY a valid JSON object matching the schema above. No prose. No markdown fences. No commentary. Never rewrite or generate résumé content.
 """
 
+JD_PROFILE_REVIEW_PROMPT = """
+Instruction:
+Review an extracted job-description profile against the original raw job
+description. Return a corrected complete profile.
+
+Rules:
+- Use only information explicitly present in the raw job description.
+- Recover any requirement, responsibility, domain requirement, qualification,
+  tool, soft skill, or preference omitted from the first extraction.
+- Preserve compound requirements as compound requirements.
+
+Important examples:
+- "1 year of experience in QA, live operations, or related fields" is one
+  experience requirement. Do not extract "related fields" as an independent skill.
+- "Passionate about games with basic knowledge of the gaming industry" is a
+  distinct domain requirement and must not be omitted.
+- Preserve qualifiers such as minimum, preferred, recent, basic, local, global,
+  required, and optional.
+- Do not invent or strengthen requirements.
+- Remove duplicate or fragmentary requirements.
+- Return every meaningful requirement exactly once.
+
+Return only valid JSON:
+{
+  "job_title": "string",
+  "company": "string",
+  "location": "string",
+  "experience_level": "string",
+  "required_skills": ["string"],
+  "preferred_skills": ["string"],
+  "tools_technologies": ["string"],
+  "responsibilities": ["string"],
+  "soft_skills": ["string"],
+  "buzzwords": ["string"],
+  "deal_breakers": ["string"]
+}
+
+Output ONLY a valid JSON object matching the schema above.
+No prose. No markdown fences. No commentary.
+Do not generate résumé or application content.
+"""
 
 # ---------------------------------------------------------------------------
 # Evaluation prompts
@@ -200,7 +241,8 @@ Output ONLY a valid JSON object matching the schema above. No prose. No markdown
 #   }
 # ],
 #   "keyword_match_score": 0
-# }
+# } keyword_match_score = round(100 × number_of_required_skills_found / max(1, total_number_of_required_skills))
+
 # Scoring formula: 100 × (required_skills found in résumé) / max(1, total required_skills)
 KEYWORD_MATCH_PROMPT = """
 Instruction:
@@ -221,9 +263,22 @@ Evaluation criteria:
 - Treat noun/verb forms as equivalent when obvious.
 - Use match_type = "equivalent" when the résumé uses different wording with the same meaning.
 - Use match_type = "partial" when the résumé proves part of the requirement but not the full requirement.
+- match_type describes how the résumé wording matches the JD wording:
+  exact, case_insensitive, equivalent, or partial.
+- evidence_type describes the strength of the evidence:
+  direct or transferable.
+- Use evidence_type = "direct" only when the résumé explicitly proves the
+  requested skill, knowledge, tool, responsibility, qualification, or domain.
+- Use evidence_type = "transferable" when the résumé shows related experience
+  that may help with the requirement but does not fully prove it.
+- Game-development work may directly support basic gaming-industry knowledge,
+  but it does not directly prove professional QA or live-operations experience.
+- General teamwork does not directly prove cross-functional collaboration.
+- Every present row must include importance = "required" or "preferred"
+  according to the JD profile and raw job description.
 
 Scoring formula:
-keyword_match_score = round(100 × number_of_required_skills_found / max(1, total_number_of_required_skills))
+keyword_match_score = round(100 × (direct_required_match_count + 0.5 × transferable_required_match_count) / max(1, total_required_requirement_count) )
 
 Constraints:
 - Do not give credit for a keyword unless it is clearly supported by either the résumé profile or the raw résumé text.
@@ -234,13 +289,26 @@ Constraints:
 - suggested_section must be one of: skills, projects, experience, education.
 - alternative_sections may include other reasonable sections, including summary, if the résumé already has or can fit that section.
 - Do not make summary the main suggested_section because a summary is optional.
-- Do not suggest adding missing keywords to a resume summary. A summary is optional, especially for one-page student resumes.
 - Do not suggest adding missing keywords to a résumé summary. A summary is optional, especially for one-page student résumés.
 - category must be one of: language, framework, tool, concept, soft_skill, buzzword.
 - importance must be required or preferred.
 - If the JD asks for a duration, such as "1 year of experience in quality assurance", only mark the full requirement as present if the résumé clearly supports both the skill and the duration.
 - If the résumé only lists the skill without duration evidence, mark it as a partial match or keep the full duration requirement missing.
 - keyword_match_score must be an integer from 0 to 100.
+
+Match interpretation:
+- Evaluate both the raw texts and structured profiles.
+- Do not require identical wording when the résumé contains clear equivalent evidence.
+- Distinguish direct evidence, transferable evidence, and unsupported requirements.
+- Game-development work can directly support basic gaming-industry knowledge.
+- Game-development work does not prove professional QA or live-operations experience.
+- General teamwork does not prove cross-functional teamwork.
+- A transferable match must not be described as a full direct match.
+- Do not give a zero score when truthful domain or transferable evidence exists.
+- A transferable required match receives partial credit but must not be described
+  as satisfying the full requirement.
+- A preferred match should be reported but does not increase the required-match
+  score unless the scoring design explicitly includes preferred requirements.
 
 Output:
 Return this exact JSON schema:
@@ -249,9 +317,11 @@ Return this exact JSON schema:
     {
       "keyword": "string",
       "category": "language|framework|tool|concept|soft_skill|buzzword",
+      "importance": "required|preferred",
       "found_in": "summary|projects|experience|education|skills|raw_text",
       "matched_resume_term": "string",
       "match_type": "exact|case_insensitive|equivalent|partial",
+      "evidence_type": "direct|transferable",
       "match_reason": "string (20 words max)"
     }
   ],
@@ -305,7 +375,10 @@ Action Verb — start strong: Designed, Engineered, Implemented, Led, Reduced. N
 
 Technology — name the exact tools: "Vulkan," "C++," "Dear ImGui." Not "a graphics library." Recruiters and ATS scan for these specific names — vague descriptions match nothing.
 
-Impact — quantify what changed: "reduced iteration time by 40%," "handled 500+ objects at 60 fps," "deployed on Windows and Android." Numbers make achievements concrete and memorable.
+Impact or scope — explain what changed, what capability was delivered,
+who or what the work supported, or the scale of the contribution.
+A truthful numeric result is valuable when available, but clear non-numeric
+outcomes and scope also count. Never require or invent a metric.
 
 Reference levels:
 Level 1: OK (What most students write)
@@ -320,6 +393,9 @@ Level 3: Best (Tell a story with impact)
 Designed a Vulkan-based rendering tool using C++ and Dear ImGui that reduced iteration time for level designers by 40%, supporting cross-platform deployment on Windows and Android.
 This shows what you did, how you did it, and why it mattered.
 
+A bullet may also reach Level 3 through strong ownership, specific technology,
+and clear product, workflow, deployment, user, or team scope without a numeric metric.
+
 Scoring formula:
 - Assign L1_OK = 1 point, L2_BETTER = 2 points, L3_BEST = 3 points.
 - bullet_quality_avg = round(100 × sum(level_score) / (3 × count)).
@@ -330,11 +406,27 @@ Constraints:
 - bullet_text must copy the original résumé bullet verbatim.
 - has_action_verb is true only when the bullet begins with or clearly uses a strong ownership/action verb.
 - has_specific_technology is true only when specific tools, languages, frameworks, platforms, or technical concepts are named.
-- has_measurable_impact is true only when there is a number, measurable scope, user/result outcome, performance target, deployment scope, or clearly stated effect.
 - what_is_missing must be diagnostic only and 20 words or fewer.
 - Do not rewrite or improve any bullet.
 - Do not generate replacement bullet points.
 - bullet_quality_avg must be an integer from 0 to 100.
+
+Bullet interpretation:
+- A result or scope can be concrete without being numeric.
+- has_result_or_scope is true when the bullet describes a clear result,
+  purpose, delivered capability, affected workflow, users, platform,
+  deployment scope, ownership scope, or product scope.
+- has_numeric_metric is true only when a number, percentage, time saving,
+  count, scale, users, performance value, duration, throughput value,
+  or another measurable quantity appears.
+- "To support...", "to enable...", and "for efficiency" may describe purpose
+  or scope, but they do not automatically count as a numeric metric.
+- Gerund openings such as "Scripting..." are weaker than completed-action
+  forms such as "Scripted...".
+- For completed roles and projects, flag present-tense verbs such as
+  "Collaborate" and "Use" when the surrounding dates indicate past work.
+- grammar_or_tense_issue must be an empty string when no issue exists.
+- Do not demand or invent numbers when truthful metrics are unavailable.
 
 Output:
 Return this exact JSON schema:
@@ -346,7 +438,9 @@ Return this exact JSON schema:
       "bullet_text": "string (verbatim)",
       "has_action_verb": true,
       "has_specific_technology": true,
-      "has_measurable_impact": false,
+      "has_result_or_scope": false,
+      "has_numeric_metric": false,
+      "grammar_or_tense_issue": "string",
       "level": "L1_OK|L2_BETTER|L3_BEST",
       "what_is_missing": "string (20 words max — diagnose only)"
     }
@@ -405,6 +499,18 @@ Severity rules:
 - medium: The JD is mixed, such as simulation, XR, digital twin, interactive media, real-time 3D, tools, or graphics roles.
 - low: The JD is clearly a game studio, gameplay, game engine, Unity, Unreal, graphics, or game development role.
 
+Target-role relevance rules:
+- Do not flag a term merely because it is associated with game development.
+- Preserve terms that are standard and understandable in the target industry.
+- For gaming roles, terms such as game mechanics, gameplay, game logic,
+  game engine, simulation game, asset pipeline, player progression, and Unity
+  are normally relevant domain language.
+- Flag such terms only when they are unexplained, highly internal, ambiguous,
+  or unrelated to the target role.
+- A translation must improve understanding for the target employer.
+- Do not replace gaming-domain language with generic software wording when the
+  target employer is in gaming.
+
 Scoring formula:
 jargon_score = max(0, 100 - 10*high_count - 5*medium_count - 2*low_count)
 
@@ -418,6 +524,7 @@ Constraints:
 - Do not suggest new bullet points.
 - If no jargon is found, return flags as [] and jargon_score as 100.
 - jargon_score must be an integer from 0 to 100.
+
 
 Output:
 Return this exact JSON schema:

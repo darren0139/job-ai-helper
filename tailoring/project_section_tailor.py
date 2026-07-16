@@ -70,12 +70,21 @@ Scoring rules:
 - Do not put the same requirement in both matched and transferable lists.
 - Reasons must name specific JD requirements or responsibilities.
 
-Domain and transferable-evidence interpretation:
+General domain and transferable-evidence interpretation:
+- Apply the same principle to every target domain.
+- Give domain credit only when the project evidence supports the actual industry, product type, platform, tools, or workflows named by the JD.
+- The following gaming examples illustrate this rule; they should not cause gaming evidence to receive special treatment for unrelated roles.
 - tool_domain_match_score includes relevant industry, product type, platform, and technical environment; it is not limited to exact named tools.
 - A completed game-development project is direct evidence of basic gaming-industry and game-product knowledge.
 - A published game provides stronger gaming-product evidence than a generic software project.
 - A custom game-engine project supports gaming-industry, game-development workflow, and technical systems knowledge.
 - Game-development evidence does not by itself prove professional quality-assurance or live-operations experience.
+- A deployed API or database project may support backend or platform roles.
+- Containerisation, CI/CD, monitoring, and deployment evidence may support DevOps or cloud roles.
+- Sensor, GPIO, protocol, or firmware evidence may support embedded roles.
+- Network configuration, packet analysis, DNS, DHCP, or troubleshooting evidence may support networking roles.
+- Model evaluation, RAG, data processing, or inference evidence may support AI and data roles.
+- Do not give domain credit when the target role is unrelated to that evidence.
 - Explicit team-project and collaboration evidence may support collaboration requirements.
 - Secure database, access-control, configuration, integration, and structured workflow evidence may support configuration or meticulous operational work as transferable evidence.
 - Do not set every JD-fit component to zero when a project clearly supports the role's industry, product type, tools, responsibilities, or transferable competencies.
@@ -96,6 +105,23 @@ Scoring consistency rules:
   gaming role.
 - Do not give a project all-zero JD-fit scores while simultaneously saying that it
   supports a JD requirement.
+
+Evidence interpretation safeguards:
+- Do not treat general implementation, integration, frontend development, or
+  programming work as evidence of meticulous attention to detail.
+- A project may support meticulous or detail-sensitive work only when the evidence
+  explicitly mentions testing, validation, reviewing, defect prevention, accuracy
+  checking, debugging, security rules, data verification, or another activity where
+  correctness and precision were important.
+- Team collaboration does not automatically prove cross-functional collaboration.
+- Use "cross-functional teams" only when the evidence identifies different roles,
+  disciplines, departments, or functional groups.
+- For configuration-oriented roles, access-control policies, permissions, database
+  rules, backend integration, secure configuration, and structured system workflows
+  may provide stronger transferable evidence than generic frontend implementation.
+- Reserve tool_domain_match_score 5 for a project that strongly matches the target
+  industry or product domain and also supports several relevant tools, workflows, or
+  responsibilities.
 
 Project-count rules:
 - Python will select exactly the supplied maximum number of projects when enough candidates exist.
@@ -180,18 +206,19 @@ CAR and ordering rules:
 - Order bullets from strongest JD relevance to weakest.
 - The final bullet must be the safest bullet to remove during page fitting.
 - Do not split one idea into several weak bullets.
-- Do not create a separate teamwork bullet when team size is already clear in the
-  title unless collaboration is a major JD requirement.
+- Do not create a separate teamwork bullet when team size is already clear in the title unless collaboration is a major JD requirement.
+- The first bullet must remain meaningful if page fitting reduces the project to one bullet.
+- The first bullet should explain the project's purpose or product and the candidate's strongest contribution.
+- Do not make environment setup the surviving first bullet when stronger implementation, integration, security, deployment, or user-feature evidence exists.
+- Put the least informative or most redundant bullet last because the page-fitting stage removes bullets from the end.
 
 Length and page-use rules:
 - Use no more than the supplied maximum bullets per project.
 - Prefer 4-6 total bullets across all selected projects when supported.
-- Stronger projects may receive more bullets; weaker selected projects may receive
-  one bullet.
-- Do not aggressively shorten wording for page fit. The DOCX fitting stage removes
-  complete lower-priority bullets one at a time.
-- Bullets should usually be concise and resume-friendly, commonly 14-24 words, but
-  preserving meaning is more important than meeting a fixed word count.
+- Stronger projects may receive more bullets; weaker selected projects may receive one bullet.
+- Do not aggressively shorten wording for page fit. The DOCX fitting stage removes complete lower-priority bullets one at a time.
+- Bullets should usually be concise and resume-friendly, commonly 14-24 words, but preserving meaning is more important than meeting a fixed word count.
+
 
 Output only valid JSON matching this schema:
 {
@@ -1087,6 +1114,7 @@ def tailor_projects_section(
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
     keyword_match: dict[str, Any] | None = None,
+    raw_jd_text: str = "",
 ) -> dict[str, Any]:
     """
     Generate a tailored Projects section using the Option B two-stage pipeline.
@@ -1114,19 +1142,25 @@ def tailor_projects_section(
 MAXIMUM PROJECTS:
 {max_projects}
 
+RAW TARGET JOB DESCRIPTION:
+{raw_jd_text}
+
+EXTRACTED TARGET JOB DESCRIPTION PROFILE:
+{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
+
 COMBINED PROJECT CANDIDATE POOL:
 {json.dumps(project_candidates, indent=2, ensure_ascii=False)}
-
-TARGET JOB DESCRIPTION PROFILE:
-{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
 CURRENT RESUME-JD KEYWORD ANALYSIS (context only):
 {json.dumps(keyword_match or {}, indent=2, ensure_ascii=False)}
 
 IMPORTANT:
-- The keyword analysis describes the current resume, not necessarily the Evidence
-  Library. Award project points only when the candidate's own evidence supports the
-  requirement.
+- Evaluate both the raw JD and the extracted JD profile.
+- The raw JD can recover relevant requirements omitted from the profile.
+- The keyword analysis describes the current resume, not necessarily the
+  Evidence Library.
+- Award project points only when the candidate's own evidence supports
+  the requirement.
 - Include every candidate exactly once in candidate_project_scores.
 """
 
@@ -1152,12 +1186,16 @@ The previous response omitted some required candidates.
 SCORE ONLY THESE MISSING PROJECT CANDIDATES:
 {json.dumps(missing_candidates, indent=2, ensure_ascii=False)}
 
-TARGET JOB DESCRIPTION PROFILE:
+RAW TARGET JOB DESCRIPTION:
+{raw_jd_text}
+
+EXTRACTED TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
 IMPORTANT:
+- Evaluate both the raw JD and the extracted JD profile.
 - Return exactly one candidate_project_scores row for every
-supplied missing candidate.
+  supplied missing candidate.
 - Do not return projects that are not listed above.
 - Use the same 0-5 component scoring rubric.
 """
@@ -1204,6 +1242,45 @@ supplied missing candidate.
         scoring_result=scoring_result,
         project_candidates=project_candidates,
     )
+
+
+    all_projects_zero = (
+        bool(ranked_rows)
+        and all(
+            int(
+                row.get(
+                    "final_score",
+                    0,
+                )
+                or 0
+            )
+            == 0
+            for row in ranked_rows
+        )
+    )
+
+    if all_projects_zero:
+        candidate_titles = [
+            str(
+                row.get(
+                    "display_title",
+                    row.get(
+                        "title",
+                        "Untitled Project",
+                    ),
+                )
+            )
+            for row in ranked_rows
+        ]
+
+        raise RuntimeError(
+            "Every project candidate received zero JD relevance. "
+            "Project selection was stopped because selecting by "
+            "evidence strength alone could produce an unrelated "
+            "ranking. Review the extracted JD profile, raw JD text, "
+            "and project evidence before retrying. "
+            f"Candidates evaluated: {candidate_titles}"
+        )
 
     selected_count = _resolve_selected_project_count(
         scoring_result=scoring_result,

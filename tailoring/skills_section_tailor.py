@@ -56,6 +56,13 @@ Strict QA evidence rules:
 - Game development alone does not prove quality-assurance experience.
 - Game-development evidence may support gaming-industry knowledge, but QA must remain unsupported or be described only as transferable exposure when no explicit testing evidence exists.
 
+Category consistency rules:
+- Put SQL under Backend & Database, not Tools.
+- Put PostgreSQL, Supabase, databases, APIs, and access-control technologies under
+  Backend & Database.
+- Put Git, GitHub, Visual Studio, Android Studio, Docker, and development utilities
+  under Tools or Web & App as appropriate.
+
 Recommended categories:
 - Programming
 - AI & Data
