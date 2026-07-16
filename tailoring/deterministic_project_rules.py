@@ -1,246 +1,134 @@
 """
 deterministic_project_rules.py
 
-Deterministic evidence floors for Job AI Helper project ranking.
+Generic warning-only consistency validator for Job AI Helper project scoring.
 
-Purpose:
-The LLM still performs nuanced project/JD analysis, but explicit evidence
-cannot randomly disappear between otherwise identical runs.
+This is a drop-in replacement for the earlier deterministic rules module.
 
-This module does not invent experience. It only applies small minimum
-component scores when both:
-1. the project evidence explicitly contains a supported capability; and
-2. the target JD explicitly asks for a related capability or domain.
+What it does:
+- Keeps the existing public function name:
+      apply_deterministic_evidence_floors(...)
+- Clamps component scores to the allowed 0-5 range.
+- Removes exact duplicate requirement labels.
+- Removes an exact requirement from the transferable list when the same
+  requirement already exists in the direct-match list.
+- Records warnings when the LLM output is internally inconsistent.
+- Does not add semantic matches.
+- Does not raise relevance scores because of a matched-requirement label.
+- Does not contain gaming, QA, cloud, RLS, DevOps, networking, or other
+  domain-specific keyword rules.
+- Does not cache LLM responses.
+
+The caller should continue recalculating relevance_score and final_score after
+this function returns because duplicate removal and score clamping may affect
+the deterministic ranking.
 """
 
 from __future__ import annotations
 
-import json
 import re
 from copy import deepcopy
 from typing import Any
 
 
+# ---------------------------------------------------------------------------
+# Generic helpers
+# ---------------------------------------------------------------------------
+
 def _normalise_text(value: Any) -> str:
-    """Lowercase text and collapse punctuation/whitespace."""
+    """Return lowercase alphanumeric text with collapsed whitespace."""
     text = str(value or "").lower()
     text = re.sub(r"[^a-z0-9+#./-]+", " ", text)
     return " ".join(text.split())
 
 
-def _normalise_project_key(title: str) -> str:
-    """Match titles such as 'QueryAI' and 'QueryAI (React, Team of 4)'."""
-    text = str(title or "").lower().strip()
-    text = re.sub(r"\(.*?\)", "", text)
-    text = re.sub(r"[-–—].*$", "", text)
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return " ".join(text.split())
+def _safe_score(value: Any) -> int:
+    """Convert a value to an integer score clamped from 0 to 5."""
+    try:
+        numeric = int(round(float(value)))
+    except (TypeError, ValueError):
+        numeric = 0
+
+    return max(0, min(5, numeric))
 
 
-def _contains_any(
-    text: str,
-    terms: tuple[str, ...],
-) -> bool:
-    return any(
-        _normalise_text(term) in text
-        for term in terms
-    )
-
-
-def _candidate_text(
-    candidate: dict[str, Any],
-) -> str:
+def _deduplicate_requirements(
+    values: Any,
+) -> tuple[list[str], list[dict[str, str]]]:
     """
-    Build deterministic evidence text from the supplied candidate.
+    Remove exact normalised duplicate requirement labels.
 
-    Both resume and Evidence Library evidence may affect selection, matching
-    the existing scoring-stage behaviour. Final bullet writing can still remain
-    restricted to Evidence Library evidence.
+    This intentionally avoids fuzzy semantic merging. Two differently worded
+    requirements are kept unless their normalised text is exactly the same.
     """
-    return _normalise_text(
-        json.dumps(
-            {
-                "title": candidate.get("title", ""),
-                "display_title": candidate.get(
-                    "display_title",
-                    "",
-                ),
-                "resume_evidence": candidate.get(
-                    "resume_evidence"
-                ),
-                "evidence_library_evidence": candidate.get(
-                    "evidence_library_evidence"
-                ),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-    )
+    if not isinstance(values, list):
+        return [], []
+
+    cleaned: list[str] = []
+    seen: dict[str, str] = {}
+    removals: list[dict[str, str]] = []
+
+    for raw_value in values:
+        value = " ".join(
+            str(raw_value or "").split()
+        ).strip()
+
+        if not value:
+            continue
+
+        key = _normalise_text(value)
+
+        if key in seen:
+            removals.append(
+                {
+                    "removed": value,
+                    "kept": seen[key],
+                }
+            )
+            continue
+
+        seen[key] = value
+        cleaned.append(value)
+
+    return cleaned, removals
 
 
-def _append_unique(
-    values: list[str],
-    new_value: str,
-) -> None:
-    existing = {
-        _normalise_text(value)
-        for value in values
+def _remove_exact_direct_transferable_overlap(
+    direct_requirements: list[str],
+    transferable_requirements: list[str],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    Remove an exact transferable duplicate when the same requirement is
+    already listed as a direct match. Direct evidence takes precedence.
+    """
+    direct_by_key = {
+        _normalise_text(value): value
+        for value in direct_requirements
     }
 
-    if _normalise_text(new_value) not in existing:
-        values.append(new_value)
+    kept_transferable: list[str] = []
+    removals: list[dict[str, str]] = []
+
+    for value in transferable_requirements:
+        key = _normalise_text(value)
+
+        if key in direct_by_key:
+            removals.append(
+                {
+                    "removed": value,
+                    "kept_as_direct": direct_by_key[key],
+                }
+            )
+            continue
+
+        kept_transferable.append(value)
+
+    return kept_transferable, removals
 
 
-_RULES: tuple[dict[str, Any], ...] = (
-    {
-        "name": "access_control_configuration",
-        "evidence_terms": (
-            "row-level security",
-            "row level security",
-            "rls",
-            "access control",
-            "permission",
-            "permissions",
-            "authorization",
-            "authentication workflow",
-            "security policy",
-            "security policies",
-        ),
-        "jd_terms": (
-            "configuration",
-            "quality assurance",
-            " qa ",
-            "attention to detail",
-            "meticulous",
-            "access control",
-            "permission",
-            "security",
-            "operational evaluation",
-        ),
-        "transferable_requirement": (
-            "secure configuration and access-control work"
-        ),
-        "minimum_responsibility_score": 2,
-        "minimum_tool_domain_score": 1,
-    },
-    {
-        "name": "quality_validation",
-        "evidence_terms": (
-            "quality assurance",
-            "testing",
-            "tested",
-            "validation",
-            "validated",
-            "verification",
-            "verified",
-            "debugging",
-            "debugged",
-            "defect",
-            "bug",
-            "accuracy checking",
-            "data verification",
-        ),
-        "jd_terms": (
-            "quality assurance",
-            " qa ",
-            "testing",
-            "validation",
-            "verification",
-            "bug",
-            "defect",
-            "attention to detail",
-            "meticulous",
-            "accuracy",
-        ),
-        "transferable_requirement": (
-            "testing, validation, or correctness-sensitive work"
-        ),
-        "minimum_responsibility_score": 2,
-        "minimum_tool_domain_score": 1,
-    },
-    {
-        "name": "backend_configuration_integration",
-        "evidence_terms": (
-            "postgrest",
-            "backend integration",
-            "api integration",
-            "database integration",
-            "system integration",
-            "configured",
-            "configuration",
-            "structured workflow",
-        ),
-        "jd_terms": (
-            "configuration",
-            "coordinate",
-            "operations",
-            "operational",
-            "product-related problem",
-            "integration",
-            "maintain",
-        ),
-        "transferable_requirement": (
-            "backend configuration and integration work"
-        ),
-        "minimum_responsibility_score": 1,
-        "minimum_tool_domain_score": 1,
-    },
-    {
-        "name": "gaming_product_domain",
-        "evidence_terms": (
-            "unity",
-            "game engine",
-            "gameplay",
-            "mobile game",
-            "published game",
-            "fmod",
-            "player progression",
-        ),
-        "jd_terms": (
-            "game",
-            "gaming",
-            "shooting game",
-            "gaming product",
-            "gaming industry",
-        ),
-        "matched_requirement": (
-            "basic knowledge of the gaming industry"
-        ),
-        "minimum_responsibility_score": 0,
-        "minimum_tool_domain_score": 2,
-    },
-    {
-        "name": "deployment_operations",
-        "evidence_terms": (
-            "docker",
-            "containerised",
-            "containerized",
-            "kubernetes",
-            "ci/cd",
-            "deployment",
-            "monitoring",
-            "prometheus",
-            "grafana",
-            "live environment",
-        ),
-        "jd_terms": (
-            "operations",
-            "operational",
-            "maintain",
-            "deployment",
-            "devops",
-            "cloud",
-            "monitoring",
-            "live environment",
-        ),
-        "transferable_requirement": (
-            "deployment, monitoring, or operational workflow experience"
-        ),
-        "minimum_responsibility_score": 2,
-        "minimum_tool_domain_score": 2,
-    },
-)
-
+# ---------------------------------------------------------------------------
+# Public compatibility function
+# ---------------------------------------------------------------------------
 
 def apply_deterministic_evidence_floors(
     *,
@@ -253,158 +141,220 @@ def apply_deterministic_evidence_floors(
     list[dict[str, Any]],
 ]:
     """
-    Apply conservative deterministic score floors.
+    Apply generic, warning-only consistency validation.
+
+    The project_candidates, jd_profile, and raw_jd_text arguments are retained
+    for drop-in compatibility with the earlier implementation. This version
+    does not perform domain-specific semantic matching.
 
     Returns:
         updated_rows:
-            Deep-copied ranking rows with component-score floors applied.
+            Deep-copied rows after safe structural cleanup.
 
         debug_rows:
-            A record of every deterministic rule that was applied.
+            Records of score clamping, duplicate cleanup, and warnings.
 
     Important:
-        This function does not recalculate final_score. The caller should run
-        its existing _calculate_relevance_score() and
-        _calculate_project_final_score() functions afterwards.
+        This function never raises a relevance component from zero merely
+        because the LLM listed a direct or transferable requirement.
     """
+    del project_candidates
+    del jd_profile
+    del raw_jd_text
+
     updated_rows = deepcopy(ranked_rows)
-
-    candidates_by_key = {
-        _normalise_project_key(
-            candidate.get("title", "")
-        ): candidate
-        for candidate in project_candidates
-    }
-
-    jd_text = _normalise_text(
-        str(raw_jd_text or "")
-        + "\n"
-        + json.dumps(
-            jd_profile or {},
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-    )
-
     debug_rows: list[dict[str, Any]] = []
 
     for row in updated_rows:
-        key = _normalise_project_key(
-            row.get("title", "")
+        project_title = (
+            row.get("display_title")
+            or row.get("title")
+            or "Untitled Project"
         )
 
-        candidate = candidates_by_key.get(key)
-        if candidate is None:
-            continue
-
-        evidence_text = _candidate_text(candidate)
-
-        row.setdefault(
-            "matched_jd_requirements",
-            [],
-        )
-        row.setdefault(
-            "transferable_jd_requirements",
-            [],
+        # ---------------------------------------------------------------
+        # 1. Clamp component scores to the documented 0-5 range.
+        # ---------------------------------------------------------------
+        score_fields = (
+            "must_have_match_score",
+            "responsibility_match_score",
+            "tool_domain_match_score",
+            "evidence_strength_score",
+            "impact_scope_score",
         )
 
-        for rule in _RULES:
-            evidence_matches = _contains_any(
-                evidence_text,
-                rule["evidence_terms"],
-            )
-            jd_matches = _contains_any(
-                jd_text,
-                rule["jd_terms"],
-            )
+        for field in score_fields:
+            original_value = row.get(field, 0)
+            corrected_value = _safe_score(original_value)
+            row[field] = corrected_value
 
-            if not (
-                evidence_matches
-                and jd_matches
-            ):
-                continue
+            try:
+                original_numeric = int(
+                    round(float(original_value))
+                )
+            except (TypeError, ValueError):
+                original_numeric = None
 
-            old_responsibility = int(
+            if original_numeric != corrected_value:
+                debug_rows.append(
+                    {
+                        "project": project_title,
+                        "action": "clamp_score",
+                        "field": field,
+                        "before": original_value,
+                        "after": corrected_value,
+                    }
+                )
+
+        # ---------------------------------------------------------------
+        # 2. Remove exact duplicate requirement labels.
+        # ---------------------------------------------------------------
+        direct_requirements, direct_removals = (
+            _deduplicate_requirements(
                 row.get(
-                    "responsibility_match_score",
-                    0,
+                    "matched_jd_requirements",
+                    [],
                 )
-                or 0
             )
-            old_tool_domain = int(
-                row.get(
-                    "tool_domain_match_score",
-                    0,
-                )
-                or 0
+        )
+
+        (
+            transferable_requirements,
+            transferable_removals,
+        ) = _deduplicate_requirements(
+            row.get(
+                "transferable_jd_requirements",
+                [],
             )
+        )
 
-            new_responsibility = max(
-                old_responsibility,
-                int(
-                    rule.get(
-                        "minimum_responsibility_score",
-                        0,
-                    )
-                ),
-            )
-            new_tool_domain = max(
-                old_tool_domain,
-                int(
-                    rule.get(
-                        "minimum_tool_domain_score",
-                        0,
-                    )
-                ),
-            )
-
-            row[
-                "responsibility_match_score"
-            ] = new_responsibility
-            row[
-                "tool_domain_match_score"
-            ] = new_tool_domain
-
-            direct_requirement = rule.get(
-                "matched_requirement"
-            )
-            transferable_requirement = rule.get(
-                "transferable_requirement"
-            )
-
-            if direct_requirement:
-                _append_unique(
-                    row["matched_jd_requirements"],
-                    str(direct_requirement),
-                )
-
-            if transferable_requirement:
-                _append_unique(
-                    row[
-                        "transferable_jd_requirements"
-                    ],
-                    str(transferable_requirement),
-                )
-
+        for removal in direct_removals:
             debug_rows.append(
                 {
-                    "project": (
-                        row.get("display_title")
-                        or row.get("title")
-                        or "Untitled Project"
+                    "project": project_title,
+                    "action": (
+                        "remove_duplicate_direct_requirement"
                     ),
-                    "rule": rule["name"],
-                    "responsibility_score_before": (
-                        old_responsibility
+                    **removal,
+                }
+            )
+
+        for removal in transferable_removals:
+            debug_rows.append(
+                {
+                    "project": project_title,
+                    "action": (
+                        "remove_duplicate_transferable_requirement"
                     ),
-                    "responsibility_score_after": (
-                        new_responsibility
+                    **removal,
+                }
+            )
+
+        (
+            transferable_requirements,
+            overlap_removals,
+        ) = _remove_exact_direct_transferable_overlap(
+            direct_requirements,
+            transferable_requirements,
+        )
+
+        for removal in overlap_removals:
+            debug_rows.append(
+                {
+                    "project": project_title,
+                    "action": (
+                        "remove_direct_transferable_overlap"
                     ),
-                    "tool_domain_score_before": (
-                        old_tool_domain
+                    **removal,
+                }
+            )
+
+        row[
+            "matched_jd_requirements"
+        ] = direct_requirements
+        row[
+            "transferable_jd_requirements"
+        ] = transferable_requirements
+
+        # ---------------------------------------------------------------
+        # 3. Report contradictions without changing relevance scores.
+        # ---------------------------------------------------------------
+        must_have = row[
+            "must_have_match_score"
+        ]
+        responsibility = row[
+            "responsibility_match_score"
+        ]
+        tool_domain = row[
+            "tool_domain_match_score"
+        ]
+
+        if (
+            direct_requirements
+            and max(
+                must_have,
+                responsibility,
+                tool_domain,
+            )
+            == 0
+        ):
+            debug_rows.append(
+                {
+                    "project": project_title,
+                    "action": (
+                        "warning_direct_match_zero_score_contradiction"
                     ),
-                    "tool_domain_score_after": (
-                        new_tool_domain
+                    "reason": (
+                        "The model listed at least one direct JD "
+                        "requirement, but all relevance component "
+                        "scores were zero. No score was changed."
+                    ),
+                    "matched_requirements": direct_requirements,
+                }
+            )
+
+        if (
+            transferable_requirements
+            and responsibility == 0
+            and tool_domain == 0
+        ):
+            debug_rows.append(
+                {
+                    "project": project_title,
+                    "action": (
+                        "warning_transferable_match_zero_score_contradiction"
+                    ),
+                    "reason": (
+                        "The model listed transferable JD requirements, "
+                        "but both responsibility and tool/domain scores "
+                        "were zero. No score was changed."
+                    ),
+                    "transferable_requirements": (
+                        transferable_requirements
+                    ),
+                }
+            )
+
+        if (
+            not direct_requirements
+            and not transferable_requirements
+            and max(
+                must_have,
+                responsibility,
+                tool_domain,
+            )
+            > 0
+        ):
+            debug_rows.append(
+                {
+                    "project": project_title,
+                    "action": (
+                        "warning_nonzero_relevance_without_requirement_labels"
+                    ),
+                    "reason": (
+                        "The model assigned a non-zero relevance score "
+                        "but did not list any direct or transferable "
+                        "requirement labels. No score was changed."
                     ),
                 }
             )
