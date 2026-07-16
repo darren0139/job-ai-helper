@@ -28,6 +28,9 @@ from typing import Any
 from llm import ask_json
 from utils.date_sorting import period_sort_value
 
+from tailoring.deterministic_project_rules import (
+    apply_deterministic_evidence_floors,
+)
 
 # ---------------------------------------------------------------------------
 # Stage 1 prompt: analyse and score every project candidate
@@ -1242,6 +1245,70 @@ IMPORTANT:
         scoring_result=scoring_result,
         project_candidates=project_candidates,
     )
+    (
+        ranked_rows,
+        deterministic_rule_debug,
+    ) = apply_deterministic_evidence_floors(
+        ranked_rows=ranked_rows,
+        project_candidates=project_candidates,
+        jd_profile=jd_profile,
+        raw_jd_text=raw_jd_text,
+    )
+
+    for row in ranked_rows:
+        row["relevance_score"] = (
+            _calculate_relevance_score(
+                row
+            )
+        )
+
+        row["final_score"] = (
+            _calculate_project_final_score(
+                row
+            )
+        )
+
+    ranked_rows.sort(
+        key=lambda row: (
+            int(row.get("final_score", 0) or 0),
+            int(
+                row.get(
+                    "must_have_match_score",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                row.get(
+                    "responsibility_match_score",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                row.get(
+                    "tool_domain_match_score",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                row.get(
+                    "evidence_strength_score",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                row.get(
+                    "impact_scope_score",
+                    0,
+                )
+                or 0
+            ),
+        ),
+        reverse=True,
+    )
 
 
     all_projects_zero = (
@@ -1383,6 +1450,7 @@ IMPORTANT:
     result = {
         "recommended_projects": recommended_projects,
         "candidate_project_ranking": ranked_rows,
+        "deterministic_rule_debug": (deterministic_rule_debug ),
         "projects_to_remove_or_deprioritize": _build_projects_to_remove(
             project_candidates=project_candidates,
             ranked_rows=ranked_rows,

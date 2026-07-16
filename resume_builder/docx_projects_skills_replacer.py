@@ -64,6 +64,9 @@ KNOWN_SECTION_HEADINGS = {
     "PROFILE",
 }
 
+from tailoring.deterministic_project_rules import (
+    apply_deterministic_evidence_floors,
+)
 
 # ---------------------------------------------------------------------------
 # File save helpers
