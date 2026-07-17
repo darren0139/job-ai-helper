@@ -305,6 +305,7 @@ RETRIEVED JOB DESCRIPTION CHUNKS:
         user_prompt,
         temperature=0.3,
         max_tokens=900,
+        route="chat",
     ).strip()
 
     if not answer:

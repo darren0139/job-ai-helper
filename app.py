@@ -24,6 +24,12 @@ from pypdf import PdfReader
 try:
     for key in (
         "MODEL",
+        "ANALYSIS_MODEL",
+        "CHAT_MODEL",
+        "REASONING_EFFORT",
+        "ANALYSIS_REASONING_EFFORT",
+        "CHAT_REASONING_EFFORT",
+        "LLM_SEED",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "OLLAMA_API_BASE",
@@ -134,7 +140,13 @@ from tailoring.canonical_bullet_suggester import (
 
 
 from report import render_markdown
-from llm import ask_text
+from llm import (
+    ask_text,
+    get_active_model,
+    get_model_options,
+    set_runtime_model,
+)
+
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
 
 
@@ -297,7 +309,8 @@ USER QUESTION:
         ANALYSIS_QA_PROMPT,
         user_prompt,
         temperature=0.3,
-        max_tokens=700,
+        max_tokens=1000,
+        route="chat",
     ).strip()
 
     if not answer:
@@ -345,10 +358,14 @@ def create_full_debug_bundle(
                 or []
             )
 
-    active_model = os.getenv(
-        "MODEL",
-        "openai/gpt-4o-mini",
-    )
+    # active_model = os.getenv(
+    #     "MODEL",
+    #     "openai/gpt-4o-mini",
+    # )
+
+    active_model = get_active_model("analysis")
+
+    chat_model = get_active_model("chat")
 
     debug_bundle = {
         "debug_meta": {
@@ -358,9 +375,17 @@ def create_full_debug_bundle(
             "application_id": application_id,
             "resume_filename": resume_filename,
             "active_model": active_model,
+            "chat_model": chat_model,
+            # "reasoning_effort": os.getenv(
+
+            #     "REASONING_EFFORT",
+            #     "provider_default",
+            # ),
+
             "reasoning_effort": os.getenv(
-                "REASONING_EFFORT",
-                "provider_default",
+            "ANALYSIS_REASONING_EFFORT",
+            os.getenv("REASONING_EFFORT",
+                "provider_default",),
             ),
         },
         "analysis_report": report or {},
@@ -645,7 +670,8 @@ def run_resume_analysis(
     report = {
         "meta": {
             "created_at": datetime.now().isoformat(timespec="seconds"),
-            "model": os.getenv("MODEL", "openai/gpt-4o-mini"),
+            # "model": os.getenv("MODEL", "openai/gpt-4o-mini"),
+            "model": get_active_model("analysis"),
             "degree": degree,
             "ats_pass_threshold": ATS_PASS_THRESHOLD,
             "actual_page_count": (actual_page_count),
@@ -825,9 +851,87 @@ with st.sidebar:
 
     st.divider()
 
-    model_name = os.getenv("MODEL", "openai/gpt-4o-mini")
-    st.write("**Model route:**")
-    st.code(model_name)
+    st.subheader("AI Models")
+
+    model_options = get_model_options()
+    model_labels = list(model_options.keys())
+
+    current_analysis_model = get_active_model(
+        "analysis"
+    )
+
+    current_chat_model = get_active_model(
+        "chat"
+    )
+
+    analysis_default_index = next(
+        (
+            index
+            for index, label in enumerate(
+                model_labels
+            )
+            if model_options[label]
+            == current_analysis_model
+        ),
+        0,
+    )
+
+    chat_default_index = next(
+        (
+            index
+            for index, label in enumerate(
+                model_labels
+            )
+            if model_options[label]
+            == current_chat_model
+        ),
+        0,
+    )
+
+    analysis_model_label = st.selectbox(
+        "Analysis model",
+        model_labels,
+        index=analysis_default_index,
+        key="analysis_model_selector",
+        help=(
+            "Used for resume analysis, JD extraction, "
+            "project scoring, bullet writing and "
+            "cover-letter generation."
+        ),
+    )
+
+    chat_model_label = st.selectbox(
+        "Chatbot model",
+        model_labels,
+        index=chat_default_index,
+        key="chat_model_selector",
+        help=(
+            "Used for analysis questions and the "
+            "Job Market Insights RAG chatbot."
+        ),
+    )
+
+    set_runtime_model(
+        model_options[analysis_model_label],
+        route="analysis",
+    )
+
+    set_runtime_model(
+        model_options[chat_model_label],
+        route="chat",
+    )
+
+    st.caption("Active analysis model")
+    st.code(
+        get_active_model("analysis")
+    )
+
+    st.caption("Active chatbot model")
+    st.code(
+        get_active_model("chat")
+    )
+
+    st.divider()
 
     if page == "Application Sessions":
         st.subheader("Settings")
