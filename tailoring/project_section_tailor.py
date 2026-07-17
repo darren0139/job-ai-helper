@@ -1103,6 +1103,196 @@ def _sort_recommended_projects_latest_first(
     )
     return result
 
+# ---------------------------------------------------------------------------
+# Warning-only bullet quality validation
+# ---------------------------------------------------------------------------
+
+
+def _normalise_bullet_for_validation(value: Any) -> str:
+    """Normalise bullet text for duplicate checks."""
+    return re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        str(value or "").lower(),
+    ).strip()
+
+
+def _starts_with_strong_action(value: str) -> bool:
+    """Check whether a bullet begins with a common strong action verb."""
+    first_word = (
+        str(value or "")
+        .strip()
+        .lower()
+        .split(" ", 1)[0]
+    )
+
+    return first_word in {
+        "built",
+        "created",
+        "developed",
+        "designed",
+        "implemented",
+        "integrated",
+        "deployed",
+        "automated",
+        "engineered",
+        "configured",
+        "containerised",
+        "containerized",
+        "scripted",
+        "validated",
+        "tested",
+        "optimised",
+        "optimized",
+        "analysed",
+        "analyzed",
+        "managed",
+    }
+
+
+def _validate_project_bullets(
+    project: dict[str, Any],
+) -> list[dict[str, str]]:
+    """
+    Return quality warnings without modifying project bullets.
+    """
+    title = str(
+        project.get("display_title")
+        or project.get("title")
+        or "Untitled Project"
+    )
+
+    raw_bullets = (
+        project.get("draft_bullets", [])
+        or []
+    )
+
+    warnings: list[dict[str, str]] = []
+
+    if not raw_bullets:
+        return [
+            {
+                "project": title,
+                "code": "no_bullets",
+                "message": (
+                    "No usable full project bullets were generated."
+                ),
+            }
+        ]
+
+    seen: set[str] = set()
+    cleaned_bullets: list[str] = []
+
+    for index, raw_bullet in enumerate(
+        raw_bullets,
+        start=1,
+    ):
+        bullet = str(raw_bullet or "").strip()
+        cleaned_bullets.append(bullet)
+
+        if not bullet:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "empty_bullet",
+                    "message": f"Bullet {index} is empty.",
+                }
+            )
+            continue
+
+        normalised = _normalise_bullet_for_validation(
+            bullet
+        )
+
+        if normalised in seen:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "duplicate_bullet",
+                    "message": (
+                        f"Bullet {index} duplicates "
+                        "another bullet."
+                    ),
+                }
+            )
+
+        seen.add(normalised)
+
+        word_count = len(bullet.split())
+
+        if word_count < 8:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "very_short_bullet",
+                    "message": (
+                        f"Bullet {index} is very short "
+                        f"({word_count} words)."
+                    ),
+                }
+            )
+
+        elif word_count > 30:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "very_long_bullet",
+                    "message": (
+                        f"Bullet {index} is long "
+                        f"({word_count} words) and may wrap."
+                    ),
+                }
+            )
+
+        if bullet[-1:] not in {".", ";", ":"}:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "missing_terminal_punctuation",
+                    "message": (
+                        f"Bullet {index} has no "
+                        "terminal punctuation."
+                    ),
+                }
+            )
+
+    if len(cleaned_bullets) >= 2:
+        first_bullet = cleaned_bullets[0].lower()
+
+        later_has_strong_action = any(
+            _starts_with_strong_action(bullet)
+            for bullet in cleaned_bullets[1:]
+        )
+
+        weak_first_prefixes = (
+            "assisted ",
+            "helped ",
+            "worked on ",
+            "participated ",
+            "set up ",
+            "supported ",
+        )
+
+        if (
+            first_bullet.startswith(
+                weak_first_prefixes
+            )
+            and later_has_strong_action
+        ):
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "weak_first_bullet",
+                    "message": (
+                        "The first bullet appears weaker "
+                        "than a later implementation bullet; "
+                        "consider reordering the canonical evidence."
+                    ),
+                }
+            )
+
+    return warnings
+
 
 # ---------------------------------------------------------------------------
 # Public orchestration function
@@ -1447,8 +1637,16 @@ IMPORTANT:
             f"{no_bullet_titles}. Add stronger Evidence Library bullets."
         )
 
+    bullet_validation_warnings: list[dict[str, str]] = []
+    for project in recommended_projects:
+        bullet_validation_warnings.extend(
+            _validate_project_bullets(project)
+        )
+
+
     result = {
         "recommended_projects": recommended_projects,
+        "bullet_validation_warnings": bullet_validation_warnings,
         "candidate_project_ranking": ranked_rows,
         "deterministic_rule_debug": (deterministic_rule_debug ),
         "projects_to_remove_or_deprioritize": _build_projects_to_remove(

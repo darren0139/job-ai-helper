@@ -1565,6 +1565,44 @@ if page == "Application Sessions":
                     for bullet in project.get("draft_bullets", []):
                         st.markdown(f"- {bullet}")
 
+                bullet_warnings = project_result.get(
+                    "bullet_validation_warnings",
+                    [],
+                )
+
+                if bullet_warnings:
+                    with st.expander(
+                        (
+                            "Bullet quality warnings "
+                            f"({len(bullet_warnings)})"
+                        ),
+                        expanded=False,
+                    ):
+                        for warning in bullet_warnings:
+                            project_name = warning.get(
+                                "project",
+                                "Project",
+                            )
+
+                            message = warning.get(
+                                "message",
+                                "Bullet warning detected.",
+                            )
+
+                            code = warning.get(
+                                "code",
+                                "warning",
+                            )
+
+                            st.warning(
+                                f"**{project_name}** "
+                                f"`{code}` — {message}"
+                            )
+                else:
+                    st.success(
+                        "Bullet quality validation found no warnings."
+                    )
+
                 with st.expander("Projects to remove or deprioritize"):
                     st.json(project_result.get("projects_to_remove_or_deprioritize", []))
 
