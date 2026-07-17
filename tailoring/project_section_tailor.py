@@ -179,9 +179,17 @@ applicants.
 
 
 Task:
-Write the Projects-section bullets only for the supplied selected project
-candidates. Project selection has already been completed by Python. Do not add,
-remove, replace, or re-rank project titles.
+Write two truthful versions of the Projects-section bullets for each supplied
+Python-selected project:
+
+1. draft_bullets:
+   The normal full version shown first.
+
+2. compact_bullets:
+   A shorter fallback generated now but not used by the current DOCX fitting stage.
+
+Project selection has already been completed by Python. Do not add, remove,
+replace, or re-rank project titles.
 
 Canonical-bullet rules:
 - Treat Evidence Library bullets as the only user-approved canonical bullets.
@@ -219,8 +227,20 @@ Length and page-use rules:
 - Use no more than the supplied maximum bullets per project.
 - Prefer 4-6 total bullets across all selected projects when supported.
 - Stronger projects may receive more bullets; weaker selected projects may receive one bullet.
-- Do not aggressively shorten wording for page fit. The DOCX fitting stage removes complete lower-priority bullets one at a time.
+- Do not aggressively shorten draft_bullets for page fit.
+- The compact_bullets field contains the shorter fallback version.
 - Bullets should usually be concise and resume-friendly, commonly 14-24 words, but preserving meaning is more important than meeting a fixed word count.
+
+Compact-version rules:
+- compact_bullets must be a genuinely shorter version, not a second full version.
+- Preserve the strongest truthful CAR meaning and the most relevant technologies.
+- Combine overlapping supported ideas only when doing so remains truthful.
+- Usually return 1-2 compact bullets per project.
+- Never return more compact bullets than draft_bullets.
+- Compact bullets should usually be about 10-18 words.
+- The total compact_bullets word count must be lower than draft_bullets.
+- Do not remove the project's main purpose or strongest contribution merely to save words.
+- If no truthful shorter version is possible, return an empty compact_bullets list.
 
 
 Output only valid JSON matching this schema:
@@ -231,7 +251,8 @@ Output only valid JSON matching this schema:
       "selected_blueprint_bullets": ["string"],
       "rewritten_bullets": ["string"],
       "rewrite_reason": "string",
-      "draft_bullets": ["string"]
+      "draft_bullets": ["string"],
+      "compact_bullets": ["string"]
     }
   ],
   "notes_for_user": ["string"]
@@ -962,6 +983,14 @@ def _filter_selected_blueprints(
     return selected
 
 
+def _total_word_count(values: list[str]) -> int:
+    """Return the total word count across a list of strings."""
+    return sum(
+        len(str(value).split())
+        for value in values
+    )
+
+
 def _build_project_from_writer_plan(
     *,
     candidate: dict[str, Any],
@@ -1030,6 +1059,20 @@ def _build_project_from_writer_plan(
             "from the supplied project evidence."
         )
 
+    compact_bullets = _clean_string_list(
+        plan.get("compact_bullets", [])
+    )[:max_bullets_per_project]
+
+    compact_is_invalid = (
+        not draft_bullets
+        or len(compact_bullets) > len(draft_bullets)
+        or _total_word_count(compact_bullets)
+        >= _total_word_count(draft_bullets)
+    )
+
+    if compact_is_invalid:
+        compact_bullets = []
+
     space_action = "single_bullet" if len(draft_bullets) <= 1 else "keep_full"
 
     return {
@@ -1052,6 +1095,7 @@ def _build_project_from_writer_plan(
         "rewritten_bullets": rewritten_bullets,
         "rewrite_reason": rewrite_reason,
         "draft_bullets": draft_bullets,
+        "compact_bullets": compact_bullets,
         "project_fit_score": ranking_row.get("final_score", 0),
     }
 
@@ -1290,6 +1334,32 @@ def _validate_project_bullets(
                     ),
                 }
             )
+
+    compact_bullets = _clean_string_list(
+        project.get("compact_bullets", [])
+    )
+
+    non_empty_full_bullets = [
+        bullet
+        for bullet in cleaned_bullets
+        if bullet
+    ]
+
+    if (
+        compact_bullets
+        and _total_word_count(compact_bullets)
+        >= _total_word_count(non_empty_full_bullets)
+    ):
+        warnings.append(
+            {
+                "project": title,
+                "code": "compact_not_shorter",
+                "message": (
+                    "Compact bullets are not shorter "
+                    "than the full bullets."
+                ),
+            }
+        )
 
     return warnings
 
