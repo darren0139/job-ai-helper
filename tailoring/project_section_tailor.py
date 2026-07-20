@@ -186,7 +186,8 @@ Python-selected project:
    The normal full version shown first.
 
 2. compact_bullets:
-   A shorter fallback generated now but not used by the current DOCX fitting stage.
+   A conservative line-saving rewrite used only when the full rendered resume
+   exceeds one page.
 
 Project selection has already been completed by Python. Do not add, remove,
 replace, or re-rank project titles.
@@ -228,19 +229,26 @@ Length and page-use rules:
 - Prefer 4-6 total bullets across all selected projects when supported.
 - Stronger projects may receive more bullets; weaker selected projects may receive one bullet.
 - Do not aggressively shorten draft_bullets for page fit.
-- The compact_bullets field contains the shorter fallback version.
 - Bullets should usually be concise and resume-friendly, commonly 14-24 words, but preserving meaning is more important than meeting a fixed word count.
 
-Compact-version rules:
-- compact_bullets must be a genuinely shorter version, not a second full version.
-- Preserve the strongest truthful CAR meaning and the most relevant technologies.
-- Combine overlapping supported ideas only when doing so remains truthful.
-- Usually return 1-2 compact bullets per project.
-- Never return more compact bullets than draft_bullets.
-- Compact bullets should usually be about 10-18 words.
-- The total compact_bullets word count must be lower than draft_bullets.
-- Do not remove the project's main purpose or strongest contribution merely to save words.
-- If no truthful shorter version is possible, return an empty compact_bullets list.
+Quality-first compact-version rules:
+- compact_bullets are not summaries and must not become vague fragments.
+- Return the same number of compact_bullets as draft_bullets.
+- Each compact bullet must correspond to the draft bullet at the same list position.
+- Preserve the main action, important technology, and truthful result or scope from
+  each corresponding draft bullet.
+- Do not merge bullets, remove a contribution, or replace evidence deletion with
+  over-compression. Complete-bullet deletion is handled later by Python.
+- Each compact bullet should normally contain 12-22 words and must never contain
+  fewer than 10 words.
+- Start each compact bullet with a strong completed-action verb.
+- Keep meaningful CAR structure where the source evidence supports it.
+- Remove only redundant wording, filler, repeated context, and unnecessary qualifiers.
+- The total compact word count must be lower than the draft word count, but should
+  normally remain at least about 65 percent of the draft word count.
+- Good evidence is more important than saving the maximum number of words.
+- If every bullet cannot be shortened without weakening its meaning, return an
+  empty compact_bullets list for that project.
 
 
 Output only valid JSON matching this schema:
@@ -991,6 +999,84 @@ def _total_word_count(values: list[str]) -> int:
     )
 
 
+_COMPACT_ACTION_VERBS = {
+    "applied",
+    "automated",
+    "built",
+    "collaborated",
+    "configured",
+    "containerised",
+    "containerized",
+    "contributed",
+    "created",
+    "deployed",
+    "designed",
+    "developed",
+    "engineered",
+    "implemented",
+    "integrated",
+    "led",
+    "managed",
+    "optimised",
+    "optimized",
+    "scripted",
+    "secured",
+    "tested",
+    "validated",
+}
+
+
+def _compact_bullets_are_quality_preserving(
+    full_bullets: list[str],
+    compact_bullets: list[str],
+) -> bool:
+    """
+    Accept compact bullets only when they save words without
+    dropping bullet-level evidence or becoming weak fragments.
+    """
+    if not full_bullets or not compact_bullets:
+        return False
+
+    # Keep a one-to-one relationship. Python handles complete-bullet
+    # deletion later, after the compact rendering attempt.
+    if len(compact_bullets) != len(full_bullets):
+        return False
+
+    full_word_count = _total_word_count(full_bullets)
+    compact_word_count = _total_word_count(compact_bullets)
+
+    if full_word_count <= 0:
+        return False
+
+    if compact_word_count >= full_word_count:
+        return False
+
+    # Reject excessive compression that is likely to remove CAR meaning.
+    if compact_word_count / full_word_count < 0.65:
+        return False
+
+    for bullet in compact_bullets:
+        cleaned = str(bullet or "").strip()
+        words = cleaned.split()
+
+        if not 10 <= len(words) <= 24:
+            return False
+
+        first_word = re.sub(
+            r"[^a-z]+",
+            "",
+            words[0].lower(),
+        )
+
+        if first_word not in _COMPACT_ACTION_VERBS:
+            return False
+
+        if cleaned[-1:] not in {".", ";", ":"}:
+            return False
+
+    return True
+
+
 def _build_project_from_writer_plan(
     *,
     candidate: dict[str, Any],
@@ -1063,14 +1149,10 @@ def _build_project_from_writer_plan(
         plan.get("compact_bullets", [])
     )[:max_bullets_per_project]
 
-    compact_is_invalid = (
-        not draft_bullets
-        or len(compact_bullets) > len(draft_bullets)
-        or _total_word_count(compact_bullets)
-        >= _total_word_count(draft_bullets)
-    )
-
-    if compact_is_invalid:
+    if not _compact_bullets_are_quality_preserving(
+        draft_bullets,
+        compact_bullets,
+    ):
         compact_bullets = []
 
     space_action = "single_bullet" if len(draft_bullets) <= 1 else "keep_full"
@@ -1345,21 +1427,72 @@ def _validate_project_bullets(
         if bullet
     ]
 
-    if (
-        compact_bullets
-        and _total_word_count(compact_bullets)
-        >= _total_word_count(non_empty_full_bullets)
-    ):
-        warnings.append(
-            {
-                "project": title,
-                "code": "compact_not_shorter",
-                "message": (
-                    "Compact bullets are not shorter "
-                    "than the full bullets."
-                ),
-            }
+    if compact_bullets:
+        if len(compact_bullets) != len(non_empty_full_bullets):
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "compact_count_mismatch",
+                    "message": (
+                        "Compact bullets must preserve a one-to-one "
+                        "relationship with the full bullets."
+                    ),
+                }
+            )
+
+        full_word_count = _total_word_count(
+            non_empty_full_bullets
         )
+        compact_word_count = _total_word_count(
+            compact_bullets
+        )
+
+        if compact_word_count >= full_word_count:
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "compact_not_shorter",
+                    "message": (
+                        "Compact bullets are not shorter "
+                        "than the full bullets."
+                    ),
+                }
+            )
+
+        elif (
+            full_word_count > 0
+            and compact_word_count / full_word_count < 0.65
+        ):
+            warnings.append(
+                {
+                    "project": title,
+                    "code": "compact_overcompressed",
+                    "message": (
+                        "Compact bullets may have removed too much "
+                        "context, action, or result detail."
+                    ),
+                }
+            )
+
+        for index, compact_bullet in enumerate(
+            compact_bullets,
+            start=1,
+        ):
+            compact_word_total = len(
+                compact_bullet.split()
+            )
+
+            if compact_word_total < 10:
+                warnings.append(
+                    {
+                        "project": title,
+                        "code": "compact_too_short",
+                        "message": (
+                            f"Compact bullet {index} is too short "
+                            f"({compact_word_total} words)."
+                        ),
+                    }
+                )
 
     return warnings
 

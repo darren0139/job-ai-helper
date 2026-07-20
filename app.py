@@ -1436,6 +1436,20 @@ if page == "Application Sessions":
                 key=f"max_bullets_{current_application_id}",
             )
 
+            use_compact_before_delete = st.checkbox(
+                "Try compact project bullets before deleting content",
+                value=False,
+                key=(
+                    "use_compact_before_delete_"
+                    f"{current_application_id}"
+                ),
+                help=(
+                    "Only used when the full résumé exceeds one page. "
+                    "The app tries the shorter truthful project bullets "
+                    "generated during tailoring before deleting a complete bullet."
+                ),
+            )
+
             col_project, col_skills = st.columns(2)
 
             with col_project:
@@ -1759,6 +1773,7 @@ if page == "Application Sessions":
                                 blank_lines_between_projects=blank_lines_between_projects,
                                 blank_lines_after_projects=blank_lines_after_projects,
                                 add_spacing_before_first_project=add_spacing_before_first_project,
+                                use_compact_before_delete=use_compact_before_delete,
                             )
 
                             tailored_resume_path = fit_result["docx_path"]
