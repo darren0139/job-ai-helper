@@ -1464,81 +1464,167 @@ if page == "Application Sessions":
                 ),
             )
 
-            col_project, col_skills = st.columns(2)
+            allow_skills_compaction = st.checkbox(
+                "Allow low-priority Skills items to be removed during fitting",
+                value=False,
+                key=(
+                    "allow_skills_compaction_"
+                    f"{current_application_id}"
+                ),
+                help=(
+                    "Used only when the full résumé exceeds one page. "
+                    "The whole-résumé fitter compares deterministic low-value "
+                    "Skills removals with project compacting and bullet deletion."
+                ),
+            )
 
-            with col_project:
-                if st.button(
-                    "Generate Tailored Projects Section",
-                    type="primary",
-                    width="stretch",
-                    key=f"generate_projects_{current_application_id}",
-                ):
-                    try:
-                        evidence_items = get_evidence_items(limit=100)
+            if st.button(
+                "Generate Projects + Skills",
+                type="primary",
+                width="stretch",
+                key=f"generate_projects_skills_{current_application_id}",
+            ):
+                try:
+                    evidence_items = get_evidence_items(limit=100)
 
-                        st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
-                            "resume_projects": report.get("resume_profile", {}).get("projects", []),
-                            "evidence_items": evidence_items,
-                        }
+                    st.session_state[
+                        f"debug_project_tailor_inputs_{current_application_id}"
+                    ] = {
+                        "resume_projects": report.get(
+                            "resume_profile",
+                            {},
+                        ).get("projects", []),
+                        "evidence_items": evidence_items,
+                    }
 
-                        debug_candidate_pool = build_project_candidate_pool(
+                    debug_candidate_pool = build_project_candidate_pool(
                         resume_profile=report.get("resume_profile", {}),
                         evidence_items=evidence_items,
+                    )
+
+                    st.session_state[
+                        f"project_candidate_pool_{current_application_id}"
+                    ] = debug_candidate_pool
+
+                    with st.spinner(
+                        "Generating tailored projects and skills..."
+                    ):
+                        project_result = tailor_projects_section(
+                            resume_profile=report.get("resume_profile", {}),
+                            jd_profile=report.get("jd_profile", {}),
+                            evidence_items=evidence_items,
+                            max_projects=max_projects,
+                            max_bullets_per_project=max_bullets,
+                            keyword_match=report.get("keyword_match", {}),
+                            raw_jd_text=report.get("raw_jd_text", ""),
                         )
 
-                        st.session_state[f"project_candidate_pool_{current_application_id}"] = debug_candidate_pool
+                        fit_estimate = estimate_project_section_length(
+                            project_result,
+                            max_projects=max_projects,
+                            max_total_bullets=max_projects * max_bullets,
+                        )
 
-                        with st.spinner("Generating tailored projects..."):
-                            project_result = tailor_projects_section(
-                                resume_profile=report.get("resume_profile", {}),
-                                jd_profile=report.get("jd_profile", {}),
-                                evidence_items=evidence_items,
-                                max_projects=max_projects,
-                                max_bullets_per_project=max_bullets,
-                                keyword_match=report.get("keyword_match", {}),
-                                raw_jd_text=report.get("raw_jd_text","",),
+                        skills_result = tailor_skills_section(
+                            resume_profile=report.get("resume_profile", {}),
+                            jd_profile=report.get("jd_profile", {}),
+                            evidence_items=evidence_items,
+                        )
+
+                    st.session_state[tailored_projects_key] = project_result
+                    st.session_state[tailored_fit_key] = fit_estimate
+                    st.session_state[tailored_skills_key] = skills_result
+                    st.rerun()
+
+                except ValueError as exc:
+                    st.warning(str(exc))
+                except RuntimeError as exc:
+                    st.error(f"LLM/API error: {exc}")
+                except Exception as exc:
+                    st.error(
+                        "Unexpected error while tailoring projects and skills: "
+                        f"{exc}"
+                    )
+
+            with st.expander(
+                "Advanced: Generate sections separately",
+                expanded=False,
+            ):
+                col_project, col_skills = st.columns(2)
+
+                with col_project:
+                    if st.button(
+                        "Generate Tailored Projects Section",
+                        type="primary",
+                        width="stretch",
+                        key=f"generate_projects_{current_application_id}",
+                    ):
+                        try:
+                            evidence_items = get_evidence_items(limit=100)
+
+                            st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
+                                "resume_projects": report.get("resume_profile", {}).get("projects", []),
+                                "evidence_items": evidence_items,
+                            }
+
+                            debug_candidate_pool = build_project_candidate_pool(
+                            resume_profile=report.get("resume_profile", {}),
+                            evidence_items=evidence_items,
                             )
 
-                            fit_estimate = estimate_project_section_length(
-                                project_result,
-                                max_projects=max_projects,
-                                max_total_bullets=max_projects * max_bullets,
-                            )
+                            st.session_state[f"project_candidate_pool_{current_application_id}"] = debug_candidate_pool
 
-                        st.session_state[tailored_projects_key] = project_result
-                        st.session_state[tailored_fit_key] = fit_estimate
-                        st.rerun()
+                            with st.spinner("Generating tailored projects..."):
+                                project_result = tailor_projects_section(
+                                    resume_profile=report.get("resume_profile", {}),
+                                    jd_profile=report.get("jd_profile", {}),
+                                    evidence_items=evidence_items,
+                                    max_projects=max_projects,
+                                    max_bullets_per_project=max_bullets,
+                                    keyword_match=report.get("keyword_match", {}),
+                                    raw_jd_text=report.get("raw_jd_text","",),
+                                )
 
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                    except RuntimeError as exc:
-                        st.error(f"LLM/API error: {exc}")
-                    except Exception as exc:
-                        st.error(f"Unexpected error while tailoring projects: {exc}")
+                                fit_estimate = estimate_project_section_length(
+                                    project_result,
+                                    max_projects=max_projects,
+                                    max_total_bullets=max_projects * max_bullets,
+                                )
 
-            with col_skills:
-                if st.button(
-                    "Generate Tailored Skills Section",
-                    width="stretch",
-                    key=f"generate_skills_{current_application_id}",
-                ):
-                    try:
-                        with st.spinner("Generating tailored skills..."):
-                            skills_result = tailor_skills_section(
-                                resume_profile=report.get("resume_profile", {}),
-                                jd_profile=report.get("jd_profile", {}),
-                                evidence_items=get_evidence_items(limit=100),
-                            )
+                            st.session_state[tailored_projects_key] = project_result
+                            st.session_state[tailored_fit_key] = fit_estimate
+                            st.rerun()
 
-                        st.session_state[tailored_skills_key] = skills_result
-                        st.rerun()
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                        except RuntimeError as exc:
+                            st.error(f"LLM/API error: {exc}")
+                        except Exception as exc:
+                            st.error(f"Unexpected error while tailoring projects: {exc}")
 
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                    except RuntimeError as exc:
-                        st.error(f"LLM/API error: {exc}")
-                    except Exception as exc:
-                        st.error(f"Unexpected error while tailoring skills: {exc}")
+                with col_skills:
+                    if st.button(
+                        "Generate Tailored Skills Section",
+                        width="stretch",
+                        key=f"generate_skills_{current_application_id}",
+                    ):
+                        try:
+                            with st.spinner("Generating tailored skills..."):
+                                skills_result = tailor_skills_section(
+                                    resume_profile=report.get("resume_profile", {}),
+                                    jd_profile=report.get("jd_profile", {}),
+                                    evidence_items=get_evidence_items(limit=100),
+                                )
+
+                            st.session_state[tailored_skills_key] = skills_result
+                            st.rerun()
+
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                        except RuntimeError as exc:
+                            st.error(f"LLM/API error: {exc}")
+                        except Exception as exc:
+                            st.error(f"Unexpected error while tailoring skills: {exc}")
 
             project_result = st.session_state.get(tailored_projects_key)
             fit_estimate = st.session_state.get(tailored_fit_key)
@@ -1789,6 +1875,7 @@ if page == "Application Sessions":
                                 add_spacing_before_first_project=add_spacing_before_first_project,
                                 use_compact_before_delete=use_compact_before_delete,
                                 prefer_balanced_bullets=prefer_balanced_bullets,
+                                allow_skills_compaction=allow_skills_compaction,
                             )
 
                             tailored_resume_path = fit_result["docx_path"]
@@ -1887,6 +1974,24 @@ if page == "Application Sessions":
                         )
 
                         st.json(recommended_projects)
+
+                    with st.expander(
+                        "Debug: Final skills used in DOCX"
+                    ):
+                        final_skills_used = fit_result.get(
+                            "tailored_skills_used"
+                        )
+
+                        if not isinstance(final_skills_used, dict):
+                            final_skills_used = {}
+
+                        st.json(
+                            final_skills_used.get(
+                                "skill_lines",
+                                [],
+                            )
+                            or []
+                        )
 
                     page_count = fit_result.get(
                         "page_count"

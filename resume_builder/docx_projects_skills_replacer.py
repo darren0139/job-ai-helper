@@ -46,6 +46,13 @@ from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from utils.date_sorting import period_sort_value
+from resume_builder.skills_section_compactor import (
+    compact_skills_one_step,
+    count_skill_items,
+    count_skill_reduction_candidates,
+    restore_skill_change,
+    skill_restoration_quality_gain,
+)
 
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -2608,6 +2615,115 @@ def generate_tailored_resume_copy(
 #     return compacted
 
 
+def _project_reduction_quality_loss(change: dict[str, Any]) -> int:
+    """Estimate evidence loss for one project fitting change."""
+    priority = int(change.get("project_priority_score", 0) or 0)
+    change_type = str(change.get("change_type", ""))
+
+    if change_type == "compact_rewrite":
+        removed_words = max(
+            0,
+            int(change.get("full_word_count", 0) or 0)
+            - int(change.get("compact_word_count", 0) or 0),
+        )
+        return 200 + priority // 2 + removed_words
+
+    if change_type == "remove_bullet":
+        removed_words = len(str(change.get("removed_bullet", "")).split())
+        return 600 + priority + removed_words * 5
+
+    if change_type == "remove_project":
+        return 10000 + priority * 10
+
+    return 100000
+
+
+def _skill_reduction_quality_loss(change: dict[str, Any]) -> int:
+    """Estimate evidence loss for removing one Skills item."""
+    return 100 + int(change.get("skill_priority_score", 0) or 0)
+
+
+def _whole_resume_change_key(change: dict[str, Any]) -> str:
+    section = str(change.get("section", "projects"))
+
+    if section == "skills":
+        return (
+            "skills:"
+            + str(change.get("category", ""))
+        )
+
+    return (
+        "projects:"
+        + str(change.get("project", ""))
+    )
+
+
+def _whole_resume_restorable_change_indices(
+    active_changes: list[dict[str, Any]],
+) -> list[int]:
+    """Return fitting changes that can be reversed without later conflicts."""
+    restorable: list[int] = []
+
+    for index, change in enumerate(active_changes):
+        resource_key = _whole_resume_change_key(change)
+        later_same_resource = any(
+            _whole_resume_change_key(later_change) == resource_key
+            for later_change in active_changes[index + 1:]
+        )
+
+        if not later_same_resource:
+            restorable.append(index)
+
+    return restorable
+
+
+def _restore_whole_resume_change(
+    tailored_projects: dict[str, Any] | None,
+    tailored_skills: dict[str, Any] | None,
+    change: dict[str, Any],
+) -> tuple[
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    bool,
+    dict[str, Any],
+]:
+    section = str(change.get("section", "projects"))
+
+    if section == "skills":
+        if not isinstance(tailored_skills, dict):
+            return tailored_projects, tailored_skills, False, {
+                "section": "skills",
+                "change_type": "restore_unavailable",
+                "reason": "The tailored Skills result is unavailable.",
+            }
+
+        restored_skills, restored, restore_info = restore_skill_change(
+            tailored_skills,
+            change,
+        )
+        return tailored_projects, restored_skills, restored, restore_info
+
+    if not isinstance(tailored_projects, dict):
+        return tailored_projects, tailored_skills, False, {
+            "section": "projects",
+            "change_type": "restore_unavailable",
+            "reason": "The tailored Projects result is unavailable.",
+        }
+
+    restored_projects, restored, restore_info = _restore_fitting_change(
+        tailored_projects,
+        change,
+    )
+    restore_info["section"] = "projects"
+    return restored_projects, tailored_skills, restored, restore_info
+
+
+def _whole_resume_restoration_quality_gain(change: dict[str, Any]) -> int:
+    if str(change.get("section", "projects")) == "skills":
+        return skill_restoration_quality_gain(change)
+    return _restoration_quality_gain(change)
+
+
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
@@ -2624,663 +2740,372 @@ def generate_tailored_resume_copy_fit_one_page(
     add_spacing_before_first_project: bool = False,
     use_compact_before_delete: bool = False,
     prefer_balanced_bullets: bool = False,
+    allow_skills_compaction: bool = False,
+    minimum_total_skills: int = 8,
 ) -> dict[str, Any]:
     """
-    Generate the strongest one-page tailored resume that can be found.
+    Fit the whole tailored resume to one page using rendered PDF checks.
 
-    The fitter first makes small, quality-preserving reductions until the
-    rendered PDF fits. It then backtracks: previously reduced content is
-    restored one change at a time, and every candidate is rendered again.
-    The strongest restoration that still fits is kept.
-
-    Page fitting is determined by the real rendered PDF. PyMuPDF is used
-    only for optional page-fill diagnostics; it does not replace the
-    one-page check.
+    Phase 5 compares small candidate reductions across Projects and Skills.
+    Skills are never rewritten: the deterministic Skills compactor removes one
+    lowest-value item at a time. Project compact rewrites remain optional, and
+    complete project-bullet deletion remains the stronger fallback.
     """
     if not tailored_projects and not tailored_skills:
         raise ValueError(
             "Generate a tailored Projects section or Skills section first."
         )
 
-    cleanup_old_tailored_outputs_for_application(
-        application_id
-    )
+    cleanup_old_tailored_outputs_for_application(application_id)
 
-    attempt_logs: list[
-        dict[str, Any]
-    ] = []
-
-    working_projects = (
-        deepcopy(
-            tailored_projects
-        )
-        if tailored_projects
-        else None
-    )
+    attempt_logs: list[dict[str, Any]] = []
+    working_projects = deepcopy(tailored_projects) if tailored_projects else None
+    working_skills = deepcopy(tailored_skills) if tailored_skills else None
 
     if working_projects:
         visible_projects = (
-            working_projects.get(
-                "recommended_projects",
-                [],
-            )
-            or []
+            working_projects.get("recommended_projects", []) or []
         )[:max_projects]
 
         for project in visible_projects:
-            project[
-                "draft_bullets"
-            ] = (
-                project.get(
-                    "draft_bullets",
-                    [],
-                )
-                or []
+            project["draft_bullets"] = (
+                project.get("draft_bullets", []) or []
+            )[:max_bullets_per_project]
+            project["compact_bullets"] = (
+                project.get("compact_bullets", []) or []
             )[:max_bullets_per_project]
 
-            project[
-                "compact_bullets"
-            ] = (
-                project.get(
-                    "compact_bullets",
-                    [],
-                )
-                or []
-            )[:max_bullets_per_project]
+        working_projects["recommended_projects"] = visible_projects
 
-        working_projects[
-            "recommended_projects"
-        ] = visible_projects
-
-    active_changes: list[
-        dict[str, Any]
-    ] = []
-
-    last_render: dict[
-        str,
-        Any,
-    ] | None = None
+    active_changes: list[dict[str, Any]] = []
+    last_render: dict[str, Any] | None = None
 
     def render_candidate(
-        projects_state: dict[
-            str,
-            Any,
-        ] | None,
+        projects_state: dict[str, Any] | None,
+        skills_state: dict[str, Any] | None,
         *,
         attempt_type: str,
-        change_applied: dict[
-            str,
-            Any,
-        ] | None = None,
+        change_applied: dict[str, Any] | None = None,
         restoration_candidate: bool = False,
         restoration_quality_gain: int | None = None,
     ) -> dict[str, Any]:
-        docx_path = (
-            generate_tailored_resume_copy(
-                saved_resume_docx_path=(
-                    saved_resume_docx_path
-                ),
-                tailored_projects=(
-                    projects_state
-                ),
-                tailored_skills=(
-                    tailored_skills
-                ),
-                application_id=(
-                    application_id
-                ),
-                max_projects=max_projects,
-                max_bullets_per_project=(
-                    max_bullets_per_project
-                ),
-                spacing_mode=spacing_mode,
-                project_spacing_pt=(
-                    project_spacing_pt
-                ),
-                after_projects_spacing_pt=(
-                    after_projects_spacing_pt
-                ),
-                blank_lines_between_projects=(
-                    blank_lines_between_projects
-                ),
-                blank_lines_after_projects=(
-                    blank_lines_after_projects
-                ),
-                add_spacing_before_first_project=(
-                    add_spacing_before_first_project
-                ),
-            )
+        docx_path = generate_tailored_resume_copy(
+            saved_resume_docx_path=saved_resume_docx_path,
+            tailored_projects=projects_state,
+            tailored_skills=skills_state,
+            application_id=application_id,
+            max_projects=max_projects,
+            max_bullets_per_project=max_bullets_per_project,
+            spacing_mode=spacing_mode,
+            project_spacing_pt=project_spacing_pt,
+            after_projects_spacing_pt=after_projects_spacing_pt,
+            blank_lines_between_projects=blank_lines_between_projects,
+            blank_lines_after_projects=blank_lines_after_projects,
+            add_spacing_before_first_project=add_spacing_before_first_project,
         )
 
-        pdf_path = (
-            convert_docx_to_pdf_if_possible(
-                docx_path
-            )
-        )
+        pdf_path = convert_docx_to_pdf_if_possible(docx_path)
 
         if pdf_path is None:
             entry = {
-                "attempt": (
-                    len(attempt_logs)
-                    + 1
-                ),
-                "attempt_type": (
-                    attempt_type
-                ),
-                "docx_path": str(
-                    docx_path
-                ),
+                "attempt": len(attempt_logs) + 1,
+                "attempt_type": attempt_type,
+                "docx_path": str(docx_path),
                 "pdf_path": None,
                 "page_count": None,
             }
-
             if change_applied is not None:
-                entry[
-                    "change_applied"
-                ] = change_applied
-
-            attempt_logs.append(
-                entry
-            )
-
+                entry["change_applied"] = change_applied
+            attempt_logs.append(entry)
             return {
-                "docx_path": Path(
-                    docx_path
-                ),
+                "docx_path": Path(docx_path),
                 "pdf_path": None,
                 "page_count": None,
                 "fill_metrics": {
                     "page_fill_ratio": None,
                     "estimated_unused_page_ratio": None,
-                    "measurement_method": (
-                        "unavailable"
-                    ),
+                    "measurement_method": "unavailable",
                 },
-                "attempt_entry": (
-                    entry
-                ),
+                "attempt_entry": entry,
             }
 
-        page_count = count_pdf_pages(
-            pdf_path
+        page_count = count_pdf_pages(pdf_path)
+        fill_metrics = measure_pdf_page_fill(pdf_path)
+        project_count = len(
+            (projects_state or {}).get("recommended_projects", []) or []
         )
-
-        fill_metrics = (
-            measure_pdf_page_fill(
-                pdf_path
-            )
-        )
-
-        project_count = (
-            len(
-                (
-                    projects_state
-                    or {}
-                ).get(
-                    "recommended_projects",
-                    [],
-                )
-                or []
-            )
-        )
-
         bullet_count = sum(
-            len(
-                project.get(
-                    "draft_bullets",
-                    [],
-                )
-                or []
-            )
+            len(project.get("draft_bullets", []) or [])
             for project in (
-                (
-                    projects_state
-                    or {}
-                ).get(
-                    "recommended_projects",
-                    [],
-                )
-                or []
+                (projects_state or {}).get("recommended_projects", []) or []
             )
         )
+        skill_line_count = len(
+            (skills_state or {}).get("skill_lines", []) or []
+        )
+        skill_item_count = count_skill_items(skills_state)
 
         entry = {
-            "attempt": (
-                len(attempt_logs)
-                + 1
-            ),
-            "attempt_type": (
-                attempt_type
-            ),
-            "docx_path": str(
-                docx_path
-            ),
-            "pdf_path": str(
-                pdf_path
-            ),
-            "page_count": (
-                page_count
-            ),
-            "project_count": (
-                project_count
-            ),
-            "bullet_count": (
-                bullet_count
-            ),
+            "attempt": len(attempt_logs) + 1,
+            "attempt_type": attempt_type,
+            "docx_path": str(docx_path),
+            "pdf_path": str(pdf_path),
+            "page_count": page_count,
+            "project_count": project_count,
+            "bullet_count": bullet_count,
+            "skill_line_count": skill_line_count,
+            "skill_item_count": skill_item_count,
             **fill_metrics,
         }
 
         if change_applied is not None:
-            entry[
-                "change_applied"
-            ] = change_applied
-
+            entry["change_applied"] = change_applied
         if restoration_candidate:
-            entry[
-                "restoration_candidate"
-            ] = True
+            entry["restoration_candidate"] = True
+        if restoration_quality_gain is not None:
+            entry["restoration_quality_gain"] = restoration_quality_gain
 
-        if (
-            restoration_quality_gain
-            is not None
-        ):
-            entry[
-                "restoration_quality_gain"
-            ] = restoration_quality_gain
-
-        attempt_logs.append(
-            entry
-        )
-
+        attempt_logs.append(entry)
         return {
-            "docx_path": Path(
-                docx_path
-            ),
-            "pdf_path": Path(
-                pdf_path
-            ),
+            "docx_path": Path(docx_path),
+            "pdf_path": Path(pdf_path),
             "page_count": page_count,
             "fill_metrics": fill_metrics,
             "attempt_entry": entry,
         }
 
-    if working_projects:
-        original_projects = (
-            working_projects.get(
-                "recommended_projects",
-                [],
-            )
-            or []
-        )
+    removable_bullet_count = 0
+    removable_project_count = 0
+    compact_candidate_count = 0
 
+    if working_projects:
+        original_projects = working_projects.get("recommended_projects", []) or []
         removable_bullet_count = sum(
-            max(
-                0,
-                len(
-                    project.get(
-                        "draft_bullets",
-                        [],
-                    )
-                    or []
-                )
-                - 1,
-            )
+            max(0, len(project.get("draft_bullets", []) or []) - 1)
             for project in original_projects
         )
-
-        removable_project_count = max(
-            0,
-            len(
-                original_projects
-            )
-            - 2,
-        )
-
+        removable_project_count = max(0, len(original_projects) - 2)
         compact_candidate_count = (
-            _count_quality_compact_candidates(
-                working_projects
-            )
+            _count_quality_compact_candidates(working_projects)
             if use_compact_before_delete
             else 0
         )
 
-        reduction_attempt_limit = (
-            1
-            + compact_candidate_count
-            + removable_bullet_count
-            + removable_project_count
+    skill_candidate_count = (
+        count_skill_reduction_candidates(
+            working_skills,
+            minimum_total_items=minimum_total_skills,
         )
-
-    else:
-        reduction_attempt_limit = 1
-
-    applied_change: dict[
-        str,
-        Any,
-    ] | None = None
-
-    compact_phase_complete = (
-        not use_compact_before_delete
+        if allow_skills_compaction and working_skills
+        else 0
     )
 
-    fitting_render: dict[
-        str,
-        Any,
-    ] | None = None
+    reduction_attempt_limit = (
+        1
+        + compact_candidate_count
+        + removable_bullet_count
+        + removable_project_count
+        + skill_candidate_count
+    )
 
-    for _ in range(
-        reduction_attempt_limit
-    ):
+    applied_change: dict[str, Any] | None = None
+    fitting_render: dict[str, Any] | None = None
+
+    for _ in range(reduction_attempt_limit):
         attempt_type = (
             "full"
             if applied_change is None
-            else str(
-                applied_change.get(
-                    "change_type",
-                    "fitting_change",
-                )
-            )
+            else str(applied_change.get("change_type", "fitting_change"))
         )
 
         rendered = render_candidate(
             working_projects,
+            working_skills,
             attempt_type=attempt_type,
-            change_applied=(
-                applied_change
-            ),
+            change_applied=applied_change,
         )
-
         last_render = rendered
 
-        if (
-            rendered[
-                "pdf_path"
-            ]
-            is None
-        ):
+        if rendered["pdf_path"] is None:
             return {
-                "docx_path": (
-                    rendered[
-                        "docx_path"
-                    ]
-                ),
+                "docx_path": rendered["docx_path"],
                 "pdf_path": None,
                 "page_count": None,
                 "fit_one_page": None,
-                "attempts": (
-                    attempt_logs
-                ),
-                "tailored_projects_used": (
-                    working_projects
-                ),
+                "attempts": attempt_logs,
+                "tailored_projects_used": working_projects,
+                "tailored_skills_used": working_skills,
                 "page_fill_ratio": None,
                 "estimated_unused_page_ratio": None,
                 "note": (
-                    "Could not check page count because LibreOffice "
-                    "is unavailable or DOCX-to-PDF conversion failed. "
-                    "DOCX generation still worked."
+                    "Could not check page count because LibreOffice is unavailable "
+                    "or DOCX-to-PDF conversion failed. DOCX generation still worked."
                 ),
             }
 
-        if (
-            int(
-                rendered[
-                    "page_count"
-                ]
-            )
-            <= 1
-        ):
-            fitting_render = (
-                rendered
-            )
+        if int(rendered["page_count"]) <= 1:
+            fitting_render = rendered
             break
 
-        if not working_projects:
-            break
+        candidate_changes: list[dict[str, Any]] = []
 
-        if not compact_phase_complete:
-            (
-                compact_projects,
-                compact_changed,
-                compact_change_info,
-            ) = apply_compact_bullets_once(
+        if use_compact_before_delete and working_projects:
+            compact_projects, changed, change = apply_compact_bullets_once(
                 working_projects
             )
-
-            if compact_changed:
-                attempt_logs[
-                    -1
-                ][
-                    "next_change"
-                ] = (
-                    compact_change_info
+            if changed:
+                change = deepcopy(change)
+                change["section"] = "projects"
+                candidate_changes.append(
+                    {
+                        "projects": compact_projects,
+                        "skills": working_skills,
+                        "change": change,
+                        "quality_loss": _project_reduction_quality_loss(change),
+                        "candidate_order": 1,
+                    }
                 )
 
-                working_projects = (
-                    compact_projects
+        if allow_skills_compaction and working_skills:
+            compact_skills, changed, change = compact_skills_one_step(
+                working_skills,
+                minimum_total_items=minimum_total_skills,
+            )
+            if changed:
+                candidate_changes.append(
+                    {
+                        "projects": working_projects,
+                        "skills": compact_skills,
+                        "change": change,
+                        "quality_loss": _skill_reduction_quality_loss(change),
+                        "candidate_order": 0,
+                    }
                 )
 
-                applied_change = (
-                    compact_change_info
+        if working_projects:
+            reduced_projects, changed, change = compact_tailored_projects_one_step(
+                working_projects,
+                prefer_balanced_bullets=prefer_balanced_bullets,
+            )
+            if changed:
+                change = deepcopy(change)
+                change["section"] = "projects"
+                candidate_changes.append(
+                    {
+                        "projects": reduced_projects,
+                        "skills": working_skills,
+                        "change": change,
+                        "quality_loss": _project_reduction_quality_loss(change),
+                        "candidate_order": 2,
+                    }
                 )
 
-                active_changes.append(
-                    deepcopy(
-                        compact_change_info
-                    )
-                )
+        if not candidate_changes:
+            break
 
-                continue
-
-            compact_phase_complete = True
-
-        (
-            next_projects,
-            changed,
-            change_info,
-        ) = compact_tailored_projects_one_step(
-            working_projects,
-            prefer_balanced_bullets=(
-                prefer_balanced_bullets
+        chosen = min(
+            candidate_changes,
+            key=lambda candidate: (
+                int(candidate["quality_loss"]),
+                int(candidate["candidate_order"]),
             ),
         )
 
-        attempt_logs[
-            -1
-        ][
-            "next_change"
-        ] = change_info
+        attempt_logs[-1]["candidate_changes_considered"] = [
+            {
+                "section": candidate["change"].get("section", "projects"),
+                "change_type": candidate["change"].get("change_type"),
+                "project": candidate["change"].get("project"),
+                "category": candidate["change"].get("category"),
+                "removed_skill": candidate["change"].get("removed_skill"),
+                "quality_loss": candidate["quality_loss"],
+                "selected": candidate is chosen,
+            }
+            for candidate in candidate_changes
+        ]
+        attempt_logs[-1]["next_change"] = chosen["change"]
 
-        if not changed:
-            break
-
-        working_projects = (
-            next_projects
-        )
-
-        applied_change = (
-            change_info
-        )
-
-        active_changes.append(
-            deepcopy(
-                change_info
-            )
-        )
+        working_projects = deepcopy(chosen["projects"])
+        working_skills = deepcopy(chosen["skills"])
+        applied_change = deepcopy(chosen["change"])
+        active_changes.append(deepcopy(chosen["change"]))
 
     if fitting_render is None:
         return {
-            "docx_path": (
-                last_render[
-                    "docx_path"
-                ]
-                if last_render
-                else None
-            ),
-            "pdf_path": (
-                last_render[
-                    "pdf_path"
-                ]
-                if last_render
-                else None
-            ),
-            "page_count": (
-                last_render[
-                    "page_count"
-                ]
-                if last_render
-                else None
-            ),
+            "docx_path": last_render["docx_path"] if last_render else None,
+            "pdf_path": last_render["pdf_path"] if last_render else None,
+            "page_count": last_render["page_count"] if last_render else None,
             "fit_one_page": False,
             "attempts": attempt_logs,
-            "tailored_projects_used": (
-                working_projects
-            ),
+            "tailored_projects_used": working_projects,
+            "tailored_skills_used": working_skills,
             "page_fill_ratio": None,
             "estimated_unused_page_ratio": None,
             "note": (
-                "Resume still exceeds one page after all safe project "
-                "reductions. Consider compacting the Skills section, "
-                "reducing spacing, or allowing more than one page."
+                "Resume still exceeds one page after all allowed whole-resume "
+                "reductions. Reduce spacing, lower the minimum Skills count, "
+                "or allow more than one page."
             ),
         }
 
-    best_projects = deepcopy(
-        working_projects
-    )
-
-    best_render = (
-        fitting_render
-    )
-
+    best_projects = deepcopy(working_projects)
+    best_skills = deepcopy(working_skills)
+    best_render = fitting_render
     restored_change_count = 0
 
-    while (
-        best_projects
-        and active_changes
-    ):
-        candidate_results: list[
-            dict[str, Any]
-        ] = []
+    while active_changes:
+        candidate_results: list[dict[str, Any]] = []
 
-        for change_index in (
-            _restorable_change_indices(
-                active_changes
-            )
-        ):
-            source_change = (
-                active_changes[
-                    change_index
-                ]
-            )
-
+        for change_index in _whole_resume_restorable_change_indices(active_changes):
+            source_change = active_changes[change_index]
             (
                 restored_projects,
+                restored_skills,
                 restored,
                 restore_info,
-            ) = _restore_fitting_change(
+            ) = _restore_whole_resume_change(
                 best_projects,
+                best_skills,
                 source_change,
             )
 
             if not restored:
                 continue
 
-            quality_gain = (
-                _restoration_quality_gain(
-                    source_change
-                )
-            )
-
+            quality_gain = _whole_resume_restoration_quality_gain(source_change)
             rendered = render_candidate(
                 restored_projects,
-                attempt_type=(
-                    restore_info.get(
-                        "change_type",
-                        "restore_content",
-                    )
-                ),
-                change_applied=(
-                    restore_info
-                ),
+                restored_skills,
+                attempt_type=restore_info.get("change_type", "restore_content"),
+                change_applied=restore_info,
                 restoration_candidate=True,
-                restoration_quality_gain=(
-                    quality_gain
-                ),
+                restoration_quality_gain=quality_gain,
             )
 
-            if (
-                rendered[
-                    "pdf_path"
-                ]
-                is None
-            ):
-                _delete_generated_output(
-                    rendered[
-                        "docx_path"
-                    ],
-                    None,
-                )
+            if rendered["pdf_path"] is None:
+                _delete_generated_output(rendered["docx_path"], None)
                 continue
 
-            if (
-                int(
-                    rendered[
-                        "page_count"
-                    ]
-                )
-                <= 1
-            ):
+            if int(rendered["page_count"]) <= 1:
                 candidate_results.append(
                     {
-                        "change_index": (
-                            change_index
-                        ),
-                        "source_change": (
-                            source_change
-                        ),
-                        "projects": (
-                            restored_projects
-                        ),
-                        "rendered": (
-                            rendered
-                        ),
-                        "quality_gain": (
-                            quality_gain
-                        ),
+                        "change_index": change_index,
+                        "projects": restored_projects,
+                        "skills": restored_skills,
+                        "rendered": rendered,
+                        "quality_gain": quality_gain,
                     }
                 )
-
             else:
-                rendered[
-                    "attempt_entry"
-                ][
-                    "restoration_accepted"
-                ] = False
-
-                rendered[
-                    "attempt_entry"
-                ][
-                    "rejection_reason"
-                ] = (
-                    "Restoring this content caused "
-                    "the resume to exceed one page."
+                rendered["attempt_entry"]["restoration_accepted"] = False
+                rendered["attempt_entry"]["rejection_reason"] = (
+                    "Restoring this content caused the resume to exceed one page."
                 )
-
                 _delete_generated_output(
-                    rendered[
-                        "docx_path"
-                    ],
-                    rendered[
-                        "pdf_path"
-                    ],
+                    rendered["docx_path"],
+                    rendered["pdf_path"],
                 )
-
-                rendered[
-                    "attempt_entry"
-                ][
-                    "temporary_output_deleted"
-                ] = True
+                rendered["attempt_entry"]["temporary_output_deleted"] = True
 
         if not candidate_results:
             break
@@ -3288,102 +3113,38 @@ def generate_tailored_resume_copy_fit_one_page(
         chosen = max(
             candidate_results,
             key=lambda candidate: (
-                int(
-                    candidate[
-                        "quality_gain"
-                    ]
-                ),
+                int(candidate["quality_gain"]),
                 float(
-                    (
-                        candidate[
-                            "rendered"
-                        ][
-                            "fill_metrics"
-                        ].get(
-                            "page_fill_ratio"
-                        )
+                    candidate["rendered"]["fill_metrics"].get(
+                        "page_fill_ratio"
                     )
                     or 0.0
                 ),
             ),
         )
 
-        for candidate in (
-            candidate_results
-        ):
-            entry = (
-                candidate[
-                    "rendered"
-                ][
-                    "attempt_entry"
-                ]
-            )
-
+        for candidate in candidate_results:
+            entry = candidate["rendered"]["attempt_entry"]
             if candidate is chosen:
-                entry[
-                    "restoration_accepted"
-                ] = True
-                continue
+                entry["restoration_accepted"] = True
+            else:
+                entry["restoration_accepted"] = False
+                entry["rejection_reason"] = (
+                    "Another one-page restoration recovered stronger JD-relevant content."
+                )
+                _delete_generated_output(
+                    candidate["rendered"]["docx_path"],
+                    candidate["rendered"]["pdf_path"],
+                )
+                entry["temporary_output_deleted"] = True
 
-            entry[
-                "restoration_accepted"
-            ] = False
-
-            entry[
-                "rejection_reason"
-            ] = (
-                "Another one-page restoration "
-                "recovered stronger JD-relevant "
-                "content."
-            )
-
-            _delete_generated_output(
-                candidate[
-                    "rendered"
-                ][
-                    "docx_path"
-                ],
-                candidate[
-                    "rendered"
-                ][
-                    "pdf_path"
-                ],
-            )
-
-            entry[
-                "temporary_output_deleted"
-            ] = True
-
-        best_projects = deepcopy(
-            chosen[
-                "projects"
-            ]
-        )
-
-        best_render = (
-            chosen[
-                "rendered"
-            ]
-        )
-
-        active_changes.pop(
-            int(
-                chosen[
-                    "change_index"
-                ]
-            )
-        )
-
+        best_projects = deepcopy(chosen["projects"])
+        best_skills = deepcopy(chosen["skills"])
+        best_render = chosen["rendered"]
+        active_changes.pop(int(chosen["change_index"]))
         restored_change_count += 1
 
-    fill_metrics = (
-        best_render.get(
-            "fill_metrics",
-            {},
-        )
-        or {}
-    )
-
+    fill_metrics = best_render.get("fill_metrics", {}) or {}
     first_attempt_was_full_fit = (
         len(attempt_logs) == 1
         and not active_changes
@@ -3391,68 +3152,33 @@ def generate_tailored_resume_copy_fit_one_page(
     )
 
     if first_attempt_was_full_fit:
-        note = (
-            "Generated resume fits within one page "
-            "using the full project bullets."
-        )
-
+        note = "Generated resume fits within one page using the full tailored sections."
     elif restored_change_count > 0:
         note = (
-            "Generated resume fits within one page after "
-            "small reductions and a restoration pass that "
-            "recovered the strongest content that still fit."
+            "Generated resume fits within one page after whole-resume fitting "
+            "and a restoration pass recovered the strongest content that still fit."
         )
-
     else:
         note = (
-            "Generated resume fits within one page after "
-            "quality-preserving project fitting. Each "
-            "reduction was kept only because restoring it "
-            "would exceed one page."
+            "Generated resume fits within one page after comparing allowed "
+            "Projects and Skills reductions."
         )
 
     return {
-        "docx_path": (
-            best_render[
-                "docx_path"
-            ]
-        ),
-        "pdf_path": (
-            best_render[
-                "pdf_path"
-            ]
-        ),
-        "page_count": (
-            best_render[
-                "page_count"
-            ]
-        ),
+        "docx_path": best_render["docx_path"],
+        "pdf_path": best_render["pdf_path"],
+        "page_count": best_render["page_count"],
         "fit_one_page": True,
         "attempts": attempt_logs,
-        "tailored_projects_used": (
-            best_projects
+        "tailored_projects_used": best_projects,
+        "tailored_skills_used": best_skills,
+        "page_fill_ratio": fill_metrics.get("page_fill_ratio"),
+        "estimated_unused_page_ratio": fill_metrics.get(
+            "estimated_unused_page_ratio"
         ),
-        "page_fill_ratio": (
-            fill_metrics.get(
-                "page_fill_ratio"
-            )
-        ),
-        "estimated_unused_page_ratio": (
-            fill_metrics.get(
-                "estimated_unused_page_ratio"
-            )
-        ),
-        "page_fill_measurement_method": (
-            fill_metrics.get(
-                "measurement_method"
-            )
-        ),
-        "restored_change_count": (
-            restored_change_count
-        ),
-        "remaining_active_reductions": (
-            active_changes
-        ),
+        "page_fill_measurement_method": fill_metrics.get("measurement_method"),
+        "restored_change_count": restored_change_count,
+        "remaining_active_reductions": active_changes,
         "note": note,
     }
 
@@ -3808,6 +3534,7 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
             )
         except OSError:
             pass
+
 
 def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
     """Create HTML iframe for PDF preview in Streamlit."""

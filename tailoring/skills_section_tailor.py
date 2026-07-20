@@ -44,6 +44,11 @@ Rules:
 - If a skill is supported by evidence but missing from the current resume, put it under evidence_supported_additions.
 - Keep output suitable for a one-page resume.
 - Do not add generic soft skills unless clearly supported by project, internship, or teamwork evidence.
+- Return one skill_priorities row for every item included in skill_lines.
+- jd_relevance and evidence_strength must be integers from 0 to 5.
+- required_match is true only when the skill directly supports a required JD item or core responsibility.
+- preferred_match is true only when the skill directly supports a preferred JD item.
+- Priority metadata is advisory evidence for deterministic page fitting; do not omit it for low-relevance skills.
 
 Transferable evidence rules:
 - If a JD requirement is not directly proven but has related evidence, do not mark it as fully unsupported.
@@ -79,6 +84,16 @@ Output only valid JSON matching this schema:
       "items": ["string"]
     }
   ],
+  "skill_priorities": [
+    {
+      "skill": "string",
+      "jd_relevance": 0,
+      "evidence_strength": 0,
+      "required_match": false,
+      "preferred_match": false,
+      "reason": "string"
+    }
+  ],
   "evidence_supported_additions": [
     {
       "skill": "string",
@@ -95,6 +110,130 @@ Output only valid JSON matching this schema:
   "notes": ["string"]
 }
 """
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _normalise_skill_key(value: Any) -> str:
+    return "".join(
+        character.lower()
+        for character in _clean_text(value)
+        if character.isalnum()
+    )
+
+
+def _safe_score(value: Any) -> int:
+    try:
+        numeric = int(round(float(value)))
+    except (TypeError, ValueError):
+        numeric = 0
+    return max(0, min(5, numeric))
+
+
+def _normalise_skills_result(
+    raw_result: dict[str, Any],
+    *,
+    resume_profile: dict[str, Any],
+    jd_profile: dict[str, Any],
+    evidence_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Clean the AI result and ensure every displayed skill has priority metadata."""
+    result = dict(raw_result or {})
+    clean_lines: list[dict[str, Any]] = []
+    displayed_skills: list[str] = []
+    seen_skills: set[str] = set()
+
+    for raw_line in result.get("skill_lines", []) or []:
+        if not isinstance(raw_line, dict):
+            continue
+
+        category = _clean_text(raw_line.get("category"))
+        items: list[str] = []
+
+        for raw_item in raw_line.get("items", []) or []:
+            item = _clean_text(raw_item)
+            key = _normalise_skill_key(item)
+            if item and key and key not in seen_skills:
+                items.append(item)
+                displayed_skills.append(item)
+                seen_skills.add(key)
+
+        if category and items:
+            clean_lines.append({"category": category, "items": items})
+
+    result["skill_lines"] = clean_lines
+
+    raw_priorities: dict[str, dict[str, Any]] = {}
+    for raw_priority in result.get("skill_priorities", []) or []:
+        if not isinstance(raw_priority, dict):
+            continue
+        skill = _clean_text(raw_priority.get("skill"))
+        key = _normalise_skill_key(skill)
+        if key and key not in raw_priorities:
+            raw_priorities[key] = raw_priority
+
+    required_text = json.dumps(
+        {
+            "required_skills": jd_profile.get("required_skills", []),
+            "responsibilities": jd_profile.get("responsibilities", []),
+            "tools_technologies": jd_profile.get("tools_technologies", []),
+        },
+        ensure_ascii=False,
+    ).lower()
+    preferred_text = json.dumps(
+        jd_profile.get("preferred_skills", []),
+        ensure_ascii=False,
+    ).lower()
+    evidence_text = json.dumps(
+        {
+            "resume_profile": resume_profile,
+            "evidence_items": evidence_items,
+        },
+        ensure_ascii=False,
+    ).lower()
+
+    priorities: list[dict[str, Any]] = []
+
+    for skill in displayed_skills:
+        key = _normalise_skill_key(skill)
+        raw_priority = raw_priorities.get(key, {})
+        skill_lower = skill.lower()
+        direct_required = skill_lower in required_text
+        direct_preferred = skill_lower in preferred_text
+        occurrence_count = evidence_text.count(skill_lower)
+
+        ai_relevance = _safe_score(raw_priority.get("jd_relevance"))
+        ai_evidence = _safe_score(raw_priority.get("evidence_strength"))
+
+        jd_relevance = max(
+            ai_relevance,
+            5 if direct_required else 4 if direct_preferred else 0,
+        )
+        evidence_strength = max(
+            ai_evidence,
+            min(5, occurrence_count) if occurrence_count else 1,
+        )
+
+        priorities.append(
+            {
+                "skill": skill,
+                "jd_relevance": jd_relevance,
+                "evidence_strength": evidence_strength,
+                "required_match": bool(
+                    raw_priority.get("required_match") or direct_required
+                ),
+                "preferred_match": bool(
+                    raw_priority.get("preferred_match") or direct_preferred
+                ),
+                "reason": _clean_text(raw_priority.get("reason"))
+                or "Priority derived from the saved JD and supplied evidence.",
+            }
+        )
+
+    result["skill_priorities"] = priorities
+    return result
 
 
 def tailor_skills_section(
@@ -124,11 +263,18 @@ TASK:
 Create a concise tailored Skills section for this target job.
 """
 
-    return ask_json(
+    raw_result = ask_json(
         SKILLS_SECTION_TAILOR_PROMPT,
         user_prompt,
         temperature=0.0,
-        max_tokens=1600,
+        max_tokens=2200,
+    )
+
+    return _normalise_skills_result(
+        raw_result,
+        resume_profile=resume_profile,
+        jd_profile=jd_profile,
+        evidence_items=evidence_items,
     )
 
 
