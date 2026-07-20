@@ -1450,6 +1450,20 @@ if page == "Application Sessions":
                 ),
             )
 
+            prefer_balanced_bullets = st.checkbox(
+                "Prefer balanced project bullets when reducing content",
+                value=False,
+                key=(
+                    "prefer_balanced_bullets_"
+                    f"{current_application_id}"
+                ),
+                help=(
+                    "Only affects complete-bullet deletion after overflow. "
+                    "When enabled, the fitter reduces projects with more bullets first, "
+                    "then uses project relevance and bullet length as tie-breakers."
+                ),
+            )
+
             col_project, col_skills = st.columns(2)
 
             with col_project:
@@ -1774,6 +1788,7 @@ if page == "Application Sessions":
                                 blank_lines_after_projects=blank_lines_after_projects,
                                 add_spacing_before_first_project=add_spacing_before_first_project,
                                 use_compact_before_delete=use_compact_before_delete,
+                                prefer_balanced_bullets=prefer_balanced_bullets,
                             )
 
                             tailored_resume_path = fit_result["docx_path"]

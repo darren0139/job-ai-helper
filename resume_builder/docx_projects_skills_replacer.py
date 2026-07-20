@@ -28,9 +28,12 @@ Important:
 from __future__ import annotations
 
 import base64
+import os
 import re
 import shutil
 import subprocess
+import time
+import uuid
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -1143,6 +1146,7 @@ def compact_tailored_projects_one_step(
     *,
     minimum_bullets_per_project: int = 1,
     minimum_projects_to_keep: int = 3,
+    prefer_balanced_bullets: bool = False,
 ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
     """
     Remove one complete low-priority project bullet.
@@ -1168,28 +1172,69 @@ def compact_tailored_projects_one_step(
     ]
 
     if removable_projects:
-        # Choose the least relevant project that still has more than
-        # the minimum number of bullets.
+        # Default behaviour remains relevance-first.
         #
-        # When project relevance is tied, remove the longer final bullet
-        # first because it is more likely to save a rendered line.
-        target_project = min(
-            removable_projects,
-            key=lambda project: (
-                _project_priority_score(project),
-                -len(
-                    str(
-                        (project.get("draft_bullets", []) or [""])[-1]
-                    ).split()
+        # Optional balanced mode first reduces the project that currently
+        # has the most bullets. Relevance and final-bullet length are then
+        # used as tie-breakers. This avoids repeatedly shrinking one project
+        # while another project still has substantially more content.
+        if prefer_balanced_bullets:
+            target_project = min(
+                removable_projects,
+                key=lambda project: (
+                    -len(
+                        project.get(
+                            "draft_bullets",
+                            [],
+                        )
+                        or []
+                    ),
+                    _project_priority_score(project),
+                    -len(
+                        str(
+                            (
+                                project.get(
+                                    "draft_bullets",
+                                    [],
+                                )
+                                or [""]
+                            )[-1]
+                        ).split()
+                    ),
                 ),
-            ),
-        )
+            )
+        else:
+            target_project = min(
+                removable_projects,
+                key=lambda project: (
+                    _project_priority_score(project),
+                    -len(
+                        str(
+                            (
+                                project.get(
+                                    "draft_bullets",
+                                    [],
+                                )
+                                or [""]
+                            )[-1]
+                        ).split()
+                    ),
+                ),
+            )
 
         previous_space_action = str(
             target_project.get(
                 "space_action",
                 "keep_full",
             )
+        )
+
+        project_bullet_count_before = len(
+            target_project.get(
+                "draft_bullets",
+                [],
+            )
+            or []
         )
 
         removed_bullet_index = (
@@ -1237,6 +1282,14 @@ def compact_tailored_projects_one_step(
             ),
             "previous_space_action": (
                 previous_space_action
+            ),
+            "deletion_strategy": (
+                "balanced"
+                if prefer_balanced_bullets
+                else "relevance_first"
+            ),
+            "project_bullet_count_before": (
+                project_bullet_count_before
             ),
             "project_priority_score": (
                 _project_priority_score(
@@ -2570,6 +2623,7 @@ def generate_tailored_resume_copy_fit_one_page(
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
     use_compact_before_delete: bool = False,
+    prefer_balanced_bullets: bool = False,
 ) -> dict[str, Any]:
     """
     Generate the strongest one-page tailored resume that can be found.
@@ -3025,7 +3079,10 @@ def generate_tailored_resume_copy_fit_one_page(
             changed,
             change_info,
         ) = compact_tailored_projects_one_step(
-            working_projects
+            working_projects,
+            prefer_balanced_bullets=(
+                prefer_balanced_bullets
+            ),
         )
 
         attempt_logs[
@@ -3663,9 +3720,14 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
         except OSError:
             pass
 
-    # Give headless LibreOffice its own profile folder.
-    # This helps avoid failures when normal LibreOffice is already open.
-    lo_profile_dir = (preview_dir / "lo_profile").resolve()
+    # Give each headless conversion its own LibreOffice profile.
+    # This reduces collisions with normal LibreOffice sessions and
+    # with the fitter's rapid sequence of conversion attempts.
+    lo_profile_dir = (
+        preview_dir
+        / "lo_profiles"
+        / uuid.uuid4().hex
+    ).resolve()
     lo_profile_dir.mkdir(parents=True, exist_ok=True)
     lo_profile_uri = lo_profile_dir.as_uri()
 
@@ -3684,6 +3746,13 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
         str(docx_path),
     ]
 
+    # Do not pass Python installation overrides into LibreOffice.
+    # They can produce warnings such as:
+    # "Could not find platform independent libraries <prefix>".
+    conversion_env = os.environ.copy()
+    conversion_env.pop("PYTHONHOME", None)
+    conversion_env.pop("PYTHONPATH", None)
+
     try:
         result = subprocess.run(
             command,
@@ -3692,27 +3761,53 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
             stderr=subprocess.PIPE,
             timeout=60,
             text=True,
+            env=conversion_env,
         )
-    except Exception as exc:
-        print(f"[LibreOffice conversion crashed] {exc}")
-        return None
 
-    if result.returncode != 0:
-        print("[LibreOffice conversion failed]")
-        print("Command:", command)
-        print("Return code:", result.returncode)
+        if result.returncode != 0:
+            print("[LibreOffice conversion failed]")
+            print("Command:", command)
+            print("Return code:", result.returncode)
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+            return None
+
+        # On Windows, LibreOffice can return just before the PDF is
+        # visible to Python. Poll briefly before declaring failure.
+        for _ in range(20):
+            try:
+                if (
+                    expected_pdf_path.exists()
+                    and expected_pdf_path.stat().st_size > 0
+                ):
+                    return expected_pdf_path
+            except OSError:
+                pass
+
+            time.sleep(0.1)
+
+        print(
+            "[LibreOffice conversion failed] "
+            "Command succeeded but PDF was not created "
+            "after waiting 2 seconds."
+        )
+        print("Expected PDF:", expected_pdf_path)
         print("STDOUT:", result.stdout)
         print("STDERR:", result.stderr)
         return None
 
-    if expected_pdf_path.exists():
-        return expected_pdf_path
+    except Exception as exc:
+        print(f"[LibreOffice conversion crashed] {exc}")
+        return None
 
-    print("[LibreOffice conversion failed] Command succeeded but PDF was not created.")
-    print("Expected PDF:", expected_pdf_path)
-    print("STDOUT:", result.stdout)
-    print("STDERR:", result.stderr)
-    return None
+    finally:
+        try:
+            shutil.rmtree(
+                lo_profile_dir,
+                ignore_errors=True,
+            )
+        except OSError:
+            pass
 
 def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
     """Create HTML iframe for PDF preview in Streamlit."""
