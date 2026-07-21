@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1405,6 +1406,9 @@ if page == "Application Sessions":
             tailored_docx_key = f"tailored_resume_copy_path_{current_application_id}"
             tailored_fit_result_key = f"tailored_resume_fit_result_{current_application_id}"
             saved_docx_key = f"saved_resume_docx_path_{current_application_id}"
+            tailored_generation_id_key = (
+                f"tailored_generation_id_{current_application_id}"
+            )
 
 
         st.divider()
@@ -1419,6 +1423,9 @@ if page == "Application Sessions":
             tailored_docx_key = f"tailored_resume_copy_path_{current_application_id}"
             tailored_fit_result_key = f"tailored_resume_fit_result_{current_application_id}"
             saved_docx_key = f"saved_resume_docx_path_{current_application_id}"
+            tailored_generation_id_key = (
+                f"tailored_generation_id_{current_application_id}"
+            )
 
             max_projects = st.slider(
                 "Maximum projects",
@@ -1434,48 +1441,6 @@ if page == "Application Sessions":
                 3,
                 3,
                 key=f"max_bullets_{current_application_id}",
-            )
-
-            use_compact_before_delete = st.checkbox(
-                "Try compact project bullets before deleting content",
-                value=False,
-                key=(
-                    "use_compact_before_delete_"
-                    f"{current_application_id}"
-                ),
-                help=(
-                    "Only used when the full résumé exceeds one page. "
-                    "The app tries the shorter truthful project bullets "
-                    "generated during tailoring before deleting a complete bullet."
-                ),
-            )
-
-            prefer_balanced_bullets = st.checkbox(
-                "Prefer balanced project bullets when reducing content",
-                value=False,
-                key=(
-                    "prefer_balanced_bullets_"
-                    f"{current_application_id}"
-                ),
-                help=(
-                    "Only affects complete-bullet deletion after overflow. "
-                    "When enabled, the fitter reduces projects with more bullets first, "
-                    "then uses project relevance and bullet length as tie-breakers."
-                ),
-            )
-
-            allow_skills_compaction = st.checkbox(
-                "Allow low-priority Skills items to be removed during fitting",
-                value=False,
-                key=(
-                    "allow_skills_compaction_"
-                    f"{current_application_id}"
-                ),
-                help=(
-                    "Used only when the full résumé exceeds one page. "
-                    "The whole-résumé fitter compares deterministic low-value "
-                    "Skills removals with project compacting and bullet deletion."
-                ),
             )
 
             if st.button(
@@ -1534,6 +1499,9 @@ if page == "Application Sessions":
                     st.session_state[tailored_projects_key] = project_result
                     st.session_state[tailored_fit_key] = fit_estimate
                     st.session_state[tailored_skills_key] = skills_result
+                    st.session_state.pop(tailored_docx_key, None)
+                    st.session_state.pop(tailored_fit_result_key, None)
+                    st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
                     st.rerun()
 
                 except ValueError as exc:
@@ -1593,6 +1561,9 @@ if page == "Application Sessions":
 
                             st.session_state[tailored_projects_key] = project_result
                             st.session_state[tailored_fit_key] = fit_estimate
+                            st.session_state.pop(tailored_docx_key, None)
+                            st.session_state.pop(tailored_fit_result_key, None)
+                            st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
                             st.rerun()
 
                         except ValueError as exc:
@@ -1617,6 +1588,9 @@ if page == "Application Sessions":
                                 )
 
                             st.session_state[tailored_skills_key] = skills_result
+                            st.session_state.pop(tailored_docx_key, None)
+                            st.session_state.pop(tailored_fit_result_key, None)
+                            st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
                             st.rerun()
 
                         except ValueError as exc:
@@ -1782,6 +1756,72 @@ if page == "Application Sessions":
                 st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
                 st.caption(f"Will update: {', '.join(selected_sections)}")
 
+                with st.expander("Fitting strategy", expanded=True):
+                    use_compact_before_delete = st.checkbox(
+                        "Compact project wording before deleting content",
+                        value=False,
+                        key=(
+                            "use_compact_before_delete_"
+                            f"{current_application_id}"
+                        ),
+                        help=(
+                            "Only used when the full résumé exceeds one page. "
+                            "The fitter tests truthful compact project bullets "
+                            "before deleting a complete bullet."
+                        ),
+                    )
+
+                    prefer_balanced_bullets = st.checkbox(
+                        "Balance project bullets during deletion",
+                        value=False,
+                        key=(
+                            "prefer_balanced_bullets_"
+                            f"{current_application_id}"
+                        ),
+                        help=(
+                            "Only affects complete-bullet deletion. Projects with "
+                            "more bullets are reduced first, then relevance is used "
+                            "as a tie-breaker."
+                        ),
+                    )
+
+                    allow_skills_compaction = st.checkbox(
+                        "Allow removal of low-priority Skills",
+                        value=False,
+                        key=(
+                            "allow_skills_compaction_"
+                            f"{current_application_id}"
+                        ),
+                        help=(
+                            "The fitter may temporarily remove supported but "
+                            "low-priority Skills when their rendered space saving "
+                            "is better than reducing project evidence."
+                        ),
+                    )
+
+                    page_density_label = st.radio(
+                        "Page density",
+                        ["Balanced", "Maximize relevant content"],
+                        horizontal=True,
+                        key=f"page_density_mode_{current_application_id}",
+                        help=(
+                            "Balanced restores content up to about 92% page fill. "
+                            "Maximize relevant content restores more truthful content "
+                            "up to about 97%. This setting never removes content when "
+                            "the full version already fits."
+                        ),
+                    )
+                    page_density_mode = (
+                        "maximize"
+                        if page_density_label == "Maximize relevant content"
+                        else "balanced"
+                    )
+
+                    st.caption(
+                        "These options apply only when generating and fitting the "
+                        "DOCX. Changing them does not regenerate Projects or Skills."
+                    )
+
                 with st.expander("Spacing options", expanded=False):
                     spacing_mode_label = st.radio(
                         "Spacing mode",
@@ -1853,49 +1893,53 @@ if page == "Application Sessions":
                         "You can regenerate the DOCX without re-tailoring the projects or skills."
                     )
 
-                    if st.button(
-                        "Generate Tailored Resume Copy DOCX",
-                        type="primary",
-                        width="stretch",
-                        key=f"generate_docx_{current_application_id}",
-                    ):
-                        try:
-                            fit_result = generate_tailored_resume_copy_fit_one_page(
-                                saved_resume_docx_path=saved_resume_docx_path,
-                                tailored_projects=project_result,
-                                tailored_skills=skills_result,
-                                application_id=current_application_id,
-                                max_projects=max_projects,
-                                max_bullets_per_project=max_bullets,
-                                spacing_mode=spacing_mode,
-                                project_spacing_pt=project_spacing_pt,
-                                after_projects_spacing_pt=after_projects_spacing_pt,
-                                blank_lines_between_projects=blank_lines_between_projects,
-                                blank_lines_after_projects=blank_lines_after_projects,
-                                add_spacing_before_first_project=add_spacing_before_first_project,
-                                use_compact_before_delete=use_compact_before_delete,
-                                prefer_balanced_bullets=prefer_balanced_bullets,
-                                allow_skills_compaction=allow_skills_compaction,
-                            )
+                if st.button(
+                    "Generate and Fit Tailored Resume DOCX",
+                    type="primary",
+                    width="stretch",
+                    key=f"generate_docx_{current_application_id}",
+                ):
+                    try:
+                        fit_result = generate_tailored_resume_copy_fit_one_page(
+                            saved_resume_docx_path=saved_resume_docx_path,
+                            tailored_projects=project_result,
+                            tailored_skills=skills_result,
+                            application_id=current_application_id,
+                            max_projects=max_projects,
+                            max_bullets_per_project=max_bullets,
+                            spacing_mode=spacing_mode,
+                            project_spacing_pt=project_spacing_pt,
+                            after_projects_spacing_pt=after_projects_spacing_pt,
+                            blank_lines_between_projects=blank_lines_between_projects,
+                            blank_lines_after_projects=blank_lines_after_projects,
+                            add_spacing_before_first_project=add_spacing_before_first_project,
+                            use_compact_before_delete=use_compact_before_delete,
+                            prefer_balanced_bullets=prefer_balanced_bullets,
+                            allow_skills_compaction=allow_skills_compaction,
+                            page_density_mode=page_density_mode,
+                            generation_id=st.session_state.get(
+                                tailored_generation_id_key
+                            ),
+                        )
 
-                            tailored_resume_path = fit_result["docx_path"]
+                        tailored_resume_path = fit_result["docx_path"]
 
-                            st.session_state[tailored_docx_key] = str(tailored_resume_path)
-                            st.session_state[tailored_fit_result_key] = fit_result
+                        st.session_state[tailored_docx_key] = str(tailored_resume_path)
+                        st.session_state[tailored_fit_result_key] = fit_result
 
-                            if fit_result["fit_one_page"] is True:
-                                st.success("Tailored resume copy generated and fits within one page.")
-                            elif fit_result["fit_one_page"] is False:
-                                st.warning(fit_result["note"])
-                            else:
-                                st.warning(fit_result["note"])
+                        if fit_result["fit_one_page"] is True:
+                            st.success("Tailored resume copy generated and fits within one page.")
+                        elif fit_result["fit_one_page"] is False:
+                            st.warning(fit_result["note"])
+                        else:
+                            st.warning(fit_result["note"])
 
-                            st.rerun()
+                        st.rerun()
 
-                        except ValueError as exc:
-                            st.warning(str(exc))
-                        except Exception as exc:
-                            st.error(f"Unexpected error while generating tailored resume copy: {exc}")
+                    except ValueError as exc:
+                        st.warning(str(exc))
+                    except Exception as exc:
+                        st.error(f"Unexpected error while generating tailored resume copy: {exc}")
 
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)

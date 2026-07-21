@@ -444,14 +444,17 @@ def count_pdf_pages(pdf_path: str | Path) -> int:
     return len(reader.pages)
 
 
+
 def measure_pdf_page_fill(
     pdf_path: str | Path,
 ) -> dict[str, Any]:
     """
-    Estimate how much of a one-page PDF is vertically occupied.
+    Measure vertical text occupancy for one-page and multi-page PDFs.
 
-    PyMuPDF is optional. Page-count fitting still works when it is
-    unavailable; only the fill-ratio diagnostics are omitted.
+    The one-page fields preserve the existing Phase 5 diagnostics. For
+    multi-page candidates, ``last_page_fill_ratio`` and ``overflow_ratio``
+    allow the fitter to detect real layout progress before the document has
+    reached one page.
     """
     try:
         import fitz  # PyMuPDF
@@ -459,79 +462,83 @@ def measure_pdf_page_fill(
         return {
             "page_fill_ratio": None,
             "estimated_unused_page_ratio": None,
+            "last_page_fill_ratio": None,
+            "overflow_ratio": None,
+            "occupied_page_units": None,
             "measurement_method": "unavailable",
         }
 
     try:
         document = fitz.open(str(pdf_path))
+        page_count = len(document)
+        page_fill_ratios: list[float] = []
 
-        if len(document) != 1:
-            document.close()
-            return {
-                "page_fill_ratio": None,
-                "estimated_unused_page_ratio": None,
-                "measurement_method": (
-                    "single_page_only"
-                ),
-            }
+        for page in document:
+            page_height = float(page.rect.height)
+            text_blocks = [
+                block
+                for block in page.get_text("blocks")
+                if len(block) >= 5 and str(block[4]).strip()
+            ]
 
-        page = document[0]
-        page_height = float(page.rect.height)
+            if not text_blocks or page_height <= 0:
+                page_fill_ratios.append(0.0)
+                continue
 
-        text_blocks = [
-            block
-            for block in page.get_text(
-                "blocks"
+            lowest_text_y = max(float(block[3]) for block in text_blocks)
+            page_fill_ratios.append(
+                max(0.0, min(1.0, lowest_text_y / page_height))
             )
-            if len(block) >= 5
-            and str(block[4]).strip()
-        ]
-
-        if not text_blocks or page_height <= 0:
-            document.close()
-            return {
-                "page_fill_ratio": 0.0,
-                "estimated_unused_page_ratio": 1.0,
-                "measurement_method": (
-                    "pymupdf_text_blocks"
-                ),
-            }
-
-        lowest_text_y = max(
-            float(block[3])
-            for block in text_blocks
-        )
-
-        fill_ratio = max(
-            0.0,
-            min(
-                1.0,
-                lowest_text_y / page_height,
-            ),
-        )
 
         document.close()
 
+        if not page_fill_ratios:
+            return {
+                "page_fill_ratio": 0.0,
+                "estimated_unused_page_ratio": 1.0,
+                "last_page_fill_ratio": 0.0,
+                "overflow_ratio": 0.0,
+                "occupied_page_units": 0.0,
+                "measurement_method": "pymupdf_text_blocks",
+            }
+
+        last_page_fill_ratio = page_fill_ratios[-1]
+        single_page_fill_ratio = (
+            page_fill_ratios[0] if page_count == 1 else None
+        )
+        overflow_ratio = (
+            0.0
+            if page_count <= 1
+            else max(0.0, float(page_count - 2) + last_page_fill_ratio)
+        )
+
         return {
-            "page_fill_ratio": round(
-                fill_ratio,
-                3,
+            "page_fill_ratio": (
+                round(single_page_fill_ratio, 3)
+                if single_page_fill_ratio is not None
+                else None
             ),
-            "estimated_unused_page_ratio": round(
-                1.0 - fill_ratio,
-                3,
+            "estimated_unused_page_ratio": (
+                round(1.0 - single_page_fill_ratio, 3)
+                if single_page_fill_ratio is not None
+                else None
             ),
-            "measurement_method": (
-                "pymupdf_text_blocks"
-            ),
+            "last_page_fill_ratio": round(last_page_fill_ratio, 3),
+            "overflow_ratio": round(overflow_ratio, 3),
+            "occupied_page_units": round(sum(page_fill_ratios), 3),
+            "measurement_method": "pymupdf_text_blocks",
         }
 
     except Exception:
         return {
             "page_fill_ratio": None,
             "estimated_unused_page_ratio": None,
+            "last_page_fill_ratio": None,
+            "overflow_ratio": None,
+            "occupied_page_units": None,
             "measurement_method": "failed",
         }
+
 
 
 def _delete_generated_output(
@@ -2724,6 +2731,86 @@ def _whole_resume_restoration_quality_gain(change: dict[str, Any]) -> int:
     return _restoration_quality_gain(change)
 
 
+
+
+_LAYOUT_EFFECT_THRESHOLD = 0.002
+_PAGE_DENSITY_MAX_FILL = {
+    "balanced": 0.92,
+    "maximize": 0.97,
+}
+
+
+def _normalise_page_density_mode(value: str) -> str:
+    mode = str(value or "balanced").strip().lower()
+    return mode if mode in _PAGE_DENSITY_MAX_FILL else "balanced"
+
+
+def _rendered_overflow_value(rendered: dict[str, Any]) -> float:
+    """Return comparable overflow units above the one-page target."""
+    page_count = rendered.get("page_count")
+    if page_count is None:
+        return float("inf")
+
+    if int(page_count) <= 1:
+        return 0.0
+
+    metrics = rendered.get("fill_metrics", {}) or {}
+    overflow_ratio = metrics.get("overflow_ratio")
+    if overflow_ratio is not None:
+        return max(0.0, float(overflow_ratio))
+
+    return float(max(1, int(page_count) - 1))
+
+
+def _change_identity(change: dict[str, Any]) -> str:
+    """Create a deterministic identity for reduction/restoration probes."""
+    return "|".join(
+        [
+            str(change.get("section", "projects")),
+            str(change.get("change_type", "")),
+            str(change.get("project", "")),
+            str(change.get("category", "")),
+            str(change.get("removed_skill", "")),
+            str(change.get("removed_bullet_index", "")),
+        ]
+    )
+
+
+def _choose_layout_aware_reduction(
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Choose a reduction using rendered space saved rather than raw loss alone.
+
+    Priority:
+    1. Any candidate that reaches one page.
+    2. A candidate with measurable overflow reduction, ranked by
+       quality loss divided by actual space saved.
+    3. A no-effect candidate only when every available candidate has no
+       measurable layout effect.
+    """
+    if not candidates:
+        raise ValueError("No rendered fitting candidates were supplied.")
+
+    def key(candidate: dict[str, Any]) -> tuple[float, float, int]:
+        reaches_one_page = bool(candidate.get("reaches_one_page"))
+        space_saved = float(candidate.get("space_saved_ratio", 0.0) or 0.0)
+        quality_loss = float(candidate.get("quality_loss", 0) or 0)
+        candidate_order = int(candidate.get("candidate_order", 99) or 99)
+
+        if reaches_one_page:
+            return (0.0, quality_loss, candidate_order)
+
+        if space_saved >= _LAYOUT_EFFECT_THRESHOLD:
+            efficiency = quality_loss / space_saved
+            return (1.0, efficiency, candidate_order)
+
+        return (2.0, quality_loss, candidate_order)
+
+    return min(candidates, key=key)
+
+
+
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
@@ -2742,19 +2829,23 @@ def generate_tailored_resume_copy_fit_one_page(
     prefer_balanced_bullets: bool = False,
     allow_skills_compaction: bool = False,
     minimum_total_skills: int = 8,
+    page_density_mode: str = "balanced",
+    generation_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Fit the whole tailored resume to one page using rendered PDF checks.
+    Fit the tailored resume to one page using layout-aware candidate probes.
 
-    Phase 5 compares small candidate reductions across Projects and Skills.
-    Skills are never rewritten: the deterministic Skills compactor removes one
-    lowest-value item at a time. Project compact rewrites remain optional, and
-    complete project-bullet deletion remains the stronger fallback.
+    Phase 5.1 does not rerun résumé analysis, project selection, or the LLM.
+    It compares the already-generated Projects and Skills using deterministic
+    evidence-loss estimates and actual rendered PDF space saved.
     """
     if not tailored_projects and not tailored_skills:
         raise ValueError(
             "Generate a tailored Projects section or Skills section first."
         )
+
+    density_mode = _normalise_page_density_mode(page_density_mode)
+    density_max_fill = _PAGE_DENSITY_MAX_FILL[density_mode]
 
     cleanup_old_tailored_outputs_for_application(application_id)
 
@@ -2778,7 +2869,6 @@ def generate_tailored_resume_copy_fit_one_page(
         working_projects["recommended_projects"] = visible_projects
 
     active_changes: list[dict[str, Any]] = []
-    last_render: dict[str, Any] | None = None
 
     def render_candidate(
         projects_state: dict[str, Any] | None,
@@ -2788,6 +2878,8 @@ def generate_tailored_resume_copy_fit_one_page(
         change_applied: dict[str, Any] | None = None,
         restoration_candidate: bool = False,
         restoration_quality_gain: int | None = None,
+        probe_candidate: bool = False,
+        quality_loss: int | None = None,
     ) -> dict[str, Any]:
         docx_path = generate_tailored_resume_copy(
             saved_resume_docx_path=saved_resume_docx_path,
@@ -2816,6 +2908,8 @@ def generate_tailored_resume_copy_fit_one_page(
             }
             if change_applied is not None:
                 entry["change_applied"] = change_applied
+            if probe_candidate:
+                entry["probe_candidate"] = True
             attempt_logs.append(entry)
             return {
                 "docx_path": Path(docx_path),
@@ -2824,6 +2918,8 @@ def generate_tailored_resume_copy_fit_one_page(
                 "fill_metrics": {
                     "page_fill_ratio": None,
                     "estimated_unused_page_ratio": None,
+                    "last_page_fill_ratio": None,
+                    "overflow_ratio": None,
                     "measurement_method": "unavailable",
                 },
                 "attempt_entry": entry,
@@ -2864,6 +2960,10 @@ def generate_tailored_resume_copy_fit_one_page(
             entry["restoration_candidate"] = True
         if restoration_quality_gain is not None:
             entry["restoration_quality_gain"] = restoration_quality_gain
+        if probe_candidate:
+            entry["probe_candidate"] = True
+        if quality_loss is not None:
+            entry["quality_loss"] = quality_loss
 
         attempt_logs.append(entry)
         return {
@@ -2901,50 +3001,45 @@ def generate_tailored_resume_copy_fit_one_page(
     )
 
     reduction_attempt_limit = (
-        1
-        + compact_candidate_count
+        compact_candidate_count
         + removable_bullet_count
         + removable_project_count
         + skill_candidate_count
     )
 
-    applied_change: dict[str, Any] | None = None
+    current_render = render_candidate(
+        working_projects,
+        working_skills,
+        attempt_type="full",
+    )
+
+    if current_render["pdf_path"] is None:
+        return {
+            "generation_id": generation_id,
+            "docx_path": current_render["docx_path"],
+            "pdf_path": None,
+            "page_count": None,
+            "fit_one_page": None,
+            "attempts": attempt_logs,
+            "tailored_projects_used": working_projects,
+            "tailored_skills_used": working_skills,
+            "page_fill_ratio": None,
+            "estimated_unused_page_ratio": None,
+            "page_density_mode": density_mode,
+            "density_target_max": density_max_fill,
+            "note": (
+                "Could not check page count because LibreOffice is unavailable "
+                "or DOCX-to-PDF conversion failed. DOCX generation still worked."
+            ),
+        }
+
     fitting_render: dict[str, Any] | None = None
 
+    if int(current_render["page_count"]) <= 1:
+        fitting_render = current_render
+
     for _ in range(reduction_attempt_limit):
-        attempt_type = (
-            "full"
-            if applied_change is None
-            else str(applied_change.get("change_type", "fitting_change"))
-        )
-
-        rendered = render_candidate(
-            working_projects,
-            working_skills,
-            attempt_type=attempt_type,
-            change_applied=applied_change,
-        )
-        last_render = rendered
-
-        if rendered["pdf_path"] is None:
-            return {
-                "docx_path": rendered["docx_path"],
-                "pdf_path": None,
-                "page_count": None,
-                "fit_one_page": None,
-                "attempts": attempt_logs,
-                "tailored_projects_used": working_projects,
-                "tailored_skills_used": working_skills,
-                "page_fill_ratio": None,
-                "estimated_unused_page_ratio": None,
-                "note": (
-                    "Could not check page count because LibreOffice is unavailable "
-                    "or DOCX-to-PDF conversion failed. DOCX generation still worked."
-                ),
-            }
-
-        if int(rendered["page_count"]) <= 1:
-            fitting_render = rendered
+        if fitting_render is not None:
             break
 
         candidate_changes: list[dict[str, Any]] = []
@@ -3003,15 +3098,68 @@ def generate_tailored_resume_copy_fit_one_page(
         if not candidate_changes:
             break
 
-        chosen = min(
-            candidate_changes,
-            key=lambda candidate: (
-                int(candidate["quality_loss"]),
-                int(candidate["candidate_order"]),
-            ),
-        )
+        baseline_overflow = _rendered_overflow_value(current_render)
+        rendered_candidates: list[dict[str, Any]] = []
 
-        attempt_logs[-1]["candidate_changes_considered"] = [
+        for candidate in candidate_changes:
+            change = candidate["change"]
+            rendered = render_candidate(
+                candidate["projects"],
+                candidate["skills"],
+                attempt_type=str(change.get("change_type", "fitting_change")),
+                change_applied=change,
+                probe_candidate=True,
+                quality_loss=int(candidate["quality_loss"]),
+            )
+
+            if rendered["pdf_path"] is None:
+                _delete_generated_output(rendered["docx_path"], None)
+                continue
+
+            candidate_overflow = _rendered_overflow_value(rendered)
+            space_saved = max(0.0, baseline_overflow - candidate_overflow)
+            reaches_one_page = int(rendered["page_count"]) <= 1
+            layout_effect = (
+                "reached_one_page"
+                if reaches_one_page
+                else (
+                    "reduced_overflow"
+                    if space_saved >= _LAYOUT_EFFECT_THRESHOLD
+                    else "no_measurable_effect"
+                )
+            )
+            efficiency_score = (
+                float(candidate["quality_loss"])
+                / max(space_saved, _LAYOUT_EFFECT_THRESHOLD)
+            )
+
+            rendered["attempt_entry"].update(
+                {
+                    "baseline_overflow_ratio": round(baseline_overflow, 3),
+                    "candidate_overflow_ratio": round(candidate_overflow, 3),
+                    "space_saved_ratio": round(space_saved, 3),
+                    "layout_effect": layout_effect,
+                    "layout_efficiency_score": round(efficiency_score, 2),
+                }
+            )
+
+            rendered_candidates.append(
+                {
+                    **candidate,
+                    "rendered": rendered,
+                    "space_saved_ratio": space_saved,
+                    "reaches_one_page": reaches_one_page,
+                    "layout_effect": layout_effect,
+                    "layout_efficiency_score": efficiency_score,
+                }
+            )
+
+        if not rendered_candidates:
+            break
+
+        chosen = _choose_layout_aware_reduction(rendered_candidates)
+
+        current_render["attempt_entry"]["candidate_changes_considered"] = [
             {
                 "section": candidate["change"].get("section", "projects"),
                 "change_type": candidate["change"].get("change_type"),
@@ -3019,28 +3167,58 @@ def generate_tailored_resume_copy_fit_one_page(
                 "category": candidate["change"].get("category"),
                 "removed_skill": candidate["change"].get("removed_skill"),
                 "quality_loss": candidate["quality_loss"],
+                "space_saved_ratio": round(
+                    float(candidate["space_saved_ratio"]), 3
+                ),
+                "layout_effect": candidate["layout_effect"],
+                "layout_efficiency_score": round(
+                    float(candidate["layout_efficiency_score"]), 2
+                ),
+                "probe_attempt": candidate["rendered"]["attempt_entry"]["attempt"],
                 "selected": candidate is chosen,
             }
-            for candidate in candidate_changes
+            for candidate in rendered_candidates
         ]
-        attempt_logs[-1]["next_change"] = chosen["change"]
+        current_render["attempt_entry"]["next_change"] = chosen["change"]
+
+        for candidate in rendered_candidates:
+            entry = candidate["rendered"]["attempt_entry"]
+            entry["probe_selected"] = candidate is chosen
+            if candidate is not chosen:
+                _delete_generated_output(
+                    candidate["rendered"]["docx_path"],
+                    candidate["rendered"]["pdf_path"],
+                )
+                entry["temporary_output_deleted"] = True
+
+        _delete_generated_output(
+            current_render["docx_path"],
+            current_render["pdf_path"],
+        )
+        current_render["attempt_entry"]["superseded_output_deleted"] = True
 
         working_projects = deepcopy(chosen["projects"])
         working_skills = deepcopy(chosen["skills"])
-        applied_change = deepcopy(chosen["change"])
         active_changes.append(deepcopy(chosen["change"]))
+        current_render = chosen["rendered"]
+
+        if int(current_render["page_count"]) <= 1:
+            fitting_render = current_render
 
     if fitting_render is None:
         return {
-            "docx_path": last_render["docx_path"] if last_render else None,
-            "pdf_path": last_render["pdf_path"] if last_render else None,
-            "page_count": last_render["page_count"] if last_render else None,
+            "generation_id": generation_id,
+            "docx_path": current_render["docx_path"],
+            "pdf_path": current_render["pdf_path"],
+            "page_count": current_render["page_count"],
             "fit_one_page": False,
             "attempts": attempt_logs,
             "tailored_projects_used": working_projects,
             "tailored_skills_used": working_skills,
             "page_fill_ratio": None,
             "estimated_unused_page_ratio": None,
+            "page_density_mode": density_mode,
+            "density_target_max": density_max_fill,
             "note": (
                 "Resume still exceeds one page after all allowed whole-resume "
                 "reductions. Reduce spacing, lower the minimum Skills count, "
@@ -3052,12 +3230,22 @@ def generate_tailored_resume_copy_fit_one_page(
     best_skills = deepcopy(working_skills)
     best_render = fitting_render
     restored_change_count = 0
+    permanently_rejected_restorations: set[str] = set()
 
     while active_changes:
         candidate_results: list[dict[str, Any]] = []
+        best_fill = float(
+            (best_render.get("fill_metrics", {}) or {}).get("page_fill_ratio")
+            or 0.0
+        )
 
         for change_index in _whole_resume_restorable_change_indices(active_changes):
             source_change = active_changes[change_index]
+            change_key = _change_identity(source_change)
+
+            if change_key in permanently_rejected_restorations:
+                continue
+
             (
                 restored_projects,
                 restored_skills,
@@ -3080,32 +3268,69 @@ def generate_tailored_resume_copy_fit_one_page(
                 change_applied=restore_info,
                 restoration_candidate=True,
                 restoration_quality_gain=quality_gain,
+                probe_candidate=True,
             )
 
             if rendered["pdf_path"] is None:
                 _delete_generated_output(rendered["docx_path"], None)
                 continue
 
-            if int(rendered["page_count"]) <= 1:
-                candidate_results.append(
-                    {
-                        "change_index": change_index,
-                        "projects": restored_projects,
-                        "skills": restored_skills,
-                        "rendered": rendered,
-                        "quality_gain": quality_gain,
-                    }
-                )
-            else:
-                rendered["attempt_entry"]["restoration_accepted"] = False
-                rendered["attempt_entry"]["rejection_reason"] = (
+            entry = rendered["attempt_entry"]
+
+            if int(rendered["page_count"]) > 1:
+                entry["restoration_accepted"] = False
+                entry["rejection_reason"] = (
                     "Restoring this content caused the resume to exceed one page."
                 )
+                permanently_rejected_restorations.add(change_key)
                 _delete_generated_output(
                     rendered["docx_path"],
                     rendered["pdf_path"],
                 )
-                rendered["attempt_entry"]["temporary_output_deleted"] = True
+                entry["temporary_output_deleted"] = True
+                continue
+
+            candidate_fill = float(
+                (rendered.get("fill_metrics", {}) or {}).get("page_fill_ratio")
+                or 0.0
+            )
+
+            if candidate_fill > density_max_fill:
+                entry["restoration_accepted"] = False
+                entry["rejection_reason"] = (
+                    "Restoration exceeded the selected page-density limit."
+                )
+                entry["density_target_max"] = density_max_fill
+                permanently_rejected_restorations.add(change_key)
+                _delete_generated_output(
+                    rendered["docx_path"],
+                    rendered["pdf_path"],
+                )
+                entry["temporary_output_deleted"] = True
+                continue
+
+            space_consumed = max(0.0, candidate_fill - best_fill)
+            restoration_efficiency = (
+                float(quality_gain)
+                / max(space_consumed, _LAYOUT_EFFECT_THRESHOLD)
+            )
+            entry["space_consumed_ratio"] = round(space_consumed, 3)
+            entry["restoration_efficiency_score"] = round(
+                restoration_efficiency, 2
+            )
+
+            candidate_results.append(
+                {
+                    "change_index": change_index,
+                    "change_key": change_key,
+                    "projects": restored_projects,
+                    "skills": restored_skills,
+                    "rendered": rendered,
+                    "quality_gain": quality_gain,
+                    "space_consumed_ratio": space_consumed,
+                    "restoration_efficiency_score": restoration_efficiency,
+                }
+            )
 
         if not candidate_results:
             break
@@ -3113,30 +3338,33 @@ def generate_tailored_resume_copy_fit_one_page(
         chosen = max(
             candidate_results,
             key=lambda candidate: (
+                float(candidate["restoration_efficiency_score"]),
                 int(candidate["quality_gain"]),
-                float(
-                    candidate["rendered"]["fill_metrics"].get(
-                        "page_fill_ratio"
-                    )
-                    or 0.0
-                ),
             ),
         )
 
         for candidate in candidate_results:
             entry = candidate["rendered"]["attempt_entry"]
+            entry["probe_selected"] = candidate is chosen
             if candidate is chosen:
                 entry["restoration_accepted"] = True
             else:
                 entry["restoration_accepted"] = False
                 entry["rejection_reason"] = (
-                    "Another one-page restoration recovered stronger JD-relevant content."
+                    "Another one-page restoration recovered more value per "
+                    "unit of rendered space."
                 )
                 _delete_generated_output(
                     candidate["rendered"]["docx_path"],
                     candidate["rendered"]["pdf_path"],
                 )
                 entry["temporary_output_deleted"] = True
+
+        _delete_generated_output(
+            best_render["docx_path"],
+            best_render["pdf_path"],
+        )
+        best_render["attempt_entry"]["superseded_output_deleted"] = True
 
         best_projects = deepcopy(chosen["projects"])
         best_skills = deepcopy(chosen["skills"])
@@ -3155,16 +3383,25 @@ def generate_tailored_resume_copy_fit_one_page(
         note = "Generated resume fits within one page using the full tailored sections."
     elif restored_change_count > 0:
         note = (
-            "Generated resume fits within one page after whole-resume fitting "
-            "and a restoration pass recovered the strongest content that still fit."
+            "Generated resume fits within one page after layout-aware fitting "
+            "and a restoration pass recovered the strongest content that fit "
+            "within the selected density target."
         )
     else:
         note = (
-            "Generated resume fits within one page after comparing allowed "
-            "Projects and Skills reductions."
+            "Generated resume fits within one page after comparing actual "
+            "rendered space saved against deterministic evidence loss."
         )
 
+    remaining_quality_loss = sum(
+        _skill_reduction_quality_loss(change)
+        if str(change.get("section", "projects")) == "skills"
+        else _project_reduction_quality_loss(change)
+        for change in active_changes
+    )
+
     return {
+        "generation_id": generation_id,
         "docx_path": best_render["docx_path"],
         "pdf_path": best_render["pdf_path"],
         "page_count": best_render["page_count"],
@@ -3177,10 +3414,21 @@ def generate_tailored_resume_copy_fit_one_page(
             "estimated_unused_page_ratio"
         ),
         "page_fill_measurement_method": fill_metrics.get("measurement_method"),
+        "page_density_mode": density_mode,
+        "density_target_max": density_max_fill,
+        "fitting_objective": (
+            "Minimise deterministic evidence loss per unit of actual rendered "
+            "space saved; do not rerun analysis or project selection."
+        ),
+        "remaining_quality_loss": remaining_quality_loss,
         "restored_change_count": restored_change_count,
         "remaining_active_reductions": active_changes,
+        "permanently_rejected_restoration_count": len(
+            permanently_rejected_restorations
+        ),
         "note": note,
     }
+
 
 
 # def generate_tailored_resume_copy_fit_one_page(
