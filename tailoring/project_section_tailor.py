@@ -31,6 +31,11 @@ from utils.date_sorting import period_sort_value
 from tailoring.deterministic_project_rules import (
     apply_deterministic_evidence_floors,
 )
+from tailoring.stable_tailoring_ranking import (
+    build_bullet_evidence_priorities,
+    rank_projects_deterministically,
+    select_complementary_projects,
+)
 
 # ---------------------------------------------------------------------------
 # Stage 1 prompt: analyse and score every project candidate
@@ -43,7 +48,9 @@ You are an evidence-based project-fit analyst for student and junior resumes.
 Task:
 Evaluate every supplied project candidate against the target job-description
 profile. Do not write resume bullets and do not choose project titles directly.
-Return component scores and a recommended number of projects to display.
+Return requirement-to-evidence links for every project. Component scores are
+retained only as diagnostic estimates; Python ignores them when calculating the
+final Phase 6B.1 ranking.
 
 Truthfulness rules:
 - Use only the supplied project evidence and JD profile.
@@ -55,8 +62,24 @@ Truthfulness rules:
 - Do not award points because a project is already in the resume.
 - Do not subtract points because a project appears only in the Evidence Library.
 
+Canonical-requirement linking rules:
+- The user prompt supplies PHASE 6A.1C CANONICAL REQUIREMENTS.
+- For each supported link, return the exact requirement_id supplied by Python.
+- Use only match_label values: direct, transferable, weak, or none.
+- evidence_snippets must be exact or near-exact quotations from that project's
+  supplied evidence. Do not cite another project or general resume evidence.
+- Direct means the project explicitly proves the atomic requirement.
+- Transferable means the evidence is related but does not prove the exact duty.
+- Weak means only a limited adjacent capability is shown.
+- Do not infer subjective requirements such as passion, motivation, enthusiasm,
+  or interest unless the project evidence explicitly states that disposition.
+- Do not copy a parent compound match to every atomic child. Evaluate each
+  requirement_id separately.
+- When no canonical requirement is supported, return an empty requirement_matches list.
+
 Scoring rules:
 - Score every candidate exactly once.
+- Component scores are diagnostics only and do not control the final ranking.
 - All component scores must be integers from 0 to 5.
 - must_have_match_score:
   Direct support for required skills, qualifications, or critical requirements.
@@ -138,6 +161,14 @@ Output only valid JSON matching this schema:
   "candidate_project_scores": [
     {
       "title": "string",
+      "requirement_matches": [
+        {
+          "requirement_id": "req_exact_id_from_input",
+          "match_label": "direct|transferable|weak|none",
+          "evidence_snippets": ["exact project evidence"],
+          "reason": "string"
+        }
+      ],
       "matched_jd_requirements": ["string"],
       "transferable_jd_requirements": ["string"],
       "must_have_match_score": 0,
@@ -856,6 +887,11 @@ def _build_complete_ranked_rows(
             ),
             "matched_jd_requirements": matched,
             "transferable_jd_requirements": transferable,
+            "requirement_matches": (
+                raw_row.get("requirement_matches", [])
+                if isinstance(raw_row.get("requirement_matches", []), list)
+                else []
+            ),
             **component_row,
             "reason": (
                 str(raw_row.get("reason", "")).strip()
@@ -1156,6 +1192,10 @@ def _build_project_from_writer_plan(
         compact_bullets = []
 
     space_action = "single_bullet" if len(draft_bullets) <= 1 else "keep_full"
+    bullet_evidence_priorities = build_bullet_evidence_priorities(
+        bullets=draft_bullets,
+        ranking_row=ranking_row,
+    )
 
     return {
         "title": candidate.get("title", ""),
@@ -1179,6 +1219,14 @@ def _build_project_from_writer_plan(
         "draft_bullets": draft_bullets,
         "compact_bullets": compact_bullets,
         "project_fit_score": ranking_row.get("final_score", 0),
+        "project_id": ranking_row.get("project_id", ""),
+        "requirement_matches": ranking_row.get("requirement_matches", []),
+        "bullet_evidence_priorities": bullet_evidence_priorities,
+        "protected_bullet_indexes": [
+            item["bullet_index"]
+            for item in bullet_evidence_priorities
+            if item.get("protect_during_fitting")
+        ],
     }
 
 
@@ -1511,6 +1559,7 @@ def tailor_projects_section(
     max_bullets_per_project: int = 2,
     keyword_match: dict[str, Any] | None = None,
     raw_jd_text: str = "",
+    stable_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Generate a tailored Projects section using the Option B two-stage pipeline.
@@ -1523,6 +1572,13 @@ def tailor_projects_section(
 
     if not jd_profile:
         raise ValueError("Missing job description profile. Analyze a job description first.")
+
+    stable_analysis = stable_analysis or {}
+    if not stable_analysis.get("canonical_requirements"):
+        raise ValueError(
+            "Phase 6B.1 requires the Phase 6A.1C stable analysis. "
+            "Analyze the resume again before generating Projects."
+        )
 
     project_candidates = build_project_candidate_pool(
         resume_profile=resume_profile,
@@ -1544,6 +1600,9 @@ RAW TARGET JOB DESCRIPTION:
 EXTRACTED TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
 
+PHASE 6A.1C CANONICAL REQUIREMENTS:
+{json.dumps(stable_analysis.get("canonical_requirements", []), indent=2, ensure_ascii=False)}
+
 COMBINED PROJECT CANDIDATE POOL:
 {json.dumps(project_candidates, indent=2, ensure_ascii=False)}
 
@@ -1558,6 +1617,9 @@ IMPORTANT:
 - Award project points only when the candidate's own evidence supports
   the requirement.
 - Include every candidate exactly once in candidate_project_scores.
+- Use exact requirement_id values from PHASE 6A.1C CANONICAL REQUIREMENTS.
+- Do not invent requirement IDs.
+- Component scores are diagnostic only; Python owns final scoring and selection.
 """
 
     scoring_result = ask_json(
@@ -1587,6 +1649,9 @@ RAW TARGET JOB DESCRIPTION:
 
 EXTRACTED TARGET JOB DESCRIPTION PROFILE:
 {json.dumps(jd_profile, indent=2, ensure_ascii=False)}
+
+PHASE 6A.1C CANONICAL REQUIREMENTS:
+{json.dumps(stable_analysis.get("canonical_requirements", []), indent=2, ensure_ascii=False)}
 
 IMPORTANT:
 - Evaluate both the raw JD and the extracted JD profile.
@@ -1648,60 +1713,12 @@ IMPORTANT:
         raw_jd_text=raw_jd_text,
     )
 
-    for row in ranked_rows:
-        row["relevance_score"] = (
-            _calculate_relevance_score(
-                row
-            )
-        )
-
-        row["final_score"] = (
-            _calculate_project_final_score(
-                row
-            )
-        )
-
-    ranked_rows.sort(
-        key=lambda row: (
-            int(row.get("final_score", 0) or 0),
-            int(
-                row.get(
-                    "must_have_match_score",
-                    0,
-                )
-                or 0
-            ),
-            int(
-                row.get(
-                    "responsibility_match_score",
-                    0,
-                )
-                or 0
-            ),
-            int(
-                row.get(
-                    "tool_domain_match_score",
-                    0,
-                )
-                or 0
-            ),
-            int(
-                row.get(
-                    "evidence_strength_score",
-                    0,
-                )
-                or 0
-            ),
-            int(
-                row.get(
-                    "impact_scope_score",
-                    0,
-                )
-                or 0
-            ),
-        ),
-        reverse=True,
+    ranked_rows, phase6b_ranking_debug = rank_projects_deterministically(
+        ranked_rows=ranked_rows,
+        project_candidates=project_candidates,
+        stable_analysis=stable_analysis,
     )
+
 
 
     all_projects_zero = (
@@ -1746,6 +1763,13 @@ IMPORTANT:
         scoring_result=scoring_result,
         ranked_rows=ranked_rows,
         max_projects=max_projects,
+    )
+
+    ranked_rows, complementary_selection_debug = (
+        select_complementary_projects(
+            ranked_rows=ranked_rows,
+            selected_count=selected_count,
+        )
     )
 
     selected_pairs = _select_candidates_from_ranking(
@@ -1812,8 +1836,9 @@ IMPORTANT:
     notes = _clean_string_list(scoring_result.get("notes_for_user", []))
     notes.extend(_clean_string_list(writer_result.get("notes_for_user", [])))
     notes.append(
-        f"Python selected the top {selected_count} project(s) after recalculating "
-        "and sorting the project-fit scores."
+        f"Python selected {selected_count} project(s) using deterministic evidence "
+        "families, canonical requirement IDs, complementary coverage, and stable "
+        "near-tie rules."
     )
 
     missing_writer_titles = [
@@ -1851,7 +1876,11 @@ IMPORTANT:
         "recommended_projects": recommended_projects,
         "bullet_validation_warnings": bullet_validation_warnings,
         "candidate_project_ranking": ranked_rows,
-        "deterministic_rule_debug": (deterministic_rule_debug ),
+        "deterministic_rule_debug": {
+            "structural_cleanup": deterministic_rule_debug,
+            "phase6b_ranking": phase6b_ranking_debug,
+            "complementary_selection": complementary_selection_debug,
+        },
         "projects_to_remove_or_deprioritize": _build_projects_to_remove(
             project_candidates=project_candidates,
             ranked_rows=ranked_rows,
@@ -1864,7 +1893,16 @@ IMPORTANT:
         "one_page_fit": {},
         "notes_for_user": _clean_string_list(notes),
         "selection_debug": {
-            "selection_owner": "python",
+            "selection_owner": "python_deterministic_evidence_mapping",
+            "ranking_version": phase6b_ranking_debug.get("ranking_version"),
+            "near_tie_margin": phase6b_ranking_debug.get("near_tie_margin"),
+            "evidence_mapping_version": phase6b_ranking_debug.get(
+                "evidence_mapping_version"
+            ),
+            "candidate_profile_fingerprint": (
+                phase6b_ranking_debug.get("candidate_profile", {})
+                .get("fingerprint")
+            ),
             "ai_requested_project_count": scoring_result.get(
                 "recommended_project_count"
             ),
@@ -1873,7 +1911,15 @@ IMPORTANT:
                 ranking_row.get("display_title") or ranking_row.get("title", "")
                 for _, ranking_row in selected_pairs
             ],
-            "project_count_reason": scoring_result.get("project_count_reason", ""),
+            "project_count_reason": (
+                "Python selected the configured project count after deterministic "
+                "canonical-requirement ranking. The AI count explanation is "
+                "retained only in ai_project_count_reason."
+            ),
+            "ai_project_count_reason": scoring_result.get(
+                "project_count_reason",
+                "",
+            ),
         },
     }
 

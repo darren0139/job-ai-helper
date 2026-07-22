@@ -16,6 +16,9 @@ import json
 from typing import Any
 
 from llm import ask_json
+from tailoring.stable_tailoring_ranking import (
+    build_deterministic_skills_result,
+)
 
 
 SKILLS_SECTION_TAILOR_PROMPT = """
@@ -48,7 +51,8 @@ Rules:
 - jd_relevance and evidence_strength must be integers from 0 to 5.
 - required_match is true only when the skill directly supports a required JD item or core responsibility.
 - preferred_match is true only when the skill directly supports a preferred JD item.
-- Priority metadata is advisory evidence for deterministic page fitting; do not omit it for low-relevance skills.
+- Priority metadata is diagnostic only. Phase 6B Python recalculates the final
+  supported skill pool, priorities, categories, and ordering.
 
 Transferable evidence rules:
 - If a JD requirement is not directly proven but has related evidence, do not mark it as fully unsupported.
@@ -241,6 +245,9 @@ def tailor_skills_section(
     resume_profile: dict[str, Any],
     jd_profile: dict[str, Any],
     evidence_items: list[dict[str, Any]],
+    stable_analysis: dict[str, Any] | None = None,
+    selected_projects_result: dict[str, Any] | None = None,
+    max_items: int = 20,
 ) -> dict[str, Any]:
     """Generate a tailored Skills section recommendation."""
     if not resume_profile:
@@ -248,6 +255,13 @@ def tailor_skills_section(
 
     if not jd_profile:
         raise ValueError("Missing job description profile. Analyze a job description first.")
+
+    stable_analysis = stable_analysis or {}
+    if not stable_analysis.get("canonical_requirements"):
+        raise ValueError(
+            "Phase 6B requires the Phase 6A.1C stable analysis. "
+            "Analyze the resume again before generating Skills."
+        )
 
     user_prompt = f"""
 CURRENT RESUME PROFILE:
@@ -258,6 +272,12 @@ TARGET JOB DESCRIPTION PROFILE:
 
 USER EVIDENCE LIBRARY:
 {json.dumps(evidence_items, indent=2, ensure_ascii=False)}
+
+PHASE 6A.1C CANONICAL REQUIREMENTS:
+{json.dumps(stable_analysis.get("canonical_requirements", []), indent=2, ensure_ascii=False)}
+
+PYTHON-SELECTED PROJECTS (context for final deterministic skill priorities):
+{json.dumps((selected_projects_result or {}).get("recommended_projects", []), indent=2, ensure_ascii=False)}
 
 TASK:
 Create a concise tailored Skills section for this target job.
@@ -270,11 +290,20 @@ Create a concise tailored Skills section for this target job.
         max_tokens=2200,
     )
 
-    return _normalise_skills_result(
+    normalised_result = _normalise_skills_result(
         raw_result,
         resume_profile=resume_profile,
         jd_profile=jd_profile,
         evidence_items=evidence_items,
+    )
+
+    return build_deterministic_skills_result(
+        raw_result=normalised_result,
+        resume_profile=resume_profile,
+        evidence_items=evidence_items,
+        stable_analysis=stable_analysis,
+        selected_projects_result=selected_projects_result,
+        max_items=max_items,
     )
 
 

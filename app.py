@@ -1772,6 +1772,11 @@ if page == "Application Sessions":
 
         st.divider()
         st.header("Tailor Resume for This Job")
+        st.caption(
+            "Phase 6B uses canonical requirement IDs and fixed Python weights "
+            "for Project selection and Skills priorities. AI numeric scores are "
+            "diagnostic only."
+        )
 
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
@@ -1841,6 +1846,7 @@ if page == "Application Sessions":
                             max_bullets_per_project=max_bullets,
                             keyword_match=report.get("keyword_match", {}),
                             raw_jd_text=report.get("raw_jd_text", ""),
+                            stable_analysis=report.get("stable_analysis", {}),
                         )
 
                         fit_estimate = estimate_project_section_length(
@@ -1853,6 +1859,8 @@ if page == "Application Sessions":
                             resume_profile=report.get("resume_profile", {}),
                             jd_profile=report.get("jd_profile", {}),
                             evidence_items=evidence_items,
+                            stable_analysis=report.get("stable_analysis", {}),
+                            selected_projects_result=project_result,
                         )
 
                     st.session_state[tailored_projects_key] = project_result
@@ -1910,6 +1918,7 @@ if page == "Application Sessions":
                                     max_bullets_per_project=max_bullets,
                                     keyword_match=report.get("keyword_match", {}),
                                     raw_jd_text=report.get("raw_jd_text","",),
+                                    stable_analysis=report.get("stable_analysis", {}),
                                 )
 
                                 fit_estimate = estimate_project_section_length(
@@ -1944,6 +1953,10 @@ if page == "Application Sessions":
                                     resume_profile=report.get("resume_profile", {}),
                                     jd_profile=report.get("jd_profile", {}),
                                     evidence_items=get_evidence_items(limit=100),
+                                    stable_analysis=report.get("stable_analysis", {}),
+                                    selected_projects_result=st.session_state.get(
+                                        tailored_projects_key
+                                    ),
                                 )
 
                             st.session_state[tailored_skills_key] = skills_result
