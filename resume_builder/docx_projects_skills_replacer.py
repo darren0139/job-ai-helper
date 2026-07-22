@@ -3794,6 +3794,179 @@ def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
     )
 
 
+
+
+
+def cleanup_stale_libreoffice_profiles(
+    *,
+    max_age_hours: int = 24,
+) -> dict[str, Any]:
+    """
+    Remove abandoned LibreOffice profile folders only when they are old.
+
+    Recent profiles are left alone because another conversion could still be
+    using them. The current converter normally removes its unique profile in a
+    ``finally`` block, so this is only a fallback for interrupted processes.
+    """
+    max_age_seconds = max(1, int(max_age_hours)) * 3600
+    now = time.time()
+    removed: list[str] = []
+    failed: list[dict[str, str]] = []
+
+    candidates: list[Path] = []
+
+    legacy_root = PREVIEW_DIR / "lo_profile"
+    if legacy_root.exists():
+        candidates.append(legacy_root)
+
+    profiles_root = PREVIEW_DIR / "lo_profiles"
+    if profiles_root.exists():
+        candidates.extend(
+            child
+            for child in profiles_root.iterdir()
+            if child.is_dir()
+        )
+
+    for candidate in candidates:
+        try:
+            mtimes = [candidate.stat().st_mtime]
+            mtimes.extend(
+                path.stat().st_mtime
+                for path in candidate.rglob("*")
+                if path.exists()
+            )
+            newest_mtime = max(mtimes)
+        except OSError as exc:
+            failed.append(
+                {
+                    "path": str(candidate),
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        if now - newest_mtime < max_age_seconds:
+            continue
+
+        try:
+            shutil.rmtree(candidate, ignore_errors=False)
+            removed.append(str(candidate))
+        except OSError as exc:
+            failed.append(
+                {
+                    "path": str(candidate),
+                    "error": str(exc),
+                }
+            )
+
+    if profiles_root.exists():
+        try:
+            if not any(profiles_root.iterdir()):
+                profiles_root.rmdir()
+                removed.append(str(profiles_root))
+        except OSError:
+            pass
+
+    return {
+        "removed_profile_directories": removed,
+        "failed_files": failed,
+    }
+
+
+def cleanup_application_resume_files(
+    application_id: int | None,
+    *,
+    delete_saved_resume: bool = True,
+    delete_generated_outputs: bool = True,
+    delete_libreoffice_profiles: bool = True,
+) -> dict[str, Any]:
+    """
+    Delete app-owned résumé files for one application session.
+
+    Safety:
+    - Only files beginning with ``app_{application_id}_`` are considered.
+    - The function never scans outside the three known application folders.
+    - Files already downloaded by the user elsewhere are unaffected.
+    """
+    if application_id is None:
+        return {
+            "application_id": None,
+            "deleted_file_count": 0,
+            "deleted_files": [],
+            "failed_files": [],
+        }
+
+    try:
+        app_id = int(application_id)
+    except (TypeError, ValueError):
+        raise ValueError("application_id must be an integer.")
+
+    if app_id < 0:
+        raise ValueError("application_id must be non-negative.")
+
+    patterns: list[Path] = []
+
+    if delete_saved_resume:
+        patterns.append(
+            SAVED_RESUME_DIR / f"app_{app_id}_*.docx"
+        )
+
+    if delete_generated_outputs:
+        patterns.extend(
+            [
+                TAILORED_RESUME_DIR
+                / f"app_{app_id}_tailored_resume_*.docx",
+                PREVIEW_DIR
+                / f"app_{app_id}_tailored_resume_*.pdf",
+                PREVIEW_DIR
+                / f"app_{app_id}_tailored_resume_*.png",
+            ]
+        )
+
+    deleted_files: list[str] = []
+    failed_files: list[dict[str, str]] = []
+
+    for pattern in patterns:
+        for path in pattern.parent.glob(pattern.name):
+            try:
+                if path.is_file():
+                    path.unlink()
+                    deleted_files.append(str(path))
+            except OSError as exc:
+                failed_files.append(
+                    {
+                        "path": str(path),
+                        "error": str(exc),
+                    }
+                )
+
+    removed_profile_directories: list[str] = []
+
+    if delete_libreoffice_profiles:
+        profile_cleanup = cleanup_stale_libreoffice_profiles(
+            max_age_hours=24,
+        )
+        removed_profile_directories = list(
+            profile_cleanup.get(
+                "removed_profile_directories",
+                [],
+            )
+        )
+        failed_files.extend(
+            profile_cleanup.get("failed_files", [])
+        )
+
+    return {
+        "application_id": app_id,
+        "deleted_file_count": len(deleted_files),
+        "deleted_files": deleted_files,
+        "removed_profile_directories": (
+            removed_profile_directories
+        ),
+        "failed_files": failed_files,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Cleaner
 # ---------------------------------------------------------------------------

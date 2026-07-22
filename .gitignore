@@ -29,3 +29,6 @@ data/saved_resumes/
 # put your stuff for easy access
 input/*
 !input/.gitkeep
+
+test_inputs/
+stability_results/

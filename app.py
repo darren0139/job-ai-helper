@@ -57,6 +57,7 @@ from resume_builder.docx_projects_skills_replacer import (
     convert_docx_to_pdf_if_possible,
     pdf_to_iframe_html,
     cleanup_old_tailored_outputs_for_application,
+    cleanup_application_resume_files,
 )
 
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
@@ -92,6 +93,7 @@ from analyzer import (
     summarise_overall,
     compute_overall_score,
 )
+from analysis_stability import build_stable_analysis
 from database.db_manager import (
     init_db,
     create_empty_application_session,
@@ -443,53 +445,211 @@ def create_full_debug_bundle(
 
     return json_bytes, filename
 
-# def create_markdown_report(report: dict) -> tuple[str, str]:
-#     """
-#     Create a Markdown report using the existing report.py renderer.
+def _markdown_escape(value: Any) -> str:
+    """Escape table separators and line breaks for Markdown output."""
+    return (
+        str(value or "")
+        .replace("|", "\\|")
+        .replace("\n", " ")
+        .strip()
+    )
 
-#     Returns:
-#         markdown_text: The report content as text.
-#         filename: Suggested filename for download.
-#     """
-#     output_dir = Path("outputs")
-#     output_dir.mkdir(parents=True, exist_ok=True)
 
-#     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-#     filename = f"match_report_{timestamp}.md"
-#     md_path = output_dir / filename
+def build_stable_alignment_summary(report: dict[str, Any]) -> str:
+    stable = report.get("stable_analysis", {}) or {}
+    rows = stable.get("canonical_requirements", []) or []
 
-#     render_markdown(report, out_path=md_path)
-#     markdown_text = md_path.read_text(encoding="utf-8")
+    credited = [
+        row
+        for row in rows
+        if row.get("match_label") != "none"
+    ]
+    gaps = [
+        row
+        for row in rows
+        if row.get("match_label") == "none"
+        and row.get("importance") in {"deal_breaker", "required", "core"}
+    ]
 
-#     return markdown_text, filename
+    importance_order = {
+        "deal_breaker": 4,
+        "required": 3,
+        "core": 2,
+        "preferred": 1,
+    }
+    label_order = {
+        "direct": 3,
+        "transferable": 2,
+        "weak": 1,
+        "none": 0,
+    }
+
+    credited.sort(
+        key=lambda row: (
+            importance_order.get(str(row.get("importance")), 0),
+            label_order.get(str(row.get("match_label")), 0),
+            int(row.get("evidence_strength", 0)),
+        ),
+        reverse=True,
+    )
+    gaps.sort(
+        key=lambda row: importance_order.get(
+            str(row.get("importance")),
+            0,
+        ),
+        reverse=True,
+    )
+
+    lines = [
+        (
+            f"- **Role alignment:** {stable.get('deterministic_alignment_score', 0)}/100 "
+            f"— {str(stable.get('alignment_band', 'not classified')).title()}."
+        )
+    ]
+
+    if credited:
+        strongest = "; ".join(
+            f"{row.get('text', '')} ({row.get('match_label', 'none')})"
+            for row in credited[:3]
+        )
+        lines.append(f"- **Strongest credited matches:** {strongest}.")
+    else:
+        lines.append("- **Strongest credited matches:** No supported matches were credited.")
+
+    if gaps:
+        gap_text = "; ".join(
+            str(row.get("text", ""))
+            for row in gaps[:4]
+        )
+        lines.append(f"- **Most important evidence gaps:** {gap_text}.")
+
+    lines.append(
+        "- Review the evidence-linked requirement rows rather than treating "
+        "the number as an ATS acceptance probability."
+    )
+    return "\n".join(lines)
+
 
 def create_markdown_report(report: dict) -> tuple[str, str]:
-    """
-    Create a Markdown report for download.
-
-    Uses a temporary file so match reports do not keep piling up in outputs/.
-    """
+    """Create a stable-first Markdown report without writing to outputs/."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"match_report_{timestamp}.md"
 
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".md",
-        mode="w",
-        encoding="utf-8",
-    ) as tmp_file:
-        tmp_path = Path(tmp_file.name)
+    stable = report.get("stable_analysis", {}) or {}
+    resume_profile = report.get("resume_profile", {}) or {}
+    jd_profile = report.get("jd_profile", {}) or {}
+    bullets = report.get("bullets", {}) or {}
+    structure = report.get("structure", {}) or {}
+    jargon = report.get("jargon", {}) or {}
+    degree = report.get("degree_alignment", {}) or {}
+    keyword_match = report.get("keyword_match", {}) or {}
 
-    try:
-        render_markdown(report, out_path=tmp_path)
-        markdown_text = tmp_path.read_text(encoding="utf-8")
-    finally:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
+    lines: list[str] = [
+        "# Résumé Analysis Report",
+        "",
+        f"**Candidate:** {_markdown_escape(resume_profile.get('name', ''))}",
+        (
+            f"**Target role:** {_markdown_escape(jd_profile.get('job_title', ''))}"
+            f" @ {_markdown_escape(jd_profile.get('company', ''))}"
+        ),
+        f"**Generated:** {datetime.now().isoformat(timespec='seconds')}",
+        "",
+    ]
 
-    return markdown_text, filename
+    if stable:
+        lines.extend(
+            [
+                "## Role Alignment",
+                "",
+                (
+                    f"**Deterministic score:** "
+                    f"{stable.get('deterministic_alignment_score', 0)}/100 "
+                    f"— {str(stable.get('alignment_band', '')).title()}"
+                ),
+                "",
+                (
+                    "This is an evidence-linked résumé-to-JD alignment estimate, "
+                    "not an ATS acceptance probability."
+                ),
+                "",
+                f"- Required/Core coverage: **{stable.get('required_core_coverage_score', 0)}%**",
+                f"- Preferred coverage: **{stable.get('preferred_coverage_score', 0)}%**",
+                (
+                    f"- Credited requirements: **{stable.get('credited_requirement_count', 0)}"
+                    f" of {stable.get('requirement_count', 0)}**"
+                ),
+                (
+                    f"- Strength of credited evidence: "
+                    f"**{stable.get('evidence_strength_score', 0)}%**"
+                ),
+                "",
+                "## Role Alignment Summary",
+                "",
+                build_stable_alignment_summary(report),
+                "",
+                "## Evidence-Linked Requirement Breakdown",
+                "",
+                "| Importance | Requirement | Label | Evidence |",
+                "|---|---|---|---|",
+            ]
+        )
+
+        for row in stable.get("canonical_requirements", []) or []:
+            evidence_text = "; ".join(
+                str(item.get("text", ""))
+                for item in row.get("evidence", []) or []
+                if isinstance(item, dict)
+            ) or "—"
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _markdown_escape(row.get("importance", "")),
+                        _markdown_escape(row.get("text", "")),
+                        _markdown_escape(row.get("match_label", "none")),
+                        _markdown_escape(evidence_text),
+                    ]
+                )
+                + " |"
+            )
+
+        warnings = stable.get("validation_warnings", []) or []
+        if warnings:
+            lines.extend(["", "### Validation Warnings", ""])
+            for warning in warnings:
+                lines.append(
+                    f"- `{_markdown_escape(warning.get('code', 'warning'))}`: "
+                    f"{_markdown_escape(warning.get('message', ''))}"
+                )
+
+    lines.extend(
+        [
+            "",
+            "## Résumé Quality",
+            "",
+            f"- Bullet quality: **{bullets.get('bullet_quality_avg', 0)}/100**",
+            f"- Structure: **{structure.get('structure_score', 0)}/100**",
+            f"- Jargon clarity: **{jargon.get('jargon_score', 0)}/100**",
+            f"- Degree relevance: **{degree.get('degree_alignment_score', 0)}/100**",
+            "",
+            "## Legacy AI-Assisted Comparison",
+            "",
+            (
+                "This development-only comparison is retained while the stable "
+                "scoring system is validated. It is not a pass/fail ATS result."
+            ),
+            "",
+            f"- Legacy composite: **{report.get('overall_score', 0)}/100**",
+            f"- AI keyword diagnostic: **{keyword_match.get('keyword_match_score', 0)}/100**",
+            "",
+            "### Legacy AI Summary",
+            "",
+            report.get("summary", "_No legacy summary returned._"),
+        ]
+    )
+
+    return "\n".join(lines).strip() + "\n", filename
+
 
 def validate_jd_text(jd_text: str) -> str:
     """Validate job description text pasted into the Streamlit text area."""
@@ -686,7 +846,18 @@ def run_resume_analysis(
         "degree_alignment": degree_alignment,
     }
 
-    log.write("[Final] Computing overall score and summary...")
+    log.write("[Final] Computing deterministic evidence-linked alignment...")
+    report["stable_analysis"] = build_stable_analysis(
+        jd_profile=jd_profile,
+        keyword_match=keyword_match,
+        raw_jd_text=jd_text,
+        raw_resume_text=resume_text,
+        resume_profile=resume_profile,
+        bullet_quality_score=bullets.get("bullet_quality_avg", 0),
+        structure_score=structure.get("structure_score", 0),
+    )
+
+    log.write("[Final] Computing legacy score and summary...")
     overall_score = compute_overall_score(report)
     report["overall_score"] = overall_score
     report["passes_ats_threshold"] = overall_score >= ATS_PASS_THRESHOLD
@@ -1047,6 +1218,17 @@ with st.sidebar:
                 if pending_delete_id == app_id:
                     st.warning(f"Delete '{display_name}'? This cannot be undone.")
 
+                    delete_local_files = st.checkbox(
+                        "Also delete this session's saved résumé and generated DOCX/PDF files",
+                        value=True,
+                        key=f"delete_local_files_{app_id}",
+                        help=(
+                            "Deletes only app-owned files whose names begin with "
+                            f"app_{app_id}_. Files you already downloaded elsewhere "
+                            "are not affected."
+                        ),
+                    )
+
                     confirm_col, cancel_col = st.columns(2)
 
                     with confirm_col:
@@ -1063,11 +1245,33 @@ with st.sidebar:
 
                             delete_application_session(app_id)
 
+                            cleanup_summary = {}
+                            if delete_local_files:
+                                cleanup_summary = cleanup_application_resume_files(
+                                    app_id,
+                                    delete_saved_resume=True,
+                                    delete_generated_outputs=True,
+                                    delete_libreoffice_profiles=True,
+                                )
+
                             if current_application_id == app_id:
                                 reset_current_application()
 
                             st.session_state.pop("pending_delete_application_id", None)
-                            st.session_state["flash_message"] = "Session deleted."
+
+                            deleted_count = int(
+                                cleanup_summary.get("deleted_file_count", 0)
+                            )
+                            if delete_local_files:
+                                st.session_state["flash_message"] = (
+                                    "Session deleted. "
+                                    f"Removed {deleted_count} local résumé file(s)."
+                                )
+                            else:
+                                st.session_state["flash_message"] = (
+                                    "Session deleted. Local résumé files were kept."
+                                )
+
                             st.rerun()
 
                     with cancel_col:
@@ -1114,14 +1318,34 @@ if page == "Application Sessions":
         help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
     )
 
-    save_resume_docx_for_editing = st.checkbox(
-        "Save uploaded DOCX so the app can generate an edited resume copy",
-        value=False,
-        help=(
-            "Optional. Only DOCX files can be edited. The app saves a local copy "
-            "only when this is ticked. The original saved copy is not overwritten."
-        ),
+    uploaded_resume_is_docx = bool(
+        uploaded_resume is not None
+        and str(uploaded_resume.name).lower().endswith(".docx")
     )
+
+    if uploaded_resume is None:
+        save_resume_docx_for_editing = False
+        st.caption(
+            "Upload a DOCX when you want the app to generate an edited "
+            "Word-document copy. PDFs can still be analysed."
+        )
+    elif uploaded_resume_is_docx:
+        save_resume_docx_for_editing = st.checkbox(
+            "Save this DOCX so the app can generate an edited resume copy",
+            value=True,
+            key=f"save_resume_docx_{input_suffix}",
+            help=(
+                "The app saves a session-owned local copy. The uploaded "
+                "original is not overwritten."
+            ),
+        )
+    else:
+        save_resume_docx_for_editing = False
+        st.info(
+            "This PDF can be analysed, but tailored Word-document generation "
+            "requires a DOCX source. Upload the DOCX version in a new or "
+            "re-analysed session when you need an edited copy."
+        )
 
     jd_text_input = st.text_area(
         "Paste job description",
@@ -1308,20 +1532,155 @@ if page == "Application Sessions":
         if current_application_id is not None:
             st.caption(f"Current application session: #{current_application_id}")
 
-        if passed:
-            st.success(f"Score: {overall_score}/100 ({score_label(overall_score)})")
+        stable_analysis = report.get("stable_analysis", {}) or {}
+
+        if stable_analysis:
+            stable_score = int(
+                stable_analysis.get(
+                    "deterministic_alignment_score",
+                    0,
+                )
+            )
+            stable_band = stable_analysis.get(
+                "alignment_band",
+                "not classified",
+            )
+            st.info(
+                f"Role alignment: {stable_score}/100 "
+                f"— {stable_band.title()}"
+            )
+            st.caption(
+                "This evidence-linked score uses fixed Python weights and "
+                "constrained match labels. It is an alignment estimate, "
+                "not an ATS acceptance probability."
+            )
+
+            boundary_status = (
+                stable_analysis.get("boundary_status", {}) or {}
+            )
+            if boundary_status.get("is_borderline"):
+                st.warning(
+                    "This result is close to an alignment-band boundary. "
+                    "Review the requirement evidence instead of treating a "
+                    "small point difference as pass/fail."
+                )
+
+            stable_col1, stable_col2, stable_col3, stable_col4 = st.columns(4)
+            stable_col1.metric(
+                "Required/Core Coverage",
+                f"{stable_analysis.get('required_core_coverage_score', 0)}%",
+            )
+            stable_col2.metric(
+                "Preferred Coverage",
+                f"{stable_analysis.get('preferred_coverage_score', 0)}%",
+            )
+            stable_col3.metric(
+                "Credited Requirements",
+                (
+                    f"{stable_analysis.get('credited_requirement_count', 0)}"
+                    f"/{stable_analysis.get('requirement_count', 0)}"
+                ),
+            )
+            stable_col4.metric(
+                "Strength of Credited Evidence",
+                f"{stable_analysis.get('evidence_strength_score', 0)}%",
+            )
+
+            with st.expander(
+                "Evidence-linked requirement breakdown",
+                expanded=False,
+            ):
+                show_result_table(
+                    stable_analysis.get(
+                        "canonical_requirements",
+                        [],
+                    ),
+                    "No canonical requirements were created.",
+                )
+
+                warnings = stable_analysis.get(
+                    "validation_warnings",
+                    [],
+                )
+                if warnings:
+                    st.write("### Validation warnings")
+                    show_result_table(
+                        warnings,
+                        "No validation warnings.",
+                    )
+
+            st.subheader("Role Alignment Summary")
+            st.markdown(build_stable_alignment_summary(report))
+
+            st.subheader("Résumé Quality")
+            quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+            quality_col1.metric(
+                "Bullet Quality",
+                report.get("bullets", {}).get("bullet_quality_avg", 0),
+            )
+            quality_col2.metric(
+                "Structure",
+                report.get("structure", {}).get("structure_score", 0),
+            )
+            quality_col3.metric(
+                "Jargon Clarity",
+                report.get("jargon", {}).get("jargon_score", 0),
+            )
+            quality_col4.metric(
+                "Degree Relevance",
+                report.get("degree_alignment", {}).get(
+                    "degree_alignment_score",
+                    0,
+                ),
+            )
+
+            with st.expander(
+                "Legacy AI-assisted comparison (development only)",
+                expanded=False,
+            ):
+                legacy_col1, legacy_col2 = st.columns(2)
+                legacy_col1.metric(
+                    "Legacy Composite",
+                    f"{overall_score}/100",
+                )
+                legacy_col2.metric(
+                    "AI Keyword Diagnostic",
+                    report.get("keyword_match", {}).get(
+                        "keyword_match_score",
+                        0,
+                    ),
+                )
+                st.caption(
+                    "This older composite is retained only for development "
+                    "comparison. It is not an ATS pass/fail result."
+                )
+                st.markdown(
+                    report.get(
+                        "summary",
+                        "_No legacy summary returned._",
+                    )
+                )
         else:
-            st.error(f"Score: {overall_score}/100 ({score_label(overall_score)})")
+            if passed:
+                st.success(
+                    f"Score: {overall_score}/100 "
+                    f"({score_label(overall_score)})"
+                )
+            else:
+                st.error(
+                    f"Score: {overall_score}/100 "
+                    f"({score_label(overall_score)})"
+                )
 
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
-        col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
-        col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
-        col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
-        col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
+            col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
+            col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
+            col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
+            col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
 
-        st.subheader("Executive Summary")
-        st.markdown(report.get("summary", "_No summary returned._"))
+            st.subheader("Executive Summary")
+            st.markdown(report.get("summary", "_No summary returned._"))
 
         tab_keywords, tab_bullets, tab_structure, tab_jargon, tab_degree, tab_raw = st.tabs(
             ["Keywords", "Bullets", "Structure", "Jargon", "Degree Fit", "Raw JSON"]

@@ -274,6 +274,15 @@ Evaluation criteria:
 - Game-development work may directly support basic gaming-industry knowledge,
   but it does not directly prove professional QA or live-operations experience.
 - General teamwork does not directly prove cross-functional collaboration.
+- Subjective motivation or disposition requirements such as passion, enthusiasm,
+  interest, motivation, eagerness, commitment, willingness, or enjoyment require
+  explicit résumé wording in the same domain.
+- Related education, projects, tools, or employment may prove domain knowledge,
+  but they do not prove that the candidate is passionate, enthusiastic, interested,
+  motivated, eager, committed, willing, or enjoys that domain.
+- When a JD combines a subjective claim with an objective claim, report them atom
+  by atom. For example, game-development education may support gaming-industry
+  knowledge while "passionate about games" remains missing unless explicitly stated.
 - Every present row must include importance = "required" or "preferred"
   according to the JD profile and raw job description.
 
@@ -309,6 +318,18 @@ Match interpretation:
   as satisfying the full requirement.
 - A preferred match should be reported but does not increase the required-match
   score unless the scoring design explicitly includes preferred requirements.
+- Evaluate compound responsibilities atom by atom. Evidence for one phrase must not
+  prove the other duties in the same sentence.
+- A gaming product, backend service, or deployed application proves that product
+  experience only; it does not automatically prove configuration, QA, operations,
+  incident handling, monitoring, stakeholder coordination, or evaluation.
+- When only part of a compound requirement is supported, return the supported atomic
+  keyword as present and keep each unsupported atomic capability in missing.
+- General teamwork may be transferable evidence for collaboration, but it cannot
+  directly prove cross-functional, cross-office, local/global, or stakeholder work.
+- Do not infer passion, enthusiasm, interest, motivation, eagerness, commitment,
+  willingness, or enjoyment from related study, employment, projects, or tools.
+  These subjective claims are present only when the résumé states them explicitly.
 
 Output:
 Return this exact JSON schema:
