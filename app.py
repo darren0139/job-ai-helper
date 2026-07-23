@@ -107,12 +107,14 @@ from database.db_manager import (
 )
 from database.jd_library_manager import (
     init_jd_library,
+    save_or_link_job_description_for_application,
     save_or_update_job_description_for_application,
     get_recent_job_descriptions,
     get_job_description_by_id,
     get_job_description_by_application_id,
     delete_job_description,
     delete_job_description_by_application_id,
+    unlink_job_description_from_application,
 )
 
 from database.chat_history_manager import (
@@ -1233,12 +1235,15 @@ with st.sidebar:
 
                     with confirm_col:
                         if st.button("Confirm", key=f"confirm_delete_{app_id}", width="stretch"):
-                            # Also remove the linked job description from the RAG library.
+                            # Remove only this session's link to the canonical JD.
+                            # Delete shared SQLite/Chroma data only when no sessions remain.
                             try:
-                                linked_jd = get_job_description_by_application_id(app_id)
-                                if linked_jd:
-                                    delete_job_description_from_chroma(int(linked_jd["id"]))
-                                    delete_job_description_by_application_id(app_id)
+                                unlink_result = unlink_job_description_from_application(app_id)
+                                if unlink_result.get("deleted_canonical_job"):
+                                    delete_job_description_from_chroma(
+                                        unlink_result.get("job_description_id"),
+                                        canonical_jd_id=unlink_result.get("canonical_jd_id"),
+                                    )
                             except Exception:
                                 # Deleting the application session should still work even if RAG cleanup fails.
                                 pass
@@ -1476,18 +1481,37 @@ if page == "Application Sessions":
                 # This means the RAG feature only uses jobs that went through Analyze Resume.
                 jd_profile_for_library = report.get("jd_profile", {})
 
-                jd_library_id = save_or_update_job_description_for_application(
+                jd_save_result = save_or_link_job_description_for_application(
                     application_id=application_id,
                     raw_text=jd_text,
                     jd_profile=jd_profile_for_library,
                     title=jd_profile_for_library.get("job_title", ""),
                     company=jd_profile_for_library.get("company", ""),
+                    location=jd_profile_for_library.get("location", ""),
                     source_type="application_session",
                     source_url="",
                 )
 
-                chunk_count = index_job_description_to_chroma(jd_library_id)
-                jd_library_message = f" Indexed JD into Chroma with {chunk_count} chunks."
+                orphaned_canonical_id = jd_save_result.get(
+                    "orphaned_canonical_jd_id"
+                )
+                if orphaned_canonical_id:
+                    delete_job_description_from_chroma(
+                        jd_save_result.get("orphaned_job_description_id"),
+                        canonical_jd_id=orphaned_canonical_id,
+                    )
+
+                if jd_save_result.get("needs_chroma_index"):
+                    chunk_count = index_job_description_to_chroma(
+                        int(jd_save_result["job_description_id"])
+                    )
+                    jd_library_message = (
+                        f" Indexed canonical JD into Chroma with {chunk_count} chunks."
+                    )
+                else:
+                    jd_library_message = (
+                        " Reused the existing canonical JD; no duplicate embeddings were created."
+                    )
 
             except Exception as rag_exc:
                 # The main resume analysis should still succeed even if RAG indexing fails.

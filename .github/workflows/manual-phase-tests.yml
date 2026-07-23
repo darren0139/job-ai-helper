@@ -1,0 +1,76 @@
+name: Manual Phase Regression Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Select the deterministic regression suite to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - phase-6a
+          - phase-6b
+          - unique-jd
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-phase-tests-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: true
+
+jobs:
+  regression-tests:
+    name: ${{ inputs.suite }} regression tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Compile integration modules
+        run: |
+          python -m py_compile app.py
+          python -m py_compile database/jd_library_manager.py
+          python -m py_compile rag/jd_chroma_rag.py
+          python -m py_compile analysis_stability/stable_evidence_scoring.py
+          python -m py_compile tailoring/stable_tailoring_ranking.py
+          python -m py_compile resume_builder/docx_projects_skills_replacer.py
+
+      - name: Run selected deterministic suite
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.suite }}" in
+            all)
+              python -m unittest discover -s tests -v
+              ;;
+            phase-6a)
+              python -m unittest                 tests.test_stable_evidence_scoring                 tests.test_analysis_stability_trial                 -v
+              ;;
+            phase-6b)
+              python -m unittest                 tests.test_stable_tailoring_ranking                 tests.test_tailoring_stability_trial                 -v
+              ;;
+            unique-jd)
+              python -m unittest                 tests.test_jd_identity                 tests.test_jd_dedup_integration                 tests.test_jd_chroma_identity                 -v
+              ;;
+            *)
+              echo "Unknown suite: ${{ inputs.suite }}"
+              exit 2
+              ;;
+          esac

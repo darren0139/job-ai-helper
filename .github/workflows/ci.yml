@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
@@ -57,7 +57,11 @@ jobs:
           python -m py_compile scripts/run_analysis_stability_trial.py
           python -m py_compile scripts/run_tailoring_stability_trial.py
           python -m py_compile scripts/benchmark_models.py
+          python -m py_compile scripts/migrate_jd_identity.py
+          python -m py_compile scripts/inspect_jd_identity.py
+          python -m py_compile database/jd_library_manager.py
           python -m py_compile rag/jd_identity.py
+          python -m py_compile rag/jd_chroma_rag.py
 
       - name: Run unit and regression tests
         run: python -m unittest discover -s tests -v

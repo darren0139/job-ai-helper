@@ -1,11 +1,11 @@
 """
-database/jd_library_manager.py — SQLite storage for analyzed job descriptions.
+database/jd_library_manager.py — canonical JD storage for analyzed jobs.
 
-This is separate from application sessions, but each JD row can link back to
-one application session through application_id.
+A job description is stored once per logical company/title/location identity.
+Application sessions link to that canonical row through application_job_links.
+Exact/revised posting text is retained in job_description_versions.
 
-This version is designed so the RAG library only comes from Analyze Resume.
-There is no separate manual JD paste/upload library.
+The migration is automatic and preserves existing job_descriptions rows.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from rag.jd_identity import build_job_identity, normalize_field
+
 
 DB_PATH = Path("data/applications.db")
 
@@ -23,14 +25,14 @@ DB_PATH = Path("data/applications.db")
 def _connect() -> sqlite3.Connection:
     """Open SQLite and make sure the data folder exists."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
 
 
 def _column_exists(cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
-    """Return True if the table has the given column."""
     cursor.execute(f"PRAGMA table_info({table_name})")
-    columns = [row[1] for row in cursor.fetchall()]
-    return column_name in columns
+    return column_name in {str(row[1]) for row in cursor.fetchall()}
 
 
 def _add_column_if_missing(
@@ -39,24 +41,49 @@ def _add_column_if_missing(
     column_name: str,
     column_definition: str,
 ) -> None:
-    """Add a column if it does not already exist."""
     if not _column_exists(cursor, table_name, column_name):
         cursor.execute(
             f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
         )
 
 
-def _index_exists(cursor: sqlite3.Cursor, index_name: str) -> bool:
-    """Return True if an index exists."""
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name = ?", (index_name,))
-    return cursor.fetchone() is not None
+def _safe_json_loads(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
-def init_jd_library() -> None:
-    """Create or migrate the job_descriptions table."""
-    conn = _connect()
-    cursor = conn.cursor()
+def _json_dumps(value: dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
+
+def _extract_location(jd_profile: dict[str, Any], explicit_location: str = "") -> str:
+    if explicit_location.strip():
+        return explicit_location.strip()
+
+    for key in ("location", "job_location", "work_location"):
+        value = jd_profile.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    locations = jd_profile.get("locations")
+    if isinstance(locations, list):
+        values = [str(item).strip() for item in locations if str(item).strip()]
+        if values:
+            return ", ".join(values)
+
+    return ""
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _create_schema(cursor: sqlite3.Cursor) -> None:
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS job_descriptions (
@@ -64,308 +91,853 @@ def init_jd_library() -> None:
             application_id INTEGER,
             title TEXT,
             company TEXT,
+            location TEXT,
             source_type TEXT,
             source_url TEXT,
             raw_text TEXT,
             jd_profile_json TEXT,
+            canonical_jd_id TEXT,
+            source_version_id TEXT,
+            company_normalized TEXT,
+            title_normalized TEXT,
+            location_normalized TEXT,
+            first_seen_at TEXT,
+            last_seen_at TEXT,
             created_at TEXT,
             updated_at TEXT
         )
         """
     )
 
-    _add_column_if_missing(cursor, "job_descriptions", "application_id", "INTEGER")
-    _add_column_if_missing(cursor, "job_descriptions", "title", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "company", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "source_type", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "source_url", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "raw_text", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "jd_profile_json", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "created_at", "TEXT")
-    _add_column_if_missing(cursor, "job_descriptions", "updated_at", "TEXT")
+    legacy_columns = {
+        "application_id": "INTEGER",
+        "title": "TEXT",
+        "company": "TEXT",
+        "location": "TEXT",
+        "source_type": "TEXT",
+        "source_url": "TEXT",
+        "raw_text": "TEXT",
+        "jd_profile_json": "TEXT",
+        "canonical_jd_id": "TEXT",
+        "source_version_id": "TEXT",
+        "company_normalized": "TEXT",
+        "title_normalized": "TEXT",
+        "location_normalized": "TEXT",
+        "first_seen_at": "TEXT",
+        "last_seen_at": "TEXT",
+        "created_at": "TEXT",
+        "updated_at": "TEXT",
+    }
+    for column_name, definition in legacy_columns.items():
+        _add_column_if_missing(cursor, "job_descriptions", column_name, definition)
 
-    # Create a unique index so each application session has at most one JD row.
-    # SQLite allows multiple NULLs in a UNIQUE index, which is fine.
-    if not _index_exists(cursor, "idx_job_descriptions_application_id_unique"):
-        cursor.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_job_descriptions_application_id_unique
-            ON job_descriptions(application_id)
-            """
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_description_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_description_id INTEGER NOT NULL,
+            source_version_id TEXT NOT NULL,
+            raw_text TEXT NOT NULL,
+            jd_profile_json TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(job_description_id, source_version_id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS application_job_links (
+            application_id INTEGER PRIMARY KEY,
+            job_description_id INTEGER NOT NULL,
+            source_version_id TEXT NOT NULL,
+            linked_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # The old index encoded "one JD row per session". The link table owns that
+    # constraint now, so retaining this index would misrepresent the new model.
+    cursor.execute("DROP INDEX IF EXISTS idx_job_descriptions_application_id_unique")
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_application_job_links_job_id
+        ON application_job_links(job_description_id)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_job_description_versions_job_id
+        ON job_description_versions(job_description_id)
+        """
+    )
+
+
+def _upsert_version(
+    cursor: sqlite3.Cursor,
+    *,
+    job_description_id: int,
+    source_version_id: str,
+    raw_text: str,
+    jd_profile_json: str,
+    created_at: str,
+) -> bool:
+    cursor.execute(
+        """
+        SELECT 1
+        FROM job_description_versions
+        WHERE job_description_id = ? AND source_version_id = ?
+        """,
+        (job_description_id, source_version_id),
+    )
+    existed = cursor.fetchone() is not None
+
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO job_description_versions (
+            job_description_id,
+            source_version_id,
+            raw_text,
+            jd_profile_json,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            job_description_id,
+            source_version_id,
+            raw_text,
+            jd_profile_json,
+            created_at,
+        ),
+    )
+    return not existed
+
+
+def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
+    """Convert legacy one-row-per-session data into canonical rows and links."""
+    cursor.execute(
+        """
+        SELECT *
+        FROM job_descriptions
+        ORDER BY id ASC
+        """
+    )
+    rows = list(cursor.fetchall())
+
+    canonical_owner: dict[str, int] = {}
+
+    for row in rows:
+        row_id = int(row["id"])
+        raw_text = str(row["raw_text"] or "").strip()
+        jd_profile = _safe_json_loads(row["jd_profile_json"])
+        title = str(row["title"] or jd_profile.get("job_title") or "Untitled Job").strip()
+        company = str(row["company"] or jd_profile.get("company") or "Unknown Company").strip()
+        location = _extract_location(jd_profile, str(row["location"] or ""))
+
+        identity = build_job_identity(
+            company=company,
+            title=title,
+            location=location,
+            raw_jd_text=raw_text,
+        )
+        canonical_id = identity.canonical_jd_id
+        source_id = identity.source_version_id
+        created_at = str(row["created_at"] or row["updated_at"] or _now())
+        updated_at = str(row["updated_at"] or created_at)
+
+        target_id = canonical_owner.get(canonical_id)
+        if target_id is None:
+            cursor.execute(
+                """
+                SELECT id
+                FROM job_descriptions
+                WHERE canonical_jd_id = ? AND id != ?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (canonical_id, row_id),
+            )
+            existing = cursor.fetchone()
+            target_id = int(existing["id"]) if existing else row_id
+            canonical_owner[canonical_id] = target_id
+
+        _upsert_version(
+            cursor,
+            job_description_id=target_id,
+            source_version_id=source_id,
+            raw_text=raw_text,
+            jd_profile_json=_json_dumps(jd_profile),
+            created_at=created_at,
         )
 
-    conn.commit()
-    conn.close()
+        application_id = row["application_id"]
+        if application_id is not None:
+            cursor.execute(
+                """
+                INSERT INTO application_job_links (
+                    application_id,
+                    job_description_id,
+                    source_version_id,
+                    linked_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(application_id) DO UPDATE SET
+                    job_description_id = excluded.job_description_id,
+                    source_version_id = excluded.source_version_id,
+                    updated_at = excluded.updated_at
+                """,
+                (int(application_id), target_id, source_id, created_at, updated_at),
+            )
+
+        if target_id == row_id:
+            cursor.execute(
+                """
+                UPDATE job_descriptions
+                SET
+                    title = ?,
+                    company = ?,
+                    location = ?,
+                    raw_text = ?,
+                    jd_profile_json = ?,
+                    canonical_jd_id = ?,
+                    source_version_id = ?,
+                    company_normalized = ?,
+                    title_normalized = ?,
+                    location_normalized = ?,
+                    first_seen_at = COALESCE(first_seen_at, ?, created_at, ?),
+                    last_seen_at = COALESCE(last_seen_at, updated_at, ?, ?),
+                    created_at = COALESCE(created_at, ?),
+                    updated_at = COALESCE(updated_at, ?)
+                WHERE id = ?
+                """,
+                (
+                    title,
+                    company,
+                    location,
+                    raw_text,
+                    _json_dumps(jd_profile),
+                    canonical_id,
+                    source_id,
+                    identity.company_normalized,
+                    identity.title_normalized,
+                    identity.location_normalized,
+                    created_at,
+                    created_at,
+                    updated_at,
+                    updated_at,
+                    created_at,
+                    updated_at,
+                    row_id,
+                ),
+            )
+        else:
+            cursor.execute(
+                "DELETE FROM job_description_versions WHERE job_description_id = ?",
+                (row_id,),
+            )
+            cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (row_id,))
+
+    # Re-point each canonical row's legacy application_id field to one current
+    # link for backwards-compatible displays. The link table remains authoritative.
+    cursor.execute("SELECT id FROM job_descriptions")
+    for result in cursor.fetchall():
+        job_id = int(result["id"])
+        cursor.execute(
+            """
+            SELECT MIN(application_id) AS application_id
+            FROM application_job_links
+            WHERE job_description_id = ?
+            """,
+            (job_id,),
+        )
+        linked = cursor.fetchone()
+        cursor.execute(
+            "UPDATE job_descriptions SET application_id = ? WHERE id = ?",
+            (linked["application_id"] if linked else None, job_id),
+        )
 
 
-def save_or_update_job_description_for_application(
+def init_jd_library() -> None:
+    """Create/migrate the canonical JD schema and backfill legacy rows."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        _create_schema(cursor)
+        _backfill_legacy_rows(cursor)
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_job_descriptions_canonical_jd_id_unique
+            ON job_descriptions(canonical_jd_id)
+            WHERE canonical_jd_id IS NOT NULL
+            """
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def _find_compatible_canonical_row(
+    cursor: sqlite3.Cursor,
+    *,
+    canonical_jd_id: str,
+    company_normalized: str,
+    title_normalized: str,
+    location_normalized: str,
+) -> sqlite3.Row | None:
+    cursor.execute(
+        "SELECT * FROM job_descriptions WHERE canonical_jd_id = ?",
+        (canonical_jd_id,),
+    )
+    exact = cursor.fetchone()
+    if exact is not None:
+        return exact
+
+    # Conservative fallback: allow a blank location on either side, but require
+    # exact normalized company and title. This avoids duplicates caused only by
+    # one extraction omitting a location.
+    cursor.execute(
+        """
+        SELECT *
+        FROM job_descriptions
+        WHERE company_normalized = ?
+          AND title_normalized = ?
+          AND (
+              location_normalized = ?
+              OR location_normalized = ''
+              OR ? = ''
+          )
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        (
+            company_normalized,
+            title_normalized,
+            location_normalized,
+            location_normalized,
+        ),
+    )
+    return cursor.fetchone()
+
+
+def _delete_orphaned_job(cursor: sqlite3.Cursor, job_description_id: int) -> dict[str, Any]:
+    cursor.execute(
+        "SELECT canonical_jd_id FROM job_descriptions WHERE id = ?",
+        (job_description_id,),
+    )
+    row = cursor.fetchone()
+    canonical_id = str(row["canonical_jd_id"] or "") if row else ""
+
+    cursor.execute(
+        "SELECT COUNT(*) AS count FROM application_job_links WHERE job_description_id = ?",
+        (job_description_id,),
+    )
+    remaining_count = int(cursor.fetchone()["count"])
+
+    if remaining_count == 0:
+        cursor.execute(
+            "DELETE FROM job_description_versions WHERE job_description_id = ?",
+            (job_description_id,),
+        )
+        cursor.execute(
+            "DELETE FROM job_descriptions WHERE id = ?",
+            (job_description_id,),
+        )
+        return {
+            "deleted": True,
+            "job_description_id": job_description_id,
+            "canonical_jd_id": canonical_id,
+            "remaining_link_count": 0,
+        }
+
+    cursor.execute(
+        """
+        SELECT MIN(application_id) AS application_id
+        FROM application_job_links
+        WHERE job_description_id = ?
+        """,
+        (job_description_id,),
+    )
+    replacement = cursor.fetchone()
+    cursor.execute(
+        "UPDATE job_descriptions SET application_id = ? WHERE id = ?",
+        (replacement["application_id"], job_description_id),
+    )
+    return {
+        "deleted": False,
+        "job_description_id": job_description_id,
+        "canonical_jd_id": canonical_id,
+        "remaining_link_count": remaining_count,
+    }
+
+
+def save_or_link_job_description_for_application(
     *,
     application_id: int,
     raw_text: str,
     jd_profile: dict[str, Any],
     title: str = "",
     company: str = "",
+    location: str = "",
     source_type: str = "application_session",
     source_url: str = "",
-) -> int:
+) -> dict[str, Any]:
     """
-    Save or update the JD linked to one application session.
+    Save/link a JD without duplicating its canonical row or Chroma version.
 
-    This prevents duplicate JD library rows when the same application session is
-    analyzed multiple times.
+    Returns flags used by app.py to decide whether embeddings must be created.
     """
     cleaned_text = raw_text.strip()
     if not cleaned_text:
         raise ValueError("Job description text cannot be empty.")
 
-    inferred_title = jd_profile.get("job_title", "") or "Untitled Job"
-    inferred_company = jd_profile.get("company", "") or "Unknown Company"
-    final_title = title.strip() or inferred_title
-    final_company = company.strip() or inferred_company
-    now = datetime.now().isoformat(timespec="seconds")
+    final_title = (title.strip() or str(jd_profile.get("job_title") or "Untitled Job").strip())
+    final_company = (company.strip() or str(jd_profile.get("company") or "Unknown Company").strip())
+    final_location = _extract_location(jd_profile, location)
+    now = _now()
 
-    conn = _connect()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id, created_at
-        FROM job_descriptions
-        WHERE application_id = ?
-        """,
-        (application_id,),
+    identity = build_job_identity(
+        company=final_company,
+        title=final_title,
+        location=final_location,
+        raw_jd_text=cleaned_text,
     )
-    existing = cursor.fetchone()
+    profile_json = _json_dumps(jd_profile)
 
-    if existing:
-        jd_id = int(existing[0])
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
 
         cursor.execute(
-            """
-            UPDATE job_descriptions
-            SET
-                title = ?,
-                company = ?,
-                source_type = ?,
-                source_url = ?,
-                raw_text = ?,
-                jd_profile_json = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                final_title,
-                final_company,
-                source_type,
-                source_url.strip(),
-                cleaned_text,
-                json.dumps(jd_profile, ensure_ascii=False),
-                now,
-                jd_id,
-            ),
+            "SELECT job_description_id FROM application_job_links WHERE application_id = ?",
+            (application_id,),
         )
-    else:
+        existing_link = cursor.fetchone()
+        previous_job_id = int(existing_link["job_description_id"]) if existing_link else None
+
+        canonical_row = _find_compatible_canonical_row(
+            cursor,
+            canonical_jd_id=identity.canonical_jd_id,
+            company_normalized=identity.company_normalized,
+            title_normalized=identity.title_normalized,
+            location_normalized=identity.location_normalized,
+        )
+
+        created_new_job = canonical_row is None
+        if created_new_job:
+            cursor.execute(
+                """
+                INSERT INTO job_descriptions (
+                    application_id,
+                    title,
+                    company,
+                    location,
+                    source_type,
+                    source_url,
+                    raw_text,
+                    jd_profile_json,
+                    canonical_jd_id,
+                    source_version_id,
+                    company_normalized,
+                    title_normalized,
+                    location_normalized,
+                    first_seen_at,
+                    last_seen_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    application_id,
+                    final_title,
+                    final_company,
+                    final_location,
+                    source_type,
+                    source_url.strip(),
+                    cleaned_text,
+                    profile_json,
+                    identity.canonical_jd_id,
+                    identity.source_version_id,
+                    identity.company_normalized,
+                    identity.title_normalized,
+                    identity.location_normalized,
+                    now,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            job_id = int(cursor.lastrowid)
+            canonical_id = identity.canonical_jd_id
+        else:
+            job_id = int(canonical_row["id"])
+            canonical_id = str(canonical_row["canonical_jd_id"])
+
+        created_new_version = _upsert_version(
+            cursor,
+            job_description_id=job_id,
+            source_version_id=identity.source_version_id,
+            raw_text=cleaned_text,
+            jd_profile_json=profile_json,
+            created_at=now,
+        )
+
+        if not created_new_job:
+            cursor.execute(
+                """
+                UPDATE job_descriptions
+                SET
+                    title = ?,
+                    company = ?,
+                    location = ?,
+                    source_type = ?,
+                    source_url = ?,
+                    last_seen_at = ?,
+                    updated_at = ?,
+                    application_id = COALESCE(application_id, ?)
+                WHERE id = ?
+                """,
+                (
+                    final_title,
+                    final_company,
+                    final_location,
+                    source_type,
+                    source_url.strip(),
+                    now,
+                    now,
+                    application_id,
+                    job_id,
+                ),
+            )
+
+        # A new source version becomes the latest canonical representation.
+        if created_new_job or created_new_version:
+            cursor.execute(
+                """
+                UPDATE job_descriptions
+                SET
+                    raw_text = ?,
+                    jd_profile_json = ?,
+                    source_version_id = ?,
+                    last_seen_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    cleaned_text,
+                    profile_json,
+                    identity.source_version_id,
+                    now,
+                    now,
+                    job_id,
+                ),
+            )
+
+        created_new_link = existing_link is None or previous_job_id != job_id
         cursor.execute(
             """
-            INSERT INTO job_descriptions (
+            INSERT INTO application_job_links (
                 application_id,
-                title,
-                company,
-                source_type,
-                source_url,
-                raw_text,
-                jd_profile_json,
-                created_at,
+                job_description_id,
+                source_version_id,
+                linked_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(application_id) DO UPDATE SET
+                job_description_id = excluded.job_description_id,
+                source_version_id = excluded.source_version_id,
+                updated_at = excluded.updated_at
             """,
             (
                 application_id,
-                final_title,
-                final_company,
-                source_type,
-                source_url.strip(),
-                cleaned_text,
-                json.dumps(jd_profile, ensure_ascii=False),
+                job_id,
+                identity.source_version_id,
                 now,
                 now,
             ),
         )
-        jd_id = int(cursor.lastrowid)
 
-    conn.commit()
-    conn.close()
+        orphaned = None
+        if previous_job_id is not None and previous_job_id != job_id:
+            orphaned = _delete_orphaned_job(cursor, previous_job_id)
 
-    return jd_id
+        connection.commit()
+        return {
+            "job_description_id": job_id,
+            "canonical_jd_id": canonical_id,
+            "source_version_id": identity.source_version_id,
+            "created_new_job": created_new_job,
+            "created_new_version": created_new_version,
+            "created_new_link": created_new_link,
+            "needs_chroma_index": created_new_job or created_new_version,
+            "orphaned_job_description_id": (
+                orphaned["job_description_id"]
+                if orphaned and orphaned["deleted"]
+                else None
+            ),
+            "orphaned_canonical_jd_id": (
+                orphaned["canonical_jd_id"]
+                if orphaned and orphaned["deleted"]
+                else None
+            ),
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def save_or_update_job_description_for_application(**kwargs: Any) -> int:
+    """Backward-compatible wrapper returning only the canonical JD row ID."""
+    result = save_or_link_job_description_for_application(**kwargs)
+    return int(result["job_description_id"])
 
 
 def get_recent_job_descriptions(limit: int = 20) -> list[tuple]:
-    """
-    Return recent saved JDs.
-
-    Returns tuples:
-        (id, application_id, title, company, source_type, created_at)
-    """
-    conn = _connect()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id, application_id, title, company, source_type, created_at
-        FROM job_descriptions
-        ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return rows
+    """Return unique canonical JDs, not one row per application session."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT
+                jd.id,
+                MIN(link.application_id) AS application_id,
+                jd.title,
+                jd.company,
+                jd.source_type,
+                COALESCE(jd.last_seen_at, jd.updated_at, jd.created_at) AS seen_at
+            FROM job_descriptions AS jd
+            LEFT JOIN application_job_links AS link
+                ON link.job_description_id = jd.id
+            GROUP BY jd.id
+            ORDER BY seen_at DESC, jd.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [tuple(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
 
 
 def get_job_description_by_id(jd_id: int) -> dict[str, Any] | None:
-    """Return one saved JD by ID."""
-    conn = _connect()
-    cursor = conn.cursor()
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM job_descriptions WHERE id = ?", (jd_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return None
 
-    cursor.execute(
-        """
-        SELECT
-            application_id,
-            title,
-            company,
-            source_type,
-            source_url,
-            raw_text,
-            jd_profile_json,
-            created_at,
-            updated_at
-        FROM job_descriptions
-        WHERE id = ?
-        """,
-        (jd_id,),
-    )
+        cursor.execute(
+            """
+            SELECT application_id
+            FROM application_job_links
+            WHERE job_description_id = ?
+            ORDER BY application_id ASC
+            """,
+            (jd_id,),
+        )
+        application_ids = [int(item["application_id"]) for item in cursor.fetchall()]
 
-    row = cursor.fetchone()
-    conn.close()
-
-    if row is None:
-        return None
-
-    return {
-        "id": jd_id,
-        "application_id": row[0],
-        "title": row[1],
-        "company": row[2],
-        "source_type": row[3],
-        "source_url": row[4],
-        "raw_text": row[5],
-        "jd_profile": json.loads(row[6]) if row[6] else {},
-        "created_at": row[7],
-        "updated_at": row[8],
-    }
+        return {
+            "id": jd_id,
+            "application_id": application_ids[0] if application_ids else row["application_id"],
+            "application_ids": application_ids,
+            "application_count": len(application_ids),
+            "title": row["title"],
+            "company": row["company"],
+            "location": row["location"] or "",
+            "source_type": row["source_type"],
+            "source_url": row["source_url"],
+            "raw_text": row["raw_text"],
+            "jd_profile": _safe_json_loads(row["jd_profile_json"]),
+            "canonical_jd_id": row["canonical_jd_id"],
+            "source_version_id": row["source_version_id"],
+            "company_normalized": row["company_normalized"],
+            "title_normalized": row["title_normalized"],
+            "location_normalized": row["location_normalized"],
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+    finally:
+        connection.close()
 
 
 def get_job_description_by_application_id(application_id: int) -> dict[str, Any] | None:
-    """Return the JD linked to an application session."""
-    conn = _connect()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM job_descriptions
-        WHERE application_id = ?
-        """,
-        (application_id,),
-    )
-
-    row = cursor.fetchone()
-    conn.close()
-
-    if row is None:
-        return None
-
-    return get_job_description_by_id(int(row[0]))
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT job_description_id
+            FROM application_job_links
+            WHERE application_id = ?
+            """,
+            (application_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        job_id = int(row["job_description_id"])
+    finally:
+        connection.close()
+    return get_job_description_by_id(job_id)
 
 
 def get_all_job_descriptions(limit: int = 200) -> list[dict[str, Any]]:
-    """Return saved JD records for vector indexing and RAG."""
-    conn = _connect()
-    cursor = conn.cursor()
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT id
+            FROM job_descriptions
+            ORDER BY COALESCE(last_seen_at, updated_at, created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        ids = [int(row["id"]) for row in cursor.fetchall()]
+    finally:
+        connection.close()
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            application_id,
-            title,
-            company,
-            source_type,
-            source_url,
-            raw_text,
-            jd_profile_json,
-            created_at,
-            updated_at
-        FROM job_descriptions
-        ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
+    return [job for job_id in ids if (job := get_job_description_by_id(job_id))]
 
-    rows = cursor.fetchall()
-    conn.close()
 
-    return [
-        {
-            "id": row[0],
-            "application_id": row[1],
-            "title": row[2],
-            "company": row[3],
-            "source_type": row[4],
-            "source_url": row[5],
-            "raw_text": row[6],
-            "jd_profile": json.loads(row[7]) if row[7] else {},
-            "created_at": row[8],
-            "updated_at": row[9],
-        }
-        for row in rows
-    ]
+def get_jd_library_stats() -> dict[str, int]:
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        stats: dict[str, int] = {}
+        for key, table in (
+            ("canonical_jobs", "job_descriptions"),
+            ("versions", "job_description_versions"),
+            ("session_links", "application_job_links"),
+        ):
+            cursor.execute(f"SELECT COUNT(*) AS count FROM {table}")
+            stats[key] = int(cursor.fetchone()["count"])
+        return stats
+    finally:
+        connection.close()
 
 
 def delete_job_description(jd_id: int) -> None:
-    """Delete one JD from the library."""
-    conn = _connect()
-    cursor = conn.cursor()
+    """Delete a canonical JD, all versions and all session links."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "DELETE FROM application_job_links WHERE job_description_id = ?",
+            (jd_id,),
+        )
+        cursor.execute(
+            "DELETE FROM job_description_versions WHERE job_description_id = ?",
+            (jd_id,),
+        )
+        cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (jd_id,))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-    cursor.execute(
-        """
-        DELETE FROM job_descriptions
-        WHERE id = ?
-        """,
-        (jd_id,),
-    )
 
-    conn.commit()
-    conn.close()
+def unlink_job_description_from_application(application_id: int) -> dict[str, Any]:
+    """Unlink one session; delete the canonical JD only when no sessions remain."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT job_description_id FROM application_job_links WHERE application_id = ?",
+            (application_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return {
+                "job_description_id": None,
+                "canonical_jd_id": None,
+                "deleted_canonical_job": False,
+                "remaining_link_count": 0,
+            }
+
+        job_id = int(row["job_description_id"])
+        cursor.execute(
+            "DELETE FROM application_job_links WHERE application_id = ?",
+            (application_id,),
+        )
+        result = _delete_orphaned_job(cursor, job_id)
+        connection.commit()
+        return {
+            "job_description_id": job_id,
+            "canonical_jd_id": result["canonical_jd_id"],
+            "deleted_canonical_job": bool(result["deleted"]),
+            "remaining_link_count": int(result["remaining_link_count"]),
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def delete_job_description_by_application_id(application_id: int) -> None:
-    """Delete the JD linked to one application session."""
-    conn = _connect()
-    cursor = conn.cursor()
+    """Backward-compatible wrapper around session unlinking."""
+    unlink_job_description_from_application(application_id)
 
-    cursor.execute(
-        """
-        DELETE FROM job_descriptions
-        WHERE application_id = ?
-        """,
-        (application_id,),
-    )
 
-    conn.commit()
-    conn.close()
+def get_job_description_versions(jd_id: int) -> list[dict[str, Any]]:
+    """Return stored source versions for one canonical JD, newest first."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT source_version_id, raw_text, jd_profile_json, created_at
+            FROM job_description_versions
+            WHERE job_description_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (jd_id,),
+        )
+        return [
+            {
+                "source_version_id": row["source_version_id"],
+                "raw_text": row["raw_text"],
+                "jd_profile": _safe_json_loads(row["jd_profile_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in cursor.fetchall()
+        ]
+    finally:
+        connection.close()
+
+
+def get_application_job_links() -> list[dict[str, Any]]:
+    """Return session-to-canonical-JD links for diagnostics/tests."""
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT application_id, job_description_id, source_version_id, linked_at, updated_at
+            FROM application_job_links
+            ORDER BY application_id ASC
+            """
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
