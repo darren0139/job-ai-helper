@@ -2155,7 +2155,7 @@ if page == "Application Sessions":
                 with st.expander("Fitting strategy", expanded=True):
                     use_compact_before_delete = st.checkbox(
                         "Compact project wording before deleting content",
-                        value=False,
+                        value=True,
                         key=(
                             "use_compact_before_delete_"
                             f"{current_application_id}"

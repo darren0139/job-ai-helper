@@ -33,3 +33,6 @@ input/*
 test_inputs/
 stability_results/
 benchmark_results/
+
+app.py.before_phase6c
+resume_builder/docx_projects_skills_replacer.py.before_phase6c

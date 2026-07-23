@@ -53,6 +53,12 @@ from resume_builder.skills_section_compactor import (
     restore_skill_change,
     skill_restoration_quality_gain,
 )
+from resume_builder.evidence_aware_fitting import (
+    PHASE6C_FITTING_VERSION,
+    build_evidence_aware_project_reductions,
+    restore_removed_bullet_metadata,
+    sync_project_bullet_metadata,
+)
 
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -1080,6 +1086,13 @@ def apply_compact_bullets_once(
         "space_action"
     ] = "compact_rewrite"
 
+    # Compact bullets preserve a one-to-one relationship with the full
+    # bullets. Keep the Phase 6B.1 evidence metadata aligned by index.
+    sync_project_bullet_metadata(
+        target_project,
+        bullet_texts=compact_bullets,
+    )
+
     project_title = (
         target_project.get(
             "display_title"
@@ -1163,241 +1176,33 @@ def compact_tailored_projects_one_step(
     prefer_balanced_bullets: bool = False,
 ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
     """
-    Remove one complete low-priority project bullet.
+    Return the safest deterministic Phase 6C reduction.
 
-    Returns:
-        compacted:
-            Updated tailored-project result.
-
-        changed:
-            True when a bullet or project was removed.
-
-        change_info:
-            Debug information describing the change.
+    The full one-page fitting loop calls
+    ``build_evidence_aware_project_reductions`` directly so it can render and
+    compare every eligible bullet candidate. This wrapper remains compatible
+    with callers and tests that expect one reduction.
     """
-    compacted = deepcopy(tailored_projects)
-    projects = compacted.get("recommended_projects", [])
+    candidates = build_evidence_aware_project_reductions(
+        tailored_projects,
+        minimum_bullets_per_project=minimum_bullets_per_project,
+        minimum_projects_to_keep=minimum_projects_to_keep,
+        prefer_balanced_bullets=prefer_balanced_bullets,
+    )
 
-    removable_projects = [
-        project
-        for project in projects
-        if len(project.get("draft_bullets", []) or [])
-        > minimum_bullets_per_project
-    ]
-
-    if removable_projects:
-        # Default behaviour remains relevance-first.
-        #
-        # Optional balanced mode first reduces the project that currently
-        # has the most bullets. Relevance and final-bullet length are then
-        # used as tie-breakers. This avoids repeatedly shrinking one project
-        # while another project still has substantially more content.
-        if prefer_balanced_bullets:
-            target_project = min(
-                removable_projects,
-                key=lambda project: (
-                    -len(
-                        project.get(
-                            "draft_bullets",
-                            [],
-                        )
-                        or []
-                    ),
-                    _project_priority_score(project),
-                    -len(
-                        str(
-                            (
-                                project.get(
-                                    "draft_bullets",
-                                    [],
-                                )
-                                or [""]
-                            )[-1]
-                        ).split()
-                    ),
-                ),
-            )
-        else:
-            target_project = min(
-                removable_projects,
-                key=lambda project: (
-                    _project_priority_score(project),
-                    -len(
-                        str(
-                            (
-                                project.get(
-                                    "draft_bullets",
-                                    [],
-                                )
-                                or [""]
-                            )[-1]
-                        ).split()
-                    ),
-                ),
-            )
-
-        previous_space_action = str(
-            target_project.get(
-                "space_action",
-                "keep_full",
-            )
-        )
-
-        project_bullet_count_before = len(
-            target_project.get(
-                "draft_bullets",
-                [],
-            )
-            or []
-        )
-
-        removed_bullet_index = (
-            len(
-                target_project.get(
-                    "draft_bullets",
-                    [],
-                )
-                or []
-            )
-            - 1
-        )
-
-        removed_bullet = target_project[
-            "draft_bullets"
-        ].pop()
-
-        if len(target_project["draft_bullets"]) == 1:
-            target_project["space_action"] = "single_bullet"
-        else:
-            target_project["space_action"] = "shorten"
-
-        # Priority decides what is removed.
-        # Date decides the final display order.
-        compacted["recommended_projects"] = sorted(
-            projects,
-            key=lambda project: period_sort_value(
-                project.get("period", "")
-            ),
-            reverse=True,
-        )
-
-        project_title = (
-            target_project.get("display_title")
-            or target_project.get("title")
-            or "Untitled Project"
-        )
-
-        change = {
-            "change_type": "remove_bullet",
-            "project": project_title,
-            "removed_bullet": removed_bullet,
-            "removed_bullet_index": (
-                removed_bullet_index
-            ),
-            "previous_space_action": (
-                previous_space_action
-            ),
-            "deletion_strategy": (
-                "balanced"
-                if prefer_balanced_bullets
-                else "relevance_first"
-            ),
-            "project_bullet_count_before": (
-                project_bullet_count_before
-            ),
-            "project_priority_score": (
-                _project_priority_score(
-                    target_project
-                )
-            ),
-        }
-
-        compacted.setdefault("notes_for_user", []).append(
-            f"Removed one lower-priority bullet from "
-            f"{project_title} to reduce page overflow."
-        )
-
-        return compacted, True, change
-
-    # Every retained project is already down to one bullet.
-    # Remove the least relevant project only as a final fallback.
-    if len(projects) > minimum_projects_to_keep:
-        removed_project = min(
-            projects,
-            key=_project_priority_score,
-        )
-
-        removed_project_index = (
-            projects.index(
-                removed_project
-            )
-        )
-
-        removed_title = (
-            removed_project.get("display_title")
-            or removed_project.get("title")
-            or "Untitled Project"
-        )
-
-        remaining_projects = [
-            project
-            for project in projects
-            if project is not removed_project
-        ]
-
-        compacted["recommended_projects"] = sorted(
-            remaining_projects,
-            key=lambda project: period_sort_value(
-                project.get("period", "")
-            ),
-            reverse=True,
-        )
-
-        compacted.setdefault(
-            "projects_to_remove_or_deprioritize",
-            [],
-        ).append(
-            {
-                "title": removed_title,
-                "reason": (
-                    "Removed after every retained project had already "
-                    "been reduced to one bullet and the resume still "
-                    "exceeded one page."
-                ),
-            }
-        )
-
+    if not candidates:
         return (
-            compacted,
-            True,
+            deepcopy(tailored_projects),
+            False,
             {
-                "change_type": "remove_project",
-                "project": removed_title,
-                "removed_project_index": (
-                    removed_project_index
-                ),
-                "removed_project_data": deepcopy(
-                    removed_project
-                ),
-                "project_priority_score": (
-                    _project_priority_score(
-                        removed_project
-                    )
-                ),
+                "fitting_version": PHASE6C_FITTING_VERSION,
+                "change_type": "none",
+                "reason": "No evidence-aware project reduction is available.",
             },
         )
 
-    return (
-        compacted,
-        False,
-        {
-            "change_type": "none",
-            "reason": "No more safe project reductions are available.",
-        },
-    )
-
-
-
+    compacted, change = candidates[0]
+    return compacted, True, change
 
 def _project_change_title(
     project: dict[str, Any],
@@ -1591,6 +1396,13 @@ def _restore_fitting_change(
             "draft_bullets"
         ] = bullets
 
+        restore_removed_bullet_metadata(
+            project,
+            bullet_index=insert_index,
+            bullet_text=removed_bullet,
+            removed_metadata=change.get("removed_bullet_metadata"),
+        )
+
         project[
             "space_action"
         ] = str(
@@ -1729,96 +1541,46 @@ def _restore_fitting_change(
 def _restoration_quality_gain(
     change: dict[str, Any],
 ) -> int:
-    """
-    Score the evidence recovered by reversing a fitting change.
-
-    Project relevance remains more important than filling every last line.
-    """
-    project_priority = int(
-        change.get(
-            "project_priority_score",
-            0,
-        )
-        or 0
-    )
-
-    change_type = str(
-        change.get(
-            "change_type",
-            "",
-        )
-    )
+    """Score evidence recovered by reversing a fitting change."""
+    project_priority = int(change.get("project_priority_score", 0) or 0)
+    change_type = str(change.get("change_type", ""))
 
     if change_type == "compact_rewrite":
         recovered_words = max(
             0,
-            int(
-                change.get(
-                    "full_word_count",
-                    0,
-                )
-                or 0
-            )
-            - int(
-                change.get(
-                    "compact_word_count",
-                    0,
-                )
-                or 0
-            ),
+            int(change.get("full_word_count", 0) or 0)
+            - int(change.get("compact_word_count", 0) or 0),
         )
-
-        return (
-            project_priority * 10
-            + recovered_words
-        )
+        return project_priority * 10 + recovered_words
 
     if change_type == "remove_bullet":
         recovered_words = len(
-            str(
-                change.get(
-                    "removed_bullet",
-                    "",
-                )
-            ).split()
+            str(change.get("removed_bullet", "")).split()
         )
-
-        return (
-            project_priority * 10
-            + recovered_words * 3
-        )
-
-    if change_type == "remove_project":
-        removed_project = (
-            change.get(
-                "removed_project_data"
-            )
-            or {}
-        )
-
-        recovered_words = (
-            _bullet_word_count(
-                removed_project.get(
-                    "draft_bullets",
-                    [],
-                )
-                or []
-            )
-            if isinstance(
-                removed_project,
-                dict,
-            )
-            else 0
-        )
-
-        return (
-            10000
-            + project_priority * 10
+        legacy_gain = project_priority * 10 + recovered_words * 3
+        phase6c_gain = (
+            int(change.get("evidence_loss_score", 0) or 0) * 10
             + recovered_words
         )
+        return max(legacy_gain, phase6c_gain)
+
+    if change_type == "remove_project":
+        removed_project = change.get("removed_project_data") or {}
+        recovered_words = (
+            _bullet_word_count(
+                removed_project.get("draft_bullets", []) or []
+            )
+            if isinstance(removed_project, dict)
+            else 0
+        )
+        legacy_gain = 10000 + project_priority * 10 + recovered_words
+        phase6c_gain = (
+            int(change.get("evidence_loss_score", 0) or 0) * 10
+            + recovered_words
+        )
+        return max(legacy_gain, phase6c_gain)
 
     return 0
-
 
 def _restorable_change_indices(
     active_changes: list[
@@ -2622,8 +2384,14 @@ def generate_tailored_resume_copy(
 #     return compacted
 
 
-def _project_reduction_quality_loss(change: dict[str, Any]) -> int:
+def _project_reduction_quality_loss(
+    change: dict[str, Any],
+) -> int:
     """Estimate evidence loss for one project fitting change."""
+    phase6c_loss = change.get("evidence_loss_score")
+    if phase6c_loss is not None:
+        return max(0, int(phase6c_loss or 0))
+
     priority = int(change.get("project_priority_score", 0) or 0)
     change_type = str(change.get("change_type", ""))
 
@@ -2636,14 +2404,15 @@ def _project_reduction_quality_loss(change: dict[str, Any]) -> int:
         return 200 + priority // 2 + removed_words
 
     if change_type == "remove_bullet":
-        removed_words = len(str(change.get("removed_bullet", "")).split())
+        removed_words = len(
+            str(change.get("removed_bullet", "")).split()
+        )
         return 600 + priority + removed_words * 5
 
     if change_type == "remove_project":
         return 10000 + priority * 10
 
     return 100000
-
 
 def _skill_reduction_quality_loss(change: dict[str, Any]) -> int:
     """Estimate evidence loss for removing one Skills item."""
@@ -2780,36 +2549,58 @@ def _choose_layout_aware_reduction(
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Choose a reduction using rendered space saved rather than raw loss alone.
+    Choose a rendered reduction while protecting requirement evidence.
 
-    Priority:
-    1. Any candidate that reaches one page.
-    2. A candidate with measurable overflow reduction, ranked by
-       quality loss divided by actual space saved.
-    3. A no-effect candidate only when every available candidate has no
-       measurable layout effect.
+    Phase 6C first limits consideration to candidates with the lowest
+    protection tier that produce a measurable layout improvement. It then uses
+    the existing one-page/efficiency comparison inside that safer tier.
     """
     if not candidates:
         raise ValueError("No rendered fitting candidates were supplied.")
 
+    effective = [
+        candidate
+        for candidate in candidates
+        if candidate.get("reaches_one_page")
+        or float(candidate.get("space_saved_ratio", 0.0) or 0.0)
+        >= _LAYOUT_EFFECT_THRESHOLD
+    ]
+    pool = effective or list(candidates)
+
+    def protection_tier(candidate: dict[str, Any]) -> int:
+        change = candidate.get("change", {}) or {}
+        return max(0, int(change.get("protection_tier", 0) or 0))
+
+    safest_tier = min(protection_tier(candidate) for candidate in pool)
+    pool = [
+        candidate
+        for candidate in pool
+        if protection_tier(candidate) == safest_tier
+    ]
+
     def key(candidate: dict[str, Any]) -> tuple[float, float, int]:
         reaches_one_page = bool(candidate.get("reaches_one_page"))
-        space_saved = float(candidate.get("space_saved_ratio", 0.0) or 0.0)
+        space_saved = float(
+            candidate.get("space_saved_ratio", 0.0) or 0.0
+        )
         quality_loss = float(candidate.get("quality_loss", 0) or 0)
-        candidate_order = int(candidate.get("candidate_order", 99) or 99)
+        candidate_order = int(
+            candidate.get("candidate_order", 99) or 99
+        )
 
         if reaches_one_page:
             return (0.0, quality_loss, candidate_order)
 
         if space_saved >= _LAYOUT_EFFECT_THRESHOLD:
-            efficiency = quality_loss / space_saved
-            return (1.0, efficiency, candidate_order)
+            return (
+                1.0,
+                quality_loss / space_saved,
+                candidate_order,
+            )
 
         return (2.0, quality_loss, candidate_order)
 
-    return min(candidates, key=key)
-
-
+    return min(pool, key=key)
 
 def generate_tailored_resume_copy_fit_one_page(
     *,
@@ -2865,6 +2656,11 @@ def generate_tailored_resume_copy_fit_one_page(
             project["compact_bullets"] = (
                 project.get("compact_bullets", []) or []
             )[:max_bullets_per_project]
+
+            sync_project_bullet_metadata(
+                project,
+                bullet_texts=project["draft_bullets"],
+            )
 
         working_projects["recommended_projects"] = visible_projects
 
@@ -3016,6 +2812,7 @@ def generate_tailored_resume_copy_fit_one_page(
     if current_render["pdf_path"] is None:
         return {
             "generation_id": generation_id,
+            "fitting_version": PHASE6C_FITTING_VERSION,
             "docx_path": current_render["docx_path"],
             "pdf_path": None,
             "page_count": None,
@@ -3078,20 +2875,25 @@ def generate_tailored_resume_copy_fit_one_page(
                 )
 
         if working_projects:
-            reduced_projects, changed, change = compact_tailored_projects_one_step(
+            project_reductions = build_evidence_aware_project_reductions(
                 working_projects,
                 prefer_balanced_bullets=prefer_balanced_bullets,
             )
-            if changed:
-                change = deepcopy(change)
+            for reduction_index, (
+                reduced_projects,
+                raw_change,
+            ) in enumerate(project_reductions, start=2):
+                change = deepcopy(raw_change)
                 change["section"] = "projects"
                 candidate_changes.append(
                     {
                         "projects": reduced_projects,
                         "skills": working_skills,
                         "change": change,
-                        "quality_loss": _project_reduction_quality_loss(change),
-                        "candidate_order": 2,
+                        "quality_loss": _project_reduction_quality_loss(
+                            change
+                        ),
+                        "candidate_order": reduction_index,
                     }
                 )
 
@@ -3166,6 +2968,31 @@ def generate_tailored_resume_copy_fit_one_page(
                 "project": candidate["change"].get("project"),
                 "category": candidate["change"].get("category"),
                 "removed_skill": candidate["change"].get("removed_skill"),
+                "removed_bullet_index": candidate["change"].get(
+                    "removed_bullet_index"
+                ),
+                "protection_tier": candidate["change"].get(
+                    "protection_tier",
+                    0,
+                ),
+                "supported_requirement_ids": candidate["change"].get(
+                    "supported_requirement_ids",
+                    [],
+                ),
+                "protected_requirement_ids": candidate["change"].get(
+                    "protected_requirement_ids",
+                    [],
+                ),
+                "globally_unique_requirement_ids": candidate["change"].get(
+                    "globally_unique_requirement_ids",
+                    [],
+                ),
+                "evidence_loss_score": candidate["change"].get(
+                    "evidence_loss_score"
+                ),
+                "evidence_loss_reason": candidate["change"].get(
+                    "evidence_loss_reason"
+                ),
                 "quality_loss": candidate["quality_loss"],
                 "space_saved_ratio": round(
                     float(candidate["space_saved_ratio"]), 3
@@ -3208,6 +3035,7 @@ def generate_tailored_resume_copy_fit_one_page(
     if fitting_render is None:
         return {
             "generation_id": generation_id,
+            "fitting_version": PHASE6C_FITTING_VERSION,
             "docx_path": current_render["docx_path"],
             "pdf_path": current_render["pdf_path"],
             "page_count": current_render["page_count"],
@@ -3402,6 +3230,7 @@ def generate_tailored_resume_copy_fit_one_page(
 
     return {
         "generation_id": generation_id,
+            "fitting_version": PHASE6C_FITTING_VERSION,
         "docx_path": best_render["docx_path"],
         "pdf_path": best_render["pdf_path"],
         "page_count": best_render["page_count"],
@@ -3417,8 +3246,9 @@ def generate_tailored_resume_copy_fit_one_page(
         "page_density_mode": density_mode,
         "density_target_max": density_max_fill,
         "fitting_objective": (
-            "Minimise deterministic evidence loss per unit of actual rendered "
-            "space saved; do not rerun analysis or project selection."
+            "Protect unique requirement evidence, then minimise deterministic "
+            "evidence loss per unit of actual rendered space saved; "
+            "do not rerun analysis or project selection."
         ),
         "remaining_quality_loss": remaining_quality_loss,
         "restored_change_count": restored_change_count,

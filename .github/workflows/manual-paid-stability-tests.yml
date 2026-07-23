@@ -1,0 +1,195 @@
+name: Manual Paid Stability Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Paid stability trial to run
+        required: true
+        default: phase-6a
+        type: choice
+        options:
+          - phase-6a
+          - phase-6b
+      analysis_model:
+        description: Provider-prefixed model ID, for example openai/gpt-5.6-luna
+        required: true
+        default: openai/gpt-5.6-luna
+        type: string
+      degree:
+        description: Degree code used by the Phase 6A trial
+        required: true
+        default: IMGD
+        type: choice
+        options:
+          - IMGD
+          - RTIS
+          - UXGD
+          - BFA
+      runs:
+        description: Number of paid model runs
+        required: true
+        default: "3"
+        type: choice
+        options:
+          - "2"
+          - "3"
+          - "5"
+      reasoning_effort:
+        description: Reasoning effort passed to supported models
+        required: true
+        default: medium
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+      confirm_paid:
+        description: I understand this workflow can charge the configured API account
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paid-stability-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: false
+
+jobs:
+  confirm-paid-run:
+    name: Confirm paid run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit paid-run confirmation
+        env:
+          CONFIRM_PAID: ${{ inputs.confirm_paid }}
+        run: |
+          if [[ "$CONFIRM_PAID" != "true" ]]; then
+            echo "Select the paid-run confirmation checkbox before running."
+            exit 2
+          fi
+
+  paid-stability:
+    name: ${{ inputs.suite }} paid stability trial
+    needs: confirm-paid-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Create this environment under:
+    # Settings -> Environments -> paid-api-tests
+    # Add yourself as a required reviewer to approve every paid run.
+    environment: paid-api-tests
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Validate selected provider, secret, and sanitized fixture
+        shell: bash
+        env:
+          SELECTED_MODEL: ${{ inputs.analysis_model }}
+          SELECTED_SUITE: ${{ inputs.suite }}
+        run: |
+          set -euo pipefail
+
+          case "$SELECTED_MODEL" in
+            openai/*)
+              test -n "${OPENAI_API_KEY:-}" || {
+                echo "OPENAI_API_KEY is missing from paid-api-tests."
+                exit 2
+              }
+              ;;
+            anthropic/*)
+              test -n "${ANTHROPIC_API_KEY:-}" || {
+                echo "ANTHROPIC_API_KEY is missing from paid-api-tests."
+                exit 2
+              }
+              ;;
+            gemini/*)
+              test -n "${GEMINI_API_KEY:-}" || {
+                echo "GEMINI_API_KEY is missing from paid-api-tests."
+                exit 2
+              }
+              ;;
+            ollama/*)
+              echo "Ollama is not available on the GitHub-hosted runner."
+              exit 2
+              ;;
+            *)
+              echo "Use a provider-prefixed model ID: openai/, anthropic/, or gemini/."
+              exit 2
+              ;;
+          esac
+
+          if [[ "$SELECTED_SUITE" == "phase-6a" ]]; then
+            test -f ci_fixtures/phase6a/resume_fixture.docx || {
+              echo "Missing sanitized ci_fixtures/phase6a/resume_fixture.docx"
+              exit 2
+            }
+            test -f ci_fixtures/phase6a/job_description.txt || {
+              echo "Missing ci_fixtures/phase6a/job_description.txt"
+              exit 2
+            }
+          else
+            test -f ci_fixtures/phase6b/debug_bundle.json || {
+              echo "Missing sanitized ci_fixtures/phase6b/debug_bundle.json"
+              exit 2
+            }
+          fi
+
+      - name: Run paid stability trial
+        shell: bash
+        env:
+          SELECTED_MODEL: ${{ inputs.analysis_model }}
+          SELECTED_SUITE: ${{ inputs.suite }}
+          SELECTED_DEGREE: ${{ inputs.degree }}
+          SELECTED_RUNS: ${{ inputs.runs }}
+          SELECTED_REASONING: ${{ inputs.reasoning_effort }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SELECTED_SUITE" == "phase-6a" ]]; then
+            python -m scripts.run_analysis_stability_trial \
+              --resume ci_fixtures/phase6a/resume_fixture.docx \
+              --jd ci_fixtures/phase6a/job_description.txt \
+              --degree "$SELECTED_DEGREE" \
+              --runs "$SELECTED_RUNS" \
+              --analysis-model "$SELECTED_MODEL" \
+              --reasoning-effort "$SELECTED_REASONING" \
+              --strict
+          else
+            python -m scripts.run_tailoring_stability_trial \
+              --debug-bundle ci_fixtures/phase6b/debug_bundle.json \
+              --runs "$SELECTED_RUNS" \
+              --analysis-model "$SELECTED_MODEL" \
+              --reasoning-effort "$SELECTED_REASONING" \
+              --strict
+          fi
+
+      - name: Upload stability reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.suite }}-stability-results
+          path: stability_results/
+          if-no-files-found: warn
+          retention-days: 14

@@ -12,6 +12,7 @@ on:
           - all
           - phase-6a
           - phase-6b
+          - phase-6c
           - unique-jd
 
 permissions:
@@ -49,6 +50,7 @@ jobs:
           python -m py_compile rag/jd_chroma_rag.py
           python -m py_compile analysis_stability/stable_evidence_scoring.py
           python -m py_compile tailoring/stable_tailoring_ranking.py
+          python -m py_compile resume_builder/evidence_aware_fitting.py
           python -m py_compile resume_builder/docx_projects_skills_replacer.py
 
       - name: Run selected deterministic suite
@@ -61,13 +63,30 @@ jobs:
               python -m unittest discover -s tests -v
               ;;
             phase-6a)
-              python -m unittest                 tests.test_stable_evidence_scoring                 tests.test_analysis_stability_trial                 -v
+              python -m unittest \
+                tests.test_stable_evidence_scoring \
+                tests.test_analysis_stability_trial \
+                -v
               ;;
             phase-6b)
-              python -m unittest                 tests.test_stable_tailoring_ranking                 tests.test_tailoring_stability_trial                 -v
+              python -m unittest \
+                tests.test_stable_tailoring_ranking \
+                tests.test_tailoring_stability_trial \
+                -v
+              ;;
+            phase-6c)
+              python -m unittest \
+                tests.test_evidence_aware_fitting \
+                tests.test_evidence_aware_fitter_integration \
+                tests.test_phase6c_patch \
+                -v
               ;;
             unique-jd)
-              python -m unittest                 tests.test_jd_identity                 tests.test_jd_dedup_integration                 tests.test_jd_chroma_identity                 -v
+              python -m unittest \
+                tests.test_jd_identity \
+                tests.test_jd_dedup_integration \
+                tests.test_jd_chroma_identity \
+                -v
               ;;
             *)
               echo "Unknown suite: ${{ inputs.suite }}"
