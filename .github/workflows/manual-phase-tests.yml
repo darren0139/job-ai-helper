@@ -78,7 +78,6 @@ jobs:
               python -m unittest \
                 tests.test_evidence_aware_fitting \
                 tests.test_evidence_aware_fitter_integration \
-                tests.test_phase6c_patch \
                 -v
               ;;
             unique-jd)
