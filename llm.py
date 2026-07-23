@@ -170,6 +170,10 @@ MODEL_OPTIONS: dict[str, str] = {
         "openai/gpt-5.6-luna"
     ),
 
+    "OpenAI — GPT-5.4 mini": (
+        "openai/gpt-5.4-mini"
+    ),
+
     # Stable fallbacks.
     "OpenAI — GPT-5 mini": (
         "openai/gpt-5-mini"

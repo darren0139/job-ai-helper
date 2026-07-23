@@ -32,3 +32,4 @@ input/*
 
 test_inputs/
 stability_results/
+benchmark_results/
