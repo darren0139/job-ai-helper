@@ -105,6 +105,14 @@ from database.db_manager import (
     get_recent_applications,
     get_application_by_id,
 )
+from database.tailoring_version_manager import (
+    TAILORING_PERSISTENCE_VERSION,
+    delete_application_tailoring_generations,
+    get_restorable_application_tailoring,
+    init_application_tailoring_versions,
+    save_application_tailoring_generation,
+)
+
 from database.jd_library_manager import (
     init_jd_library,
     save_or_link_job_description_for_application,
@@ -972,6 +980,168 @@ def show_result_table(rows: Any, empty_message: str) -> None:
         st.write(rows)
 
 
+def _restore_application_tailoring_to_session(
+    application_id: int,
+) -> bool:
+    """
+    Restore the latest structured tailoring generation for an application.
+
+    Sessions created before persistence was added can still recover their latest
+    generated DOCX/PDF file when it remains on disk.
+    """
+    state = get_restorable_application_tailoring(
+        application_id
+    )
+    if not isinstance(state, dict):
+        return False
+
+    prefix_values = {
+        f"project_candidate_pool_{application_id}": state.get(
+            "candidate_pool"
+        ),
+        f"debug_project_tailor_inputs_{application_id}": state.get(
+            "project_inputs"
+        ),
+        f"tailored_projects_fit_{application_id}": state.get(
+            "fit_estimate"
+        ),
+        f"tailored_projects_result_{application_id}": state.get(
+            "projects"
+        ),
+        f"tailored_skills_result_{application_id}": state.get(
+            "skills"
+        ),
+        f"tailored_resume_fit_result_{application_id}": state.get(
+            "fit_result"
+        ),
+    }
+
+    for key, value in prefix_values.items():
+        if value is not None:
+            st.session_state[key] = value
+
+    generation_id = str(
+        state.get("generation_id") or ""
+    ).strip()
+    if generation_id:
+        st.session_state[
+            f"tailored_generation_id_{application_id}"
+        ] = generation_id
+
+    docx_path = str(
+        state.get("docx_path") or ""
+    ).strip()
+    if docx_path and Path(docx_path).exists():
+        st.session_state[
+            f"tailored_resume_copy_path_{application_id}"
+        ] = docx_path
+
+    settings = state.get(
+        "generation_settings"
+    )
+    if isinstance(settings, dict):
+        direct_settings = {
+            "max_projects": f"max_projects_{application_id}",
+            "max_bullets": f"max_bullets_{application_id}",
+            "use_compact_before_delete": (
+                f"use_compact_before_delete_{application_id}"
+            ),
+            "prefer_balanced_bullets": (
+                f"prefer_balanced_bullets_{application_id}"
+            ),
+            "allow_skills_compaction": (
+                f"allow_skills_compaction_{application_id}"
+            ),
+            "add_spacing_before_first_project": (
+                f"spacing_before_first_project_{application_id}"
+            ),
+            "project_spacing_pt": (
+                f"project_spacing_pt_{application_id}"
+            ),
+            "after_projects_spacing_pt": (
+                f"after_projects_spacing_pt_{application_id}"
+            ),
+            "blank_lines_between_projects": (
+                f"blank_lines_between_projects_{application_id}"
+            ),
+            "blank_lines_after_projects": (
+                f"blank_lines_after_projects_{application_id}"
+            ),
+        }
+        for setting_name, widget_key in direct_settings.items():
+            if setting_name in settings:
+                st.session_state[widget_key] = settings[
+                    setting_name
+                ]
+
+        density_mode = str(
+            settings.get("page_density_mode") or ""
+        ).strip().lower()
+        if density_mode:
+            st.session_state[
+                f"page_density_mode_{application_id}"
+            ] = (
+                "Maximize relevant content"
+                if density_mode == "maximize"
+                else "Balanced"
+            )
+
+        spacing_mode = str(
+            settings.get("spacing_mode") or ""
+        ).strip().lower()
+        if spacing_mode:
+            st.session_state[
+                f"spacing_mode_{application_id}"
+            ] = (
+                "Blank line"
+                if spacing_mode == "blank_line"
+                else "Paragraph spacing"
+            )
+
+    return True
+
+
+def _persist_current_tailoring_state(
+    *,
+    application_id: int,
+    generation_id: str,
+    generation_settings: dict[str, Any] | None = None,
+    fit_result: dict[str, Any] | None = None,
+) -> None:
+    """Persist the current session-state tailoring payload."""
+    save_application_tailoring_generation(
+        application_id=application_id,
+        generation_id=generation_id,
+        candidate_pool=st.session_state.get(
+            f"project_candidate_pool_{application_id}"
+        ),
+        project_inputs=st.session_state.get(
+            f"debug_project_tailor_inputs_{application_id}"
+        ),
+        fit_estimate=st.session_state.get(
+            f"tailored_projects_fit_{application_id}"
+        ),
+        projects=st.session_state.get(
+            f"tailored_projects_result_{application_id}"
+        ),
+        skills=st.session_state.get(
+            f"tailored_skills_result_{application_id}"
+        ),
+        fit_result=fit_result,
+        generation_settings=generation_settings,
+        docx_path=(
+            fit_result.get("docx_path")
+            if isinstance(fit_result, dict)
+            else None
+        ),
+        pdf_path=(
+            fit_result.get("pdf_path")
+            if isinstance(fit_result, dict)
+            else None
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Streamlit app
 # ---------------------------------------------------------------------------
@@ -983,6 +1153,7 @@ st.set_page_config(
 )
 
 init_db()
+init_application_tailoring_versions()
 init_jd_library()
 init_chat_history()
 init_session_state()
@@ -1181,6 +1352,9 @@ with st.sidebar:
                             st.session_state["current_application_id"] = app_id
                             st.session_state["revision_history"] = []
                             st.session_state["analysis_chat"] = []
+                            _restore_application_tailoring_to_session(
+                                app_id
+                            )
 
                             # Clear upload/JD inputs when switching sessions.
                             # Saved sessions restore the report, not the original uploaded file.
@@ -1248,6 +1422,9 @@ with st.sidebar:
                                 # Deleting the application session should still work even if RAG cleanup fails.
                                 pass
 
+                            delete_application_tailoring_generations(
+                                app_id
+                            )
                             delete_application_session(app_id)
 
                             cleanup_summary = {}
@@ -1892,7 +2069,18 @@ if page == "Application Sessions":
                     st.session_state[tailored_skills_key] = skills_result
                     st.session_state.pop(tailored_docx_key, None)
                     st.session_state.pop(tailored_fit_result_key, None)
-                    st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
+                    generation_id = uuid.uuid4().hex
+                    st.session_state[
+                        tailored_generation_id_key
+                    ] = generation_id
+                    _persist_current_tailoring_state(
+                        application_id=current_application_id,
+                        generation_id=generation_id,
+                        generation_settings={
+                            "max_projects": max_projects,
+                            "max_bullets": max_bullets,
+                        },
+                    )
                     st.rerun()
 
                 except ValueError as exc:
@@ -1955,7 +2143,18 @@ if page == "Application Sessions":
                             st.session_state[tailored_fit_key] = fit_estimate
                             st.session_state.pop(tailored_docx_key, None)
                             st.session_state.pop(tailored_fit_result_key, None)
-                            st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
+                            generation_id = uuid.uuid4().hex
+                            st.session_state[
+                                tailored_generation_id_key
+                            ] = generation_id
+                            _persist_current_tailoring_state(
+                                application_id=current_application_id,
+                                generation_id=generation_id,
+                                generation_settings={
+                                    "max_projects": max_projects,
+                                    "max_bullets": max_bullets,
+                                },
+                            )
                             st.rerun()
 
                         except ValueError as exc:
@@ -1986,7 +2185,18 @@ if page == "Application Sessions":
                             st.session_state[tailored_skills_key] = skills_result
                             st.session_state.pop(tailored_docx_key, None)
                             st.session_state.pop(tailored_fit_result_key, None)
-                            st.session_state[tailored_generation_id_key] = uuid.uuid4().hex
+                            generation_id = uuid.uuid4().hex
+                            st.session_state[
+                                tailored_generation_id_key
+                            ] = generation_id
+                            _persist_current_tailoring_state(
+                                application_id=current_application_id,
+                                generation_id=generation_id,
+                                generation_settings={
+                                    "max_projects": max_projects,
+                                    "max_bullets": max_bullets,
+                                },
+                            )
                             st.rerun()
 
                         except ValueError as exc:
@@ -2139,7 +2349,19 @@ if page == "Application Sessions":
                     "tick the save checkbox, and run Analyze Resume again."
                 )
             elif not project_result and not skills_result:
-                st.info("Generate a Tailored Projects Section or Tailored Skills Section first.")
+                recovered_path = st.session_state.get(
+                    tailored_docx_key
+                )
+                if recovered_path and Path(recovered_path).exists():
+                    st.info(
+                        "This older session did not save structured Projects/Skills, "
+                        "but its latest generated tailored résumé is restored below."
+                    )
+                else:
+                    st.info(
+                        "Generate a Tailored Projects Section or "
+                        "Tailored Skills Section first."
+                    )
             else:
                 selected_sections = []
 
@@ -2322,6 +2544,53 @@ if page == "Application Sessions":
 
                         st.session_state[tailored_docx_key] = str(tailored_resume_path)
                         st.session_state[tailored_fit_result_key] = fit_result
+
+                        generation_id = str(
+                            st.session_state.get(
+                                tailored_generation_id_key
+                            )
+                            or uuid.uuid4().hex
+                        )
+                        st.session_state[
+                            tailored_generation_id_key
+                        ] = generation_id
+                        _persist_current_tailoring_state(
+                            application_id=current_application_id,
+                            generation_id=generation_id,
+                            generation_settings={
+                                "max_projects": max_projects,
+                                "max_bullets": max_bullets,
+                                "use_compact_before_delete": (
+                                    use_compact_before_delete
+                                ),
+                                "prefer_balanced_bullets": (
+                                    prefer_balanced_bullets
+                                ),
+                                "allow_skills_compaction": (
+                                    allow_skills_compaction
+                                ),
+                                "page_density_mode": (
+                                    page_density_mode
+                                ),
+                                "spacing_mode": spacing_mode,
+                                "project_spacing_pt": (
+                                    project_spacing_pt
+                                ),
+                                "after_projects_spacing_pt": (
+                                    after_projects_spacing_pt
+                                ),
+                                "blank_lines_between_projects": (
+                                    blank_lines_between_projects
+                                ),
+                                "blank_lines_after_projects": (
+                                    blank_lines_after_projects
+                                ),
+                                "add_spacing_before_first_project": (
+                                    add_spacing_before_first_project
+                                ),
+                            },
+                            fit_result=fit_result,
+                        )
 
                         if fit_result["fit_one_page"] is True:
                             st.success("Tailored resume copy generated and fits within one page.")
