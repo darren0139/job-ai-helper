@@ -2585,7 +2585,9 @@ def _choose_layout_aware_reduction(
         if protection_tier(candidate) == safest_tier
     ]
 
-    def key(candidate: dict[str, Any]) -> tuple[float, float, int]:
+    def key(
+        candidate: dict[str, Any],
+    ) -> tuple[float, float, int, int]:
         reaches_one_page = bool(candidate.get("reaches_one_page"))
         space_saved = float(
             candidate.get("space_saved_ratio", 0.0) or 0.0
@@ -2594,18 +2596,34 @@ def _choose_layout_aware_reduction(
         candidate_order = int(
             candidate.get("candidate_order", 99) or 99
         )
+        change = candidate.get("change", {}) or {}
+        evidence_priority = max(
+            0,
+            int(change.get("evidence_priority", 0) or 0),
+        )
 
         if reaches_one_page:
-            return (0.0, quality_loss, candidate_order)
+            return (
+                0.0,
+                quality_loss,
+                -evidence_priority,
+                candidate_order,
+            )
 
         if space_saved >= _LAYOUT_EFFECT_THRESHOLD:
             return (
                 1.0,
                 quality_loss / space_saved,
+                -evidence_priority,
                 candidate_order,
             )
 
-        return (2.0, quality_loss, candidate_order)
+        return (
+            2.0,
+            quality_loss,
+            -evidence_priority,
+            candidate_order,
+        )
 
     return min(pool, key=key)
 

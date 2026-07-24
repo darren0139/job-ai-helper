@@ -14,6 +14,7 @@ from copy import deepcopy
 from typing import Any
 
 PHASE6C_FITTING_VERSION = "phase6c-evidence-aware-fitting-v1"
+PHASE6C_RETENTION_TIEBREAK_VERSION = "phase6c2-retention-priority-v1"
 
 
 def _clean_text(value: Any) -> str:
@@ -202,6 +203,14 @@ def _bullet_evidence_summary(
         or unique_core_count
     )
 
+    try:
+        evidence_priority = max(
+            1,
+            int(row.get("evidence_priority", 1) or 1),
+        )
+    except (TypeError, ValueError):
+        evidence_priority = 1
+
     if unique_core_count > 0:
         protection_tier = 2
     elif explicitly_protected or globally_unique:
@@ -253,6 +262,14 @@ def _bullet_evidence_summary(
         "protect_during_fitting": explicitly_protected,
         "protection_tier": protection_tier,
         "evidence_value": round(evidence_value, 4),
+        "evidence_priority": evidence_priority,
+        "retention_tiebreak_version": (
+            PHASE6C_RETENTION_TIEBREAK_VERSION
+        ),
+        "retention_tiebreak_reason": (
+            "Higher Phase 6B.1 evidence-priority numbers are weaker "
+            "retention candidates when protection, loss, and layout are equal."
+        ),
         "evidence_loss_score": evidence_loss_score,
         "estimated_space_saved_words": word_count,
         "evidence_loss_reason": "; ".join(reasons),
@@ -346,6 +363,10 @@ def _candidate_sort_key(
     bullets_before = int(
         change.get("project_bullet_count_before", 0) or 0
     )
+    evidence_priority = max(
+        0,
+        int(change.get("evidence_priority", 0) or 0),
+    )
 
     return (
         int(change.get("protection_tier", 0) or 0),
@@ -354,6 +375,7 @@ def _candidate_sort_key(
         -bullets_before if prefer_balanced_bullets else 0,
         int(change.get("project_priority_score", 0) or 0),
         -words,
+        -evidence_priority,
         _clean_text(change.get("project")).lower(),
         int(change.get("removed_bullet_index", 0) or 0),
     )
