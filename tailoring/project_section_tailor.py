@@ -36,6 +36,12 @@ from tailoring.stable_tailoring_ranking import (
     rank_projects_deterministically,
     select_complementary_projects,
 )
+from tailoring.deterministic_bullet_allocation import (
+    BULLET_ALLOCATION_VERSION,
+    apply_bullet_allocation_to_selected_pairs,
+    build_deterministic_bullet_allocation,
+    enforce_writer_plan_allocation,
+)
 
 # ---------------------------------------------------------------------------
 # Stage 1 prompt: analyse and score every project candidate
@@ -220,11 +226,15 @@ Python-selected project:
    A conservative line-saving rewrite used only when the full rendered resume
    exceeds one page.
 
-Project selection has already been completed by Python. Do not add, remove,
-replace, or re-rank project titles.
+Project selection and exact canonical-bullet allocation have already been
+completed by Python. Do not add, remove, replace, or re-rank project titles.
+Do not change the allocated bullet count for any project.
 
 Canonical-bullet rules:
 - Treat Evidence Library bullets as the only user-approved canonical bullets.
+- Use allocated_blueprint_bullets as the exact selected canonical evidence.
+- Return those allocated bullets in the supplied order.
+- Do not substitute an unallocated canonical bullet.
 - Do not select, copy, paraphrase, or reuse bullets extracted from the resume profile.
 - Prefer selecting and reordering existing Evidence Library bullets over rewriting them.
 - draft_bullets should normally be identical to selected_blueprint_bullets.
@@ -256,9 +266,11 @@ CAR and ordering rules:
 - Put the least informative or most redundant bullet last because the page-fitting stage removes bullets from the end.
 
 Length and page-use rules:
-- Use no more than the supplied maximum bullets per project.
-- Prefer 4-6 total bullets across all selected projects when supported.
-- Stronger projects may receive more bullets; weaker selected projects may receive one bullet.
+- Python supplies allocated_bullet_count for every project.
+- Return exactly allocated_bullet_count draft bullets for that project.
+- Return the same exact count of compact bullets, or an empty compact_bullets list
+  when truthful compaction is unavailable.
+- The supplied maximum is a per-project ceiling, not a target.
 - Do not aggressively shorten draft_bullets for page fit.
 - Bullets should usually be concise and resume-friendly, commonly 14-24 words, but preserving meaning is more important than meeting a fixed word count.
 
@@ -1778,14 +1790,68 @@ IMPORTANT:
         selected_count=selected_count,
     )
 
-    selected_writer_candidates = [
-        _prepare_selected_candidate_for_writer(candidate, ranking_row)
-        for candidate, ranking_row in selected_pairs
-    ]
+    bullet_allocation = (
+        build_deterministic_bullet_allocation(
+            selected_pairs=selected_pairs,
+            max_bullets_per_project=(
+                max_bullets_per_project
+            ),
+        )
+    )
+    selected_pairs = (
+        apply_bullet_allocation_to_selected_pairs(
+            selected_pairs=selected_pairs,
+            allocation=bullet_allocation,
+        )
+    )
+
+    selected_writer_candidates = []
+    for candidate, ranking_row in selected_pairs:
+        writer_candidate = (
+            _prepare_selected_candidate_for_writer(
+                candidate,
+                ranking_row,
+            )
+        )
+        allocation_plan = candidate.get(
+            "_phase6b2_bullet_allocation",
+            {},
+        )
+        writer_candidate.update(
+            {
+                "allocated_bullet_count": (
+                    allocation_plan.get(
+                        "allocated_bullet_count",
+                        1,
+                    )
+                ),
+                "allocated_blueprint_bullets": (
+                    allocation_plan.get(
+                        "allocated_blueprint_bullets",
+                        [],
+                    )
+                ),
+                "allocated_bullet_ids": (
+                    allocation_plan.get(
+                        "allocated_bullet_ids",
+                        [],
+                    )
+                ),
+                "bullet_allocation_version": (
+                    BULLET_ALLOCATION_VERSION
+                ),
+            }
+        )
+        selected_writer_candidates.append(
+            writer_candidate
+        )
 
     writing_user_prompt = f"""
 MAXIMUM BULLETS PER PROJECT:
 {max_bullets_per_project}
+
+PHASE 6B.2 DETERMINISTIC BULLET ALLOCATION:
+{json.dumps(bullet_allocation, indent=2, ensure_ascii=False)}
 
 PYTHON-SELECTED PROJECT CANDIDATES:
 {json.dumps(selected_writer_candidates, indent=2, ensure_ascii=False)}
@@ -1796,6 +1862,8 @@ TARGET JOB DESCRIPTION PROFILE:
 IMPORTANT:
 - Return one project_bullet_plans row for each supplied selected candidate.
 - Do not return any project not present in PYTHON-SELECTED PROJECT CANDIDATES.
+- Use each project's allocated_blueprint_bullets in the supplied order.
+- Return exactly allocated_bullet_count draft bullets for each project.
 - Preserve canonical bullets unless a specific allowed rewrite reason applies.
 """
 
@@ -1803,22 +1871,59 @@ IMPORTANT:
         PROJECT_BULLET_WRITING_PROMPT,
         writing_user_prompt,
         temperature=0.0,
-        max_tokens=2200,
+        max_tokens=3200,
     )
 
     writer_plans = _normalise_writer_plans(writer_result)
     recommended_projects: list[dict[str, Any]] = []
 
     for candidate, ranking_row in selected_pairs:
-        key = _normalise_project_key(candidate.get("title", ""))
-        recommended_projects.append(
-            _build_project_from_writer_plan(
-                candidate=candidate,
-                ranking_row=ranking_row,
-                writer_plan=writer_plans.get(key),
-                max_bullets_per_project=max_bullets_per_project,
+        key = _normalise_project_key(
+            candidate.get("title", "")
+        )
+        allocation_plan = candidate.get(
+            "_phase6b2_bullet_allocation",
+            {},
+        )
+        enforced_writer_plan = (
+            enforce_writer_plan_allocation(
+                writer_plan=writer_plans.get(
+                    key
+                ),
+                allocation_plan=(
+                    allocation_plan
+                ),
             )
         )
+        project = _build_project_from_writer_plan(
+            candidate=candidate,
+            ranking_row=ranking_row,
+            writer_plan=enforced_writer_plan,
+            max_bullets_per_project=(
+                max_bullets_per_project
+            ),
+        )
+        project[
+            "bullet_allocation_version"
+        ] = BULLET_ALLOCATION_VERSION
+        project[
+            "allocated_bullet_count"
+        ] = allocation_plan.get(
+            "allocated_bullet_count",
+            len(
+                project.get(
+                    "draft_bullets",
+                    [],
+                )
+            ),
+        )
+        project[
+            "allocated_bullet_ids"
+        ] = allocation_plan.get(
+            "allocated_bullet_ids",
+            [],
+        )
+        recommended_projects.append(project)
 
     selected_keys = {
         _normalise_project_key(project.get("title", ""))
@@ -1839,6 +1944,12 @@ IMPORTANT:
         f"Python selected {selected_count} project(s) using deterministic evidence "
         "families, canonical requirement IDs, complementary coverage, and stable "
         "near-tie rules."
+    )
+    notes.append(
+        "Phase 6B.2 allocated "
+        f"{bullet_allocation.get('total_allocated_bullets', 0)} "
+        "canonical project bullet(s) deterministically, with "
+        f"{max_bullets_per_project} as the per-project ceiling."
     )
 
     missing_writer_titles = [
@@ -1880,6 +1991,7 @@ IMPORTANT:
             "structural_cleanup": deterministic_rule_debug,
             "phase6b_ranking": phase6b_ranking_debug,
             "complementary_selection": complementary_selection_debug,
+            "bullet_allocation": bullet_allocation,
         },
         "projects_to_remove_or_deprioritize": _build_projects_to_remove(
             project_candidates=project_candidates,

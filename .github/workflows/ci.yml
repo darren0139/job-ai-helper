@@ -52,6 +52,7 @@ jobs:
           python -m py_compile tailoring/project_section_tailor.py
           python -m py_compile tailoring/skills_section_tailor.py
           python -m py_compile tailoring/stable_tailoring_ranking.py
+          python -m py_compile tailoring/deterministic_bullet_allocation.py
           python -m py_compile resume_builder/evidence_aware_fitting.py
           python -m py_compile resume_builder/fitting_render_optimizer.py
           python -m py_compile resume_builder/docx_projects_skills_replacer.py
