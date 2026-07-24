@@ -2001,11 +2001,16 @@ if page == "Application Sessions":
             )
 
             max_bullets = st.slider(
-                "Maximum bullets for strongest project",
+                "Maximum bullets per project",
                 1,
-                3,
+                4,
                 3,
                 key=f"max_bullets_{current_application_id}",
+                help=(
+                    "This is a ceiling for every selected project. "
+                    "Phase 6B.2 deterministically decides the actual "
+                    "allocation, such as 3/3/2 or 3/2/1."
+                ),
             )
 
             if st.button(
@@ -2303,6 +2308,21 @@ if page == "Application Sessions":
 
                 with st.expander("All candidate projects scored"):
                     st.json(project_result.get("candidate_project_ranking", []))
+
+                allocation_debug = (
+                    project_result.get(
+                        "deterministic_rule_debug",
+                        {},
+                    ).get(
+                        "bullet_allocation",
+                        {},
+                    )
+                )
+                if allocation_debug:
+                    with st.expander(
+                        "Phase 6B.2 bullet allocation"
+                    ):
+                        st.json(allocation_debug)
 
                 with st.expander("Unsupported JD skills"):
                     st.json(project_result.get("unsupported_jd_skills", []))
