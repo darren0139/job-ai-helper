@@ -51,6 +51,7 @@ jobs:
           python -m py_compile analysis_stability/stable_evidence_scoring.py
           python -m py_compile tailoring/stable_tailoring_ranking.py
           python -m py_compile resume_builder/evidence_aware_fitting.py
+          python -m py_compile resume_builder/fitting_render_optimizer.py
           python -m py_compile resume_builder/docx_projects_skills_replacer.py
 
       - name: Run selected deterministic suite
@@ -78,6 +79,7 @@ jobs:
               python -m unittest \
                 tests.test_evidence_aware_fitting \
                 tests.test_evidence_aware_fitter_integration \
+                tests.test_fitting_render_optimizer \
                 -v
               ;;
             unique-jd)

@@ -59,6 +59,13 @@ from resume_builder.evidence_aware_fitting import (
     restore_removed_bullet_metadata,
     sync_project_bullet_metadata,
 )
+from resume_builder.fitting_render_optimizer import (
+    PHASE6C1_OPTIMIZATION_VERSION,
+    build_render_state_fingerprint,
+    group_candidates_by_protection_tier,
+    rendered_candidate_is_effective,
+    source_docx_signature,
+)
 
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -2666,6 +2673,337 @@ def generate_tailored_resume_copy_fit_one_page(
 
     active_changes: list[dict[str, Any]] = []
 
+    source_signature = source_docx_signature(
+        saved_resume_docx_path
+    )
+    render_layout_options = {
+        "max_projects": max_projects,
+        "max_bullets_per_project": max_bullets_per_project,
+        "spacing_mode": spacing_mode,
+        "project_spacing_pt": project_spacing_pt,
+        "after_projects_spacing_pt": after_projects_spacing_pt,
+        "blank_lines_between_projects": blank_lines_between_projects,
+        "blank_lines_after_projects": blank_lines_after_projects,
+        "add_spacing_before_first_project": (
+            add_spacing_before_first_project
+        ),
+    }
+    render_cache: dict[str, dict[str, Any]] = {}
+    optimization_stats: dict[str, int] = {
+        "candidate_state_requests": 0,
+        "render_cache_hits": 0,
+        "render_cache_misses": 0,
+        "libreoffice_batch_processes": 0,
+        "libreoffice_fallback_processes": 0,
+        "reduction_tier_batches": 0,
+        "reduction_candidates_generated": 0,
+        "reduction_candidates_rendered": 0,
+        "reduction_candidates_skipped_by_tier_stop": 0,
+        "restoration_batch_count": 0,
+        "restoration_candidates_rendered": 0,
+    }
+
+    def optimization_summary() -> dict[str, Any]:
+        return {
+            "fitting_optimization_version": (
+                PHASE6C1_OPTIMIZATION_VERSION
+            ),
+            "render_cache_entry_count": len(render_cache),
+            "libreoffice_process_count": (
+                optimization_stats[
+                    "libreoffice_batch_processes"
+                ]
+                + optimization_stats[
+                    "libreoffice_fallback_processes"
+                ]
+            ),
+            **optimization_stats,
+        }
+
+    def _empty_fill_metrics() -> dict[str, Any]:
+        return {
+            "page_fill_ratio": None,
+            "estimated_unused_page_ratio": None,
+            "last_page_fill_ratio": None,
+            "overflow_ratio": None,
+            "occupied_page_units": None,
+            "measurement_method": "unavailable",
+        }
+
+    def _candidate_counts(
+        projects_state: dict[str, Any] | None,
+        skills_state: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        projects = (
+            (projects_state or {}).get(
+                "recommended_projects",
+                [],
+            )
+            or []
+        )
+        return {
+            "project_count": len(projects),
+            "bullet_count": sum(
+                len(project.get("draft_bullets", []) or [])
+                for project in projects
+            ),
+            "skill_line_count": len(
+                (skills_state or {}).get(
+                    "skill_lines",
+                    [],
+                )
+                or []
+            ),
+            "skill_item_count": count_skill_items(
+                skills_state
+            ),
+        }
+
+    def _prepare_candidate(
+        specification: dict[str, Any],
+    ) -> dict[str, Any]:
+        projects_state = specification.get("projects")
+        skills_state = specification.get("skills")
+        fingerprint = build_render_state_fingerprint(
+            source_signature=source_signature,
+            projects_state=projects_state,
+            skills_state=skills_state,
+            layout_options=render_layout_options,
+        )
+        docx_path = generate_tailored_resume_copy(
+            saved_resume_docx_path=saved_resume_docx_path,
+            tailored_projects=projects_state,
+            tailored_skills=skills_state,
+            application_id=application_id,
+            max_projects=max_projects,
+            max_bullets_per_project=max_bullets_per_project,
+            spacing_mode=spacing_mode,
+            project_spacing_pt=project_spacing_pt,
+            after_projects_spacing_pt=after_projects_spacing_pt,
+            blank_lines_between_projects=(
+                blank_lines_between_projects
+            ),
+            blank_lines_after_projects=(
+                blank_lines_after_projects
+            ),
+            add_spacing_before_first_project=(
+                add_spacing_before_first_project
+            ),
+        )
+        return {
+            **specification,
+            "docx_path": Path(docx_path),
+            "render_state_fingerprint": fingerprint,
+        }
+
+    def _complete_prepared_candidate(
+        prepared: dict[str, Any],
+        *,
+        pdf_path: Path | None,
+        batch_label: str,
+        batch_size: int,
+        cache_hit: bool,
+    ) -> dict[str, Any]:
+        docx_path = Path(prepared["docx_path"])
+        fingerprint = str(
+            prepared["render_state_fingerprint"]
+        )
+        cached = render_cache.get(fingerprint)
+
+        if cache_hit and cached is not None:
+            expected_pdf_path = (
+                PREVIEW_DIR.resolve()
+                / f"{docx_path.stem}.pdf"
+            )
+            expected_pdf_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            expected_pdf_path.write_bytes(
+                cached["pdf_bytes"]
+            )
+            pdf_path = expected_pdf_path
+            page_count = int(cached["page_count"])
+            fill_metrics = deepcopy(
+                cached["fill_metrics"]
+            )
+        elif pdf_path is not None:
+            page_count = count_pdf_pages(pdf_path)
+            fill_metrics = measure_pdf_page_fill(
+                pdf_path
+            )
+            try:
+                pdf_bytes = Path(pdf_path).read_bytes()
+            except OSError:
+                pdf_bytes = b""
+
+            if pdf_bytes:
+                render_cache[fingerprint] = {
+                    "pdf_bytes": pdf_bytes,
+                    "page_count": page_count,
+                    "fill_metrics": deepcopy(
+                        fill_metrics
+                    ),
+                }
+        else:
+            page_count = None
+            fill_metrics = _empty_fill_metrics()
+
+        entry: dict[str, Any] = {
+            "attempt": len(attempt_logs) + 1,
+            "attempt_type": prepared["attempt_type"],
+            "docx_path": str(docx_path),
+            "pdf_path": (
+                str(pdf_path)
+                if pdf_path is not None
+                else None
+            ),
+            "page_count": page_count,
+            "render_cache_hit": cache_hit,
+            "render_state_fingerprint": fingerprint,
+            "libreoffice_batch_label": batch_label,
+            "libreoffice_batch_size": batch_size,
+        }
+
+        if page_count is not None:
+            entry.update(
+                _candidate_counts(
+                    prepared.get("projects"),
+                    prepared.get("skills"),
+                )
+            )
+            entry.update(fill_metrics)
+
+        change_applied = prepared.get(
+            "change_applied"
+        )
+        if change_applied is not None:
+            entry["change_applied"] = change_applied
+        if prepared.get("restoration_candidate"):
+            entry["restoration_candidate"] = True
+        if (
+            prepared.get(
+                "restoration_quality_gain"
+            )
+            is not None
+        ):
+            entry["restoration_quality_gain"] = (
+                prepared[
+                    "restoration_quality_gain"
+                ]
+            )
+        if prepared.get("probe_candidate"):
+            entry["probe_candidate"] = True
+        if prepared.get("quality_loss") is not None:
+            entry["quality_loss"] = prepared[
+                "quality_loss"
+            ]
+
+        attempt_logs.append(entry)
+        return {
+            "docx_path": docx_path,
+            "pdf_path": pdf_path,
+            "page_count": page_count,
+            "fill_metrics": fill_metrics,
+            "attempt_entry": entry,
+        }
+
+    def render_candidates_batch(
+        specifications: list[dict[str, Any]],
+        *,
+        batch_label: str,
+    ) -> list[dict[str, Any]]:
+        if not specifications:
+            return []
+
+        optimization_stats[
+            "candidate_state_requests"
+        ] += len(specifications)
+
+        prepared_candidates = [
+            _prepare_candidate(specification)
+            for specification in specifications
+        ]
+        uncached: list[dict[str, Any]] = []
+
+        for prepared in prepared_candidates:
+            fingerprint = str(
+                prepared[
+                    "render_state_fingerprint"
+                ]
+            )
+            if fingerprint in render_cache:
+                optimization_stats[
+                    "render_cache_hits"
+                ] += 1
+            else:
+                optimization_stats[
+                    "render_cache_misses"
+                ] += 1
+                uncached.append(prepared)
+
+        converted: dict[str, Path | None] = {}
+        if uncached:
+            converted, diagnostics = (
+                convert_docx_batch_to_pdf_if_possible(
+                    [
+                        prepared["docx_path"]
+                        for prepared in uncached
+                    ]
+                )
+            )
+            optimization_stats[
+                "libreoffice_batch_processes"
+            ] += int(
+                diagnostics.get(
+                    "batch_process_count",
+                    0,
+                )
+                or 0
+            )
+            optimization_stats[
+                "libreoffice_fallback_processes"
+            ] += int(
+                diagnostics.get(
+                    "fallback_process_count",
+                    0,
+                )
+                or 0
+            )
+
+        results: list[dict[str, Any]] = []
+        batch_size = len(prepared_candidates)
+
+        for prepared in prepared_candidates:
+            fingerprint = str(
+                prepared[
+                    "render_state_fingerprint"
+                ]
+            )
+            cache_hit = fingerprint in render_cache
+            pdf_path = None
+
+            if not cache_hit:
+                pdf_path = converted.get(
+                    str(
+                        Path(
+                            prepared["docx_path"]
+                        ).resolve()
+                    )
+                )
+
+            results.append(
+                _complete_prepared_candidate(
+                    prepared,
+                    pdf_path=pdf_path,
+                    batch_label=batch_label,
+                    batch_size=batch_size,
+                    cache_hit=cache_hit,
+                )
+            )
+
+        return results
+
     def render_candidate(
         projects_state: dict[str, Any] | None,
         skills_state: dict[str, Any] | None,
@@ -2677,98 +3015,25 @@ def generate_tailored_resume_copy_fit_one_page(
         probe_candidate: bool = False,
         quality_loss: int | None = None,
     ) -> dict[str, Any]:
-        docx_path = generate_tailored_resume_copy(
-            saved_resume_docx_path=saved_resume_docx_path,
-            tailored_projects=projects_state,
-            tailored_skills=skills_state,
-            application_id=application_id,
-            max_projects=max_projects,
-            max_bullets_per_project=max_bullets_per_project,
-            spacing_mode=spacing_mode,
-            project_spacing_pt=project_spacing_pt,
-            after_projects_spacing_pt=after_projects_spacing_pt,
-            blank_lines_between_projects=blank_lines_between_projects,
-            blank_lines_after_projects=blank_lines_after_projects,
-            add_spacing_before_first_project=add_spacing_before_first_project,
-        )
-
-        pdf_path = convert_docx_to_pdf_if_possible(docx_path)
-
-        if pdf_path is None:
-            entry = {
-                "attempt": len(attempt_logs) + 1,
-                "attempt_type": attempt_type,
-                "docx_path": str(docx_path),
-                "pdf_path": None,
-                "page_count": None,
-            }
-            if change_applied is not None:
-                entry["change_applied"] = change_applied
-            if probe_candidate:
-                entry["probe_candidate"] = True
-            attempt_logs.append(entry)
-            return {
-                "docx_path": Path(docx_path),
-                "pdf_path": None,
-                "page_count": None,
-                "fill_metrics": {
-                    "page_fill_ratio": None,
-                    "estimated_unused_page_ratio": None,
-                    "last_page_fill_ratio": None,
-                    "overflow_ratio": None,
-                    "measurement_method": "unavailable",
-                },
-                "attempt_entry": entry,
-            }
-
-        page_count = count_pdf_pages(pdf_path)
-        fill_metrics = measure_pdf_page_fill(pdf_path)
-        project_count = len(
-            (projects_state or {}).get("recommended_projects", []) or []
-        )
-        bullet_count = sum(
-            len(project.get("draft_bullets", []) or [])
-            for project in (
-                (projects_state or {}).get("recommended_projects", []) or []
-            )
-        )
-        skill_line_count = len(
-            (skills_state or {}).get("skill_lines", []) or []
-        )
-        skill_item_count = count_skill_items(skills_state)
-
-        entry = {
-            "attempt": len(attempt_logs) + 1,
-            "attempt_type": attempt_type,
-            "docx_path": str(docx_path),
-            "pdf_path": str(pdf_path),
-            "page_count": page_count,
-            "project_count": project_count,
-            "bullet_count": bullet_count,
-            "skill_line_count": skill_line_count,
-            "skill_item_count": skill_item_count,
-            **fill_metrics,
-        }
-
-        if change_applied is not None:
-            entry["change_applied"] = change_applied
-        if restoration_candidate:
-            entry["restoration_candidate"] = True
-        if restoration_quality_gain is not None:
-            entry["restoration_quality_gain"] = restoration_quality_gain
-        if probe_candidate:
-            entry["probe_candidate"] = True
-        if quality_loss is not None:
-            entry["quality_loss"] = quality_loss
-
-        attempt_logs.append(entry)
-        return {
-            "docx_path": Path(docx_path),
-            "pdf_path": Path(pdf_path),
-            "page_count": page_count,
-            "fill_metrics": fill_metrics,
-            "attempt_entry": entry,
-        }
+        return render_candidates_batch(
+            [
+                {
+                    "projects": projects_state,
+                    "skills": skills_state,
+                    "attempt_type": attempt_type,
+                    "change_applied": change_applied,
+                    "restoration_candidate": (
+                        restoration_candidate
+                    ),
+                    "restoration_quality_gain": (
+                        restoration_quality_gain
+                    ),
+                    "probe_candidate": probe_candidate,
+                    "quality_loss": quality_loss,
+                }
+            ],
+            batch_label=attempt_type,
+        )[0]
 
     removable_bullet_count = 0
     removable_project_count = 0
@@ -2824,6 +3089,7 @@ def generate_tailored_resume_copy_fit_one_page(
             "estimated_unused_page_ratio": None,
             "page_density_mode": density_mode,
             "density_target_max": density_max_fill,
+            **optimization_summary(),
             "note": (
                 "Could not check page count because LibreOffice is unavailable "
                 "or DOCX-to-PDF conversion failed. DOCX generation still worked."
@@ -2900,66 +3166,210 @@ def generate_tailored_resume_copy_fit_one_page(
         if not candidate_changes:
             break
 
-        baseline_overflow = _rendered_overflow_value(current_render)
-        rendered_candidates: list[dict[str, Any]] = []
+        baseline_overflow = _rendered_overflow_value(
+            current_render
+        )
+        rendered_candidates: list[
+            dict[str, Any]
+        ] = []
+        tier_groups = (
+            group_candidates_by_protection_tier(
+                candidate_changes
+            )
+        )
+        rendered_tiers: list[int] = []
+        stopped_after_tier: int | None = None
 
-        for candidate in candidate_changes:
-            change = candidate["change"]
-            rendered = render_candidate(
-                candidate["projects"],
-                candidate["skills"],
-                attempt_type=str(change.get("change_type", "fitting_change")),
-                change_applied=change,
-                probe_candidate=True,
-                quality_loss=int(candidate["quality_loss"]),
+        optimization_stats[
+            "reduction_candidates_generated"
+        ] += len(candidate_changes)
+
+        for tier_index, (
+            protection_tier,
+            tier_candidates,
+        ) in enumerate(tier_groups):
+            rendered_tiers.append(protection_tier)
+            optimization_stats[
+                "reduction_tier_batches"
+            ] += 1
+
+            rendered_batch = render_candidates_batch(
+                [
+                    {
+                        "projects": candidate[
+                            "projects"
+                        ],
+                        "skills": candidate[
+                            "skills"
+                        ],
+                        "attempt_type": str(
+                            candidate["change"].get(
+                                "change_type",
+                                "fitting_change",
+                            )
+                        ),
+                        "change_applied": candidate[
+                            "change"
+                        ],
+                        "probe_candidate": True,
+                        "quality_loss": int(
+                            candidate[
+                                "quality_loss"
+                            ]
+                        ),
+                    }
+                    for candidate in tier_candidates
+                ],
+                batch_label=(
+                    "reduction_tier_"
+                    f"{protection_tier}"
+                ),
             )
 
-            if rendered["pdf_path"] is None:
-                _delete_generated_output(rendered["docx_path"], None)
-                continue
+            tier_rendered_candidates: list[
+                dict[str, Any]
+            ] = []
 
-            candidate_overflow = _rendered_overflow_value(rendered)
-            space_saved = max(0.0, baseline_overflow - candidate_overflow)
-            reaches_one_page = int(rendered["page_count"]) <= 1
-            layout_effect = (
-                "reached_one_page"
-                if reaches_one_page
-                else (
-                    "reduced_overflow"
-                    if space_saved >= _LAYOUT_EFFECT_THRESHOLD
-                    else "no_measurable_effect"
+            for candidate, rendered in zip(
+                tier_candidates,
+                rendered_batch,
+            ):
+                optimization_stats[
+                    "reduction_candidates_rendered"
+                ] += 1
+
+                if rendered["pdf_path"] is None:
+                    _delete_generated_output(
+                        rendered["docx_path"],
+                        None,
+                    )
+                    continue
+
+                candidate_overflow = (
+                    _rendered_overflow_value(
+                        rendered
+                    )
                 )
-            )
-            efficiency_score = (
-                float(candidate["quality_loss"])
-                / max(space_saved, _LAYOUT_EFFECT_THRESHOLD)
+                space_saved = max(
+                    0.0,
+                    baseline_overflow
+                    - candidate_overflow,
+                )
+                reaches_one_page = (
+                    int(rendered["page_count"]) <= 1
+                )
+                layout_effect = (
+                    "reached_one_page"
+                    if reaches_one_page
+                    else (
+                        "reduced_overflow"
+                        if space_saved
+                        >= _LAYOUT_EFFECT_THRESHOLD
+                        else "no_measurable_effect"
+                    )
+                )
+                efficiency_score = (
+                    float(candidate["quality_loss"])
+                    / max(
+                        space_saved,
+                        _LAYOUT_EFFECT_THRESHOLD,
+                    )
+                )
+
+                rendered[
+                    "attempt_entry"
+                ].update(
+                    {
+                        "baseline_overflow_ratio": round(
+                            baseline_overflow,
+                            3,
+                        ),
+                        "candidate_overflow_ratio": round(
+                            candidate_overflow,
+                            3,
+                        ),
+                        "space_saved_ratio": round(
+                            space_saved,
+                            3,
+                        ),
+                        "layout_effect": layout_effect,
+                        "layout_efficiency_score": round(
+                            efficiency_score,
+                            2,
+                        ),
+                        "phase6c1_protection_tier_batch": (
+                            protection_tier
+                        ),
+                    }
+                )
+
+                tier_rendered_candidates.append(
+                    {
+                        **candidate,
+                        "rendered": rendered,
+                        "space_saved_ratio": (
+                            space_saved
+                        ),
+                        "reaches_one_page": (
+                            reaches_one_page
+                        ),
+                        "layout_effect": layout_effect,
+                        "layout_efficiency_score": (
+                            efficiency_score
+                        ),
+                    }
+                )
+
+            rendered_candidates.extend(
+                tier_rendered_candidates
             )
 
-            rendered["attempt_entry"].update(
-                {
-                    "baseline_overflow_ratio": round(baseline_overflow, 3),
-                    "candidate_overflow_ratio": round(candidate_overflow, 3),
-                    "space_saved_ratio": round(space_saved, 3),
-                    "layout_effect": layout_effect,
-                    "layout_efficiency_score": round(efficiency_score, 2),
-                }
-            )
-
-            rendered_candidates.append(
-                {
-                    **candidate,
-                    "rendered": rendered,
-                    "space_saved_ratio": space_saved,
-                    "reaches_one_page": reaches_one_page,
-                    "layout_effect": layout_effect,
-                    "layout_efficiency_score": efficiency_score,
-                }
-            )
+            if any(
+                rendered_candidate_is_effective(
+                    candidate,
+                    layout_effect_threshold=(
+                        _LAYOUT_EFFECT_THRESHOLD
+                    ),
+                )
+                for candidate in (
+                    tier_rendered_candidates
+                )
+            ):
+                stopped_after_tier = protection_tier
+                skipped = sum(
+                    len(later_candidates)
+                    for _, later_candidates
+                    in tier_groups[
+                        tier_index + 1:
+                    ]
+                )
+                optimization_stats[
+                    "reduction_candidates_skipped_by_tier_stop"
+                ] += skipped
+                break
 
         if not rendered_candidates:
             break
 
         chosen = _choose_layout_aware_reduction(rendered_candidates)
+
+        current_render["attempt_entry"]["phase6c1_tier_plan"] = {
+            "optimization_version": PHASE6C1_OPTIMIZATION_VERSION,
+            "tiers_available": [
+                tier
+                for tier, _ in tier_groups
+            ],
+            "tiers_rendered": rendered_tiers,
+            "stopped_after_effective_tier": stopped_after_tier,
+            "higher_tier_candidate_count_skipped": sum(
+                len(candidates)
+                for tier, candidates in tier_groups
+                if (
+                    stopped_after_tier is not None
+                    and tier > stopped_after_tier
+                )
+            ),
+        }
 
         current_render["attempt_entry"]["candidate_changes_considered"] = [
             {
@@ -3047,6 +3457,7 @@ def generate_tailored_resume_copy_fit_one_page(
             "estimated_unused_page_ratio": None,
             "page_density_mode": density_mode,
             "density_target_max": density_max_fill,
+            **optimization_summary(),
             "note": (
                 "Resume still exceeds one page after all allowed whole-resume "
                 "reductions. Reduce spacing, lower the minimum Skills count, "
@@ -3061,17 +3472,39 @@ def generate_tailored_resume_copy_fit_one_page(
     permanently_rejected_restorations: set[str] = set()
 
     while active_changes:
-        candidate_results: list[dict[str, Any]] = []
+        candidate_results: list[
+            dict[str, Any]
+        ] = []
         best_fill = float(
-            (best_render.get("fill_metrics", {}) or {}).get("page_fill_ratio")
+            (
+                best_render.get(
+                    "fill_metrics",
+                    {},
+                )
+                or {}
+            ).get("page_fill_ratio")
             or 0.0
         )
+        restoration_prepared: list[
+            dict[str, Any]
+        ] = []
 
-        for change_index in _whole_resume_restorable_change_indices(active_changes):
-            source_change = active_changes[change_index]
-            change_key = _change_identity(source_change)
+        for change_index in (
+            _whole_resume_restorable_change_indices(
+                active_changes
+            )
+        ):
+            source_change = active_changes[
+                change_index
+            ]
+            change_key = _change_identity(
+                source_change
+            )
 
-            if change_key in permanently_rejected_restorations:
+            if (
+                change_key
+                in permanently_rejected_restorations
+            ):
                 continue
 
             (
@@ -3088,75 +3521,159 @@ def generate_tailored_resume_copy_fit_one_page(
             if not restored:
                 continue
 
-            quality_gain = _whole_resume_restoration_quality_gain(source_change)
-            rendered = render_candidate(
-                restored_projects,
-                restored_skills,
-                attempt_type=restore_info.get("change_type", "restore_content"),
-                change_applied=restore_info,
-                restoration_candidate=True,
-                restoration_quality_gain=quality_gain,
-                probe_candidate=True,
-            )
-
-            if rendered["pdf_path"] is None:
-                _delete_generated_output(rendered["docx_path"], None)
-                continue
-
-            entry = rendered["attempt_entry"]
-
-            if int(rendered["page_count"]) > 1:
-                entry["restoration_accepted"] = False
-                entry["rejection_reason"] = (
-                    "Restoring this content caused the resume to exceed one page."
+            quality_gain = (
+                _whole_resume_restoration_quality_gain(
+                    source_change
                 )
-                permanently_rejected_restorations.add(change_key)
-                _delete_generated_output(
-                    rendered["docx_path"],
-                    rendered["pdf_path"],
-                )
-                entry["temporary_output_deleted"] = True
-                continue
-
-            candidate_fill = float(
-                (rendered.get("fill_metrics", {}) or {}).get("page_fill_ratio")
-                or 0.0
             )
-
-            if candidate_fill > density_max_fill:
-                entry["restoration_accepted"] = False
-                entry["rejection_reason"] = (
-                    "Restoration exceeded the selected page-density limit."
-                )
-                entry["density_target_max"] = density_max_fill
-                permanently_rejected_restorations.add(change_key)
-                _delete_generated_output(
-                    rendered["docx_path"],
-                    rendered["pdf_path"],
-                )
-                entry["temporary_output_deleted"] = True
-                continue
-
-            space_consumed = max(0.0, candidate_fill - best_fill)
-            restoration_efficiency = (
-                float(quality_gain)
-                / max(space_consumed, _LAYOUT_EFFECT_THRESHOLD)
-            )
-            entry["space_consumed_ratio"] = round(space_consumed, 3)
-            entry["restoration_efficiency_score"] = round(
-                restoration_efficiency, 2
-            )
-
-            candidate_results.append(
+            restoration_prepared.append(
                 {
                     "change_index": change_index,
                     "change_key": change_key,
                     "projects": restored_projects,
                     "skills": restored_skills,
-                    "rendered": rendered,
                     "quality_gain": quality_gain,
-                    "space_consumed_ratio": space_consumed,
-                    "restoration_efficiency_score": restoration_efficiency,
+                    "attempt_type": restore_info.get(
+                        "change_type",
+                        "restore_content",
+                    ),
+                    "change_applied": restore_info,
+                    "restoration_candidate": True,
+                    "restoration_quality_gain": (
+                        quality_gain
+                    ),
+                    "probe_candidate": True,
+                }
+            )
+
+        if not restoration_prepared:
+            break
+
+        optimization_stats[
+            "restoration_batch_count"
+        ] += 1
+        rendered_restorations = (
+            render_candidates_batch(
+                restoration_prepared,
+                batch_label="restoration_pass",
+            )
+        )
+
+        for prepared, rendered in zip(
+            restoration_prepared,
+            rendered_restorations,
+        ):
+            optimization_stats[
+                "restoration_candidates_rendered"
+            ] += 1
+
+            if rendered["pdf_path"] is None:
+                _delete_generated_output(
+                    rendered["docx_path"],
+                    None,
+                )
+                continue
+
+            entry = rendered["attempt_entry"]
+            change_key = str(
+                prepared["change_key"]
+            )
+
+            if int(rendered["page_count"]) > 1:
+                entry[
+                    "restoration_accepted"
+                ] = False
+                entry["rejection_reason"] = (
+                    "Restoring this content caused "
+                    "the resume to exceed one page."
+                )
+                permanently_rejected_restorations.add(
+                    change_key
+                )
+                _delete_generated_output(
+                    rendered["docx_path"],
+                    rendered["pdf_path"],
+                )
+                entry[
+                    "temporary_output_deleted"
+                ] = True
+                continue
+
+            candidate_fill = float(
+                (
+                    rendered.get(
+                        "fill_metrics",
+                        {},
+                    )
+                    or {}
+                ).get("page_fill_ratio")
+                or 0.0
+            )
+
+            if candidate_fill > density_max_fill:
+                entry[
+                    "restoration_accepted"
+                ] = False
+                entry["rejection_reason"] = (
+                    "Restoration exceeded the "
+                    "selected page-density limit."
+                )
+                entry[
+                    "density_target_max"
+                ] = density_max_fill
+                permanently_rejected_restorations.add(
+                    change_key
+                )
+                _delete_generated_output(
+                    rendered["docx_path"],
+                    rendered["pdf_path"],
+                )
+                entry[
+                    "temporary_output_deleted"
+                ] = True
+                continue
+
+            space_consumed = max(
+                0.0,
+                candidate_fill - best_fill,
+            )
+            restoration_efficiency = (
+                float(prepared["quality_gain"])
+                / max(
+                    space_consumed,
+                    _LAYOUT_EFFECT_THRESHOLD,
+                )
+            )
+            entry[
+                "space_consumed_ratio"
+            ] = round(space_consumed, 3)
+            entry[
+                "restoration_efficiency_score"
+            ] = round(
+                restoration_efficiency,
+                2,
+            )
+
+            candidate_results.append(
+                {
+                    "change_index": prepared[
+                        "change_index"
+                    ],
+                    "change_key": change_key,
+                    "projects": prepared[
+                        "projects"
+                    ],
+                    "skills": prepared["skills"],
+                    "rendered": rendered,
+                    "quality_gain": prepared[
+                        "quality_gain"
+                    ],
+                    "space_consumed_ratio": (
+                        space_consumed
+                    ),
+                    "restoration_efficiency_score": (
+                        restoration_efficiency
+                    ),
                 }
             )
 
@@ -3166,38 +3683,68 @@ def generate_tailored_resume_copy_fit_one_page(
         chosen = max(
             candidate_results,
             key=lambda candidate: (
-                float(candidate["restoration_efficiency_score"]),
+                float(
+                    candidate[
+                        "restoration_efficiency_score"
+                    ]
+                ),
                 int(candidate["quality_gain"]),
             ),
         )
 
         for candidate in candidate_results:
-            entry = candidate["rendered"]["attempt_entry"]
-            entry["probe_selected"] = candidate is chosen
+            entry = candidate[
+                "rendered"
+            ]["attempt_entry"]
+            entry["probe_selected"] = (
+                candidate is chosen
+            )
+
             if candidate is chosen:
-                entry["restoration_accepted"] = True
+                entry[
+                    "restoration_accepted"
+                ] = True
             else:
-                entry["restoration_accepted"] = False
+                entry[
+                    "restoration_accepted"
+                ] = False
                 entry["rejection_reason"] = (
-                    "Another one-page restoration recovered more value per "
-                    "unit of rendered space."
+                    "Another one-page restoration "
+                    "recovered more value per unit "
+                    "of rendered space."
                 )
                 _delete_generated_output(
-                    candidate["rendered"]["docx_path"],
-                    candidate["rendered"]["pdf_path"],
+                    candidate[
+                        "rendered"
+                    ]["docx_path"],
+                    candidate[
+                        "rendered"
+                    ]["pdf_path"],
                 )
-                entry["temporary_output_deleted"] = True
+                entry[
+                    "temporary_output_deleted"
+                ] = True
 
         _delete_generated_output(
             best_render["docx_path"],
             best_render["pdf_path"],
         )
-        best_render["attempt_entry"]["superseded_output_deleted"] = True
+        best_render[
+            "attempt_entry"
+        ][
+            "superseded_output_deleted"
+        ] = True
 
-        best_projects = deepcopy(chosen["projects"])
-        best_skills = deepcopy(chosen["skills"])
+        best_projects = deepcopy(
+            chosen["projects"]
+        )
+        best_skills = deepcopy(
+            chosen["skills"]
+        )
         best_render = chosen["rendered"]
-        active_changes.pop(int(chosen["change_index"]))
+        active_changes.pop(
+            int(chosen["change_index"])
+        )
         restored_change_count += 1
 
     fill_metrics = best_render.get("fill_metrics", {}) or {}
@@ -3245,6 +3792,7 @@ def generate_tailored_resume_copy_fit_one_page(
         "page_fill_measurement_method": fill_metrics.get("measurement_method"),
         "page_density_mode": density_mode,
         "density_target_max": density_max_fill,
+        **optimization_summary(),
         "fitting_objective": (
             "Protect unique requirement evidence, then minimise deterministic "
             "evidence loss per unit of actual rendered space saved; "
@@ -3612,6 +4160,172 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
             )
         except OSError:
             pass
+
+
+def convert_docx_batch_to_pdf_if_possible(
+    docx_paths: list[str | Path],
+) -> tuple[dict[str, Path | None], dict[str, Any]]:
+    """
+    Convert several DOCX files with one LibreOffice process.
+
+    Missing outputs are retried individually through the existing converter.
+    The returned dictionary is keyed by each resolved DOCX path.
+    """
+    resolved_paths: list[Path] = []
+    seen: set[str] = set()
+
+    for raw_path in docx_paths:
+        path = Path(raw_path).resolve()
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved_paths.append(path)
+
+    diagnostics: dict[str, Any] = {
+        "requested_count": len(resolved_paths),
+        "batch_process_count": 0,
+        "fallback_process_count": 0,
+        "missing_source_count": 0,
+        "batch_return_code": None,
+    }
+    results: dict[str, Path | None] = {
+        str(path): None
+        for path in resolved_paths
+    }
+
+    valid_paths: list[Path] = []
+    for path in resolved_paths:
+        try:
+            if path.exists() and path.stat().st_size > 0:
+                valid_paths.append(path)
+            else:
+                diagnostics["missing_source_count"] += 1
+        except OSError:
+            diagnostics["missing_source_count"] += 1
+
+    if not valid_paths:
+        return results, diagnostics
+
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    preview_dir = PREVIEW_DIR.resolve()
+    soffice = _find_libreoffice_executable()
+
+    if not soffice:
+        print(
+            "[LibreOffice batch conversion failed] "
+            "LibreOffice executable not found."
+        )
+        return results, diagnostics
+
+    expected_paths = {
+        str(path): preview_dir / f"{path.stem}.pdf"
+        for path in valid_paths
+    }
+
+    for expected_path in expected_paths.values():
+        try:
+            expected_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+    lo_profile_dir = (
+        preview_dir
+        / "lo_profiles"
+        / uuid.uuid4().hex
+    ).resolve()
+    lo_profile_dir.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        soffice,
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--nolockcheck",
+        f"-env:UserInstallation={lo_profile_dir.as_uri()}",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(preview_dir),
+        *[str(path) for path in valid_paths],
+    ]
+
+    conversion_env = os.environ.copy()
+    conversion_env.pop("PYTHONHOME", None)
+    conversion_env.pop("PYTHONPATH", None)
+
+    try:
+        diagnostics["batch_process_count"] = 1
+        timeout_seconds = max(
+            60,
+            min(240, 30 + len(valid_paths) * 20),
+        )
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_seconds,
+            text=True,
+            env=conversion_env,
+        )
+        diagnostics["batch_return_code"] = result.returncode
+
+        if result.returncode != 0:
+            print("[LibreOffice batch conversion failed]")
+            print("Command:", command)
+            print("Return code:", result.returncode)
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+
+        for _ in range(40):
+            pending = []
+            for source_path in valid_paths:
+                expected_path = expected_paths[str(source_path)]
+                try:
+                    ready = (
+                        expected_path.exists()
+                        and expected_path.stat().st_size > 0
+                    )
+                except OSError:
+                    ready = False
+
+                if ready:
+                    results[str(source_path)] = expected_path
+                else:
+                    pending.append(source_path)
+
+            if not pending:
+                break
+            time.sleep(0.1)
+
+    except Exception as exc:
+        print(f"[LibreOffice batch conversion crashed] {exc}")
+
+    finally:
+        try:
+            shutil.rmtree(
+                lo_profile_dir,
+                ignore_errors=True,
+            )
+        except OSError:
+            pass
+
+    # Retry only files that the batch did not produce. This keeps the existing
+    # robust individual conversion path as a fallback.
+    for source_path in valid_paths:
+        if results[str(source_path)] is not None:
+            continue
+
+        diagnostics["fallback_process_count"] += 1
+        results[str(source_path)] = (
+            convert_docx_to_pdf_if_possible(source_path)
+        )
+
+    return results, diagnostics
 
 
 def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:

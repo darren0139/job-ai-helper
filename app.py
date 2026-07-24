@@ -2457,7 +2457,27 @@ if page == "Application Sessions":
                     key=preview_key,
                 )
 
-                pdf_preview_path = convert_docx_to_pdf_if_possible(tailored_resume_copy_path)
+                pdf_preview_path = None
+
+                if isinstance(fit_result, dict):
+                    fitted_pdf_path = fit_result.get(
+                        "pdf_path"
+                    )
+                    if fitted_pdf_path:
+                        fitted_pdf = Path(
+                            fitted_pdf_path
+                        )
+                        if fitted_pdf.exists():
+                            pdf_preview_path = (
+                                fitted_pdf
+                            )
+
+                if pdf_preview_path is None:
+                    pdf_preview_path = (
+                        convert_docx_to_pdf_if_possible(
+                            tailored_resume_copy_path
+                        )
+                    )
 
                 if pdf_preview_path:
                     st.markdown(
