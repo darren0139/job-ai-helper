@@ -23,6 +23,12 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import Any, Iterable
 
+from tailoring.project_identity import (
+    PROJECT_IDENTITY_VERSION,
+    build_selected_project_identity_index,
+    match_evidence_project_to_selected,
+)
+
 
 PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v2"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v2"
@@ -1815,7 +1821,7 @@ def _collect_supported_skill_candidates(
     *,
     resume_profile: dict[str, Any],
     evidence_items: list[dict[str, Any]],
-    selected_project_titles: set[str],
+    selected_project_identity_index: dict[str, Any],
     raw_result: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     candidates: dict[str, dict[str, Any]] = {}
@@ -1830,6 +1836,7 @@ def _collect_supported_skill_candidates(
         source: str,
         category_hint: str = "",
         selected_project: bool = False,
+        selected_project_match_method: str = "",
     ) -> None:
         display = _clean_text(value)
         key = _normalise_skill_key(display)
@@ -1844,6 +1851,7 @@ def _collect_supported_skill_candidates(
                 "sources": set(),
                 "category_hints": [],
                 "selected_project_support": False,
+                "selected_project_support_methods": set(),
                 "resume_support": False,
                 "evidence_titles": set(),
             },
@@ -1853,6 +1861,10 @@ def _collect_supported_skill_candidates(
             row["category_hints"].append(category_hint)
         if selected_project:
             row["selected_project_support"] = True
+            if selected_project_match_method:
+                row["selected_project_support_methods"].add(
+                    selected_project_match_method
+                )
         if source.startswith("resume"):
             row["resume_support"] = True
 
@@ -1865,8 +1877,14 @@ def _collect_supported_skill_candidates(
     for item in evidence_items:
         if not isinstance(item, dict):
             continue
+
         title = _clean_text(item.get("title"))
-        selected = _normalise_key(title) in selected_project_titles
+        selected, selected_match_method = (
+            match_evidence_project_to_selected(
+                item,
+                selected_project_identity_index,
+            )
+        )
 
         for value in item.get("skills", []) or []:
             add(
@@ -1874,6 +1892,7 @@ def _collect_supported_skill_candidates(
                 source="evidence_library.skill",
                 category_hint="skill",
                 selected_project=selected,
+                selected_project_match_method=selected_match_method,
             )
             key = _normalise_skill_key(value)
             if key in candidates and title:
@@ -1885,6 +1904,7 @@ def _collect_supported_skill_candidates(
                 source="evidence_library.tool",
                 category_hint="tool",
                 selected_project=selected,
+                selected_project_match_method=selected_match_method,
             )
             key = _normalise_skill_key(value)
             if key in candidates and title:
@@ -1982,16 +2002,30 @@ def build_deterministic_skills_result(
             "Phase 6B Skills ranking requires stable_analysis.canonical_requirements."
         )
 
-    selected_project_titles = {
-        _normalise_key(project.get("title") or project.get("display_title"))
-        for project in (selected_projects_result or {}).get("recommended_projects", []) or []
+    selected_projects = [
+        project
+        for project in (
+            (selected_projects_result or {}).get(
+                "recommended_projects",
+                [],
+            )
+            or []
+        )
         if isinstance(project, dict)
-    }
+    ]
+    selected_project_identity_index = (
+        build_selected_project_identity_index(
+            selected_projects=selected_projects,
+            evidence_items=evidence_items,
+        )
+    )
 
     candidates = _collect_supported_skill_candidates(
         resume_profile=resume_profile,
         evidence_items=evidence_items,
-        selected_project_titles=selected_project_titles,
+        selected_project_identity_index=(
+            selected_project_identity_index
+        ),
         raw_result=raw_result,
     )
 
@@ -2032,6 +2066,9 @@ def build_deterministic_skills_result(
                 "preferred_match": preferred_match,
                 "matched_requirement_ids": requirement_ids,
                 "selected_project_support": candidate["selected_project_support"],
+                "selected_project_support_methods": sorted(
+                    candidate["selected_project_support_methods"]
+                ),
                 "resume_support": candidate["resume_support"],
                 "evidence_titles": sorted(candidate["evidence_titles"]),
                 "deterministic_priority_score": priority_score,
@@ -2095,6 +2132,10 @@ def build_deterministic_skills_result(
     result["deterministic_skill_ranking"] = rows
     result["skill_ranking_version"] = SKILL_RANKING_VERSION
     result["skill_selection_owner"] = "python_canonical_supported_evidence_pool"
+    result["project_identity_version"] = PROJECT_IDENTITY_VERSION
+    result["selected_project_identity_debug"] = (
+        selected_project_identity_index["debug"]
+    )
     result.setdefault("notes", [])
     result["notes"] = [
         *[_clean_text(value) for value in result.get("notes", []) or [] if _clean_text(value)],

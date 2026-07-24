@@ -1039,64 +1039,39 @@ def _restore_application_tailoring_to_session(
     settings = state.get(
         "generation_settings"
     )
+    restored_settings_key = (
+        f"restored_tailoring_settings_{application_id}"
+    )
+
     if isinstance(settings, dict):
-        direct_settings = {
-            "max_projects": f"max_projects_{application_id}",
-            "max_bullets": f"max_bullets_{application_id}",
-            "use_compact_before_delete": (
-                f"use_compact_before_delete_{application_id}"
-            ),
-            "prefer_balanced_bullets": (
-                f"prefer_balanced_bullets_{application_id}"
-            ),
-            "allow_skills_compaction": (
-                f"allow_skills_compaction_{application_id}"
-            ),
-            "add_spacing_before_first_project": (
-                f"spacing_before_first_project_{application_id}"
-            ),
-            "project_spacing_pt": (
-                f"project_spacing_pt_{application_id}"
-            ),
-            "after_projects_spacing_pt": (
-                f"after_projects_spacing_pt_{application_id}"
-            ),
-            "blank_lines_between_projects": (
-                f"blank_lines_between_projects_{application_id}"
-            ),
-            "blank_lines_after_projects": (
-                f"blank_lines_after_projects_{application_id}"
-            ),
-        }
-        for setting_name, widget_key in direct_settings.items():
-            if setting_name in settings:
-                st.session_state[widget_key] = settings[
-                    setting_name
-                ]
+        # Keep persisted values separate from Streamlit widget keys. Writing a
+        # restored value directly into a widget key and also supplying that
+        # widget's `value`/`index` argument causes Streamlit's duplicate-default
+        # warning on the next rerun.
+        st.session_state[restored_settings_key] = dict(settings)
+    else:
+        st.session_state[restored_settings_key] = {}
 
-        density_mode = str(
-            settings.get("page_density_mode") or ""
-        ).strip().lower()
-        if density_mode:
-            st.session_state[
-                f"page_density_mode_{application_id}"
-            ] = (
-                "Maximize relevant content"
-                if density_mode == "maximize"
-                else "Balanced"
-            )
+    # Loading a session should recreate these widgets from the restored
+    # defaults on the next rerun. Remove any values left by the previously
+    # selected application so they cannot leak into this one.
+    widget_keys = [
+        f"max_projects_{application_id}",
+        f"max_bullets_{application_id}",
+        f"use_compact_before_delete_{application_id}",
+        f"prefer_balanced_bullets_{application_id}",
+        f"allow_skills_compaction_{application_id}",
+        f"page_density_mode_{application_id}",
+        f"spacing_mode_{application_id}",
+        f"spacing_before_first_project_{application_id}",
+        f"project_spacing_pt_{application_id}",
+        f"after_projects_spacing_pt_{application_id}",
+        f"blank_lines_between_projects_{application_id}",
+        f"blank_lines_after_projects_{application_id}",
+    ]
 
-        spacing_mode = str(
-            settings.get("spacing_mode") or ""
-        ).strip().lower()
-        if spacing_mode:
-            st.session_state[
-                f"spacing_mode_{application_id}"
-            ] = (
-                "Blank line"
-                if spacing_mode == "blank_line"
-                else "Paragraph spacing"
-            )
+    for widget_key in widget_keys:
+        st.session_state.pop(widget_key, None)
 
     return True
 
@@ -1992,19 +1967,26 @@ if page == "Application Sessions":
                 f"tailored_generation_id_{current_application_id}"
             )
 
+            restored_settings = st.session_state.get(
+                f"restored_tailoring_settings_{current_application_id}",
+                {},
+            )
+            if not isinstance(restored_settings, dict):
+                restored_settings = {}
+
             max_projects = st.slider(
                 "Maximum projects",
-                1,
-                4,
-                3,
+                min_value=1,
+                max_value=4,
+                value=int(restored_settings.get("max_projects", 3)),
                 key=f"max_projects_{current_application_id}",
             )
 
             max_bullets = st.slider(
                 "Maximum bullets per project",
-                1,
-                4,
-                3,
+                min_value=1,
+                max_value=4,
+                value=int(restored_settings.get("max_bullets", 3)),
                 key=f"max_bullets_{current_application_id}",
                 help=(
                     "This is a ceiling for every selected project. "
@@ -2397,7 +2379,12 @@ if page == "Application Sessions":
                 with st.expander("Fitting strategy", expanded=True):
                     use_compact_before_delete = st.checkbox(
                         "Compact project wording before deleting content",
-                        value=True,
+                        value=bool(
+                            restored_settings.get(
+                                "use_compact_before_delete",
+                                True,
+                            )
+                        ),
                         key=(
                             "use_compact_before_delete_"
                             f"{current_application_id}"
@@ -2411,7 +2398,12 @@ if page == "Application Sessions":
 
                     prefer_balanced_bullets = st.checkbox(
                         "Balance project bullets during deletion",
-                        value=False,
+                        value=bool(
+                            restored_settings.get(
+                                "prefer_balanced_bullets",
+                                False,
+                            )
+                        ),
                         key=(
                             "prefer_balanced_bullets_"
                             f"{current_application_id}"
@@ -2425,7 +2417,12 @@ if page == "Application Sessions":
 
                     allow_skills_compaction = st.checkbox(
                         "Allow removal of low-priority Skills",
-                        value=False,
+                        value=bool(
+                            restored_settings.get(
+                                "allow_skills_compaction",
+                                False,
+                            )
+                        ),
                         key=(
                             "allow_skills_compaction_"
                             f"{current_application_id}"
@@ -2437,9 +2434,28 @@ if page == "Application Sessions":
                         ),
                     )
 
+                    page_density_options = [
+                        "Balanced",
+                        "Maximize relevant content",
+                    ]
+                    saved_page_density = str(
+                        restored_settings.get(
+                            "page_density_mode",
+                            "balanced",
+                        )
+                    ).strip().lower()
+                    default_page_density_label = (
+                        "Maximize relevant content"
+                        if saved_page_density == "maximize"
+                        else "Balanced"
+                    )
+
                     page_density_label = st.radio(
                         "Page density",
-                        ["Balanced", "Maximize relevant content"],
+                        page_density_options,
+                        index=page_density_options.index(
+                            default_page_density_label
+                        ),
                         horizontal=True,
                         key=f"page_density_mode_{current_application_id}",
                         help=(
@@ -2461,9 +2477,28 @@ if page == "Application Sessions":
                     )
 
                 with st.expander("Spacing options", expanded=False):
+                    spacing_mode_options = [
+                        "Paragraph spacing",
+                        "Blank line",
+                    ]
+                    saved_spacing_mode = str(
+                        restored_settings.get(
+                            "spacing_mode",
+                            "paragraph_spacing",
+                        )
+                    ).strip().lower()
+                    default_spacing_mode_label = (
+                        "Blank line"
+                        if saved_spacing_mode == "blank_line"
+                        else "Paragraph spacing"
+                    )
+
                     spacing_mode_label = st.radio(
                         "Spacing mode",
-                        ["Paragraph spacing", "Blank line"],
+                        spacing_mode_options,
+                        index=spacing_mode_options.index(
+                            default_spacing_mode_label
+                        ),
                         horizontal=True,
                         key=f"spacing_mode_{current_application_id}",
                         help=(
@@ -2480,24 +2515,39 @@ if page == "Application Sessions":
 
                     add_spacing_before_first_project = st.checkbox(
                         "Add spacing before the first project too",
-                        value=False,
+                        value=bool(
+                            restored_settings.get(
+                                "add_spacing_before_first_project",
+                                False,
+                            )
+                        ),
                         key=f"spacing_before_first_project_{current_application_id}",
                     )
 
                     if spacing_mode == "paragraph_spacing":
                         project_spacing_pt = st.slider(
                             "Spacing before each next project (pt)",
-                            0,
-                            20,
-                            10,
+                            min_value=0,
+                            max_value=20,
+                            value=int(
+                                restored_settings.get(
+                                    "project_spacing_pt",
+                                    10,
+                                )
+                            ),
                             key=f"project_spacing_pt_{current_application_id}",
                         )
 
                         after_projects_spacing_pt = st.slider(
                             "Spacing after final project / before Skills (pt)",
-                            0,
-                            20,
-                            10,
+                            min_value=0,
+                            max_value=20,
+                            value=int(
+                                restored_settings.get(
+                                    "after_projects_spacing_pt",
+                                    10,
+                                )
+                            ),
                             key=f"after_projects_spacing_pt_{current_application_id}",
                         )
 
@@ -2509,7 +2559,12 @@ if page == "Application Sessions":
                             "Blank lines before each project",
                             min_value=0,
                             max_value=3,
-                            value=1,
+                            value=int(
+                                restored_settings.get(
+                                    "blank_lines_between_projects",
+                                    1,
+                                )
+                            ),
                             step=1,
                             key=f"blank_lines_between_projects_{current_application_id}",
                         )
@@ -2518,7 +2573,12 @@ if page == "Application Sessions":
                             "Blank lines after final project / before Skills",
                             min_value=0,
                             max_value=3,
-                            value=1,
+                            value=int(
+                                restored_settings.get(
+                                    "blank_lines_after_projects",
+                                    1,
+                                )
+                            ),
                             step=1,
                             key=f"blank_lines_after_projects_{current_application_id}",
                         )
