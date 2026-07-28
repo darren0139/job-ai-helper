@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1.1",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.2",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -189,7 +189,14 @@
           "testing",
           "test cases",
           "regression testing",
-          "defect verification"
+          "defect verification",
+          "defect investigation",
+          "investigate software defects",
+          "reproduce failures",
+          "verify fixes",
+          "fix verification",
+          "bug reproduction",
+          "defect reproduction"
         ],
         "all_terms": []
       },
@@ -210,7 +217,12 @@
           "verify",
           "validation",
           "validate",
-          "bug reproduction"
+          "bug reproduction",
+          "investigated defects",
+          "reproduced failures",
+          "reproduced bugs",
+          "verified fixes",
+          "fix verification"
         ],
         "game_domain": [
           "game",
@@ -469,7 +481,14 @@
         "any_terms": [
           "live operations",
           "live ops",
-          "live service operations"
+          "live service operations",
+          "incident response",
+          "production incident",
+          "outage response",
+          "outage recovery",
+          "service restoration",
+          "restore affected systems",
+          "restore disrupted services"
         ],
         "all_terms": []
       },
@@ -484,7 +503,13 @@
           "incident response",
           "monitoring",
           "deployment operations",
-          "production operations"
+          "production operations",
+          "outage response",
+          "outage recovery",
+          "service restoration",
+          "restored service",
+          "restored affected systems",
+          "production incident"
         ],
         "game_domain": [
           "game",
@@ -1362,7 +1387,14 @@
           "row level security",
           "rls",
           "database access control",
-          "authorization policy"
+          "authorization policy",
+          "user-scoped access policies",
+          "user scoped access policies",
+          "restricted data access",
+          "role-based data access",
+          "database authorization",
+          "record-level access control",
+          "role checks for data access"
         ],
         "all_terms": []
       },
@@ -1373,7 +1405,14 @@
           "rls",
           "access control policy",
           "authorization policy",
-          "database permissions"
+          "database permissions",
+          "user scoped policy",
+          "user-scoped policy",
+          "restricted data access",
+          "role based access control",
+          "role-based access control",
+          "rbac",
+          "database authorization"
         ]
       },
       "evidence_tiers": [
@@ -1503,7 +1542,13 @@
         "any_terms": [
           "kubernetes",
           "k8s",
-          "container orchestration"
+          "container orchestration",
+          "orchestrate container workloads",
+          "container workloads across clustered environments",
+          "kubernetes deployment manifests",
+          "service and ingress manifests",
+          "cluster service routing",
+          "ingress rules"
         ],
         "all_terms": []
       },
@@ -1515,7 +1560,11 @@
           "service manifest",
           "ingress",
           "namespace",
-          "helm"
+          "helm",
+          "clustered environments",
+          "container workloads",
+          "service routing",
+          "ingress rules"
         ]
       },
       "evidence_tiers": [

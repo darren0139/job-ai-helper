@@ -57,7 +57,7 @@ class Phase6DStableScoringIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             result["capability_taxonomy_version"],
-            "phase6d-capability-taxonomy-v1.1",
+            "phase6d-capability-taxonomy-v1.2",
         )
         row = result["canonical_requirements"][0]
         self.assertEqual(
