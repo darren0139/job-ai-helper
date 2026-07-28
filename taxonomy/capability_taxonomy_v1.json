@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.1",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -1552,8 +1552,11 @@
           "observability",
           "prometheus",
           "grafana",
-          "metrics",
-          "alerting"
+          "alerting",
+          "service metrics",
+          "application metrics",
+          "operational metrics",
+          "telemetry metrics"
         ],
         "all_terms": []
       },
@@ -1650,7 +1653,15 @@
           "llm evaluation",
           "evaluation harness",
           "benchmarking",
-          "eval dataset"
+          "eval dataset",
+          "benchmark set",
+          "benchmark sets",
+          "pass-rate metrics",
+          "pass rate metrics",
+          "model response evaluation",
+          "assess language-model responses",
+          "assess llm responses",
+          "regression checks for model responses"
         ],
         "all_terms": []
       },
