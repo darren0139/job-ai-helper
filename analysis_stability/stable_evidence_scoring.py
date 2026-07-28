@@ -22,7 +22,12 @@ import re
 from copy import deepcopy
 from typing import Any
 
-SCORING_VERSION = "stable-evidence-v1.1c"
+from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.phase6d_stable_scoring_adapter import (
+    apply_taxonomy_caps_to_requirements,
+)
+
+SCORING_VERSION = "stable-evidence-v1.2-phase6d"
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -1770,33 +1775,56 @@ def build_stable_analysis(
 
     validated, validation_warnings = validate_linked_matches(linked)
 
+    taxonomy_version = get_default_taxonomy().version
+    taxonomy_validated = apply_taxonomy_caps_to_requirements(
+        validated
+    )
+    taxonomy_warnings: list[dict[str, Any]] = []
+    for row in taxonomy_validated:
+        for warning in row.pop("validation_warnings", []) or []:
+            taxonomy_warnings.append(
+                {
+                    "requirement_id": row.get("requirement_id", ""),
+                    **warning,
+                }
+            )
+
     score = compute_deterministic_alignment(
-        validated,
+        taxonomy_validated,
         bullet_quality_score=bullet_quality_score,
         structure_score=structure_score,
     )
 
-    input_material = "\n---JD---\n".join(
+    input_material = "\n---INPUT-PART---\n".join(
         (
             _normalise_basic(raw_resume_text),
             _normalise_basic(raw_jd_text),
+            taxonomy_version,
+            SCORING_VERSION,
         )
     )
 
     return {
         "scoring_version": SCORING_VERSION,
+        "capability_taxonomy_version": taxonomy_version,
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")
         ).hexdigest(),
-        "canonical_requirements": validated,
+        "canonical_requirements": taxonomy_validated,
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],
             "merged_requirements": canonical["merge_debug"],
             "atomic_requirement_count": sum(
-                1 for row in validated if row.get("is_atomic")
+                1
+                for row in taxonomy_validated
+                if row.get("is_atomic")
             ),
         },
-        "validation_warnings": link_warnings + validation_warnings,
+        "validation_warnings": (
+            link_warnings
+            + validation_warnings
+            + taxonomy_warnings
+        ),
         **score,
     }
 

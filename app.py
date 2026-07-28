@@ -153,10 +153,13 @@ from tailoring.canonical_bullet_suggester import (
 
 
 from report import render_markdown
+from api_cost import summarise_api_calls
 from llm import (
     ask_text,
+    drain_call_ledger,
     get_active_model,
     get_model_options,
+    reset_call_ledger,
     set_runtime_model,
 )
 
@@ -200,6 +203,69 @@ def init_session_state() -> None:
     st.session_state.setdefault("analysis_chat", [])
     st.session_state.setdefault("rag_resume_profile", None)
     st.session_state.setdefault("rag_resume_source", "")
+
+
+def _api_usage_key(application_id: int | None) -> str:
+    suffix = (
+        str(application_id)
+        if application_id is not None
+        else "unsaved"
+    )
+    return f"api_usage_calls_{suffix}"
+
+
+def _seed_api_calls_from_report(
+    report: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(report, dict):
+        return []
+    summary = report.get("api_cost_summary", {}) or {}
+    return [
+        dict(call)
+        for call in summary.get("calls", []) or []
+        if isinstance(call, dict)
+    ]
+
+
+def append_api_usage(
+    *,
+    application_id: int | None,
+    action: str,
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    calls = drain_call_ledger()
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    for index, call in enumerate(calls, start=1):
+        call["action"] = action
+        call["action_call_index"] = index
+        call["captured_at"] = captured_at
+
+    key = _api_usage_key(application_id)
+    existing = st.session_state.get(key)
+    if not isinstance(existing, list):
+        existing = _seed_api_calls_from_report(report)
+
+    existing.extend(calls)
+    st.session_state[key] = existing
+    summary = summarise_api_calls(existing)
+    if isinstance(report, dict):
+        report["api_cost_summary"] = summary
+    return summary
+
+
+def get_api_usage_summary(
+    application_id: int | None,
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    key = _api_usage_key(application_id)
+    calls = st.session_state.get(key)
+    if not isinstance(calls, list):
+        calls = _seed_api_calls_from_report(report)
+        if calls:
+            st.session_state[key] = calls
+    return summarise_api_calls(
+        calls if isinstance(calls, list) else []
+    )
 
 
 def reset_current_application() -> None:
@@ -402,6 +468,10 @@ def create_full_debug_bundle(
             ),
         },
         "analysis_report": report or {},
+        "api_cost_summary": get_api_usage_summary(
+            application_id,
+            report,
+        ),
         "combined_project_candidate_pool": (
             candidate_pool or []
         ),
@@ -1558,6 +1628,7 @@ if page == "Application Sessions":
                 st.write(f"Read {len(jd_text)} characters from job description.")
 
                 status.update(label="Running AI analysis...", state="running")
+                reset_call_ledger()
                 report = run_resume_analysis(resume_text, jd_text, degree, actual_page_count=actual_page_count,)
 
                 # Store the full pasted job description in the saved report.
@@ -1668,6 +1739,17 @@ if page == "Application Sessions":
             except Exception as rag_exc:
                 # The main resume analysis should still succeed even if RAG indexing fails.
                 jd_library_message = f" RAG indexing skipped: {rag_exc}"
+
+            append_api_usage(
+                application_id=application_id,
+                action="analyse_resume",
+                report=report,
+            )
+            update_application_report(
+                application_id=application_id,
+                resume_filename=uploaded_resume.name,
+                report=report,
+            )
 
             st.session_state["latest_report"] = report
             st.session_state["resume_filename"] = uploaded_resume.name
@@ -1909,6 +1991,46 @@ if page == "Application Sessions":
             st.write("### Full Report JSON")
             st.json(report)
 
+        usage_summary = get_api_usage_summary(
+            current_application_id,
+            report,
+        )
+        if usage_summary.get("call_count", 0):
+            st.subheader("API Usage")
+            usage_col1, usage_col2, usage_col3 = st.columns(3)
+            usage_col1.metric(
+                "Estimated API Cost",
+                "${:.6f}".format(
+                    float(
+                        usage_summary.get(
+                            "estimated_total_cost_usd",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                ),
+            )
+            usage_col2.metric(
+                "Tracked API Calls",
+                usage_summary.get("call_count", 0),
+            )
+            usage_col3.metric(
+                "Total Tokens",
+                f"{usage_summary.get('total_tokens', 0):,}",
+            )
+            st.caption(
+                "Estimated from provider-reported token usage and "
+                "config/model_benchmark_catalog.json. Actual billing "
+                "may differ after retries or price changes."
+            )
+            if not usage_summary.get("cost_estimate_complete", True):
+                st.warning(
+                    "Some tracked models are missing from the local "
+                    "price catalogue, so the cost is only partial."
+                )
+            with st.expander("API usage details", expanded=False):
+                st.json(usage_summary)
+
         st.subheader("Download Reports")
 
         json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
@@ -2002,6 +2124,7 @@ if page == "Application Sessions":
                 key=f"generate_projects_skills_{current_application_id}",
             ):
                 try:
+                    reset_call_ledger()
                     evidence_items = get_evidence_items(limit=100)
 
                     st.session_state[
@@ -2050,6 +2173,21 @@ if page == "Application Sessions":
                             stable_analysis=report.get("stable_analysis", {}),
                             selected_projects_result=project_result,
                         )
+
+                    append_api_usage(
+                        application_id=current_application_id,
+                        action="generate_projects_and_skills",
+                        report=report,
+                    )
+                    st.session_state["latest_report"] = report
+                    update_application_report(
+                        application_id=current_application_id,
+                        resume_filename=st.session_state.get(
+                            "resume_filename",
+                            "",
+                        ),
+                        report=report,
+                    )
 
                     st.session_state[tailored_projects_key] = project_result
                     st.session_state[tailored_fit_key] = fit_estimate

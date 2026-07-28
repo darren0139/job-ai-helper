@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Job AI Helper Capability Taxonomy",
+  "type": "object",
+  "required": [
+    "taxonomy_version",
+    "capabilities"
+  ],
+  "properties": {
+    "taxonomy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "capability_id",
+          "label",
+          "domain",
+          "priority",
+          "requirement",
+          "evidence_tiers",
+          "does_not_prove"
+        ],
+        "properties": {
+          "capability_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "label": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "explicit_only": {
+            "type": "boolean"
+          },
+          "requirement": {
+            "type": "object",
+            "required": [
+              "any_terms"
+            ],
+            "properties": {
+              "any_terms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "all_terms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "evidence_concepts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "evidence_tiers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "enum": [
+                    "direct",
+                    "transferable",
+                    "weak",
+                    "none"
+                  ]
+                },
+                "all_groups": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "any_terms": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "concepts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "does_not_prove": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

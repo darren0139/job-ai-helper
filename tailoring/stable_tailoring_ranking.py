@@ -29,10 +29,15 @@ from tailoring.project_identity import (
     match_evidence_project_to_selected,
 )
 
+from tailoring.phase6d_ranking_adapter import (
+    match_requirement_to_candidate,
+    taxonomy_evidence_anchors,
+)
+
 
 PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v2"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v2"
-EVIDENCE_MAPPING_VERSION = "phase6b1-deterministic-evidence-mapping-v1"
+EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
 NEAR_TIE_MARGIN = 5
 
 _MATCH_VALUES = {
@@ -223,74 +228,7 @@ _TOOL_HINTS = {
 # Phase 6B.1 evidence concepts. These are generic capability families rather
 # than role-specific aliases. They are used to validate or replace an LLM's
 # proposed project-to-requirement links with evidence-grounded Python rules.
-_EVIDENCE_CONCEPT_ANCHORS = {
-    "game_domain": {
-        "game", "games", "gaming", "gameplay", "unity", "fmod",
-        "game engine", "custom engine", "google play", "player",
-    },
-    "configuration_explicit": {
-        "configure", "configured", "configuration", "settings", "parameters",
-        "content configuration", "server configuration", "operational settings",
-    },
-    "configuration_proxy": {
-        "setup", "set up", "environment", "policy", "policies", "permission",
-        "permissions", "access control", "row level security", "rls", "rule",
-        "rules", "asset pipeline", "pipeline consistency",
-    },
-    "qa_testing": {
-        "quality assurance", "qa", "test", "tests", "testing", "test case",
-        "test cases", "regression", "regression testing", "defect", "defects",
-        "verification", "verify", "validation", "validate", "bug reproduction",
-    },
-    "live_operations": {
-        "live operations", "live ops", "live service", "production support",
-        "on call", "on-call", "incident response", "monitoring",
-        "deployment operations", "production operations",
-    },
-    "live_environment": {
-        "live environment", "production environment", "live server",
-        "production server",
-    },
-    "bug_hack": {
-        "bug", "bugs", "hack", "hacks", "exploit", "exploits",
-        "vulnerability", "vulnerabilities", "triage", "incident",
-    },
-    "evaluation": {
-        "operational evaluation", "evaluation", "evaluate", "evaluated",
-        "kpi", "performance analysis", "operational analysis", "audit",
-        "review", "validation",
-    },
-    "attention_detail_explicit": {
-        "attention to detail", "meticulous", "accuracy", "accurate",
-        "precision", "precise",
-    },
-    "attention_detail_proxy": {
-        "audit", "review", "validation", "security policy", "security policies",
-        "row level security", "rls", "data integrity", "pipeline consistency",
-        "access control",
-    },
-    "collaboration": {
-        "collaborate", "collaborated", "collaboration", "team", "team members",
-        "team of", "scrum", "coordinate", "coordinated",
-    },
-    "cross_functional_explicit": {
-        "cross functional", "cross-functional", "multiple departments",
-        "different functions", "engineering and design", "design and engineering",
-    },
-    "stakeholder": {
-        "stakeholder", "stakeholders", "client", "clients", "customer",
-        "customers", "local and global", "global team", "regional team",
-    },
-    "communication": {
-        "written communication", "verbal communication", "communicated",
-        "presented", "presentation", "wrote documentation",
-        "created documentation",
-    },
-    "shooter": {
-        "shooting game", "shooting games", "shooter", "fps", "third person shooter",
-        "first person shooter",
-    },
-}
+_EVIDENCE_CONCEPT_ANCHORS = taxonomy_evidence_anchors()
 
 
 def _clean_text(value: Any) -> str:
@@ -303,8 +241,6 @@ def _normalise_key(value: Any) -> str:
     text = text.replace("cross-functional", "cross functional")
     text = re.sub(r"[^a-z0-9+#.]+", " ", text)
     return " ".join(text.split())
-
-
 
 
 def _normalise_skill_key(value: Any) -> str:
@@ -669,8 +605,26 @@ def _fallback_evidence_supports_requirement(
     requirement: dict[str, Any],
     candidate: dict[str, Any],
 ) -> tuple[bool, bool]:
-    """Return (supported, generic_collaboration_only)."""
-    requirement_text = _normalise_key(requirement.get("text"))
+    """Return ``(supported, generic_collaboration_only)``.
+
+    Phase 6D owns recognised capability semantics. The generic lexical overlap
+    fallback is retained only for requirements that the taxonomy does not yet
+    recognise, preserving backward compatibility for uncommon role wording.
+    """
+    decision = match_requirement_to_candidate(
+        requirement=requirement,
+        candidate_evidence_text=_evidence_corpus(candidate),
+    )
+    label = decision.get("label")
+
+    if label is not None:
+        generic_collaboration_only = bool(
+            decision.get("capability_id")
+            == "collaboration.cross_functional"
+            and label == "weak"
+        )
+        return label != "none", generic_collaboration_only
+
     requirement_focus = _tokens(
         requirement.get("atomic_focus") or requirement.get("text")
     )
@@ -681,65 +635,7 @@ def _fallback_evidence_supports_requirement(
 
     overlap = evidence_tokens & requirement_focus
     coverage = len(overlap) / max(1, len(requirement_focus))
-
-    if coverage >= 0.5:
-        return True, False
-
-    # Objective knowledge/familiarity requirements may be supported by concrete
-    # education, projects, or employment in the named domain even when the
-    # evidence does not literally repeat the words "knowledge" or "industry".
-    abstract_domain_terms = {
-        _stem_token(value)
-        for value in ("knowledge", "familiarity", "experience", "industry")
-    }
-    if requirement_focus & {
-        _stem_token("knowledge"),
-        _stem_token("familiarity"),
-    }:
-        domain_terms = requirement_focus - abstract_domain_terms
-        if domain_terms and evidence_tokens & domain_terms:
-            return True, False
-
-    if "cross functional" in requirement_text:
-        generic_terms = {
-            _stem_token(value)
-            for value in ("team", "collaborate", "collaboration", "coordinate")
-        }
-        if evidence_tokens & generic_terms:
-            return True, True
-
-    # Generic configuration proxies. These are broad technical concepts, not
-    # role-specific aliases: setup, permissions, policies, and access rules can
-    # support a transferable configuration link when the AI explicitly maps it.
-    if requirement_focus & {_stem_token("configuration"), _stem_token("configure")}:
-        proxy_terms = {
-            _stem_token(value)
-            for value in (
-                "setup",
-                "environment",
-                "permission",
-                "policy",
-                "access",
-                "security",
-                "rule",
-            )
-        }
-        if len(evidence_tokens & proxy_terms) >= 2:
-            return True, False
-
-    # Evaluation may be transferable from explicit audit, review, validation,
-    # or analysis workflows, but not from generic implementation work.
-    if requirement_focus & {_stem_token("evaluation"), _stem_token("evaluate")}:
-        proxy_terms = {
-            _stem_token(value)
-            for value in ("audit", "review", "validation", "analysis", "evaluate")
-        }
-        if evidence_tokens & proxy_terms:
-            return True, False
-
-    return False, False
-
-
+    return coverage >= 0.5, False
 
 
 def _concept_text_key(value: Any) -> str:
@@ -769,72 +665,6 @@ def _text_contains_any(text: str, phrases: Iterable[str]) -> bool:
     return False
 
 
-def _requirement_capability_family(requirement: dict[str, Any]) -> str | None:
-    """Classify one atomic requirement into a deterministic evidence family.
-
-    Only the atomic child text is used. Parent text may contain neighbouring
-    clauses (for example communication plus cross-functional collaboration) and
-    must not leak those concepts into every child.
-    """
-    text = _normalise_key(
-        " ".join(
-            [
-                _clean_text(requirement.get("text")),
-                _clean_text(requirement.get("atomic_focus")),
-            ]
-        )
-    )
-    tokens = _tokens(text, remove_stopwords=False)
-
-    # Objective atomic children take precedence over an explicit-only flag that
-    # may have been inherited from a compound parent such as "passionate about
-    # games with basic knowledge of the gaming industry".
-    if "recent" in text and _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["shooter"]):
-        return "recent_shooter"
-    if ("knowledge" in text or "familiarity" in text) and _text_contains_any(
-        text, _EVIDENCE_CONCEPT_ANCHORS["game_domain"]
-    ):
-        return "game_domain_knowledge"
-    if re.search(r"\b\d+\s*(?:year|years|month|months)\b", text) and "experience" in text:
-        return "experience_duration"
-    if "between different offices" in text or "inter office" in text:
-        return "interoffice_coordination"
-    if "bugs and hacks" in text or "bug and hack" in text or _text_contains_any(
-        text, _EVIDENCE_CONCEPT_ANCHORS["bug_hack"]
-    ):
-        return "bug_hack"
-    if "live environment" in text or "production environment" in text:
-        return "live_environment"
-    if "live operations" in text or "live ops" in text:
-        return "live_operations"
-    if "daily operations" in text or "operate and maintain" in text:
-        return "daily_operations"
-    if "quality assurance" in text or re.search(r"\bqa\b", text):
-        return "qa_testing"
-    if "configuration" in text or "configure" in text:
-        return "configuration"
-    if "operational evaluation" in text or (
-        "operational" in text and ("evaluation" in text or "evaluate" in text)
-    ):
-        return "operational_evaluation"
-    if "local and global" in text or "stakeholder" in text:
-        return "stakeholder_collaboration"
-    if "written" in text and "verbal" in text:
-        return "communication"
-    if "cross functional" in text:
-        return "cross_functional"
-    if "attention to detail" in text or "meticulous" in text:
-        return "attention_detail"
-
-    subjective_words_present = bool(
-        tokens & {_stem_token(token) for token in _SUBJECTIVE_CUES}
-    )
-    if subjective_words_present:
-        return "subjective"
-
-    return None
-
-
 def _record_matches_concept(record: dict[str, Any], concept: str) -> bool:
     return _text_contains_any(
         _clean_text(record.get("text")),
@@ -854,232 +684,51 @@ def _records_for_concepts(
     return matched
 
 
-def _candidate_concept_flags(
-    candidate: dict[str, Any],
-    project_profile: dict[str, Any],
-) -> dict[str, bool]:
-    corpus = _evidence_corpus(candidate)
-    flags = {
-        concept: _text_contains_any(corpus, phrases)
-        for concept, phrases in _EVIDENCE_CONCEPT_ANCHORS.items()
-    }
-    flags["explicit_game_configuration"] = bool(
-        flags["game_domain"] and flags["configuration_explicit"]
-    )
-    flags["explicit_game_qa"] = bool(
-        flags["game_domain"] and flags["qa_testing"]
-    )
-    flags["explicit_game_live_ops"] = bool(
-        flags["game_domain"] and flags["live_operations"]
-    )
-    flags["explicit_game_live_environment"] = bool(
-        flags["game_domain"] and flags["live_environment"]
-    )
-    flags["explicit_game_bug_hack"] = bool(
-        flags["game_domain"] and flags["bug_hack"]
-    )
-    flags["explicit_game_operational_evaluation"] = bool(
-        flags["game_domain"]
-        and flags["evaluation"]
-        and _text_contains_any(
-            corpus,
-            {
-                "operational evaluation",
-                "operational analysis",
-                "game performance",
-                "game kpi",
-                "live service monitoring",
-            },
-        )
-    )
-    flags["team_context"] = bool(flags["collaboration"])
-    return flags
-
-
 def _deterministic_family_match(
     *,
     requirement: dict[str, Any],
     candidate: dict[str, Any],
     project_profile: dict[str, Any],
 ) -> tuple[str | None, list[str], list[str], dict[str, Any]]:
-    """Return a Python-owned mapping for recognised capability families.
+    """Return the Phase 6D taxonomy-owned evidence decision.
 
-    A ``None`` label means the family is not recognised and the validated LLM
-    mapping may be used. A ``none`` label means the family is recognised but the
-    candidate evidence does not support it; any LLM proposal must be discarded.
+    A ``None`` label means the taxonomy does not recognise the requirement and
+    the validated LLM mapping may remain. A ``none`` label means the capability
+    is recognised but this project's evidence does not support it, so any LLM
+    proposal for the requirement must be discarded.
     """
-    family = _requirement_capability_family(requirement)
-    if family is None:
-        return None, [], [], {"family": None, "rule": "unrecognised_family"}
+    decision = match_requirement_to_candidate(
+        requirement=requirement,
+        candidate_evidence_text=_evidence_corpus(candidate),
+    )
 
-    flags = _candidate_concept_flags(candidate, project_profile)
+    label = decision.get("label")
+    capability_id = decision.get("capability_id")
     requirement_text = _normalise_key(requirement.get("text"))
-    label = "none"
-    concepts: tuple[str, ...] = ()
-    rule = "recognised_but_unsupported"
 
-    if family == "subjective":
-        if _contains_explicit_subjective_evidence(requirement, candidate):
-            label = "direct"
-            concepts = ("game_domain",)
-            rule = "explicit_subjective_evidence"
-        else:
-            rule = "subjective_requires_explicit_statement"
+    if label is None:
+        return None, [], [], {
+            "family": None,
+            "capability_id": None,
+            "taxonomy_version": decision.get("taxonomy_version"),
+            "rule": "unrecognised_capability",
+            "requirement_text": requirement_text,
+        }
 
-    elif family == "experience_duration":
-        # Project duration does not prove the requested professional QA/live-ops
-        # experience. Work-experience scoring belongs to Phase 6A.
-        rule = "project_does_not_prove_required_experience_duration"
+    concepts = tuple(decision.get("concepts", []) or [])
+    records = (
+        _records_for_concepts(project_profile, *concepts)
+        if concepts
+        else []
+    )
 
-    elif family == "game_domain_knowledge":
-        if flags["game_domain"]:
-            label = "direct"
-            concepts = ("game_domain",)
-            rule = "concrete_game_domain_project_evidence"
-
-    elif family == "recent_shooter":
-        if flags["shooter"] and "recent" in _normalise_key(_evidence_corpus(candidate)):
-            label = "direct"
-            concepts = ("shooter",)
-            rule = "explicit_recent_shooter_evidence"
-        else:
-            rule = "shooter_or_recency_not_explicit"
-
-    elif family == "qa_testing":
-        if flags["explicit_game_qa"]:
-            label = "transferable"
-            concepts = ("qa_testing", "game_domain")
-            rule = "game_project_contains_explicit_testing_or_qa"
-        elif flags["qa_testing"]:
-            label = "weak"
-            concepts = ("qa_testing",)
-            rule = "non_game_testing_capped_at_weak_for_game_qa"
-        else:
-            rule = "audit_or_review_without_testing_is_not_qa"
-
-    elif family == "configuration":
-        if flags["explicit_game_configuration"]:
-            label = "transferable"
-            concepts = ("configuration_explicit", "game_domain")
-            rule = "explicit_game_configuration_transferable"
-        elif flags["configuration_explicit"] or flags["configuration_proxy"]:
-            label = "weak"
-            concepts = ("configuration_explicit", "configuration_proxy")
-            rule = "non_game_or_indirect_configuration_capped_at_weak"
-        elif flags["game_domain"] and _text_contains_any(
-            _evidence_corpus(candidate), {"asset pipeline", "pipeline consistency", "asset manager"}
-        ):
-            label = "weak"
-            concepts = ("game_domain", "configuration_proxy")
-            rule = "game_pipeline_work_is_weak_configuration_proxy"
-
-    elif family == "daily_operations":
-        if flags["explicit_game_live_ops"]:
-            label = "transferable"
-            concepts = ("live_operations", "game_domain")
-            rule = "explicit_game_live_operations"
-        else:
-            rule = "implementation_or_release_does_not_prove_daily_operations"
-
-    elif family == "live_operations":
-        if flags["explicit_game_live_ops"]:
-            label = "transferable"
-            concepts = ("live_operations", "game_domain")
-            rule = "explicit_game_live_operations"
-        elif flags["live_operations"]:
-            label = "weak"
-            concepts = ("live_operations",)
-            rule = "non_game_live_operations_capped_at_weak"
-
-    elif family == "live_environment":
-        if flags["explicit_game_live_environment"]:
-            label = "transferable"
-            concepts = ("live_environment", "game_domain")
-            rule = "explicit_game_live_environment"
-        elif flags["live_environment"]:
-            label = "weak"
-            concepts = ("live_environment",)
-            rule = "non_game_live_environment_capped_at_weak"
-
-    elif family == "bug_hack":
-        if flags["explicit_game_bug_hack"]:
-            label = "transferable"
-            concepts = ("bug_hack", "game_domain")
-            rule = "explicit_game_bug_or_hack_handling"
-        elif flags["bug_hack"]:
-            label = "weak"
-            concepts = ("bug_hack",)
-            rule = "non_game_bug_or_security_work_capped_at_weak"
-
-    elif family == "operational_evaluation":
-        if flags["explicit_game_operational_evaluation"]:
-            label = "transferable"
-            concepts = ("evaluation", "game_domain")
-            rule = "explicit_game_operational_evaluation"
-        elif flags["evaluation"] and _text_contains_any(
-            _evidence_corpus(candidate),
-            {"operational", "kpi", "performance", "monitoring", "production"},
-        ):
-            label = "weak"
-            concepts = ("evaluation",)
-            rule = "non_game_operational_evaluation_capped_at_weak"
-        else:
-            rule = "generic_analysis_or_audit_is_not_product_operational_evaluation"
-
-    elif family == "interoffice_coordination":
-        if _text_contains_any(
-            _evidence_corpus(candidate),
-            {"different offices", "cross office", "inter office", "regional offices"},
-        ) and flags["collaboration"]:
-            label = "transferable"
-            concepts = ("collaboration",)
-            rule = "explicit_interoffice_coordination"
-        else:
-            rule = "teamwork_does_not_prove_interoffice_coordination"
-
-    elif family == "stakeholder_collaboration":
-        if flags["stakeholder"] and flags["collaboration"]:
-            label = "transferable"
-            concepts = ("stakeholder", "collaboration")
-            rule = "explicit_stakeholder_collaboration"
-        else:
-            rule = "teamwork_does_not_prove_local_global_stakeholders"
-
-    elif family == "communication":
-        if flags["communication"]:
-            label = "weak"
-            concepts = ("communication",)
-            rule = "explicit_communication_activity_without_quality_outcome"
-        else:
-            rule = "communication_not_explicit"
-
-    elif family == "cross_functional":
-        if flags["cross_functional_explicit"]:
-            label = "transferable"
-            concepts = ("cross_functional_explicit", "collaboration")
-            rule = "explicit_cross_functional_context"
-        elif flags["team_context"]:
-            label = "weak"
-            concepts = ("collaboration",)
-            rule = "general_teamwork_capped_at_weak"
-
-    elif family == "attention_detail":
-        if flags["attention_detail_explicit"]:
-            label = "direct"
-            concepts = ("attention_detail_explicit",)
-            rule = "explicit_attention_to_detail"
-        elif flags["attention_detail_proxy"]:
-            label = "weak"
-            concepts = ("attention_detail_proxy",)
-            rule = "deterministic_quality_proxy_capped_at_weak"
-
-    records = _records_for_concepts(project_profile, *concepts) if concepts else []
     if label != "none" and not records:
-        # Use the first concrete bullet/impact/tool/skill rather than an LLM phrase.
+        # Use concrete project evidence rather than an LLM-generated phrase.
         records = [
             record
             for record in project_profile.get("evidence_records", []) or []
-            if record.get("kind") in {"bullet", "impact", "skill", "tool", "title"}
+            if record.get("kind")
+            in {"bullet", "impact", "skill", "tool", "title"}
         ][:3]
 
     evidence_ids = sorted(
@@ -1096,15 +745,17 @@ def _deterministic_family_match(
     )
 
     return label, evidence_ids, snippets, {
-        "family": family,
-        "rule": rule,
+        # Keep ``family`` for backward-compatible debug consumers while making
+        # the stable capability ID explicit.
+        "family": capability_id,
+        "capability_id": capability_id,
+        "taxonomy_version": decision.get("taxonomy_version"),
+        "rule": decision.get("reason"),
         "recognised": True,
         "requirement_text": requirement_text,
-        "evidence_flags": {
-            key: value
-            for key, value in flags.items()
-            if value
-        },
+        "does_not_prove": list(
+            decision.get("does_not_prove", []) or []
+        ),
     }
 
 
@@ -1147,9 +798,16 @@ def _apply_deterministic_requirement_overrides(
             "match_label": label,
             "evidence_ids": evidence_ids,
             "evidence_snippets": snippets,
-            "source": "python_deterministic_evidence_family",
+            "source": "python_phase6d_capability_taxonomy",
             "mapping_similarity": 1.0,
             "evidence_mapping_version": EVIDENCE_MAPPING_VERSION,
+            "capability_id": rule_debug.get("capability_id"),
+            "capability_taxonomy_version": rule_debug.get(
+                "taxonomy_version"
+            ),
+            "capability_does_not_prove": list(
+                rule_debug.get("does_not_prove", []) or []
+            ),
         }
 
     return debug
@@ -1159,62 +817,40 @@ def _bullet_supports_requirement_match(
     bullet: str,
     match: dict[str, Any],
 ) -> bool:
+    """Return whether one bullet carries the matched requirement capability."""
     requirement = {
         "text": match.get("requirement_text", ""),
         "atomic_focus": match.get("requirement_text", ""),
         "importance": match.get("importance", "required"),
     }
-    family = _requirement_capability_family(requirement)
-    text = _normalise_key(bullet)
+    decision = match_requirement_to_candidate(
+        requirement=requirement,
+        candidate_evidence_text=bullet,
+    )
 
-    if family == "game_domain_knowledge":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["game_domain"])
-    if family == "configuration":
-        return _text_contains_any(
-            text,
-            _EVIDENCE_CONCEPT_ANCHORS["configuration_explicit"]
-            | _EVIDENCE_CONCEPT_ANCHORS["configuration_proxy"],
-        )
-    if family == "qa_testing":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["qa_testing"])
-    if family in {"live_operations", "daily_operations"}:
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["live_operations"])
-    if family == "live_environment":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["live_environment"])
-    if family == "bug_hack":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["bug_hack"])
-    if family == "operational_evaluation":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["evaluation"])
-    if family == "cross_functional":
-        return _text_contains_any(
-            text,
-            _EVIDENCE_CONCEPT_ANCHORS["cross_functional_explicit"]
-            | _EVIDENCE_CONCEPT_ANCHORS["collaboration"],
-        )
-    if family == "stakeholder_collaboration":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["stakeholder"])
-    if family == "communication":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["communication"])
-    if family == "attention_detail":
-        return _text_contains_any(
-            text,
-            _EVIDENCE_CONCEPT_ANCHORS["attention_detail_explicit"]
-            | _EVIDENCE_CONCEPT_ANCHORS["attention_detail_proxy"],
-        )
-    if family == "recent_shooter":
-        return _text_contains_any(text, _EVIDENCE_CONCEPT_ANCHORS["shooter"])
+    # For recognised capabilities, the taxonomy owns the decision. Weak support
+    # still counts as support for bullet-priority purposes, but its lower match
+    # value already limits the numeric coverage it contributes.
+    if decision.get("label") is not None:
+        return decision.get("label") != "none"
 
-    # For an unrecognised requirement, fall back to overlap with the validated
-    # evidence snippets. Recognised families never use a broad description row.
+    # Unrecognised requirements retain the prior evidence-snippet overlap
+    # fallback so Phase 6D can be expanded incrementally.
     bullet_tokens = _tokens(bullet)
+    bullet_key = _normalise_key(bullet)
     for snippet in match.get("evidence_snippets", []) or []:
         snippet_text = _clean_text(snippet)
         if not snippet_text:
             continue
+        snippet_key = _normalise_key(snippet_text)
         snippet_tokens = _tokens(snippet_text)
-        if snippet_text in bullet or bullet in snippet_text:
+        if snippet_key in bullet_key or bullet_key in snippet_key:
             return True
-        if len(bullet_tokens & snippet_tokens) / max(1, len(snippet_tokens)) >= 0.55:
+        if (
+            len(bullet_tokens & snippet_tokens)
+            / max(1, len(snippet_tokens))
+            >= 0.55
+        ):
             return True
     return False
 
@@ -1249,6 +885,9 @@ def build_bullet_evidence_priorities(
 
     for index, bullet in enumerate(clean_bullets):
         supported = raw_support[index]
+        # Protection and allocation are deliberately separate:
+        # a unique weak evidence bullet may remain protected during Phase 6C
+        # fitting, but weak evidence receives no Phase 6B.2 unique-core bonus.
         protected_ids = sorted(
             requirement_id
             for requirement_id in supported
@@ -1262,9 +901,13 @@ def build_bullet_evidence_priorities(
                 continue
             points = float(match.get("coverage_points", 0.0) or 0.0)
             evidence_value += points
-            if requirement_id in protected_ids and match.get("importance") in {
-                "core", "deal_breaker", "required"
-            }:
+            if (
+                requirement_id in protected_ids
+                and match.get("importance")
+                in {"core", "deal_breaker", "required"}
+                and str(match.get("match_label", "none")).lower()
+                in {"direct", "transferable"}
+            ):
                 required_core_unique += 1
                 evidence_value += 5.0
 

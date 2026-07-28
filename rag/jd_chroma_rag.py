@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ import chromadb
 from litellm import embedding
 
 from database.jd_library_manager import get_all_job_descriptions, get_job_description_by_id
-from llm import ask_text
+from llm import ask_text, record_external_usage
 
 
 CHROMA_PATH = Path("data/chroma_jd_library")
@@ -100,10 +101,40 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
 
+    selected_model = os.getenv(
+        "EMBEDDING_MODEL",
+        EMBEDDING_MODEL,
+    )
+    started_at = time.perf_counter()
     response = embedding(
-        model=os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL),
+        model=selected_model,
         input=texts,
     )
+    elapsed_seconds = time.perf_counter() - started_at
+
+    try:
+        response_model = (
+            response.get("model")
+            if isinstance(response, dict)
+            else getattr(response, "model", None)
+        )
+        response_usage = (
+            response.get("usage")
+            if isinstance(response, dict)
+            else getattr(response, "usage", None)
+        )
+        record_external_usage(
+            route="analysis",
+            requested_model=selected_model,
+            response_model=response_model,
+            usage=response_usage,
+            elapsed_seconds=elapsed_seconds,
+            operation="embedding",
+        )
+    except Exception:
+        # Cost tracking must never break JD indexing.
+        pass
+
     data = response.get("data", []) if isinstance(response, dict) else getattr(response, "data", [])
 
     vectors: list[list[float]] = []

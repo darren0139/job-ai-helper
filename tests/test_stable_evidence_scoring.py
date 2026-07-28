@@ -240,7 +240,7 @@ Good written communication skills.
         )
         self.assertEqual(importances, ["preferred", "required"])
 
-    def test_qualified_partial_match_is_capped_at_weak(self) -> None:
+    def test_qualified_non_qa_experience_is_rejected_by_taxonomy(self) -> None:
         stable = build_stable_analysis(
             jd_profile={
                 "required_skills": [
@@ -267,7 +267,7 @@ Good written communication skills.
             },
         )
         row = stable["canonical_requirements"][0]
-        self.assertEqual(row["match_label"], "weak")
+        self.assertEqual(row["match_label"], "none")
         self.assertTrue(
             any(
                 warning["code"] == "qualified_evidence_capped"

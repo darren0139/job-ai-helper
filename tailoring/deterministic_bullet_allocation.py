@@ -21,7 +21,7 @@ from tailoring.stable_tailoring_ranking import (
 
 
 BULLET_ALLOCATION_VERSION = (
-    "phase6b2-deterministic-bullet-allocation-v1"
+    "phase6b2-deterministic-bullet-allocation-v2"
 )
 
 _MATCH_STRENGTH = {
@@ -34,6 +34,46 @@ _REQUIRED_IMPORTANCE = {
     "core",
     "deal_breaker",
     "required",
+}
+
+_STRONG_MATCH_LABELS = {"direct", "transferable"}
+
+_STRONG_OWNERSHIP_VERBS = {
+    "automated",
+    "built",
+    "configured",
+    "created",
+    "deployed",
+    "designed",
+    "developed",
+    "implemented",
+    "integrated",
+    "led",
+    "optimised",
+    "optimized",
+    "programmed",
+    "scripted",
+    "secured",
+    "tested",
+    "validated",
+}
+_GENERIC_SUPPORT_VERBS = {
+    "assisted",
+    "collaborated",
+    "contributed",
+    "helped",
+    "participated",
+    "supported",
+    "worked",
+}
+_SOFT_NAMED_TERMS = {
+    "collaboration",
+    "communication",
+    "leadership",
+    "problem solving",
+    "team collaboration",
+    "team coordination",
+    "teamwork",
 }
 
 
@@ -111,6 +151,58 @@ def _canonical_bullets(
     )
 
 
+
+def _candidate_named_terms(
+    candidate: dict[str, Any],
+) -> set[str]:
+    evidence = (
+        candidate.get("evidence_library_evidence")
+        or {}
+    )
+    if not isinstance(evidence, dict):
+        return set()
+
+    values = [
+        *(evidence.get("tools", []) or []),
+        *(evidence.get("skills", []) or []),
+    ]
+    return {
+        term
+        for value in values
+        if (term := _normalise_key(value))
+        and term not in _SOFT_NAMED_TERMS
+    }
+
+
+def _bullet_quality_metrics(
+    bullet: str,
+    named_terms: set[str],
+) -> dict[str, int]:
+    bullet_key = _normalise_key(bullet)
+    words = bullet_key.split()
+    first_word = words[0] if words else ""
+
+    named_term_count = sum(
+        1
+        for term in named_terms
+        if f" {term} " in f" {bullet_key} "
+    )
+
+    if first_word in _STRONG_OWNERSHIP_VERBS:
+        ownership_score = 2
+    elif first_word in _GENERIC_SUPPORT_VERBS:
+        ownership_score = 0
+    elif first_word:
+        ownership_score = 1
+    else:
+        ownership_score = 0
+
+    return {
+        "named_technical_term_count": named_term_count,
+        "ownership_score": ownership_score,
+    }
+
+
 def _project_identity(
     candidate: dict[str, Any],
     ranking_row: dict[str, Any],
@@ -170,6 +262,7 @@ def _build_project_state(
         if isinstance(row, dict)
     }
     matches = _match_by_id(ranking_row)
+    named_terms = _candidate_named_terms(candidate)
 
     records: list[dict[str, Any]] = []
     for index, bullet in enumerate(bullets):
@@ -189,9 +282,31 @@ def _build_project_state(
             if _clean_text(requirement_id)
         }
 
-        direct_ids = {
+        strong_supported_ids = {
             requirement_id
             for requirement_id in supported_ids
+            if str(
+                matches.get(
+                    requirement_id,
+                    {},
+                ).get("match_label", "none")
+            ).lower()
+            in _STRONG_MATCH_LABELS
+        }
+        weak_supported_ids = {
+            requirement_id
+            for requirement_id in supported_ids
+            if str(
+                matches.get(
+                    requirement_id,
+                    {},
+                ).get("match_label", "none")
+            ).lower()
+            == "weak"
+        }
+        direct_ids = {
+            requirement_id
+            for requirement_id in strong_supported_ids
             if str(
                 matches.get(
                     requirement_id,
@@ -202,7 +317,7 @@ def _build_project_state(
         }
         required_core_ids = {
             requirement_id
-            for requirement_id in supported_ids
+            for requirement_id in strong_supported_ids
             if str(
                 matches.get(
                     requirement_id,
@@ -211,17 +326,48 @@ def _build_project_state(
             ).lower()
             in _REQUIRED_IMPORTANCE
         }
-        match_strength = sum(
-            _MATCH_STRENGTH.get(
-                str(
+        protected_ids = {
+            _clean_text(requirement_id)
+            for requirement_id in (
+                priority.get(
+                    "protected_requirement_ids",
+                    [],
+                )
+                or []
+            )
+            if _clean_text(requirement_id)
+        }
+        strong_unique_required_core_count = sum(
+            1
+            for requirement_id in required_core_ids
+            if requirement_id in protected_ids
+        )
+        strong_evidence_value = (
+            sum(
+                float(
                     matches.get(
                         requirement_id,
                         {},
-                    ).get("match_label", "none")
-                ).lower(),
-                0,
+                    ).get("coverage_points", 0.0)
+                    or 0.0
+                )
+                for requirement_id in strong_supported_ids
             )
-            for requirement_id in supported_ids
+            + 5.0 * strong_unique_required_core_count
+        )
+        weak_evidence_value = sum(
+            float(
+                matches.get(
+                    requirement_id,
+                    {},
+                ).get("coverage_points", 0.0)
+                or 0.0
+            )
+            for requirement_id in weak_supported_ids
+        )
+        quality = _bullet_quality_metrics(
+            bullet,
+            named_terms,
         )
 
         records.append(
@@ -234,8 +380,16 @@ def _build_project_state(
                 ),
                 "bullet_text": bullet,
                 "tokens": _token_set(bullet),
+                # Strong matches own allocation coverage. Weak matches
+                # remain diagnostic and act only as a late tie-break.
                 "supported_requirement_ids": (
+                    sorted(strong_supported_ids)
+                ),
+                "all_supported_requirement_ids": (
                     sorted(supported_ids)
+                ),
+                "weak_supported_requirement_ids": (
+                    sorted(weak_supported_ids)
                 ),
                 "direct_requirement_ids": (
                     sorted(direct_ids)
@@ -243,19 +397,29 @@ def _build_project_state(
                 "required_core_requirement_ids": (
                     sorted(required_core_ids)
                 ),
-                "evidence_value": float(
+                "evidence_value": round(
+                    strong_evidence_value,
+                    4,
+                ),
+                "weak_evidence_value": round(
+                    weak_evidence_value,
+                    4,
+                ),
+                "diagnostic_evidence_value": float(
                     priority.get(
                         "evidence_value",
                         0.0,
                     )
                     or 0.0
                 ),
-                "unique_required_core_count": int(
-                    priority.get(
-                        "unique_required_core_count",
-                        0,
-                    )
-                    or 0
+                "named_technical_term_count": quality[
+                    "named_technical_term_count"
+                ],
+                "ownership_score": quality[
+                    "ownership_score"
+                ],
+                "unique_required_core_count": (
+                    strong_unique_required_core_count
                 ),
                 "evidence_priority": int(
                     priority.get(
@@ -411,9 +575,30 @@ def _initial_record_key(
             )
             or []
         ),
+        int(
+            record.get(
+                "named_technical_term_count",
+                0,
+            )
+            or 0
+        ),
+        int(
+            record.get(
+                "ownership_score",
+                0,
+            )
+            or 0
+        ),
         float(
             record.get(
                 "evidence_value",
+                0.0,
+            )
+            or 0.0
+        ),
+        float(
+            record.get(
+                "weak_evidence_value",
                 0.0,
             )
             or 0.0
@@ -466,9 +651,30 @@ def _marginal_record_key(
             )
             or 0
         ),
+        int(
+            record.get(
+                "named_technical_term_count",
+                0,
+            )
+            or 0
+        ),
+        int(
+            record.get(
+                "ownership_score",
+                0,
+            )
+            or 0
+        ),
         float(
             record.get(
                 "evidence_value",
+                0.0,
+            )
+            or 0.0
+        ),
+        float(
+            record.get(
+                "weak_evidence_value",
                 0.0,
             )
             or 0.0

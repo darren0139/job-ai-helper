@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-22",
+  "updated_at": "2026-07-28",
   "currency": "USD",
   "unit": "per_1m_tokens",
   "notes": [
@@ -118,6 +118,13 @@
       "input": 0.1,
       "output": 0.4,
       "provider": "google"
+    },
+    "openai/text-embedding-3-small": {
+      "input": 0.02,
+      "cached_input": 0.02,
+      "output": 0.0,
+      "provider": "openai",
+      "pricing_note": "Embeddings input price per 1M tokens; verified against official OpenAI documentation."
     }
   }
 }

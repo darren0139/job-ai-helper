@@ -41,6 +41,7 @@ import json
 import os
 import sys
 import time
+from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -214,6 +215,10 @@ _RUNTIME_MODELS: dict[str, str] = {
 }
 
 _LAST_CALL_METADATA: dict[str, Any] = {}
+_CALL_LEDGER: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
+    "llm_call_ledger",
+    default=(),
+)
 
 _REWRITE_MARKERS = (
     "here is a rewritten",
@@ -310,6 +315,51 @@ def get_last_call_metadata() -> dict[str, Any]:
     return deepcopy(
         _LAST_CALL_METADATA
     )
+
+
+def reset_call_ledger() -> None:
+    """Start a fresh API-call ledger for the current app action."""
+    _CALL_LEDGER.set(())
+
+
+def get_call_ledger() -> list[dict[str, Any]]:
+    """Return all successful calls captured for the current action."""
+    return deepcopy(list(_CALL_LEDGER.get()))
+
+
+def drain_call_ledger() -> list[dict[str, Any]]:
+    """Return captured calls and clear the current action ledger."""
+    calls = get_call_ledger()
+    _CALL_LEDGER.set(())
+    return calls
+
+
+def record_external_usage(
+    *,
+    route: RouteName,
+    requested_model: str,
+    response_model: str | None = None,
+    usage: Any = None,
+    elapsed_seconds: float = 0.0,
+    operation: str = "external",
+) -> dict[str, Any]:
+    """Record LiteLLM usage from operations outside completion()."""
+    global _LAST_CALL_METADATA
+
+    metadata = {
+        "route": route,
+        "operation": operation,
+        "requested_model": requested_model,
+        "response_model": response_model,
+        "system_fingerprint": None,
+        "created": None,
+        "finish_reason": None,
+        "usage": _serialise_usage(usage),
+        "elapsed_seconds": round(float(elapsed_seconds or 0.0), 3),
+    }
+    _LAST_CALL_METADATA = metadata
+    _CALL_LEDGER.set((*_CALL_LEDGER.get(), deepcopy(metadata)))
+    return deepcopy(metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -764,41 +814,25 @@ def _record_response_metadata(
         else None
     )
 
-    _LAST_CALL_METADATA = {
+    metadata = {
         "route": route,
+        "operation": "completion",
         "requested_model": requested_model,
-        "response_model": getattr(
-            response,
-            "model",
-            None,
-        ),
+        "response_model": getattr(response, "model", None),
         "system_fingerprint": getattr(
-            response,
-            "system_fingerprint",
-            None,
+            response, "system_fingerprint", None
         ),
-        "created": getattr(
-            response,
-            "created",
-            None,
-        ),
+        "created": getattr(response, "created", None),
         "finish_reason": getattr(
-            first_choice,
-            "finish_reason",
-            None,
+            first_choice, "finish_reason", None
         ),
         "usage": _serialise_usage(
-            getattr(
-                response,
-                "usage",
-                None,
-            )
+            getattr(response, "usage", None)
         ),
-        "elapsed_seconds": round(
-            elapsed_seconds,
-            3,
-        ),
+        "elapsed_seconds": round(elapsed_seconds, 3),
     }
+    _LAST_CALL_METADATA = metadata
+    _CALL_LEDGER.set((*_CALL_LEDGER.get(), deepcopy(metadata)))
 
 
 def _empty_response_error(

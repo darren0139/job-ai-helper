@@ -1,0 +1,1934 @@
+{
+  "taxonomy_version": "phase6d-capability-taxonomy-v1",
+  "capabilities": [
+    {
+      "capability_id": "motivation.subjective",
+      "label": "Subjective motivation",
+      "domain": "general",
+      "priority": 5,
+      "explicit_only": true,
+      "requirement": {
+        "any_terms": [
+          "passionate",
+          "passion",
+          "enthusiasm",
+          "interested",
+          "interest",
+          "motivated"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "subjective": [
+          "passionate",
+          "passion",
+          "enthusiasm",
+          "enthusiastic",
+          "interested",
+          "interest",
+          "motivated"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "passionate",
+            "passion",
+            "enthusiastic",
+            "interested",
+            "interest in",
+            "motivated"
+          ],
+          "reason": "explicit_subjective_evidence",
+          "concepts": [
+            "subjective"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "domain experience without an explicit motivation statement"
+      ]
+    },
+    {
+      "capability_id": "experience.duration",
+      "label": "Experience duration",
+      "domain": "general",
+      "priority": 10,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "year of experience",
+          "years of experience",
+          "month of experience",
+          "months of experience"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {},
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "project_does_not_prove_required_experience_duration",
+          "concepts": []
+        }
+      ],
+      "does_not_prove": [
+        "project duration as professional experience"
+      ]
+    },
+    {
+      "capability_id": "domain.game_knowledge",
+      "label": "Gaming-domain knowledge",
+      "domain": "game",
+      "priority": 20,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "gaming industry",
+          "game industry",
+          "game product knowledge",
+          "knowledge of games"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "game",
+            "gaming",
+            "gameplay",
+            "unity",
+            "unreal",
+            "fmod",
+            "game engine",
+            "google play"
+          ],
+          "reason": "concrete_game_domain_project_evidence",
+          "concepts": [
+            "game_domain"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "domain.recent_shooter",
+      "label": "Recent shooting-game familiarity",
+      "domain": "game",
+      "priority": 21,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "recent shooting game",
+          "recent shooter",
+          "recent fps",
+          "recent first person shooter"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "shooter": [
+          "shooting game",
+          "shooting games",
+          "shooter",
+          "fps",
+          "first person shooter",
+          "third person shooter"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "recent"
+            ],
+            [
+              "shooting game",
+              "shooter",
+              "fps",
+              "first person shooter",
+              "third person shooter"
+            ]
+          ],
+          "reason": "explicit_recent_shooter_evidence",
+          "concepts": [
+            "shooter"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "quality.qa_testing",
+      "label": "Quality assurance and testing",
+      "domain": "qa_testing",
+      "priority": 30,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "quality assurance",
+          "qa",
+          "testing",
+          "test cases",
+          "regression testing",
+          "defect verification"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "qa_testing": [
+          "quality assurance",
+          "qa",
+          "test",
+          "tests",
+          "testing",
+          "test case",
+          "test cases",
+          "regression",
+          "regression testing",
+          "defect",
+          "defects",
+          "verification",
+          "verify",
+          "validation",
+          "validate",
+          "bug reproduction"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "quality assurance",
+              "qa",
+              "test",
+              "testing",
+              "test case",
+              "regression",
+              "defect",
+              "verification",
+              "validation"
+            ],
+            [
+              "game",
+              "gaming",
+              "unity",
+              "unreal",
+              "game engine"
+            ]
+          ],
+          "reason": "game_project_contains_explicit_testing_or_qa",
+          "concepts": [
+            "qa_testing",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "quality assurance",
+            "qa",
+            "test",
+            "tests",
+            "testing",
+            "test case",
+            "regression",
+            "defect",
+            "verification",
+            "validation",
+            "bug reproduction"
+          ],
+          "reason": "non_game_testing_capped_at_weak_for_game_qa",
+          "concepts": [
+            "qa_testing"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "manual review without testing criteria",
+        "generic debugging as formal QA"
+      ]
+    },
+    {
+      "capability_id": "operations.configuration",
+      "label": "Product or system configuration",
+      "domain": "operations",
+      "priority": 31,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "configuration",
+          "configure",
+          "configured settings",
+          "operational settings"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "configuration_explicit": [
+          "configure",
+          "configured",
+          "configuration",
+          "settings",
+          "parameters",
+          "content configuration",
+          "server configuration",
+          "operational settings"
+        ],
+        "configuration_proxy": [
+          "setup",
+          "set up",
+          "environment",
+          "policy",
+          "policies",
+          "permission",
+          "permissions",
+          "access control",
+          "row level security",
+          "rls",
+          "rule",
+          "rules",
+          "asset pipeline",
+          "pipeline consistency"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "configure",
+              "configured",
+              "configuration",
+              "settings",
+              "parameters"
+            ],
+            [
+              "game",
+              "gaming",
+              "unity",
+              "unreal",
+              "game engine"
+            ]
+          ],
+          "reason": "explicit_game_configuration_transferable",
+          "concepts": [
+            "configuration_explicit",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "configure",
+            "configured",
+            "configuration",
+            "settings",
+            "parameters",
+            "setup",
+            "set up",
+            "permission",
+            "permissions",
+            "policy",
+            "policies",
+            "access control",
+            "row level security",
+            "rls",
+            "asset pipeline",
+            "pipeline consistency"
+          ],
+          "reason": "indirect_configuration_capped_at_weak",
+          "concepts": [
+            "configuration_explicit",
+            "configuration_proxy"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "operations.daily",
+      "label": "Daily product operations",
+      "domain": "operations",
+      "priority": 32,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "daily operations",
+          "operate and maintain",
+          "product operations"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "live_operations": [
+          "live operations",
+          "live ops",
+          "live service",
+          "production support",
+          "on call",
+          "on-call",
+          "incident response",
+          "monitoring",
+          "deployment operations",
+          "production operations"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "live operations",
+              "live ops",
+              "production operations",
+              "production support"
+            ],
+            [
+              "game",
+              "gaming",
+              "game product"
+            ]
+          ],
+          "reason": "explicit_game_live_operations",
+          "concepts": [
+            "live_operations",
+            "game_domain"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "implementation or release without ongoing operational responsibility"
+      ]
+    },
+    {
+      "capability_id": "operations.live",
+      "label": "Live operations",
+      "domain": "operations",
+      "priority": 33,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "live operations",
+          "live ops",
+          "live service operations"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "live_operations": [
+          "live operations",
+          "live ops",
+          "live service",
+          "production support",
+          "on call",
+          "on-call",
+          "incident response",
+          "monitoring",
+          "deployment operations",
+          "production operations"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "live operations",
+              "live ops",
+              "live service",
+              "production support",
+              "incident response",
+              "monitoring"
+            ],
+            [
+              "game",
+              "gaming",
+              "game product"
+            ]
+          ],
+          "reason": "explicit_game_live_operations",
+          "concepts": [
+            "live_operations",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "live operations",
+            "live ops",
+            "live service",
+            "production support",
+            "incident response",
+            "monitoring",
+            "production operations"
+          ],
+          "reason": "non_game_live_operations_capped_at_weak",
+          "concepts": [
+            "live_operations"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "operations.live_environment",
+      "label": "Live environment handling",
+      "domain": "operations",
+      "priority": 34,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "live environment",
+          "production environment",
+          "live server",
+          "production server"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "live_environment": [
+          "live environment",
+          "production environment",
+          "live server",
+          "production server"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "live environment",
+              "production environment",
+              "live server",
+              "production server"
+            ],
+            [
+              "game",
+              "gaming",
+              "game product"
+            ]
+          ],
+          "reason": "explicit_game_live_environment",
+          "concepts": [
+            "live_environment",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "live environment",
+            "production environment",
+            "live server",
+            "production server"
+          ],
+          "reason": "non_game_live_environment_capped_at_weak",
+          "concepts": [
+            "live_environment"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "security.bug_hack_handling",
+      "label": "Bug, exploit and hack handling",
+      "domain": "cybersecurity",
+      "priority": 35,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "bugs and hacks",
+          "bug handling",
+          "hack handling",
+          "exploit handling",
+          "incident triage"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "bug_hack": [
+          "bug",
+          "bugs",
+          "hack",
+          "hacks",
+          "exploit",
+          "exploits",
+          "vulnerability",
+          "vulnerabilities",
+          "triage",
+          "incident"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "bug",
+              "bugs",
+              "hack",
+              "hacks",
+              "exploit",
+              "vulnerability",
+              "triage",
+              "incident"
+            ],
+            [
+              "game",
+              "gaming",
+              "game product"
+            ]
+          ],
+          "reason": "explicit_game_bug_or_hack_handling",
+          "concepts": [
+            "bug_hack",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "bug",
+            "bugs",
+            "hack",
+            "hacks",
+            "exploit",
+            "vulnerability",
+            "triage",
+            "incident"
+          ],
+          "reason": "non_game_bug_or_security_work_capped_at_weak",
+          "concepts": [
+            "bug_hack"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "operations.evaluation",
+      "label": "Operational evaluation",
+      "domain": "operations",
+      "priority": 36,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "operational evaluation",
+          "operational analysis",
+          "product health evaluation"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "evaluation": [
+          "operational evaluation",
+          "evaluation",
+          "evaluate",
+          "evaluated",
+          "kpi",
+          "performance analysis",
+          "operational analysis",
+          "audit",
+          "review",
+          "validation"
+        ],
+        "game_domain": [
+          "game",
+          "games",
+          "gaming",
+          "gameplay",
+          "unity",
+          "unreal",
+          "fmod",
+          "game engine",
+          "custom engine",
+          "google play",
+          "player"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "operational evaluation",
+              "operational analysis",
+              "game kpi",
+              "game performance",
+              "live service monitoring"
+            ],
+            [
+              "game",
+              "gaming",
+              "game product"
+            ]
+          ],
+          "reason": "explicit_game_operational_evaluation",
+          "concepts": [
+            "evaluation",
+            "game_domain"
+          ]
+        },
+        {
+          "label": "weak",
+          "all_groups": [
+            [
+              "evaluation",
+              "evaluate",
+              "kpi",
+              "performance analysis",
+              "monitoring",
+              "audit",
+              "validation"
+            ],
+            [
+              "operational",
+              "production",
+              "performance",
+              "kpi",
+              "monitoring"
+            ]
+          ],
+          "reason": "non_game_operational_evaluation_capped_at_weak",
+          "concepts": [
+            "evaluation"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "coordination.interoffice",
+      "label": "Interoffice coordination",
+      "domain": "collaboration",
+      "priority": 40,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "between different offices",
+          "cross-office",
+          "cross office",
+          "interoffice",
+          "inter-office"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "collaboration": [
+          "collaborate",
+          "collaborated",
+          "collaboration",
+          "team",
+          "team members",
+          "team of",
+          "scrum",
+          "coordinate",
+          "coordinated"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "different offices",
+              "cross office",
+              "cross-office",
+              "inter office",
+              "inter-office",
+              "regional offices"
+            ],
+            [
+              "collaborate",
+              "coordination",
+              "coordinate",
+              "team"
+            ]
+          ],
+          "reason": "explicit_interoffice_coordination",
+          "concepts": [
+            "collaboration"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "general teamwork without different offices"
+      ]
+    },
+    {
+      "capability_id": "collaboration.stakeholder",
+      "label": "Stakeholder collaboration",
+      "domain": "collaboration",
+      "priority": 41,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "stakeholder",
+          "local and global",
+          "global stakeholders",
+          "customer collaboration",
+          "client collaboration"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "stakeholder": [
+          "stakeholder",
+          "stakeholders",
+          "client",
+          "clients",
+          "customer",
+          "customers",
+          "local and global",
+          "global team",
+          "regional team"
+        ],
+        "collaboration": [
+          "collaborate",
+          "collaborated",
+          "collaboration",
+          "team",
+          "team members",
+          "team of",
+          "scrum",
+          "coordinate",
+          "coordinated"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "all_groups": [
+            [
+              "stakeholder",
+              "stakeholders",
+              "client",
+              "clients",
+              "customer",
+              "customers",
+              "local and global",
+              "global team",
+              "regional team"
+            ],
+            [
+              "collaborate",
+              "collaboration",
+              "coordinate",
+              "resolve"
+            ]
+          ],
+          "reason": "explicit_stakeholder_collaboration",
+          "concepts": [
+            "stakeholder",
+            "collaboration"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "general teamwork without named stakeholders"
+      ]
+    },
+    {
+      "capability_id": "communication.written_verbal",
+      "label": "Written and verbal communication",
+      "domain": "collaboration",
+      "priority": 42,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "written and verbal communication",
+          "written communication",
+          "verbal communication"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "communication": [
+          "written communication",
+          "verbal communication",
+          "communicated",
+          "presented",
+          "presentation",
+          "wrote documentation",
+          "created documentation"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "weak",
+          "any_terms": [
+            "written communication",
+            "verbal communication",
+            "communicated",
+            "presented",
+            "presentation",
+            "wrote documentation",
+            "created documentation"
+          ],
+          "reason": "explicit_communication_activity_without_quality_outcome",
+          "concepts": [
+            "communication"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "collaboration.cross_functional",
+      "label": "Cross-functional collaboration",
+      "domain": "collaboration",
+      "priority": 43,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "cross-functional",
+          "cross functional",
+          "multiple functions",
+          "different disciplines"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "cross_functional_explicit": [
+          "cross functional",
+          "cross-functional",
+          "multiple departments",
+          "different functions",
+          "engineering and design",
+          "design and engineering",
+          "different disciplines"
+        ],
+        "collaboration": [
+          "collaborate",
+          "collaborated",
+          "collaboration",
+          "team",
+          "team members",
+          "team of",
+          "scrum",
+          "coordinate",
+          "coordinated"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "transferable",
+          "any_terms": [
+            "cross functional",
+            "cross-functional",
+            "multiple departments",
+            "different functions",
+            "engineering and design",
+            "design and engineering",
+            "different disciplines"
+          ],
+          "reason": "explicit_cross_functional_context",
+          "concepts": [
+            "cross_functional_explicit",
+            "collaboration"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "collaborate",
+            "collaborated",
+            "collaboration",
+            "team",
+            "team members",
+            "team of",
+            "scrum",
+            "coordinate",
+            "coordinated"
+          ],
+          "reason": "general_teamwork_capped_at_weak",
+          "concepts": [
+            "collaboration"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "general teamwork as direct cross-functional evidence"
+      ]
+    },
+    {
+      "capability_id": "quality.attention_detail",
+      "label": "Attention to detail",
+      "domain": "quality",
+      "priority": 44,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "attention to detail",
+          "meticulous",
+          "precision",
+          "accuracy"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "attention_detail_explicit": [
+          "attention to detail",
+          "meticulous",
+          "accuracy",
+          "accurate",
+          "precision",
+          "precise"
+        ],
+        "attention_detail_proxy": [
+          "audit",
+          "review",
+          "validation",
+          "security policy",
+          "security policies",
+          "row level security",
+          "rls",
+          "data integrity",
+          "pipeline consistency",
+          "access control"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "attention to detail",
+            "meticulous",
+            "accuracy",
+            "accurate",
+            "precision",
+            "precise"
+          ],
+          "reason": "explicit_attention_to_detail",
+          "concepts": [
+            "attention_detail_explicit"
+          ]
+        },
+        {
+          "label": "weak",
+          "any_terms": [
+            "audit",
+            "review",
+            "validation",
+            "security policy",
+            "security policies",
+            "row level security",
+            "rls",
+            "data integrity",
+            "pipeline consistency",
+            "access control"
+          ],
+          "reason": "deterministic_quality_proxy_capped_at_weak",
+          "concepts": [
+            "attention_detail_proxy"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "backend.api_development",
+      "label": "Backend API development",
+      "domain": "backend",
+      "priority": 100,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "backend api",
+          "rest api",
+          "restful api",
+          "api development",
+          "web service"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "backend_api": [
+          "api",
+          "rest api",
+          "restful api",
+          "endpoint",
+          "web service",
+          "fastapi",
+          "postgrest",
+          "backend integration"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "built",
+              "implemented",
+              "developed",
+              "created",
+              "integrated"
+            ],
+            [
+              "api",
+              "rest api",
+              "restful api",
+              "endpoint",
+              "web service",
+              "fastapi",
+              "postgrest"
+            ]
+          ],
+          "reason": "explicit_backend_api_implementation",
+          "concepts": [
+            "backend_api"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "distributed systems architecture"
+      ]
+    },
+    {
+      "capability_id": "frontend.ui_development",
+      "label": "Frontend and UI development",
+      "domain": "frontend",
+      "priority": 101,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "frontend development",
+          "ui development",
+          "user interface",
+          "react frontend",
+          "web frontend"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "frontend_ui": [
+          "frontend",
+          "user interface",
+          "ui",
+          "react",
+          "jetpack compose",
+          "android frontend",
+          "web app"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "built",
+              "implemented",
+              "developed",
+              "created",
+              "programmed"
+            ],
+            [
+              "frontend",
+              "user interface",
+              "ui",
+              "react",
+              "jetpack compose",
+              "android frontend"
+            ]
+          ],
+          "reason": "explicit_frontend_implementation",
+          "concepts": [
+            "frontend_ui"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "fullstack.integration",
+      "label": "Full-stack integration",
+      "domain": "fullstack",
+      "priority": 102,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "full-stack",
+          "full stack",
+          "frontend and backend",
+          "end-to-end application"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "frontend_ui": [
+          "frontend",
+          "user interface",
+          "ui",
+          "react"
+        ],
+        "backend_api": [
+          "backend",
+          "api",
+          "database",
+          "supabase",
+          "postgrest"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "frontend",
+              "react",
+              "ui"
+            ],
+            [
+              "backend",
+              "api",
+              "database",
+              "supabase",
+              "postgrest"
+            ]
+          ],
+          "reason": "frontend_backend_integration_evidence",
+          "concepts": [
+            "frontend_ui",
+            "backend_api"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "database.design",
+      "label": "Database design",
+      "domain": "database",
+      "priority": 103,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "database design",
+          "data model",
+          "schema design",
+          "relational database"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "database_design": [
+          "database",
+          "schema",
+          "table",
+          "postgresql",
+          "sqlite",
+          "supabase",
+          "data model"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "designed",
+              "created",
+              "implemented",
+              "built"
+            ],
+            [
+              "database",
+              "schema",
+              "table",
+              "postgresql",
+              "sqlite",
+              "supabase"
+            ]
+          ],
+          "reason": "explicit_database_design",
+          "concepts": [
+            "database_design"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "database.access_control",
+      "label": "Database access control",
+      "domain": "database",
+      "priority": 104,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "row-level security",
+          "row level security",
+          "rls",
+          "database access control",
+          "authorization policy"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "database_access_control": [
+          "row level security",
+          "row-level security",
+          "rls",
+          "access control policy",
+          "authorization policy",
+          "database permissions"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "row level security",
+            "row-level security",
+            "rls",
+            "access control policy",
+            "authorization policy",
+            "database permissions"
+          ],
+          "reason": "explicit_database_access_control",
+          "concepts": [
+            "database_access_control"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "broad cybersecurity expertise"
+      ]
+    },
+    {
+      "capability_id": "devops.containerisation",
+      "label": "Containerisation",
+      "domain": "cloud_devops",
+      "priority": 105,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "docker",
+          "containerisation",
+          "containerization",
+          "containerized application",
+          "containerised application"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "containerisation": [
+          "dockerfile",
+          "docker compose",
+          "containerised",
+          "containerized",
+          "built docker image",
+          "docker image",
+          "docker"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "dockerfile",
+            "docker compose",
+            "containerised",
+            "containerized",
+            "built docker image",
+            "docker image"
+          ],
+          "reason": "explicit_containerisation",
+          "concepts": [
+            "containerisation"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "kubernetes orchestration",
+        "cloud infrastructure administration"
+      ]
+    },
+    {
+      "capability_id": "devops.ci_cd",
+      "label": "CI/CD automation",
+      "domain": "cloud_devops",
+      "priority": 106,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "ci/cd",
+          "continuous integration",
+          "continuous delivery",
+          "github actions",
+          "pipeline automation"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "ci_cd": [
+          "github actions",
+          "continuous integration",
+          "continuous delivery",
+          "ci/cd",
+          "automated build",
+          "automated test pipeline",
+          "deployment pipeline"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "github actions",
+            "continuous integration",
+            "continuous delivery",
+            "ci/cd",
+            "automated build",
+            "automated test pipeline",
+            "deployment pipeline"
+          ],
+          "reason": "explicit_ci_cd_automation",
+          "concepts": [
+            "ci_cd"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "devops.kubernetes",
+      "label": "Kubernetes orchestration",
+      "domain": "cloud_devops",
+      "priority": 107,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "kubernetes",
+          "k8s",
+          "container orchestration"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "kubernetes": [
+          "kubernetes",
+          "k8s",
+          "deployment manifest",
+          "service manifest",
+          "ingress",
+          "namespace",
+          "helm"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "kubernetes",
+            "k8s",
+            "deployment manifest",
+            "service manifest",
+            "ingress",
+            "namespace",
+            "helm"
+          ],
+          "reason": "explicit_kubernetes_orchestration",
+          "concepts": [
+            "kubernetes"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "docker-only containerisation"
+      ]
+    },
+    {
+      "capability_id": "devops.observability",
+      "label": "Monitoring and observability",
+      "domain": "cloud_devops",
+      "priority": 108,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "monitoring",
+          "observability",
+          "prometheus",
+          "grafana",
+          "metrics",
+          "alerting"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "observability": [
+          "prometheus",
+          "grafana",
+          "metrics endpoint",
+          "alertmanager",
+          "monitoring dashboard",
+          "instrumented",
+          "monitoring"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "prometheus",
+            "grafana",
+            "metrics endpoint",
+            "alertmanager",
+            "monitoring dashboard",
+            "instrumented"
+          ],
+          "reason": "explicit_observability",
+          "concepts": [
+            "observability"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "ai.rag_application",
+      "label": "RAG application development",
+      "domain": "ai_ml",
+      "priority": 109,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "rag",
+          "retrieval-augmented generation",
+          "vector retrieval",
+          "vector search",
+          "grounded llm"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "rag": [
+          "retrieval augmented generation",
+          "retrieval-augmented generation",
+          "rag",
+          "chromadb",
+          "vector search",
+          "retrieved context",
+          "embedding retrieval"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "retrieval augmented generation",
+            "retrieval-augmented generation",
+            "rag",
+            "chromadb",
+            "vector search",
+            "retrieved context",
+            "embedding retrieval"
+          ],
+          "reason": "explicit_rag_application",
+          "concepts": [
+            "rag"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "model training",
+        "fine-tuning",
+        "ml model evaluation"
+      ]
+    },
+    {
+      "capability_id": "ai.model_evaluation",
+      "label": "ML/LLM model evaluation",
+      "domain": "ai_ml",
+      "priority": 110,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "model evaluation",
+          "llm evaluation",
+          "evaluation harness",
+          "benchmarking",
+          "eval dataset"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "model_evaluation": [
+          "model evaluation",
+          "llm evaluation",
+          "evaluation harness",
+          "benchmark",
+          "metric",
+          "dataset",
+          "test set",
+          "accuracy",
+          "precision",
+          "recall",
+          "pass rate",
+          "rubric"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "evaluation",
+              "evaluate",
+              "benchmark",
+              "eval"
+            ],
+            [
+              "metric",
+              "dataset",
+              "test set",
+              "accuracy",
+              "precision",
+              "recall",
+              "pass rate",
+              "rubric"
+            ]
+          ],
+          "reason": "explicit_model_evaluation_method",
+          "concepts": [
+            "model_evaluation"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "manual review of AI output without defined criteria or metrics"
+      ]
+    },
+    {
+      "capability_id": "data.processing",
+      "label": "Data processing and cleaning",
+      "domain": "data_engineering",
+      "priority": 111,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "data processing",
+          "data cleaning",
+          "etl",
+          "data pipeline",
+          "data transformation"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "data_processing": [
+          "data cleaning",
+          "data processing",
+          "etl",
+          "data pipeline",
+          "data transformation",
+          "pandas"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "data cleaning",
+            "data processing",
+            "etl",
+            "data pipeline",
+            "data transformation",
+            "pandas"
+          ],
+          "reason": "explicit_data_processing",
+          "concepts": [
+            "data_processing"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "embedded.firmware",
+      "label": "Embedded firmware development",
+      "domain": "embedded_iot",
+      "priority": 112,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "firmware",
+          "embedded software",
+          "microcontroller",
+          "esp32",
+          "gpio"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "embedded": [
+          "firmware",
+          "embedded",
+          "microcontroller",
+          "esp32",
+          "gpio",
+          "interrupt",
+          "sensor driver"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "firmware",
+            "embedded",
+            "microcontroller",
+            "esp32",
+            "gpio",
+            "interrupt",
+            "sensor driver"
+          ],
+          "reason": "explicit_embedded_firmware",
+          "concepts": [
+            "embedded"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "production IoT fleet management"
+      ]
+    },
+    {
+      "capability_id": "network.packet_analysis",
+      "label": "Network packet analysis",
+      "domain": "networking",
+      "priority": 113,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "packet analysis",
+          "wireshark",
+          "network troubleshooting",
+          "packet capture"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "packet_analysis": [
+          "wireshark",
+          "packet capture",
+          "pcap",
+          "packet analysis",
+          "traffic analysis"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "wireshark",
+            "packet capture",
+            "pcap",
+            "packet analysis",
+            "traffic analysis"
+          ],
+          "reason": "explicit_packet_analysis",
+          "concepts": [
+            "packet_analysis"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "production network administration"
+      ]
+    },
+    {
+      "capability_id": "network.dns_dhcp",
+      "label": "DNS and DHCP fundamentals",
+      "domain": "networking",
+      "priority": 114,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "dns",
+          "dhcp",
+          "domain name system",
+          "dynamic host configuration protocol"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "dns_dhcp": [
+          "dns",
+          "dhcp",
+          "dora",
+          "dhcp discover",
+          "dhcp offer",
+          "dhcp request",
+          "dhcp ack",
+          "resource record"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "dns",
+            "dhcp",
+            "dora",
+            "dhcp discover",
+            "dhcp offer",
+            "dhcp request",
+            "dhcp ack",
+            "resource record"
+          ],
+          "reason": "explicit_dns_dhcp_evidence",
+          "concepts": [
+            "dns_dhcp"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    },
+    {
+      "capability_id": "game.engine_systems",
+      "label": "Game-engine systems development",
+      "domain": "game_engine",
+      "priority": 115,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "game engine",
+          "custom engine",
+          "engine systems",
+          "asset manager",
+          "fmod"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "game_engine": [
+          "custom game engine",
+          "asset manager",
+          "fmod",
+          "engine-level",
+          "game engine development"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "custom game engine",
+            "asset manager",
+            "fmod",
+            "engine-level",
+            "game engine development"
+          ],
+          "reason": "explicit_game_engine_systems",
+          "concepts": [
+            "game_engine"
+          ]
+        }
+      ],
+      "does_not_prove": []
+    }
+  ]
+}
