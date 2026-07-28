@@ -3,10 +3,15 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dotenv import load_dotenv
+
 from rag.capability_taxonomy_rag import (
     lexical_retrieve,
     retrieve_taxonomy_candidates,
 )
+
+# Load local .env values without overriding real process variables.
+load_dotenv()
 
 RETRIEVAL_VERSION = "phase6d5-shadow-retrieval-v1"
 _ALLOWED_MODES = {"off", "lexical", "vector", "hybrid"}
@@ -254,7 +259,7 @@ def build_capability_retrieval_trace(
         base["candidates"] = _merge_candidates(
             lexical_rows,
             vector_rows,
-        )
+        )[:top_k]
         base["status"] = (
             "candidates_retrieved"
             if base["candidates"]

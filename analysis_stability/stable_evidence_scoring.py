@@ -26,8 +26,11 @@ from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
 )
+from tailoring.phase6d6_structured_matching import (
+    apply_structured_requirement_matches,
+)
 
-SCORING_VERSION = "stable-evidence-v1.2-phase6d"
+SCORING_VERSION = "stable-evidence-v1.3-phase6d6"
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -1874,7 +1877,17 @@ def build_stable_analysis(
         raw_resume_text=raw_resume_text,
     )
 
-    validated, validation_warnings = validate_linked_matches(linked)
+    structured_linked, structured_warnings = (
+        apply_structured_requirement_matches(
+            linked,
+            resume_profile=resume_profile,
+            raw_resume_text=raw_resume_text,
+        )
+    )
+
+    validated, validation_warnings = validate_linked_matches(
+        structured_linked
+    )
 
     taxonomy_version = get_default_taxonomy().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
@@ -1923,6 +1936,7 @@ def build_stable_analysis(
         },
         "validation_warnings": (
             link_warnings
+            + structured_warnings
             + validation_warnings
             + taxonomy_warnings
         ),

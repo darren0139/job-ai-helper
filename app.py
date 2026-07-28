@@ -14,6 +14,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+
+# Load local .env before project modules read configuration.
+load_dotenv()
+
 import pandas as pd
 import streamlit as st
 from pypdf import PdfReader
@@ -37,6 +43,9 @@ try:
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
         "GROQ_API_KEY",
+        "CAPABILITY_RAG_MODE",
+        "CAPABILITY_RAG_TOP_K",
+        "CAPABILITY_RAG_VECTOR_THRESHOLD",
     ):
         if key in st.secrets and key not in os.environ:
             os.environ[key] = str(st.secrets[key])
