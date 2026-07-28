@@ -10,6 +10,9 @@ from copy import deepcopy
 from typing import Any
 
 from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
+from tailoring.phase6d5_retrieval import (
+    build_capability_retrieval_trace,
+)
 
 _LABEL_ORDER = {"none": 0, "weak": 1, "transferable": 2, "direct": 3}
 _LABEL_VALUE = {"none": 0.0, "weak": 0.20, "transferable": 0.55, "direct": 1.0}
@@ -35,6 +38,15 @@ def cap_requirement_with_taxonomy(
         row,
         evidence_text,
         get_default_taxonomy(),
+    )
+
+    row["capability_retrieval"] = (
+        build_capability_retrieval_trace(
+            row,
+            exact_capability_id=decision.get(
+                "capability_id"
+            ),
+        )
     )
 
     taxonomy_label = decision.get("label")

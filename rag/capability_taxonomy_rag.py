@@ -7,6 +7,7 @@ weak/none; the deterministic taxonomy matcher still owns that decision.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +68,38 @@ def lexical_retrieve(
 def _embed_texts(texts: list[str]) -> list[list[float]]:
     from litellm import embedding
 
-    response = embedding(model=EMBEDDING_MODEL, input=texts)
+    started_at = time.perf_counter()
+    response = embedding(
+        model=EMBEDDING_MODEL,
+        input=texts,
+    )
+    elapsed_seconds = time.perf_counter() - started_at
+
+    try:
+        from llm import record_external_usage
+
+        response_model = (
+            response.get("model")
+            if isinstance(response, dict)
+            else getattr(response, "model", None)
+        )
+        response_usage = (
+            response.get("usage")
+            if isinstance(response, dict)
+            else getattr(response, "usage", None)
+        )
+        record_external_usage(
+            route="analysis",
+            requested_model=EMBEDDING_MODEL,
+            response_model=response_model,
+            usage=response_usage,
+            elapsed_seconds=elapsed_seconds,
+            operation="taxonomy_embedding",
+        )
+    except Exception:
+        # Retrieval diagnostics must not break analysis or indexing.
+        pass
+
     data = (
         response.get("data", [])
         if isinstance(response, dict)

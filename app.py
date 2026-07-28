@@ -153,7 +153,10 @@ from tailoring.canonical_bullet_suggester import (
 
 
 from report import render_markdown
-from api_cost import summarise_api_calls
+from api_cost import (
+    summarise_api_calls,
+    summarise_api_calls_by_action,
+)
 from llm import (
     ask_text,
     drain_call_ledger,
@@ -1997,6 +2000,93 @@ if page == "Application Sessions":
         )
         if usage_summary.get("call_count", 0):
             st.subheader("API Usage")
+
+            fitting_result_exists = bool(
+                current_application_id is not None
+                and st.session_state.get(
+                    "tailored_resume_fit_result_"
+                    f"{current_application_id}"
+                )
+            )
+
+            zero_actions = []
+            if fitting_result_exists:
+                zero_actions.append(
+                    {
+                        "action": (
+                            "generate_and_fit_tailored_resume"
+                        ),
+                        "label": (
+                            "Generate and Fit Tailored Resume"
+                        ),
+                        "note": (
+                            "Local deterministic DOCX/PDF fitting; "
+                            "no model API call."
+                        ),
+                    }
+                )
+
+            stage_rows = summarise_api_calls_by_action(
+                usage_summary.get("calls", []) or [],
+                action_order=[
+                    "analyse_resume",
+                    "generate_projects",
+                    "generate_skills",
+                    "generate_projects_and_skills",
+                    "generate_and_fit_tailored_resume",
+                ],
+                action_labels={
+                    "analyse_resume": "Analyse Resume",
+                    "generate_projects": "Generate Projects",
+                    "generate_skills": "Generate Skills",
+                    "generate_projects_and_skills": (
+                        "Generate Projects + Skills (legacy)"
+                    ),
+                    "generate_and_fit_tailored_resume": (
+                        "Generate and Fit Tailored Resume"
+                    ),
+                },
+                zero_actions=zero_actions,
+            )
+
+            st.write("#### Usage by stage")
+            st.dataframe(
+                [
+                    {
+                        "Stage": row.get("label", ""),
+                        "Calls": row.get("call_count", 0),
+                        "Input tokens": row.get(
+                            "input_tokens",
+                            0,
+                        ),
+                        "Output tokens": row.get(
+                            "output_tokens",
+                            0,
+                        ),
+                        "Total tokens": row.get(
+                            "total_tokens",
+                            0,
+                        ),
+                        "Estimated cost (USD)": (
+                            "${:.6f}".format(
+                                float(
+                                    row.get(
+                                        "estimated_total_cost_usd",
+                                        0.0,
+                                    )
+                                    or 0.0
+                                )
+                            )
+                        ),
+                        "Notes": row.get("note", ""),
+                    }
+                    for row in stage_rows
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+            st.write("#### Application total")
             usage_col1, usage_col2, usage_col3 = st.columns(3)
             usage_col1.metric(
                 "Estimated API Cost",
@@ -2018,17 +2108,26 @@ if page == "Application Sessions":
                 "Total Tokens",
                 f"{usage_summary.get('total_tokens', 0):,}",
             )
+
             st.caption(
-                "Estimated from provider-reported token usage and "
-                "config/model_benchmark_catalog.json. Actual billing "
-                "may differ after retries or price changes."
+                "Estimated from provider-reported usage and the local "
+                "price catalogue. DOCX/PDF fitting is deterministic "
+                "local processing and has no model-token charge."
             )
-            if not usage_summary.get("cost_estimate_complete", True):
+
+            if not usage_summary.get(
+                "cost_estimate_complete",
+                True,
+            ):
                 st.warning(
                     "Some tracked models are missing from the local "
-                    "price catalogue, so the cost is only partial."
+                    "price catalogue, so the cost is partial."
                 )
-            with st.expander("API usage details", expanded=False):
+
+            with st.expander(
+                "API usage details",
+                expanded=False,
+            ):
                 st.json(usage_summary)
 
         st.subheader("Download Reports")
@@ -2166,6 +2265,13 @@ if page == "Application Sessions":
                             max_total_bullets=max_projects * max_bullets,
                         )
 
+                        append_api_usage(
+                            application_id=current_application_id,
+                            action="generate_projects",
+                            report=report,
+                        )
+                        reset_call_ledger()
+
                         skills_result = tailor_skills_section(
                             resume_profile=report.get("resume_profile", {}),
                             jd_profile=report.get("jd_profile", {}),
@@ -2176,7 +2282,7 @@ if page == "Application Sessions":
 
                     append_api_usage(
                         application_id=current_application_id,
-                        action="generate_projects_and_skills",
+                        action="generate_skills",
                         report=report,
                     )
                     st.session_state["latest_report"] = report

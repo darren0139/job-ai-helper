@@ -179,3 +179,98 @@ def summarise_api_calls(
         ),
         "calls": rows,
     }
+
+
+def summarise_api_calls_by_action(
+    calls: list[dict[str, Any]],
+    *,
+    action_order: list[str] | None = None,
+    action_labels: dict[str, str] | None = None,
+    zero_actions: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    # Aggregate the existing per-call ledger into one row per app action.
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+
+        action = str(
+            call.get("action") or "unlabelled"
+        ).strip() or "unlabelled"
+
+        grouped.setdefault(action, []).append(call)
+
+    labels = action_labels or {}
+    rows: list[dict[str, Any]] = []
+
+    for action, action_calls in grouped.items():
+        summary = summarise_api_calls(action_calls)
+        rows.append(
+            {
+                "action": action,
+                "label": labels.get(
+                    action,
+                    action.replace("_", " ").title(),
+                ),
+                "note": "",
+                "call_count": summary["call_count"],
+                "input_tokens": summary["input_tokens"],
+                "cached_input_tokens": summary["cached_input_tokens"],
+                "output_tokens": summary["output_tokens"],
+                "total_tokens": summary["total_tokens"],
+                "elapsed_seconds": summary["elapsed_seconds"],
+                "estimated_total_cost_usd": (
+                    summary["estimated_total_cost_usd"]
+                ),
+                "unknown_cost_call_count": (
+                    summary["unknown_cost_call_count"]
+                ),
+                "cost_estimate_complete": (
+                    summary["cost_estimate_complete"]
+                ),
+            }
+        )
+
+    existing = {row["action"] for row in rows}
+
+    for item in zero_actions or []:
+        action = str(item.get("action") or "").strip()
+        if not action or action in existing:
+            continue
+
+        rows.append(
+            {
+                "action": action,
+                "label": str(
+                    item.get("label")
+                    or labels.get(
+                        action,
+                        action.replace("_", " ").title(),
+                    )
+                ),
+                "note": str(item.get("note") or ""),
+                "call_count": 0,
+                "input_tokens": 0,
+                "cached_input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "elapsed_seconds": 0.0,
+                "estimated_total_cost_usd": 0.0,
+                "unknown_cost_call_count": 0,
+                "cost_estimate_complete": True,
+            }
+        )
+
+    order = {
+        action: index
+        for index, action in enumerate(action_order or [])
+    }
+    rows.sort(
+        key=lambda row: (
+            order.get(str(row.get("action")), len(order)),
+            str(row.get("label") or ""),
+        )
+    )
+    return rows
+
