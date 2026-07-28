@@ -37,6 +37,22 @@ def capability_rag_top_k() -> int:
     return max(1, min(value, 10))
 
 
+
+def capability_rag_vector_threshold() -> float:
+    try:
+        value = float(
+            os.getenv(
+                "CAPABILITY_RAG_VECTOR_THRESHOLD",
+                "0.30",
+            )
+        )
+    except (TypeError, ValueError):
+        value = 0.30
+
+    return max(0.0, min(value, 1.0))
+
+
+
 def _requirement_text(
     requirement: dict[str, Any],
 ) -> str:
@@ -136,6 +152,7 @@ def build_capability_retrieval_trace(
     mode = capability_rag_mode()
     query = _requirement_text(requirement)
     top_k = capability_rag_top_k()
+    vector_threshold = capability_rag_vector_threshold()
 
     base = {
         "retrieval_version": RETRIEVAL_VERSION,
@@ -144,6 +161,10 @@ def build_capability_retrieval_trace(
         "influences_scoring": False,
         "query": query,
         "top_k": top_k,
+        "vector_threshold": vector_threshold,
+        "lexical_top_score": 0.0,
+        "vector_attempted": False,
+        "vector_trigger_reason": "",
         "used_modes": [],
         "status": "",
         "exact_capability_id": (
@@ -178,17 +199,37 @@ def build_capability_retrieval_trace(
             )
             base["used_modes"].append("lexical")
 
-        # Efficient hybrid mode: call the embedding API only when exact
-        # matching and lexical retrieval both failed to return candidates.
-        should_use_vector = (
-            mode == "vector"
-            or (
-                mode == "hybrid"
-                and not lexical_rows
-            )
+        lexical_top_score = (
+            float(lexical_rows[0].get("score") or 0.0)
+            if lexical_rows
+            else 0.0
+        )
+        base["lexical_top_score"] = round(lexical_top_score, 6)
+
+        ambiguous_top = False
+        if len(lexical_rows) >= 2:
+            first_score = float(lexical_rows[0].get("score") or 0.0)
+            second_score = float(lexical_rows[1].get("score") or 0.0)
+            ambiguous_top = abs(first_score - second_score) <= 0.02
+
+        low_confidence = (
+            not lexical_rows
+            or lexical_top_score < vector_threshold
         )
 
+        should_use_vector = False
+        if mode == "vector":
+            should_use_vector = True
+            base["vector_trigger_reason"] = "vector_mode"
+        elif mode == "hybrid" and low_confidence:
+            should_use_vector = True
+            base["vector_trigger_reason"] = "low_lexical_confidence"
+        elif mode == "hybrid" and ambiguous_top:
+            should_use_vector = True
+            base["vector_trigger_reason"] = "ambiguous_lexical_tie"
+
         if should_use_vector:
+            base["vector_attempted"] = True
             try:
                 vector_rows = retrieve_taxonomy_candidates(
                     query,
