@@ -465,78 +465,6 @@ def _clause_record(
     }
 
 
-
-_SAFE_SECOND_CLAUSE_PREFIXES = (
-    "ability to ",
-    "comfortable ",
-    "communicate ",
-    "coordinate ",
-    "develop ",
-    "exposure to ",
-    "familiarity with ",
-    "investigate ",
-    "knowledge of ",
-    "maintain ",
-    "proficiency in ",
-    "resolve ",
-    "support ",
-    "verify ",
-)
-
-
-def _split_safe_independent_and_pair(value: str) -> list[str]:
-    parts = re.split(
-        r"\s+and\s+",
-        value,
-        maxsplit=1,
-        flags=re.IGNORECASE,
-    )
-    if len(parts) != 2:
-        return []
-
-    first = parts[0].strip(" ,;.-")
-    second = parts[1].strip(" ,;.-")
-    second_normalised = _normalise_basic(second)
-
-    if not any(
-        second_normalised.startswith(prefix)
-        for prefix in _SAFE_SECOND_CLAUSE_PREFIXES
-    ):
-        return []
-
-    if len(_tokenise(first)) < 2 or len(_tokenise(second)) < 2:
-        return []
-
-    return [first, second]
-
-
-def _split_shared_head_and_list(value: str) -> list[str]:
-    # Keep OR alternatives together until group-level ANY scoring is added.
-    if re.search(r"(?:,\s*or\s+|\s+or\s+)", value, flags=re.IGNORECASE):
-        return []
-
-    match = re.match(
-        r"^(?P<head>"
-        r"(?:experience|familiarity|knowledge|proficiency|skills?)"
-        r"\s+(?:using|with|in|of)\s+"
-        r")(?P<tail>.+)$",
-        value,
-        flags=re.IGNORECASE,
-    )
-    if not match:
-        return []
-
-    items = _split_top_level_commas(match.group("tail"))
-    if len(items) < 2:
-        return []
-
-    head = match.group("head").strip()
-    return [
-        f"{head} {item}".strip()
-        for item in items
-        if len(_tokenise(item)) >= 1
-    ]
-
 def _split_non_preference_clause(
     value: str,
     importance: str,
@@ -544,35 +472,6 @@ def _split_non_preference_clause(
 ) -> list[dict[str, Any]]:
     """Split clear compound clauses into stable, atomic requirements."""
     group_id = _stable_id("grp", _normalise_basic(parent_text))
-
-
-    shared_head_parts = _split_shared_head_and_list(value)
-    if shared_head_parts:
-        return [
-            _clause_record(
-                text=part,
-                importance=importance,
-                parent_text=parent_text,
-                focus_text=part,
-                atomic_group_id=group_id,
-                is_atomic=True,
-            )
-            for part in shared_head_parts
-        ]
-
-    paired_parts = _split_safe_independent_and_pair(value)
-    if paired_parts:
-        return [
-            _clause_record(
-                text=part,
-                importance=importance,
-                parent_text=parent_text,
-                focus_text=part,
-                atomic_group_id=group_id,
-                is_atomic=True,
-            )
-            for part in paired_parts
-        ]
 
     for connector in (" along with ", " as well as "):
         if connector in value.lower():
