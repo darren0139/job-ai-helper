@@ -9,6 +9,9 @@ compute_overall_score() makes NO LLM call — it is pure Python arithmetic.
 import json
 
 from llm import ask_json, ask_text
+from analysis_stability.resume_profile_stability import (
+    stabilise_resume_profile_project_titles,
+)
 from prompts import (
     RESUME_PROFILE_PROMPT,
     JD_PROFILE_PROMPT,
@@ -39,11 +42,15 @@ def extract_resume_profile(resume_text: str) -> dict:
     """
     user = f"RÉSUMÉ TEXT:\n\n{resume_text}"
 
-    return ask_json(
+    extracted_profile = ask_json(
         RESUME_PROFILE_PROMPT,
         user,
         temperature=0.0,
         max_tokens=2000,
+    )
+    return stabilise_resume_profile_project_titles(
+        extracted_profile,
+        resume_text,
     )
 
 

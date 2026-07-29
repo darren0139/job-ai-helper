@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,10 @@ load_dotenv()
 
 import pandas as pd
 import streamlit as st
+from analysis_stability.analysis_cache_mode import (
+    ANALYSIS_CACHE_MODE_OPTIONS,
+    resolve_analysis_cache_mode,
+)
 from pypdf import PdfReader
 # ---------------------------------------------------------------------------
 # Streamlit Cloud secrets -> environment variables
@@ -114,12 +119,39 @@ from database.db_manager import (
     get_recent_applications,
     get_application_by_id,
 )
+from database.analysis_cache_manager import (
+    ANALYSIS_CACHE_VERSION,
+    activate_analysis_snapshot,
+    build_analysis_input_fingerprint,
+    delete_application_analysis_versions,
+    find_cached_analysis,
+    init_analysis_cache,
+    save_analysis_snapshot,
+)
 from database.tailoring_version_manager import (
     TAILORING_PERSISTENCE_VERSION,
     delete_application_tailoring_generations,
     get_restorable_application_tailoring,
     init_application_tailoring_versions,
     save_application_tailoring_generation,
+)
+from database.tailoring_generation_control import (
+    delete_application_generation_control,
+    ensure_mutable_tailoring_generation,
+    find_cached_tailoring_generation,
+    get_application_generation_control,
+    init_tailoring_generation_control,
+    record_generation_metadata,
+)
+from tailoring.tailoring_generation_fingerprint import (
+    build_generation_action_plan,
+    build_tailoring_input_fingerprint,
+    get_effective_generation_sections,
+    resolve_locked_sections,
+)
+from tailoring.generation_controls_ui import (
+    render_tailoring_generation_controls,
+    restore_generation_to_session,
 )
 
 from database.jd_library_manager import (
@@ -239,6 +271,43 @@ def _seed_api_calls_from_report(
     ]
 
 
+def _last_action_event_key(
+    application_id: int | None,
+    action: str,
+) -> str:
+    suffix = (
+        str(application_id)
+        if application_id is not None
+        else "unsaved"
+    )
+    return f"last_api_action_event_{suffix}_{action}"
+
+
+def record_zero_cost_action_event(
+    *,
+    application_id: int | None,
+    action: str,
+    note: str,
+) -> None:
+    st.session_state[
+        _last_action_event_key(application_id, action)
+    ] = {
+        "action": action,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+        "call_count": 0,
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "elapsed_seconds": 0.0,
+        "estimated_total_cost_usd": 0.0,
+        "unknown_cost_call_count": 0,
+        "cost_estimate_complete": True,
+        "note": str(note or ""),
+        "source": "cache_or_local",
+    }
+
+
 def append_api_usage(
     *,
     application_id: int | None,
@@ -259,10 +328,68 @@ def append_api_usage(
 
     existing.extend(calls)
     st.session_state[key] = existing
+
+    action_summary = summarise_api_calls(calls)
+    st.session_state[
+        _last_action_event_key(application_id, action)
+    ] = {
+        **action_summary,
+        "action": action,
+        "captured_at": captured_at,
+        "note": "",
+        "source": "api",
+    }
+
     summary = summarise_api_calls(existing)
     if isinstance(report, dict):
         report["api_cost_summary"] = summary
     return summary
+
+
+def render_ai_action_subtotal(
+    *,
+    application_id: int | None,
+    actions: list[str],
+    label: str = "Last use subtotal",
+) -> None:
+    events = [
+        st.session_state.get(
+            _last_action_event_key(application_id, action)
+        )
+        for action in actions
+    ]
+    events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+    ]
+    if not events:
+        return
+
+    call_count = sum(
+        int(event.get("call_count", 0) or 0)
+        for event in events
+    )
+    total_tokens = sum(
+        int(event.get("total_tokens", 0) or 0)
+        for event in events
+    )
+    cost = sum(
+        float(event.get("estimated_total_cost_usd", 0.0) or 0.0)
+        for event in events
+    )
+    notes = [
+        str(event.get("note") or "").strip()
+        for event in events
+        if str(event.get("note") or "").strip()
+    ]
+
+    st.caption(
+        f"**{label}:** ${cost:.6f} USD · "
+        f"{call_count} model call(s) · {total_tokens:,} tokens"
+    )
+    for note in dict.fromkeys(notes):
+        st.caption(note)
 
 
 def get_api_usage_summary(
@@ -1164,6 +1291,8 @@ def _persist_current_tailoring_state(
     generation_id: str,
     generation_settings: dict[str, Any] | None = None,
     fit_result: dict[str, Any] | None = None,
+    input_fingerprint: str = "",
+    generation_kind: str = "",
 ) -> None:
     """Persist the current session-state tailoring payload."""
     save_application_tailoring_generation(
@@ -1197,6 +1326,12 @@ def _persist_current_tailoring_state(
             else None
         ),
     )
+    record_generation_metadata(
+        application_id=application_id,
+        generation_id=generation_id,
+        input_fingerprint=input_fingerprint,
+        generation_kind=generation_kind,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1211,6 +1346,8 @@ st.set_page_config(
 
 init_db()
 init_application_tailoring_versions()
+init_tailoring_generation_control()
+init_analysis_cache()
 init_jd_library()
 init_chat_history()
 init_session_state()
@@ -1479,6 +1616,12 @@ with st.sidebar:
                                 # Deleting the application session should still work even if RAG cleanup fails.
                                 pass
 
+                            delete_application_analysis_versions(
+                                app_id
+                            )
+                            delete_application_generation_control(
+                                app_id
+                            )
                             delete_application_tailoring_generations(
                                 app_id
                             )
@@ -1598,6 +1741,25 @@ if page == "Application Sessions":
 
     analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
 
+    analysis_cache_mode = st.radio(
+        "Analysis mode",
+        options=ANALYSIS_CACHE_MODE_OPTIONS,
+        index=0,
+        horizontal=True,
+        key=f"analysis_cache_mode_{input_suffix}",
+        help=(
+            "Choose exactly one mode. Reuse loads an exact saved analysis "
+            "when available. Force fresh bypasses the cache and incurs normal "
+            "model usage."
+        ),
+    )
+    reuse_exact_analysis_cache, force_fresh_analysis = (
+        resolve_analysis_cache_mode(analysis_cache_mode)
+    )
+    st.caption(
+        "Reuse exact saved analysis avoids model calls on an exact cache hit. "
+        "Force fresh AI analysis always runs the analysis pipeline again."
+    )
 
     if analyze_clicked:
         if uploaded_resume is None:
@@ -1613,180 +1775,306 @@ if page == "Application Sessions":
                 resume_text = read_uploaded_resume(uploaded_resume)
 
                 if show_debug_text:
-                    with st.expander("Debug: Extracted resume text", expanded=True):
+                    with st.expander(
+                        "Debug: Extracted resume text",
+                        expanded=True,
+                    ):
                         st.text(resume_text[-3000:])
 
-                st.write(f"Extracted {len(resume_text)} characters from resume.")
-
-                actual_page_count = (
-                    calculate_uploaded_resume_page_count(
-                        uploaded_resume
-                    )
+                st.write(
+                    f"Extracted {len(resume_text)} characters from resume."
                 )
-
+                actual_page_count = (
+                    calculate_uploaded_resume_page_count(uploaded_resume)
+                )
                 if actual_page_count is None:
                     st.write(
-                        "Rendered page count could not be "
-                        "determined. Structure analysis will "
-                        "treat the page count as unknown."
+                        "Rendered page count could not be determined. "
+                        "Structure analysis will treat it as unknown."
                     )
                 else:
                     st.write(
-                        f"Detected {actual_page_count} "
-                        "rendered résumé page(s)."
+                        f"Detected {actual_page_count} rendered résumé page(s)."
                     )
 
                 jd_text = validate_jd_text(jd_text_input)
-                st.write(f"Read {len(jd_text)} characters from job description.")
-
-                status.update(label="Running AI analysis...", state="running")
-                reset_call_ledger()
-                report = run_resume_analysis(resume_text, jd_text, degree, actual_page_count=actual_page_count,)
-
-                # Store the full pasted job description in the saved report.
-                # This makes saved sessions self-contained for debugging/rebuilds.
-                report["raw_jd_text"] = jd_text
-
-                status.update(label="Analysis complete.", state="complete")
-
-            application_id = st.session_state.get("current_application_id")
-
-            if application_id is None:
-                # If the user did not click "New Application Session", create one automatically.
-                application_id = save_application(
-                    resume_filename=uploaded_resume.name,
-                    report=report,
-                    cover_letter="",
-                )
-            else:
-                update_application_report(
-                    application_id=application_id,
-                    resume_filename=uploaded_resume.name,
-                    report=report,
+                st.write(
+                    f"Read {len(jd_text)} characters from job description."
                 )
 
-            # Clear old tailored resume state when this session is re-analysed.
-            # This prevents old tailored projects/skills/DOCX preview from showing after a new analysis.
-            for key in [
-                f"tailored_projects_result_{application_id}",
-                f"tailored_projects_fit_{application_id}",
-                f"tailored_skills_result_{application_id}",
-                f"tailored_resume_copy_path_{application_id}",
-                f"tailored_resume_fit_result_{application_id}",
-                f"saved_resume_docx_path_{application_id}",
+                application_id = st.session_state.get(
+                    "current_application_id"
+                )
+                if application_id is None:
+                    application_id = create_empty_application_session(
+                        degree=degree
+                    )
+                    st.session_state[
+                        "current_application_id"
+                    ] = application_id
 
-                # Add these debug keys too
-                f"debug_project_tailor_inputs_{application_id}",
-                f"project_candidate_pool_{application_id}",
-                f"project_tailor_debug_path_{application_id}",
-                f"project_tailor_input_fingerprint_{application_id}",
-            ]:
-                st.session_state.pop(key, None)
+                analysis_fingerprint = build_analysis_input_fingerprint(
+                    resume_text=resume_text,
+                    jd_text=jd_text,
+                    degree=degree,
+                    actual_page_count=actual_page_count,
+                    model_id=get_active_model("analysis"),
+                    retrieval_config={
+                        "capability_rag_mode": os.getenv(
+                            "CAPABILITY_RAG_MODE",
+                            "lexical",
+                        ),
+                        "capability_rag_top_k": os.getenv(
+                            "CAPABILITY_RAG_TOP_K",
+                            "5",
+                        ),
+                        "capability_rag_vector_threshold": os.getenv(
+                            "CAPABILITY_RAG_VECTOR_THRESHOLD",
+                            "0.30",
+                        ),
+                    },
+                )
 
-            cleanup_old_tailored_outputs_for_application(application_id)
-            st.session_state.pop("saved_resume_docx_path", None)
-
-            if save_resume_docx_for_editing:
-                if uploaded_resume.name.lower().endswith(".docx"):
-                    saved_resume_docx_path = save_uploaded_docx_for_editing(
-                        uploaded_resume,
+                cached_analysis = None
+                if (
+                    reuse_exact_analysis_cache
+                    and not force_fresh_analysis
+                ):
+                    cached_analysis = find_cached_analysis(
                         application_id=application_id,
-                    )
-                    st.session_state["saved_resume_docx_path"] = str(saved_resume_docx_path)
-                    st.session_state[f"saved_resume_docx_path_{application_id}"] = str(saved_resume_docx_path)
-
-                else:
-                    st.warning(
-                        "Analysis was saved, but editable resume-copy generation requires a DOCX file. "
-                        "PDF files are not saved for this feature."
+                        input_fingerprint=analysis_fingerprint,
                     )
 
-            else:
-                # If the user started or loaded a session, update that session with the analysis result.
-                update_application_report(
-                    application_id=application_id,
-                    resume_filename=uploaded_resume.name,
-                    report=report,
+                analysis_cache_hit = isinstance(
+                    cached_analysis,
+                    dict,
                 )
-
-            jd_library_message = ""
-
-            try:
-                # Save/update the analyzed job description into the JD Library.
-                # This means the RAG feature only uses jobs that went through Analyze Resume.
-                jd_profile_for_library = report.get("jd_profile", {})
-
-                jd_save_result = save_or_link_job_description_for_application(
-                    application_id=application_id,
-                    raw_text=jd_text,
-                    jd_profile=jd_profile_for_library,
-                    title=jd_profile_for_library.get("job_title", ""),
-                    company=jd_profile_for_library.get("company", ""),
-                    location=jd_profile_for_library.get("location", ""),
-                    source_type="application_session",
-                    source_url="",
-                )
-
-                orphaned_canonical_id = jd_save_result.get(
-                    "orphaned_canonical_jd_id"
-                )
-                if orphaned_canonical_id:
-                    delete_job_description_from_chroma(
-                        jd_save_result.get("orphaned_job_description_id"),
-                        canonical_jd_id=orphaned_canonical_id,
+                if analysis_cache_hit:
+                    activated = activate_analysis_snapshot(
+                        application_id=application_id,
+                        analysis_id=str(
+                            cached_analysis.get("analysis_id") or ""
+                        ),
                     )
-
-                if jd_save_result.get("needs_chroma_index"):
-                    chunk_count = index_job_description_to_chroma(
-                        int(jd_save_result["job_description_id"])
+                    report = deepcopy(
+                        activated.get("report") or {}
                     )
-                    jd_library_message = (
-                        f" Indexed canonical JD into Chroma with {chunk_count} chunks."
+                    report["raw_jd_text"] = jd_text
+                    report.setdefault("meta", {})[
+                        "analysis_cache"
+                    ] = {
+                        "status": "hit",
+                        "input_fingerprint": analysis_fingerprint,
+                        "analysis_id": activated.get(
+                            "analysis_id",
+                            "",
+                        ),
+                        "cache_version": ANALYSIS_CACHE_VERSION,
+                    }
+                    record_zero_cost_action_event(
+                        application_id=application_id,
+                        action="analyse_resume",
+                        note=(
+                            "Exact persistent analysis cache hit; "
+                            "the résumé/JD analysis AI was not called."
+                        ),
+                    )
+                    status.update(
+                        label="Loaded exact saved analysis.",
+                        state="complete",
                     )
                 else:
-                    jd_library_message = (
-                        " Reused the existing canonical JD; no duplicate embeddings were created."
+                    status.update(
+                        label="Running AI analysis...",
+                        state="running",
+                    )
+                    reset_call_ledger()
+                    report = run_resume_analysis(
+                        resume_text,
+                        jd_text,
+                        degree,
+                        actual_page_count=actual_page_count,
+                    )
+                    report["raw_jd_text"] = jd_text
+                    report.setdefault("meta", {})[
+                        "analysis_cache"
+                    ] = {
+                        "status": (
+                            "forced_refresh"
+                            if force_fresh_analysis
+                            else "miss"
+                        ),
+                        "input_fingerprint": analysis_fingerprint,
+                        "analysis_id": "",
+                        "cache_version": ANALYSIS_CACHE_VERSION,
+                    }
+                    status.update(
+                        label="Analysis complete.",
+                        state="complete",
                     )
 
-            except Exception as rag_exc:
-                # The main resume analysis should still succeed even if RAG indexing fails.
-                jd_library_message = f" RAG indexing skipped: {rag_exc}"
-
-            append_api_usage(
-                application_id=application_id,
-                action="analyse_resume",
-                report=report,
+            application_id = int(
+                st.session_state["current_application_id"]
             )
+
             update_application_report(
                 application_id=application_id,
                 resume_filename=uploaded_resume.name,
                 report=report,
             )
 
+            # A genuine fresh analysis replaces what is currently displayed,
+            # but historical approved/draft generations and their output files
+            # remain persisted for comparison and restoration.
+            if not analysis_cache_hit:
+                for key in [
+                    f"tailored_projects_result_{application_id}",
+                    f"tailored_projects_fit_{application_id}",
+                    f"tailored_skills_result_{application_id}",
+                    f"tailored_resume_copy_path_{application_id}",
+                    f"tailored_resume_fit_result_{application_id}",
+                    f"debug_project_tailor_inputs_{application_id}",
+                    f"project_candidate_pool_{application_id}",
+                    f"project_tailor_debug_path_{application_id}",
+                    f"project_tailor_input_fingerprint_{application_id}",
+                ]:
+                    st.session_state.pop(key, None)
+
+            if save_resume_docx_for_editing:
+                if uploaded_resume.name.lower().endswith(".docx"):
+                    saved_resume_docx_path = (
+                        save_uploaded_docx_for_editing(
+                            uploaded_resume,
+                            application_id=application_id,
+                        )
+                    )
+                    st.session_state[
+                        "saved_resume_docx_path"
+                    ] = str(saved_resume_docx_path)
+                    st.session_state[
+                        f"saved_resume_docx_path_{application_id}"
+                    ] = str(saved_resume_docx_path)
+                else:
+                    st.warning(
+                        "Analysis was saved, but editable résumé-copy "
+                        "generation requires a DOCX file."
+                    )
+
+            jd_library_message = ""
+            try:
+                jd_profile_for_library = report.get(
+                    "jd_profile",
+                    {},
+                )
+                jd_save_result = (
+                    save_or_link_job_description_for_application(
+                        application_id=application_id,
+                        raw_text=jd_text,
+                        jd_profile=jd_profile_for_library,
+                        title=jd_profile_for_library.get(
+                            "job_title",
+                            "",
+                        ),
+                        company=jd_profile_for_library.get(
+                            "company",
+                            "",
+                        ),
+                        location=jd_profile_for_library.get(
+                            "location",
+                            "",
+                        ),
+                        source_type="application_session",
+                        source_url="",
+                    )
+                )
+                orphaned_canonical_id = jd_save_result.get(
+                    "orphaned_canonical_jd_id"
+                )
+                if orphaned_canonical_id:
+                    delete_job_description_from_chroma(
+                        jd_save_result.get(
+                            "orphaned_job_description_id"
+                        ),
+                        canonical_jd_id=orphaned_canonical_id,
+                    )
+                if jd_save_result.get("needs_chroma_index"):
+                    chunk_count = index_job_description_to_chroma(
+                        int(jd_save_result["job_description_id"])
+                    )
+                    jd_library_message = (
+                        " Indexed canonical JD into Chroma with "
+                        f"{chunk_count} chunks."
+                    )
+                else:
+                    jd_library_message = (
+                        " Reused the existing canonical JD; no duplicate "
+                        "embeddings were created."
+                    )
+            except Exception as rag_exc:
+                jd_library_message = (
+                    f" RAG indexing skipped: {rag_exc}"
+                )
+
+            if not analysis_cache_hit:
+                append_api_usage(
+                    application_id=application_id,
+                    action="analyse_resume",
+                    report=report,
+                )
+                snapshot = save_analysis_snapshot(
+                    application_id=application_id,
+                    input_fingerprint=analysis_fingerprint,
+                    report=report,
+                    analysis_model=get_active_model("analysis"),
+                    resume_filename=uploaded_resume.name,
+                )
+                report.setdefault("meta", {})[
+                    "analysis_cache"
+                ]["analysis_id"] = snapshot.get(
+                    "analysis_id",
+                    "",
+                )
+
+            update_application_report(
+                application_id=application_id,
+                resume_filename=uploaded_resume.name,
+                report=report,
+            )
             st.session_state["latest_report"] = report
             st.session_state["resume_filename"] = uploaded_resume.name
-            st.session_state["current_application_id"] = application_id
-
-            # Clear old generated content when a new resume/job is analysed.
+            st.session_state[
+                "current_application_id"
+            ] = application_id
             st.session_state.pop("cover_letter", None)
             st.session_state["revision_history"] = []
             st.session_state["analysis_chat"] = []
-
-            st.session_state["flash_message"] = f"Saved application session #{application_id}.{jd_library_message}"
+            st.session_state["flash_message"] = (
+                f"Saved application session #{application_id}."
+                f"{jd_library_message}"
+            )
             st.rerun()
 
         except ValueError as exc:
             st.error(f"Input error: {exc}")
             st.stop()
-
         except RuntimeError as exc:
             st.error(f"LLM/API error: {exc}")
-            st.info("Check your .env file locally, or Streamlit Cloud secrets after deployment.")
+            st.info(
+                "Check your .env file locally, or Streamlit Cloud "
+                "secrets after deployment."
+            )
             st.stop()
-
         except Exception as exc:
             st.error(f"Unexpected error: {exc}")
             st.stop()
+
+    render_ai_action_subtotal(
+        application_id=st.session_state.get(
+            "current_application_id"
+        ),
+        actions=["analyse_resume"],
+        label="Analyse Resume subtotal",
+    )
 
 
     report = st.session_state.get("latest_report")
@@ -2008,7 +2296,11 @@ if page == "Application Sessions":
             report,
         )
         if usage_summary.get("call_count", 0):
-            st.subheader("API Usage")
+            st.subheader("Application API Total and Breakdown")
+            st.caption(
+                "Each AI button shows its latest-use subtotal nearby. "
+                "This section is the cumulative application total."
+            )
 
             fitting_result_exists = bool(
                 current_application_id is not None
@@ -2058,7 +2350,7 @@ if page == "Application Sessions":
                 zero_actions=zero_actions,
             )
 
-            st.write("#### Usage by stage")
+            st.write("#### Total breakdown by AI action")
             st.dataframe(
                 [
                     {
@@ -2204,6 +2496,22 @@ if page == "Application Sessions":
             if not isinstance(restored_settings, dict):
                 restored_settings = {}
 
+            phase7_control = get_application_generation_control(
+                current_application_id
+            )
+            lock_projects = bool(
+                phase7_control.get("lock_projects")
+            )
+            lock_skills = bool(
+                phase7_control.get("lock_skills")
+            )
+            phase7_flash = st.session_state.pop(
+                f"phase7_flash_{current_application_id}",
+                "",
+            )
+            if phase7_flash:
+                st.success(phase7_flash)
+
             max_projects = st.slider(
                 "Maximum projects",
                 min_value=1,
@@ -2225,15 +2533,122 @@ if page == "Application Sessions":
                 ),
             )
 
+            generation_plan = build_generation_action_plan(
+                lock_projects=lock_projects,
+                lock_skills=lock_skills,
+                approved_generation=phase7_control.get(
+                    "approved_generation"
+                ),
+            )
+            st.caption(generation_plan["note"])
+
             if st.button(
-                "Generate Projects + Skills",
+                generation_plan["button_label"],
                 type="primary",
                 width="stretch",
                 key=f"generate_projects_skills_{current_application_id}",
             ):
                 try:
-                    reset_call_ledger()
                     evidence_items = get_evidence_items(limit=100)
+                    generation_settings = {
+                        "max_projects": max_projects,
+                        "max_bullets": max_bullets,
+                    }
+                    phase7_control = get_application_generation_control(
+                        current_application_id
+                    )
+                    approved_generation = phase7_control.get(
+                        "approved_generation"
+                    )
+                    lock_projects = bool(
+                        phase7_control.get("lock_projects")
+                    )
+                    lock_skills = bool(
+                        phase7_control.get("lock_skills")
+                    )
+                    generation_plan = build_generation_action_plan(
+                        lock_projects=lock_projects,
+                        lock_skills=lock_skills,
+                        approved_generation=approved_generation,
+                    )
+
+                    if generation_plan["mode"] == "load_approved":
+                        if not isinstance(approved_generation, dict):
+                            raise ValueError(
+                                "Approve a generation before locking both "
+                                "Projects and Skills."
+                            )
+                        restore_generation_to_session(
+                            current_application_id,
+                            approved_generation,
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_projects",
+                            note=(
+                                "Approved final Projects were loaded; "
+                                "no project model call."
+                            ),
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_skills",
+                            note=(
+                                "Approved final Skills were loaded; "
+                                "no skills model call."
+                            ),
+                        )
+                        st.session_state[
+                            f"phase7_flash_{current_application_id}"
+                        ] = (
+                            "Loaded the approved final Projects and Skills. "
+                            "No duplicate Draft and no AI call were created."
+                        )
+                        st.rerun()
+
+                    input_fingerprint = build_tailoring_input_fingerprint(
+                        report=report,
+                        evidence_items=evidence_items,
+                        generation_settings=generation_settings,
+                        generation_kind="projects_skills",
+                        model_id=get_active_model("analysis"),
+                        approved_generation=approved_generation,
+                        lock_projects=lock_projects,
+                        lock_skills=lock_skills,
+                    )
+                    cached = find_cached_tailoring_generation(
+                        application_id=current_application_id,
+                        input_fingerprint=input_fingerprint,
+                        generation_kind="projects_skills",
+                    )
+                    if isinstance(cached, dict):
+                        restore_generation_to_session(
+                            current_application_id,
+                            cached,
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_projects",
+                            note=(
+                                "Exact Projects/Skills generation cache hit; "
+                                "no project model call."
+                            ),
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_skills",
+                            note=(
+                                "Exact Projects/Skills generation cache hit; "
+                                "no skills model call."
+                            ),
+                        )
+                        st.session_state[
+                            f"phase7_flash_{current_application_id}"
+                        ] = (
+                            "Reused an exact persistent generation cache hit; "
+                            "no Projects or Skills model call was made."
+                        )
+                        st.rerun()
 
                     st.session_state[
                         f"debug_project_tailor_inputs_{current_application_id}"
@@ -2244,29 +2659,62 @@ if page == "Application Sessions":
                         ).get("projects", []),
                         "evidence_items": evidence_items,
                     }
-
                     debug_candidate_pool = build_project_candidate_pool(
                         resume_profile=report.get("resume_profile", {}),
                         evidence_items=evidence_items,
                     )
-
                     st.session_state[
                         f"project_candidate_pool_{current_application_id}"
                     ] = debug_candidate_pool
 
-                    with st.spinner(
-                        "Generating tailored projects and skills..."
-                    ):
-                        project_result = tailor_projects_section(
-                            resume_profile=report.get("resume_profile", {}),
-                            jd_profile=report.get("jd_profile", {}),
-                            evidence_items=evidence_items,
-                            max_projects=max_projects,
-                            max_bullets_per_project=max_bullets,
-                            keyword_match=report.get("keyword_match", {}),
-                            raw_jd_text=report.get("raw_jd_text", ""),
-                            stable_analysis=report.get("stable_analysis", {}),
+                    effective_approved = (
+                        get_effective_generation_sections(
+                            approved_generation
                         )
+                    )
+                    reset_call_ledger()
+
+                    with st.spinner(
+                        "Generating unlocked sections and reusing "
+                        "approved final locked sections..."
+                    ):
+                        if generation_plan["requires_project_ai"]:
+                            project_result = tailor_projects_section(
+                                resume_profile=report.get(
+                                    "resume_profile",
+                                    {},
+                                ),
+                                jd_profile=report.get("jd_profile", {}),
+                                evidence_items=evidence_items,
+                                max_projects=max_projects,
+                                max_bullets_per_project=max_bullets,
+                                keyword_match=report.get(
+                                    "keyword_match",
+                                    {},
+                                ),
+                                raw_jd_text=report.get("raw_jd_text", ""),
+                                stable_analysis=report.get(
+                                    "stable_analysis",
+                                    {},
+                                ),
+                            )
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="generate_projects",
+                                report=report,
+                            )
+                        else:
+                            project_result = deepcopy(
+                                effective_approved.get("projects")
+                            )
+                            record_zero_cost_action_event(
+                                application_id=current_application_id,
+                                action="generate_projects",
+                                note=(
+                                    "Approved final Projects were reused; "
+                                    "no project model call."
+                                ),
+                            )
 
                         fit_estimate = estimate_project_section_length(
                             project_result,
@@ -2274,26 +2722,39 @@ if page == "Application Sessions":
                             max_total_bullets=max_projects * max_bullets,
                         )
 
-                        append_api_usage(
-                            application_id=current_application_id,
-                            action="generate_projects",
-                            report=report,
-                        )
                         reset_call_ledger()
+                        if generation_plan["requires_skills_ai"]:
+                            skills_result = tailor_skills_section(
+                                resume_profile=report.get(
+                                    "resume_profile",
+                                    {},
+                                ),
+                                jd_profile=report.get("jd_profile", {}),
+                                evidence_items=evidence_items,
+                                stable_analysis=report.get(
+                                    "stable_analysis",
+                                    {},
+                                ),
+                                selected_projects_result=project_result,
+                            )
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="generate_skills",
+                                report=report,
+                            )
+                        else:
+                            skills_result = deepcopy(
+                                effective_approved.get("skills")
+                            )
+                            record_zero_cost_action_event(
+                                application_id=current_application_id,
+                                action="generate_skills",
+                                note=(
+                                    "Approved final Skills were reused; "
+                                    "no skills model call."
+                                ),
+                            )
 
-                        skills_result = tailor_skills_section(
-                            resume_profile=report.get("resume_profile", {}),
-                            jd_profile=report.get("jd_profile", {}),
-                            evidence_items=evidence_items,
-                            stable_analysis=report.get("stable_analysis", {}),
-                            selected_projects_result=project_result,
-                        )
-
-                    append_api_usage(
-                        application_id=current_application_id,
-                        action="generate_skills",
-                        report=report,
-                    )
                     st.session_state["latest_report"] = report
                     update_application_report(
                         application_id=current_application_id,
@@ -2303,12 +2764,15 @@ if page == "Application Sessions":
                         ),
                         report=report,
                     )
-
                     st.session_state[tailored_projects_key] = project_result
                     st.session_state[tailored_fit_key] = fit_estimate
                     st.session_state[tailored_skills_key] = skills_result
                     st.session_state.pop(tailored_docx_key, None)
-                    st.session_state.pop(tailored_fit_result_key, None)
+                    st.session_state.pop(
+                        tailored_fit_result_key,
+                        None,
+                    )
+
                     generation_id = uuid.uuid4().hex
                     st.session_state[
                         tailored_generation_id_key
@@ -2316,10 +2780,16 @@ if page == "Application Sessions":
                     _persist_current_tailoring_state(
                         application_id=current_application_id,
                         generation_id=generation_id,
-                        generation_settings={
-                            "max_projects": max_projects,
-                            "max_bullets": max_bullets,
-                        },
+                        generation_settings=generation_settings,
+                        input_fingerprint=input_fingerprint,
+                        generation_kind="projects_skills",
+                    )
+                    st.session_state[
+                        f"phase7_flash_{current_application_id}"
+                    ] = (
+                        "Created a new Draft for the unlocked generated "
+                        "section(s). Locked sections came from the approved "
+                        "final fitted output."
                     )
                     st.rerun()
 
@@ -2329,9 +2799,15 @@ if page == "Application Sessions":
                     st.error(f"LLM/API error: {exc}")
                 except Exception as exc:
                     st.error(
-                        "Unexpected error while tailoring projects and skills: "
+                        "Unexpected error while tailoring Projects and Skills: "
                         f"{exc}"
                     )
+
+            render_ai_action_subtotal(
+                application_id=current_application_id,
+                actions=["generate_projects", "generate_skills"],
+                label="Projects + Skills subtotal",
+            )
 
             with st.expander(
                 "Advanced: Generate sections separately",
@@ -2345,8 +2821,10 @@ if page == "Application Sessions":
                         type="primary",
                         width="stretch",
                         key=f"generate_projects_{current_application_id}",
+                        disabled=lock_projects,
                     ):
                         try:
+                            reset_call_ledger()
                             evidence_items = get_evidence_items(limit=100)
 
                             st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
@@ -2379,6 +2857,20 @@ if page == "Application Sessions":
                                     max_total_bullets=max_projects * max_bullets,
                                 )
 
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="generate_projects",
+                                report=report,
+                            )
+                            st.session_state["latest_report"] = report
+                            update_application_report(
+                                application_id=current_application_id,
+                                resume_filename=st.session_state.get(
+                                    "resume_filename",
+                                    "",
+                                ),
+                                report=report,
+                            )
                             st.session_state[tailored_projects_key] = project_result
                             st.session_state[tailored_fit_key] = fit_estimate
                             st.session_state.pop(tailored_docx_key, None)
@@ -2404,13 +2896,21 @@ if page == "Application Sessions":
                         except Exception as exc:
                             st.error(f"Unexpected error while tailoring projects: {exc}")
 
+                    render_ai_action_subtotal(
+                        application_id=current_application_id,
+                        actions=["generate_projects"],
+                        label="Generate Projects subtotal",
+                    )
+
                 with col_skills:
                     if st.button(
                         "Generate Tailored Skills Section",
                         width="stretch",
                         key=f"generate_skills_{current_application_id}",
+                        disabled=lock_skills,
                     ):
                         try:
+                            reset_call_ledger()
                             with st.spinner("Generating tailored skills..."):
                                 skills_result = tailor_skills_section(
                                     resume_profile=report.get("resume_profile", {}),
@@ -2422,6 +2922,20 @@ if page == "Application Sessions":
                                     ),
                                 )
 
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="generate_skills",
+                                report=report,
+                            )
+                            st.session_state["latest_report"] = report
+                            update_application_report(
+                                application_id=current_application_id,
+                                resume_filename=st.session_state.get(
+                                    "resume_filename",
+                                    "",
+                                ),
+                                report=report,
+                            )
                             st.session_state[tailored_skills_key] = skills_result
                             st.session_state.pop(tailored_docx_key, None)
                             st.session_state.pop(tailored_fit_result_key, None)
@@ -2445,6 +2959,12 @@ if page == "Application Sessions":
                             st.error(f"LLM/API error: {exc}")
                         except Exception as exc:
                             st.error(f"Unexpected error while tailoring skills: {exc}")
+
+                    render_ai_action_subtotal(
+                        application_id=current_application_id,
+                        actions=["generate_skills"],
+                        label="Generate Skills subtotal",
+                    )
 
             project_result = st.session_state.get(tailored_projects_key)
             fit_estimate = st.session_state.get(tailored_fit_key)
@@ -2580,6 +3100,10 @@ if page == "Application Sessions":
 
                 with st.expander("Unsupported JD skills"):
                     st.json(skills_result.get("unsupported_jd_skills", []))
+
+            render_tailoring_generation_controls(
+                application_id=current_application_id,
+            )
 
             st.divider()
             st.subheader("Generate Edited Resume Copy")
@@ -2851,10 +3375,57 @@ if page == "Application Sessions":
                     key=f"generate_docx_{current_application_id}",
                 ):
                     try:
+                        phase7_control = get_application_generation_control(
+                            current_application_id
+                        )
+                        projects_for_fit, skills_for_fit = resolve_locked_sections(
+                            proposed_projects=project_result,
+                            proposed_skills=skills_result,
+                            approved_generation=phase7_control.get(
+                                "approved_generation"
+                            ),
+                            lock_projects=bool(
+                                phase7_control.get("lock_projects")
+                            ),
+                            lock_skills=bool(
+                                phase7_control.get("lock_skills")
+                            ),
+                        )
+                        # Keep the draft record consistent with the exact content
+                        # sent to the fitter after approved-section lock resolution.
+                        st.session_state[tailored_projects_key] = projects_for_fit
+                        st.session_state[tailored_skills_key] = skills_for_fit
+                        current_generation_id = str(
+                            st.session_state.get(
+                                tailored_generation_id_key
+                            )
+                            or ""
+                        )
+                        if not current_generation_id:
+                            current_generation_id = uuid.uuid4().hex
+                            st.session_state[
+                                tailored_generation_id_key
+                            ] = current_generation_id
+                            _persist_current_tailoring_state(
+                                application_id=current_application_id,
+                                generation_id=current_generation_id,
+                                generation_kind="fit_only",
+                            )
+                        mutable_generation = ensure_mutable_tailoring_generation(
+                            application_id=current_application_id,
+                            generation_id=current_generation_id,
+                        )
+                        mutable_generation_id = str(
+                            mutable_generation["generation_id"]
+                        )
+                        st.session_state[
+                            tailored_generation_id_key
+                        ] = mutable_generation_id
+
                         fit_result = generate_tailored_resume_copy_fit_one_page(
                             saved_resume_docx_path=saved_resume_docx_path,
-                            tailored_projects=project_result,
-                            tailored_skills=skills_result,
+                            tailored_projects=projects_for_fit,
+                            tailored_skills=skills_for_fit,
                             application_id=current_application_id,
                             max_projects=max_projects,
                             max_bullets_per_project=max_bullets,
@@ -2867,10 +3438,14 @@ if page == "Application Sessions":
                             use_compact_before_delete=use_compact_before_delete,
                             prefer_balanced_bullets=prefer_balanced_bullets,
                             allow_skills_compaction=allow_skills_compaction,
-                            page_density_mode=page_density_mode,
-                            generation_id=st.session_state.get(
-                                tailored_generation_id_key
+                            lock_projects=bool(
+                                phase7_control.get("lock_projects")
                             ),
+                            lock_skills=bool(
+                                phase7_control.get("lock_skills")
+                            ),
+                            page_density_mode=page_density_mode,
+                            generation_id=mutable_generation_id,
                         )
 
                         tailored_resume_path = fit_result["docx_path"]
@@ -2901,6 +3476,12 @@ if page == "Application Sessions":
                                 ),
                                 "allow_skills_compaction": (
                                     allow_skills_compaction
+                                ),
+                                "lock_projects": bool(
+                                    phase7_control.get("lock_projects")
+                                ),
+                                "lock_skills": bool(
+                                    phase7_control.get("lock_skills")
                                 ),
                                 "page_density_mode": (
                                     page_density_mode
@@ -3107,6 +3688,7 @@ if page == "Application Sessions":
 
         if st.button("Generate Cover Letter", type="primary", width="stretch"):
             try:
+                reset_call_ledger()
                 with st.spinner("Generating tailored cover letter..."):
                     cover_letter = generate_cover_letter(report)
 
@@ -3125,6 +3707,20 @@ if page == "Application Sessions":
                 else:
                     update_application_cover_letter(application_id, cover_letter)
 
+                append_api_usage(
+                    application_id=application_id,
+                    action="generate_cover_letter",
+                    report=report,
+                )
+                st.session_state["latest_report"] = report
+                update_application_report(
+                    application_id=application_id,
+                    resume_filename=st.session_state.get(
+                        "resume_filename",
+                        "",
+                    ),
+                    report=report,
+                )
                 st.success("Cover letter saved to the current application session.")
 
             except RuntimeError as exc:
@@ -3132,6 +3728,12 @@ if page == "Application Sessions":
 
             except Exception as exc:
                 st.error(f"Unexpected error while generating cover letter: {exc}")
+
+        render_ai_action_subtotal(
+            application_id=current_application_id,
+            actions=["generate_cover_letter"],
+            label="Generate Cover Letter subtotal",
+        )
 
         cover_letter = st.session_state.get("cover_letter", "")
 
@@ -3159,6 +3761,7 @@ if page == "Application Sessions":
 
             if st.button("Revise Cover Letter", width="stretch"):
                 try:
+                    reset_call_ledger()
                     with st.spinner("Revising cover letter..."):
                         revised_letter = revise_cover_letter(
                             report,
@@ -3179,6 +3782,21 @@ if page == "Application Sessions":
                     application_id = st.session_state.get("current_application_id")
                     if application_id is not None:
                         update_application_cover_letter(application_id, revised_letter)
+                    append_api_usage(
+                        application_id=application_id,
+                        action="revise_cover_letter",
+                        report=report,
+                    )
+                    st.session_state["latest_report"] = report
+                    if application_id is not None:
+                        update_application_report(
+                            application_id=application_id,
+                            resume_filename=st.session_state.get(
+                                "resume_filename",
+                                "",
+                            ),
+                            report=report,
+                        )
 
                     st.rerun()
 
@@ -3190,6 +3808,12 @@ if page == "Application Sessions":
 
                 except Exception as exc:
                     st.error(f"Unexpected error while revising cover letter: {exc}")
+
+            render_ai_action_subtotal(
+                application_id=current_application_id,
+                actions=["revise_cover_letter"],
+                label="Revise Cover Letter subtotal",
+            )
 
         st.divider()
         st.header("Ask About This Analysis")
@@ -3221,6 +3845,7 @@ if page == "Application Sessions":
             with chat_col:
                 if st.button("Ask AI About Analysis", width="stretch"):
                     try:
+                        reset_call_ledger()
                         with st.spinner("Answering question..."):
                             answer = answer_analysis_question(report, analysis_question)
 
@@ -3235,6 +3860,21 @@ if page == "Application Sessions":
                             answer,
                         )
 
+                        append_api_usage(
+                            application_id=current_application_id,
+                            action="ask_analysis_ai",
+                            report=report,
+                        )
+                        st.session_state["latest_report"] = report
+                        update_application_report(
+                            application_id=current_application_id,
+                            resume_filename=st.session_state.get(
+                                "resume_filename",
+                                "",
+                            ),
+                            report=report,
+                        )
+
                         st.rerun()
 
                     except ValueError as exc:
@@ -3245,6 +3885,12 @@ if page == "Application Sessions":
 
                     except Exception as exc:
                         st.error(f"Unexpected error while answering question: {exc}")
+
+                render_ai_action_subtotal(
+                    application_id=current_application_id,
+                    actions=["ask_analysis_ai"],
+                    label="Ask AI About Analysis subtotal",
+                )
 
             with clear_col:
                 if st.button("Clear Chat", width="stretch"):
@@ -3327,6 +3973,7 @@ elif page == "Job Market Insights":
 
     if st.button("Analyze Resume for Market Fit", width="stretch"):
         try:
+            reset_call_ledger()
             if rag_resume_upload is not None:
                 rag_resume_text = read_uploaded_resume(rag_resume_upload)
                 rag_resume_source = rag_resume_upload.name
@@ -3341,6 +3988,11 @@ elif page == "Job Market Insights":
 
             st.session_state["rag_resume_profile"] = rag_resume_profile
             st.session_state["rag_resume_source"] = rag_resume_source
+            append_api_usage(
+                application_id=None,
+                action="analyse_market_resume",
+                report=None,
+            )
 
             st.success(f"Resume loaded for market comparison: {rag_resume_source}")
             st.rerun()
@@ -3351,6 +4003,12 @@ elif page == "Job Market Insights":
             st.error(f"LLM/API error: {exc}")
         except Exception as exc:
             st.error(f"Unexpected error while analyzing market resume: {exc}")
+
+    render_ai_action_subtotal(
+        application_id=None,
+        actions=["analyse_market_resume"],
+        label="Market Resume Analysis subtotal",
+    )
 
     rag_resume_profile = st.session_state.get("rag_resume_profile")
 
@@ -3486,6 +4144,7 @@ elif page == "Job Market Insights":
     with rag_chat_col:
         if st.button("Ask Chroma RAG", width="stretch"):
             try:
+                reset_call_ledger()
                 answer = answer_jd_library_question_chroma(
                     rag_question,
                     resume_profile=st.session_state.get("rag_resume_profile"),
@@ -3495,6 +4154,12 @@ elif page == "Job Market Insights":
                 add_rag_chat_message("user", rag_question)
                 add_rag_chat_message("assistant", answer)
 
+                append_api_usage(
+                    application_id=None,
+                    action="ask_chroma_rag",
+                    report=None,
+                )
+
                 st.rerun()
 
             except ValueError as exc:
@@ -3503,6 +4168,12 @@ elif page == "Job Market Insights":
                 st.error(f"LLM/API error: {exc}")
             except Exception as exc:
                 st.error(f"Unexpected error while answering Chroma RAG question: {exc}")
+
+        render_ai_action_subtotal(
+            application_id=None,
+            actions=["ask_chroma_rag"],
+            label="Ask Chroma RAG subtotal",
+        )
 
     with rag_clear_col:
         if st.button("Clear RAG Chat", width="stretch"):
@@ -3663,6 +4334,7 @@ elif page == "Profile & Evidence":
                             width="stretch",
                         ):
                             try:
+                                reset_call_ledger()
                                 with st.spinner("Suggesting canonical bullets..."):
                                     suggestion = suggest_canonical_project_bullets(
                                         title=item.get("title", ""),
@@ -3674,6 +4346,11 @@ elif page == "Profile & Evidence":
                                     )
 
                                 st.session_state[suggestion_key] = suggestion
+                                append_api_usage(
+                                    application_id=None,
+                                    action="suggest_canonical_bullets",
+                                    report=None,
+                                )
                                 st.rerun()
 
                             except ValueError as exc:
@@ -3682,6 +4359,12 @@ elif page == "Profile & Evidence":
                                 st.error(f"LLM/API error: {exc}")
                             except Exception as exc:
                                 st.error(f"Unexpected error while suggesting bullets: {exc}")
+
+                        render_ai_action_subtotal(
+                            application_id=None,
+                            actions=["suggest_canonical_bullets"],
+                            label="Canonical Bullet Suggestion subtotal",
+                        )
 
                         suggestion = st.session_state.get(suggestion_key)
 

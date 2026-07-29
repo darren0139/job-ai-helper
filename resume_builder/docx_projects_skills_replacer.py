@@ -66,6 +66,9 @@ from resume_builder.fitting_render_optimizer import (
     rendered_candidate_is_effective,
     source_docx_signature,
 )
+from tailoring.tailoring_generation_fingerprint import (
+    build_fitting_lock_policy,
+)
 
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -2644,6 +2647,8 @@ def generate_tailored_resume_copy_fit_one_page(
     use_compact_before_delete: bool = False,
     prefer_balanced_bullets: bool = False,
     allow_skills_compaction: bool = False,
+    lock_projects: bool = False,
+    lock_skills: bool = False,
     minimum_total_skills: int = 8,
     page_density_mode: str = "balanced",
     generation_id: str | None = None,
@@ -2662,14 +2667,26 @@ def generate_tailored_resume_copy_fit_one_page(
 
     density_mode = _normalise_page_density_mode(page_density_mode)
     density_max_fill = _PAGE_DENSITY_MAX_FILL[density_mode]
+    lock_policy = build_fitting_lock_policy(
+        lock_projects=lock_projects,
+        lock_skills=lock_skills,
+    )
+    effective_max_projects = (
+        999999 if lock_policy["lock_projects"] else max_projects
+    )
+    effective_max_bullets = (
+        999999
+        if lock_policy["lock_projects"]
+        else max_bullets_per_project
+    )
 
-    cleanup_old_tailored_outputs_for_application(application_id)
-
+    # Preserve completed historical outputs. Temporary candidates are still
+    # deleted explicitly by the fitting loop.
     attempt_logs: list[dict[str, Any]] = []
     working_projects = deepcopy(tailored_projects) if tailored_projects else None
     working_skills = deepcopy(tailored_skills) if tailored_skills else None
 
-    if working_projects:
+    if working_projects and not lock_policy["lock_projects"]:
         visible_projects = (
             working_projects.get("recommended_projects", []) or []
         )[:max_projects]
@@ -2695,8 +2712,8 @@ def generate_tailored_resume_copy_fit_one_page(
         saved_resume_docx_path
     )
     render_layout_options = {
-        "max_projects": max_projects,
-        "max_bullets_per_project": max_bullets_per_project,
+        "max_projects": effective_max_projects,
+        "max_bullets_per_project": effective_max_bullets,
         "spacing_mode": spacing_mode,
         "project_spacing_pt": project_spacing_pt,
         "after_projects_spacing_pt": after_projects_spacing_pt,
@@ -2726,6 +2743,7 @@ def generate_tailored_resume_copy_fit_one_page(
             "fitting_optimization_version": (
                 PHASE6C1_OPTIMIZATION_VERSION
             ),
+            "section_locks": dict(lock_policy),
             "render_cache_entry_count": len(render_cache),
             "libreoffice_process_count": (
                 optimization_stats[
@@ -2793,8 +2811,8 @@ def generate_tailored_resume_copy_fit_one_page(
             tailored_projects=projects_state,
             tailored_skills=skills_state,
             application_id=application_id,
-            max_projects=max_projects,
-            max_bullets_per_project=max_bullets_per_project,
+            max_projects=effective_max_projects,
+            max_bullets_per_project=effective_max_bullets,
             spacing_mode=spacing_mode,
             project_spacing_pt=project_spacing_pt,
             after_projects_spacing_pt=after_projects_spacing_pt,
@@ -3057,7 +3075,7 @@ def generate_tailored_resume_copy_fit_one_page(
     removable_project_count = 0
     compact_candidate_count = 0
 
-    if working_projects:
+    if working_projects and not lock_policy["lock_projects"]:
         original_projects = working_projects.get("recommended_projects", []) or []
         removable_bullet_count = sum(
             max(0, len(project.get("draft_bullets", []) or []) - 1)
@@ -3075,7 +3093,11 @@ def generate_tailored_resume_copy_fit_one_page(
             working_skills,
             minimum_total_items=minimum_total_skills,
         )
-        if allow_skills_compaction and working_skills
+        if (
+            allow_skills_compaction
+            and working_skills
+            and not lock_policy["lock_skills"]
+        )
         else 0
     )
 
@@ -3125,7 +3147,11 @@ def generate_tailored_resume_copy_fit_one_page(
 
         candidate_changes: list[dict[str, Any]] = []
 
-        if use_compact_before_delete and working_projects:
+        if (
+            use_compact_before_delete
+            and working_projects
+            and not lock_policy["lock_projects"]
+        ):
             compact_projects, changed, change = apply_compact_bullets_once(
                 working_projects
             )
@@ -3142,7 +3168,11 @@ def generate_tailored_resume_copy_fit_one_page(
                     }
                 )
 
-        if allow_skills_compaction and working_skills:
+        if (
+            allow_skills_compaction
+            and working_skills
+            and not lock_policy["lock_skills"]
+        ):
             compact_skills, changed, change = compact_skills_one_step(
                 working_skills,
                 minimum_total_items=minimum_total_skills,
@@ -3158,7 +3188,7 @@ def generate_tailored_resume_copy_fit_one_page(
                     }
                 )
 
-        if working_projects:
+        if working_projects and not lock_policy["lock_projects"]:
             project_reductions = build_evidence_aware_project_reductions(
                 working_projects,
                 prefer_balanced_bullets=prefer_balanced_bullets,
@@ -3477,9 +3507,17 @@ def generate_tailored_resume_copy_fit_one_page(
             "density_target_max": density_max_fill,
             **optimization_summary(),
             "note": (
-                "Resume still exceeds one page after all allowed whole-resume "
-                "reductions. Reduce spacing, lower the minimum Skills count, "
-                "or allow more than one page."
+                (
+                    "Resume still exceeds one page while preserving the locked "
+                    "Projects or Skills sections. Unlock a section, reduce "
+                    "spacing, or allow more than one page."
+                )
+                if lock_policy["lock_projects"] or lock_policy["lock_skills"]
+                else (
+                    "Resume still exceeds one page after all allowed whole-resume "
+                    "reductions. Reduce spacing, lower the minimum Skills count, "
+                    "or allow more than one page."
+                )
             ),
         }
 
