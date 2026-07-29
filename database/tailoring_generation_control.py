@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
@@ -517,6 +518,7 @@ def get_application_generation_control(
             "approved_generation": None,
             "lock_projects": False,
             "lock_skills": False,
+            "updated_at": "",
         }
 
     approved_id = str(row["approved_generation_id"] or "")
@@ -535,8 +537,236 @@ def get_application_generation_control(
         "approved_generation": approved,
         "lock_projects": bool(row["lock_projects"]) if approved else False,
         "lock_skills": bool(row["lock_skills"]) if approved else False,
+        "updated_at": str(row["updated_at"] or ""),
     }
 
+
+
+def _delete_unreferenced_generation_files(
+    paths: list[str],
+) -> dict[str, list[str]]:
+    """Delete tailored output files only when no generation still references them."""
+    unique_paths = sorted(
+        {
+            str(path or "").strip()
+            for path in paths
+            if str(path or "").strip()
+        }
+    )
+    if not unique_paths:
+        return {"deleted": [], "kept": [], "missing": []}
+
+    init_tailoring_generation_control()
+    connection = _connect()
+    cursor = connection.cursor()
+    deleted: list[str] = []
+    kept: list[str] = []
+    missing: list[str] = []
+
+    try:
+        for value in unique_paths:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_tailoring_versions
+                WHERE docx_path = ?
+                   OR pdf_path = ?
+                """,
+                (value, value),
+            )
+            row = cursor.fetchone()
+            reference_count = int(row["reference_count"] or 0) if row else 0
+            if reference_count > 0:
+                kept.append(value)
+                continue
+
+            path = Path(value)
+            if not path.exists():
+                missing.append(value)
+                continue
+
+            try:
+                path.unlink()
+                deleted.append(value)
+            except OSError:
+                kept.append(value)
+    finally:
+        connection.close()
+
+    return {
+        "deleted": deleted,
+        "kept": kept,
+        "missing": missing,
+    }
+
+
+def delete_tailoring_generation(
+    *,
+    application_id: int,
+    generation_id: str,
+    delete_unreferenced_files: bool = False,
+) -> dict[str, Any]:
+    """Permanently delete one Draft or Archived generation.
+
+    Approved generations are deliberately protected. Approve another version or
+    archive the approved version before deleting it.
+    """
+    state = get_tailoring_generation(application_id, generation_id)
+    if state is None:
+        raise ValueError("Tailoring generation was not found.")
+
+    status = str(state.get("status") or "draft").lower()
+    if status == "approved":
+        raise ValueError(
+            "The active approved generation cannot be deleted. "
+            "Approve another version or archive it first."
+        )
+    if status not in {"draft", "archived"}:
+        raise ValueError(f"Unsupported generation status: {status}")
+
+    stored_paths = [
+        str(state.get("stored_docx_path") or ""),
+        str(state.get("stored_pdf_path") or ""),
+    ]
+
+    init_tailoring_generation_control()
+    connection = _connect()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("BEGIN")
+        cursor.execute(
+            """
+            DELETE FROM application_tailoring_generation_meta
+            WHERE application_id = ?
+              AND generation_id = ?
+            """,
+            (int(application_id), str(generation_id)),
+        )
+        metadata_deleted = max(0, int(cursor.rowcount or 0))
+        cursor.execute(
+            """
+            DELETE FROM application_tailoring_versions
+            WHERE application_id = ?
+              AND generation_id = ?
+            """,
+            (int(application_id), str(generation_id)),
+        )
+        version_deleted = max(0, int(cursor.rowcount or 0))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    file_result = {"deleted": [], "kept": [], "missing": []}
+    if delete_unreferenced_files:
+        file_result = _delete_unreferenced_generation_files(stored_paths)
+
+    return {
+        "application_id": int(application_id),
+        "generation_id": str(generation_id),
+        "status": status,
+        "version_deleted": version_deleted,
+        "metadata_deleted": metadata_deleted,
+        "files": file_result,
+    }
+
+
+def clear_tailoring_drafts(
+    *,
+    application_id: int,
+    delete_unreferenced_files: bool = False,
+    exclude_generation_ids: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Delete all Draft generations for one application.
+
+    Approved and Archived versions are never removed by this operation.
+    """
+    excluded = {
+        str(value or "").strip()
+        for value in (exclude_generation_ids or [])
+        if str(value or "").strip()
+    }
+
+    init_tailoring_generation_control()
+    connection = _connect()
+    cursor = connection.cursor()
+    params: list[Any] = [int(application_id)]
+    exclusion_sql = ""
+    if excluded:
+        placeholders = ", ".join("?" for _ in excluded)
+        exclusion_sql = f" AND versions.generation_id NOT IN ({placeholders})"
+        params.extend(sorted(excluded))
+
+    cursor.execute(
+        _JOIN_SQL
+        + f"""
+        WHERE versions.application_id = ?
+          AND COALESCE(meta.status, 'draft') = 'draft'
+          {exclusion_sql}
+        ORDER BY versions.id
+        """,
+        tuple(params),
+    )
+    rows = cursor.fetchall()
+    generation_ids = [str(row["generation_id"]) for row in rows]
+    stored_paths: list[str] = []
+    for row in rows:
+        stored_paths.extend(
+            [
+                str(row["docx_path"] or ""),
+                str(row["pdf_path"] or ""),
+            ]
+        )
+
+    if not generation_ids:
+        connection.close()
+        return {
+            "application_id": int(application_id),
+            "deleted_count": 0,
+            "deleted_generation_ids": [],
+            "files": {"deleted": [], "kept": [], "missing": []},
+        }
+
+    placeholders = ", ".join("?" for _ in generation_ids)
+    delete_params = (int(application_id), *generation_ids)
+    try:
+        cursor.execute("BEGIN")
+        cursor.execute(
+            f"""
+            DELETE FROM application_tailoring_generation_meta
+            WHERE application_id = ?
+              AND generation_id IN ({placeholders})
+            """,
+            delete_params,
+        )
+        cursor.execute(
+            f"""
+            DELETE FROM application_tailoring_versions
+            WHERE application_id = ?
+              AND generation_id IN ({placeholders})
+            """,
+            delete_params,
+        )
+        deleted_count = max(0, int(cursor.rowcount or 0))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    file_result = {"deleted": [], "kept": [], "missing": []}
+    if delete_unreferenced_files:
+        file_result = _delete_unreferenced_generation_files(stored_paths)
+
+    return {
+        "application_id": int(application_id),
+        "deleted_count": deleted_count,
+        "deleted_generation_ids": generation_ids,
+        "files": file_result,
+    }
 
 def delete_application_generation_control(
     application_id: int,
