@@ -135,6 +135,10 @@ from database.tailoring_version_manager import (
     init_application_tailoring_versions,
     save_application_tailoring_generation,
 )
+from database.tailoring_verification_manager import (
+    delete_application_tailoring_verifications,
+    init_tailoring_verifications,
+)
 from database.tailoring_generation_control import (
     delete_application_generation_control,
     ensure_mutable_tailoring_generation,
@@ -148,6 +152,9 @@ from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
     get_effective_generation_sections,
     resolve_locked_sections,
+)
+from tailoring.phase8_verification_ui import (
+    render_phase8_verification,
 )
 from tailoring.generation_controls_ui import (
     render_tailoring_generation_controls,
@@ -1348,6 +1355,8 @@ init_db()
 init_application_tailoring_versions()
 init_tailoring_generation_control()
 init_analysis_cache()
+init_tailoring_verifications()
+
 init_jd_library()
 init_chat_history()
 init_session_state()
@@ -1617,6 +1626,9 @@ with st.sidebar:
                                 pass
 
                             delete_application_analysis_versions(
+                                app_id
+                            )
+                            delete_application_tailoring_verifications(
                                 app_id
                             )
                             delete_application_generation_control(
@@ -3103,6 +3115,25 @@ if page == "Application Sessions":
 
             render_tailoring_generation_controls(
                 application_id=current_application_id,
+            )
+
+            phase8_jd_record = (
+                get_job_description_by_application_id(
+                    int(current_application_id)
+                )
+                if current_application_id is not None
+                else None
+            ) or {}
+            phase8_raw_jd_text = str(
+                phase8_jd_record.get("raw_text")
+                or report.get("raw_jd_text")
+                or ""
+            )
+
+            render_phase8_verification(
+                application_id=current_application_id,
+                baseline_report=report,
+                raw_jd_text=phase8_raw_jd_text,
             )
 
             st.divider()
