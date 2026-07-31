@@ -8,6 +8,7 @@ from tailoring.phase8_verification import (
     build_final_resume_profile,
     build_phase8_verification,
     compare_stable_analyses,
+    refresh_phase8_readiness,
 )
 
 
@@ -190,6 +191,54 @@ class Phase8VerificationTests(unittest.TestCase):
             result["verification_mode"],
             "zero_cost_deterministic",
         )
+
+
+    def test_cached_draft_readiness_refreshes_after_approval(self):
+        cached = {
+            "generation_status": "draft",
+            "fit_one_page": True,
+            "page_count": 1,
+            "comparison_valid": True,
+            "comparison": {
+                "score_delta": 5,
+                "important_regressions": [],
+                "canonical_requirement_ids_stable": True,
+            },
+            "claim_lineage": {
+                "claim_review_required_count": 0,
+            },
+            "blueprint_ready": False,
+            "blueprint_readiness_reasons": {
+                "is_approved": False,
+                "fits_one_page": True,
+                "canonical_requirement_ids_stable": True,
+                "no_required_core_regression": True,
+                "no_claim_review_risks": True,
+                "score_not_lower": True,
+            },
+        }
+        approved_generation = {
+            **GENERATION,
+            "status": "approved",
+        }
+
+        refreshed = refresh_phase8_readiness(
+            cached,
+            approved_generation,
+        )
+
+        self.assertEqual(cached["generation_status"], "draft")
+        self.assertFalse(cached["blueprint_ready"])
+        self.assertEqual(
+            refreshed["generation_status"],
+            "approved",
+        )
+        self.assertTrue(
+            refreshed["blueprint_readiness_reasons"][
+                "is_approved"
+            ]
+        )
+        self.assertTrue(refreshed["blueprint_ready"])
 
 
 if __name__ == "__main__":

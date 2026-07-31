@@ -106,10 +106,55 @@ def save_tailoring_verification(
     )
     existing = cursor.fetchone()
     if existing is not None:
+        existing_result = _row_to_result(existing)
+        stored = {
+            **existing_result,
+            **result,
+            "verification_id": str(existing["verification_id"]),
+            "created_at": str(existing["created_at"]),
+        }
+
+        comparable_existing = dict(existing_result)
+        comparable_existing.pop("cache_status", None)
+        comparable_stored = dict(stored)
+        comparable_stored.pop("cache_status", None)
+        changed = comparable_existing != comparable_stored
+
+        if changed:
+            cursor.execute(
+                """
+                UPDATE application_tailoring_verifications
+                SET result_json = ?,
+                    phase8_version = ?,
+                    verification_mode = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(
+                        stored,
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                    str(
+                        stored.get("phase8_version")
+                        or PHASE8_VERIFICATION_VERSION
+                    ),
+                    str(
+                        stored.get("verification_mode")
+                        or "zero_cost_deterministic"
+                    ),
+                    int(existing["id"]),
+                ),
+            )
+            connection.commit()
+
         connection.close()
-        saved = _row_to_result(existing)
-        saved["cache_status"] = "hit"
-        return saved
+        stored["cache_status"] = (
+            "hit_refreshed"
+            if changed
+            else "hit"
+        )
+        return stored
 
     verification_id = uuid.uuid4().hex
     created_at = _now()

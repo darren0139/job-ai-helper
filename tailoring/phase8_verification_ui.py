@@ -15,7 +15,10 @@ from database.tailoring_verification_manager import (
     get_latest_tailoring_verification,
     save_tailoring_verification,
 )
-from tailoring.phase8_verification import build_phase8_verification
+from tailoring.phase8_verification import (
+    build_phase8_verification,
+    refresh_phase8_readiness,
+)
 
 
 def _label(state: dict[str, Any]) -> str:
@@ -199,10 +202,10 @@ def render_phase8_verification(
     raw_jd_text: str,
 ) -> None:
     st.divider()
-    st.subheader("Phase 8 — Before/After Verification")
+    st.subheader("Phase 8 — Final Tailored Résumé Verification")
     st.caption(
-        "Checks a fitted saved version against the original deterministic "
-        "analysis. This verification makes no model or embedding calls."
+        "Compares the selected fitted résumé with the original résumé "
+        "analysis and verifies evidence lineage. It makes no model ""or embedding calls."
     )
 
     versions = list_tailoring_generations(application_id)
@@ -263,7 +266,7 @@ def render_phase8_verification(
     )
 
     if st.button(
-        "Run Zero-Cost Before/After Verification",
+        "Verify Selected Tailored Résumé",
         type="primary",
         width="stretch",
         key=f"phase8_verify_{application_id}_{selected_id}",
@@ -282,13 +285,26 @@ def render_phase8_verification(
                     generation_id=selected_id,
                     result=result,
                 )
+            cache_status = str(
+                saved.get("cache_status") or ""
+            )
+            if cache_status == "hit_refreshed":
+                flash_message = (
+                    "Reused the saved Phase 8 analysis and refreshed "
+                    "the current readiness status."
+                )
+            elif cache_status == "hit":
+                flash_message = (
+                    "Reused the saved Phase 8 analysis; the current "
+                    "readiness status was already up to date."
+                )
+            else:
+                flash_message = (
+                    "Saved a new zero-cost Phase 8 verification."
+                )
             st.session_state[
                 f"phase8_flash_{application_id}"
-            ] = (
-                "Reused the exact saved Phase 8 verification."
-                if saved.get("cache_status") == "hit"
-                else "Saved a new zero-cost Phase 8 verification."
-            )
+            ] = flash_message
             st.rerun()
         except ValueError as exc:
             st.warning(str(exc))
@@ -307,7 +323,29 @@ def render_phase8_verification(
         selected_id,
     )
     if isinstance(latest, dict):
-        _render_result(latest)
+        refreshed_latest = refresh_phase8_readiness(
+            latest,
+            selected,
+        )
+        mutable_fields = (
+            "generation_status",
+            "fit_one_page",
+            "page_count",
+            "blueprint_ready",
+            "blueprint_readiness_reasons",
+        )
+        readiness_changed = any(
+            latest.get(field) != refreshed_latest.get(field)
+            for field in mutable_fields
+        )
+        if readiness_changed:
+            refreshed_latest = save_tailoring_verification(
+                application_id=application_id,
+                generation_id=selected_id,
+                result=refreshed_latest,
+            )
+            refreshed_latest.pop("cache_status", None)
+        _render_result(refreshed_latest)
     else:
         st.caption(
             "No saved verification exists for this fitted version yet."

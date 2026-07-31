@@ -55,5 +55,67 @@ class TailoringVerificationManagerTests(unittest.TestCase):
         self.assertEqual(len(list_tailoring_verifications(1)), 1)
 
 
+    def test_exact_cache_refreshes_mutable_readiness(self):
+        draft_result = {
+            "phase8_version": "phase8-before-after-verification-v5",
+            "verification_mode": "zero_cost_deterministic",
+            "verification_fingerprint": "same-analysis-fingerprint",
+            "generation_id": "generation-a",
+            "generation_status": "draft",
+            "blueprint_ready": False,
+            "blueprint_readiness_reasons": {
+                "is_approved": False,
+            },
+        }
+        approved_result = {
+            **draft_result,
+            "generation_status": "approved",
+            "blueprint_ready": True,
+            "blueprint_readiness_reasons": {
+                "is_approved": True,
+            },
+        }
+
+        first = save_tailoring_verification(
+            application_id=1,
+            generation_id="generation-a",
+            result=draft_result,
+        )
+        second = save_tailoring_verification(
+            application_id=1,
+            generation_id="generation-a",
+            result=approved_result,
+        )
+
+        self.assertEqual(first["cache_status"], "miss")
+        self.assertEqual(
+            second["cache_status"],
+            "hit_refreshed",
+        )
+        self.assertEqual(
+            first["verification_id"],
+            second["verification_id"],
+        )
+
+        latest = get_latest_tailoring_verification(
+            1,
+            "generation-a",
+        )
+        self.assertEqual(
+            latest["generation_status"],
+            "approved",
+        )
+        self.assertTrue(latest["blueprint_ready"])
+        self.assertTrue(
+            latest["blueprint_readiness_reasons"][
+                "is_approved"
+            ]
+        )
+        self.assertEqual(
+            len(list_tailoring_verifications(1)),
+            1,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

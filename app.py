@@ -139,6 +139,9 @@ from database.tailoring_verification_manager import (
     delete_application_tailoring_verifications,
     init_tailoring_verifications,
 )
+from database.evidence_opportunity_manager import (
+    delete_application_evidence_opportunities,
+)
 from database.tailoring_generation_control import (
     delete_application_generation_control,
     ensure_mutable_tailoring_generation,
@@ -152,6 +155,9 @@ from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
     get_effective_generation_sections,
     resolve_locked_sections,
+)
+from tailoring.phase9a_evidence_opportunity_ui import (
+    render_evidence_opportunity_analysis,
 )
 from tailoring.phase8_verification_ui import (
     render_phase8_verification,
@@ -1631,6 +1637,9 @@ with st.sidebar:
                             delete_application_tailoring_verifications(
                                 app_id
                             )
+                            delete_application_evidence_opportunities(
+                                app_id
+                            )
                             delete_application_generation_control(
                                 app_id
                             )
@@ -2479,6 +2488,25 @@ if page == "Application Sessions":
                 f"tailored_generation_id_{current_application_id}"
             )
 
+
+        if current_application_id is not None:
+            phase9a_jd_record = (
+                get_job_description_by_application_id(
+                    int(current_application_id)
+                )
+                or {}
+            )
+            phase9a_raw_jd_text = str(
+                phase9a_jd_record.get("raw_text")
+                or report.get("raw_jd_text")
+                or ""
+            )
+            render_evidence_opportunity_analysis(
+                application_id=int(current_application_id),
+                baseline_report=report,
+                raw_jd_text=phase9a_raw_jd_text,
+                evidence_items=get_evidence_items(limit=100),
+            )
 
         st.divider()
         st.header("Tailor Resume for This Job")

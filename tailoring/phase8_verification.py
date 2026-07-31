@@ -477,6 +477,79 @@ def _verification_fingerprint(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+
+def refresh_phase8_readiness(
+    result: dict[str, Any],
+    generation_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Refresh mutable Phase 8 lifecycle gates without rerunning analysis.
+
+    The deterministic comparison and evidence audit remain cached. Approval and
+    blueprint readiness are derived from the current saved generation each time.
+    """
+    refreshed = deepcopy(result)
+
+    status = (
+        _clean(generation_state.get("status")).lower()
+        or "draft"
+    )
+    fit_result = generation_state.get("fit_result")
+    if not isinstance(fit_result, dict):
+        fit_result = {}
+
+    comparison = refreshed.get("comparison")
+    if not isinstance(comparison, dict):
+        comparison = {}
+
+    lineage = refreshed.get("claim_lineage")
+    if not isinstance(lineage, dict):
+        lineage = {}
+
+    comparison_valid = bool(
+        refreshed.get(
+            "comparison_valid",
+            comparison.get(
+                "canonical_requirement_ids_stable",
+                False,
+            ),
+        )
+    )
+    important_regressions = (
+        comparison.get("important_regressions", []) or []
+    )
+    claim_risks = int(
+        lineage.get("claim_review_required_count", 0) or 0
+    )
+    score_delta = int(
+        comparison.get("score_delta", 0) or 0
+    )
+    fit_one_page = fit_result.get("fit_one_page") is True
+    approved = status == "approved"
+
+    reasons = {
+        "is_approved": approved,
+        "fits_one_page": fit_one_page,
+        "canonical_requirement_ids_stable": comparison_valid,
+        "no_required_core_regression": (
+            comparison_valid and not important_regressions
+        ),
+        "no_claim_review_risks": claim_risks == 0,
+        "score_not_lower": score_delta >= 0,
+    }
+
+    refreshed["generation_status"] = status
+    refreshed["fit_one_page"] = fit_one_page
+    refreshed["page_count"] = fit_result.get(
+        "page_count",
+        refreshed.get("page_count"),
+    )
+    refreshed["blueprint_readiness_reasons"] = reasons
+    refreshed["blueprint_ready"] = all(
+        bool(value) for value in reasons.values()
+    )
+    return refreshed
+
+
 def build_phase8_verification(
     *,
     baseline_report: dict[str, Any],
