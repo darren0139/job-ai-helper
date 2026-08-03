@@ -1,0 +1,233 @@
+"""Phase 9B: promote verified Approved generations to global candidates."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from copy import deepcopy
+from typing import Any
+
+from tailoring.tailoring_generation_fingerprint import (
+    get_effective_generation_sections,
+)
+
+
+PHASE9B_VERSION = "phase9b-blueprint-candidate-v1"
+
+
+def _clean(value: Any) -> str:
+    return " ".join(
+        str(value or "").replace("\u00a0", " ").split()
+    ).strip()
+
+
+def blueprint_candidate_eligibility(
+    *,
+    generation_state: dict[str, Any] | None,
+    verification: dict[str, Any] | None,
+) -> dict[str, Any]:
+    generation = generation_state or {}
+    result = verification or {}
+    fit_result = generation.get("fit_result")
+    if not isinstance(fit_result, dict):
+        fit_result = {}
+
+    generation_id = _clean(generation.get("generation_id"))
+    verification_generation_id = _clean(
+        result.get("generation_id")
+    )
+    reasons = {
+        "approved_generation": (
+            _clean(generation.get("status")).lower()
+            == "approved"
+        ),
+        "verification_exists": bool(result),
+        "verification_matches_generation": bool(
+            generation_id
+            and verification_generation_id == generation_id
+        ),
+        "comparison_valid": bool(
+            result.get("comparison_valid")
+        ),
+        "phase8_blueprint_ready": bool(
+            result.get("blueprint_ready")
+        ),
+        "fits_one_page": (
+            fit_result.get("fit_one_page") is True
+        ),
+        "no_claim_review_risks": (
+            int(
+                (
+                    result.get("claim_lineage") or {}
+                ).get("claim_review_required_count", 0)
+                or 0
+            )
+            == 0
+        ),
+    }
+    return {
+        "eligible": all(reasons.values()),
+        "reasons": reasons,
+    }
+
+
+def _candidate_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def build_blueprint_candidate(
+    *,
+    application_id: int,
+    generation_state: dict[str, Any],
+    verification: dict[str, Any],
+    baseline_report: dict[str, Any],
+    role_family: str,
+    candidate_name: str,
+    notes: str = "",
+    evidence_opportunity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    eligibility = blueprint_candidate_eligibility(
+        generation_state=generation_state,
+        verification=verification,
+    )
+    if not eligibility["eligible"]:
+        failed = [
+            name
+            for name, passed in eligibility["reasons"].items()
+            if not passed
+        ]
+        raise ValueError(
+            "The Approved generation is not eligible for blueprint "
+            f"promotion. Failed gates: {', '.join(failed)}"
+        )
+
+    cleaned_role_family = _clean(role_family)
+    cleaned_name = _clean(candidate_name)
+    if not cleaned_role_family:
+        raise ValueError("Role family is required.")
+    if not cleaned_name:
+        raise ValueError("Candidate name is required.")
+
+    effective = get_effective_generation_sections(
+        generation_state
+    )
+    projects = effective.get("projects")
+    skills = effective.get("skills")
+    if not isinstance(projects, dict) or not isinstance(
+        skills,
+        dict,
+    ):
+        raise ValueError(
+            "The Approved generation does not contain final Projects "
+            "and Skills snapshots."
+        )
+
+    fit_result = deepcopy(
+        generation_state.get("fit_result") or {}
+    )
+    stable_before = baseline_report.get("stable_analysis") or {}
+    stable_after = (
+        verification.get("after_stable_analysis") or {}
+    )
+    opportunity = evidence_opportunity or {}
+
+    snapshot = {
+        "phase9b_version": PHASE9B_VERSION,
+        "source_application_id": int(application_id),
+        "source_generation_id": _clean(
+            generation_state.get("generation_id")
+        ),
+        "source_verification_id": _clean(
+            verification.get("verification_id")
+        ),
+        "source_verification_fingerprint": _clean(
+            verification.get("verification_fingerprint")
+        ),
+        "role_family": cleaned_role_family,
+        "candidate_name": cleaned_name,
+        "notes": _clean(notes),
+        "status": "candidate",
+        "global_scope": True,
+        "projects": deepcopy(projects),
+        "skills": deepcopy(skills),
+        "fit_result": fit_result,
+        "score_summary": {
+            "original_resume_score": int(
+                stable_before.get(
+                    "deterministic_alignment_score",
+                    0,
+                )
+                or 0
+            ),
+            "approved_tailored_score": int(
+                stable_after.get(
+                    "deterministic_alignment_score",
+                    0,
+                )
+                or 0
+            ),
+            "evidence_potential_score": (
+                int(opportunity.get("potential_score", 0) or 0)
+                if opportunity
+                else None
+            ),
+        },
+        "quality_gates": deepcopy(
+            verification.get(
+                "blueprint_readiness_reasons",
+                {},
+            )
+        ),
+        "claim_lineage": {
+            "lineage_version": (
+                verification.get("claim_lineage") or {}
+            ).get("lineage_version"),
+            "claim_review_required_count": int(
+                (
+                    verification.get("claim_lineage") or {}
+                ).get("claim_review_required_count", 0)
+                or 0
+            ),
+        },
+        "canonical_requirement_ids": sorted(
+            _clean(row.get("requirement_id"))
+            for row in stable_after.get(
+                "canonical_requirements",
+                [],
+            )
+            or []
+            if isinstance(row, dict)
+            and _clean(row.get("requirement_id"))
+        ),
+        "evidence_opportunity_id": _clean(
+            opportunity.get("opportunity_id")
+        ),
+        "evidence_opportunity_fingerprint": _clean(
+            opportunity.get("opportunity_fingerprint")
+        ),
+    }
+
+    fingerprint_payload = {
+        "phase9b_version": PHASE9B_VERSION,
+        "source_generation_id": snapshot[
+            "source_generation_id"
+        ],
+        "source_verification_fingerprint": snapshot[
+            "source_verification_fingerprint"
+        ],
+        "role_family": snapshot["role_family"],
+        "projects": snapshot["projects"],
+        "skills": snapshot["skills"],
+        "fit_result": snapshot["fit_result"],
+    }
+    snapshot["candidate_fingerprint"] = (
+        _candidate_fingerprint(fingerprint_payload)
+    )
+    return snapshot

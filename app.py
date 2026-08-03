@@ -156,6 +156,9 @@ from tailoring.tailoring_generation_fingerprint import (
     get_effective_generation_sections,
     resolve_locked_sections,
 )
+from tailoring.phase9b_blueprint_ui import (
+    render_blueprint_candidate_promotion,
+)
 from tailoring.phase9a_evidence_opportunity_ui import (
     render_evidence_opportunity_analysis,
 )
@@ -2555,7 +2558,7 @@ if page == "Application Sessions":
             max_projects = st.slider(
                 "Maximum projects",
                 min_value=1,
-                max_value=4,
+                max_value=8,
                 value=int(restored_settings.get("max_projects", 3)),
                 key=f"max_projects_{current_application_id}",
             )
@@ -3162,6 +3165,11 @@ if page == "Application Sessions":
                 application_id=current_application_id,
                 baseline_report=report,
                 raw_jd_text=phase8_raw_jd_text,
+            )
+
+            render_blueprint_candidate_promotion(
+                application_id=int(current_application_id),
+                baseline_report=report,
             )
 
             st.divider()
