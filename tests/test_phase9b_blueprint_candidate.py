@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from tailoring.phase9b_blueprint_candidate import (
+    PHASE9B_VERSION,
     blueprint_candidate_eligibility,
     build_blueprint_candidate,
 )
@@ -135,6 +136,62 @@ class Phase9BBlueprintCandidateTests(unittest.TestCase):
             72,
         )
         self.assertTrue(candidate["global_scope"])
+
+
+    def test_candidate_prefers_phase8_resolved_baseline(
+        self,
+    ):
+        verification = {
+            **VERIFICATION,
+            "before_stable_analysis": {
+                "deterministic_alignment_score": 32,
+                "input_fingerprint": (
+                    "resolved-before-fingerprint"
+                ),
+            },
+        }
+        baseline = {
+            **BASELINE,
+            "stable_analysis": {
+                **BASELINE["stable_analysis"],
+                "deterministic_alignment_score": 36,
+                "input_fingerprint": (
+                    "stored-phase6d6-fingerprint"
+                ),
+            },
+        }
+
+        candidate = build_blueprint_candidate(
+            application_id=1,
+            generation_state=GENERATION,
+            verification=verification,
+            baseline_report=baseline,
+            role_family="AI & Full-Stack Engineering",
+            candidate_name="AI General Blueprint Candidate",
+        )
+
+        self.assertEqual(
+            candidate["phase9b_version"],
+            PHASE9B_VERSION,
+        )
+        self.assertEqual(
+            candidate["score_summary"][
+                "original_resume_score"
+            ],
+            32,
+        )
+        self.assertEqual(
+            candidate["score_summary"][
+                "approved_tailored_score"
+            ],
+            65,
+        )
+        self.assertEqual(
+            candidate["evaluation_metadata"][
+                "baseline_stable_fingerprint"
+            ],
+            "resolved-before-fingerprint",
+        )
 
     def test_not_blueprint_ready_is_rejected(self):
         with self.assertRaisesRegex(

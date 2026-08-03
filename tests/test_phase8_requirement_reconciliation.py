@@ -663,5 +663,255 @@ class Phase8RequirementReconciliationTests(unittest.TestCase):
         )
 
 
+    def test_new_verified_evidence_upgrades_baseline_none(self):
+        requirement_id = "req-access-new"
+        requirement_text = (
+            "Experience implementing authentication workflows or "
+            "database access control"
+        )
+        bullet = (
+            "Implemented backend data access through PostgREST and applied "
+            "Row-Level Security policies to secure database operations."
+        )
+        project = {
+            "project_id": "project-query",
+            "title": "QueryAI",
+            "display_title": "QueryAI (React, Team of 4)",
+            "draft_bullets": [bullet],
+            "requirement_matches": [
+                {
+                    "requirement_id": requirement_id,
+                    "requirement_text": requirement_text,
+                    "match_label": "direct",
+                    "evidence_snippets": [bullet],
+                }
+            ],
+        }
+        state = generation(
+            [project],
+            skills=[
+                "authentication workflows",
+                "access control",
+            ],
+            rankings=[
+                {
+                    "skill": "authentication workflows",
+                    "matched_requirement_ids": [requirement_id],
+                },
+                {
+                    "skill": "access control",
+                    "matched_requirement_ids": [requirement_id],
+                },
+            ],
+        )
+
+        reconciled, report = reconcile_final_requirement_matches(
+            before_analysis=analysis(
+                [requirement(requirement_id, requirement_text, "none")]
+            ),
+            after_analysis=analysis(
+                [requirement(requirement_id, requirement_text, "none")]
+            ),
+            generation_state=state,
+            claim_lineage=lineage(
+                project_bullets=[
+                    (
+                        "project-query",
+                        "QueryAI (React, Team of 4)",
+                        bullet,
+                    )
+                ],
+                skills=[
+                    "authentication workflows",
+                    "access control",
+                ],
+            ),
+        )
+
+        row = reconciled["canonical_requirements"][0]
+        self.assertEqual(row["match_label"], "direct")
+        self.assertEqual(
+            row["phase8_reconciliation"]["support_type"],
+            "verified_new_generation_evidence",
+        )
+        self.assertEqual(
+            report["newly_supported_requirement_count"],
+            1,
+        )
+        self.assertEqual(report["reconciled_requirement_count"], 0)
+
+    def test_unverified_new_mapping_does_not_create_match(self):
+        requirement_id = "req-outage-new"
+        requirement_text = (
+            "Managed global production outages for five years"
+        )
+        final_bullet = "Built a React help-desk interface."
+        project = {
+            "project_id": "project-query",
+            "title": "QueryAI",
+            "draft_bullets": [final_bullet],
+            "requirement_matches": [
+                {
+                    "requirement_id": requirement_id,
+                    "requirement_text": requirement_text,
+                    "match_label": "direct",
+                    "evidence_snippets": [
+                        "Managed global production outages for five years."
+                    ],
+                }
+            ],
+        }
+
+        reconciled, report = reconcile_final_requirement_matches(
+            before_analysis=analysis(
+                [requirement(requirement_id, requirement_text, "none")]
+            ),
+            after_analysis=analysis(
+                [requirement(requirement_id, requirement_text, "none")]
+            ),
+            generation_state=generation([project]),
+            claim_lineage=lineage(
+                project_bullets=[
+                    (
+                        "project-query",
+                        "QueryAI",
+                        final_bullet,
+                    )
+                ]
+            ),
+        )
+
+        self.assertEqual(
+            reconciled["canonical_requirements"][0]["match_label"],
+            "none",
+        )
+        self.assertEqual(
+            report["newly_supported_requirement_count"],
+            0,
+        )
+
+    def test_app94_queryai_new_evidence_removes_none_gaps(self):
+        requirements = [
+            (
+                "req-fullstack",
+                (
+                    "Build frontend and full-stack application features "
+                    "using React and JavaScript or TypeScript"
+                ),
+            ),
+            (
+                "req-database",
+                "Experience with SQLite or PostgreSQL database design",
+            ),
+            (
+                "req-access",
+                (
+                    "Experience implementing authentication workflows or "
+                    "database access control"
+                ),
+            ),
+        ]
+        bullet_1 = (
+            "Built full-stack help-desk workflows in a 4-person team using "
+            "React and Supabase/PostgreSQL, including login, note submission, "
+            "and ticket editing."
+        )
+        bullet_2 = (
+            "Implemented backend data access through PostgREST and applied "
+            "Row-Level Security policies to secure database operations."
+        )
+        project = {
+            "project_id": "project-query",
+            "title": "QueryAI",
+            "display_title": "QueryAI (React, Team of 4)",
+            "draft_bullets": [bullet_1, bullet_2],
+            "requirement_matches": [
+                {
+                    "requirement_id": requirement_id,
+                    "requirement_text": text,
+                    "match_label": "direct",
+                    "evidence_snippets": [bullet_1, bullet_2],
+                }
+                for requirement_id, text in requirements
+            ],
+        }
+        skills = [
+            "React",
+            "JavaScript",
+            "PostgreSQL",
+            "authentication workflows",
+            "access control",
+        ]
+        rankings = [
+            {
+                "skill": "React",
+                "matched_requirement_ids": ["req-fullstack"],
+            },
+            {
+                "skill": "JavaScript",
+                "matched_requirement_ids": ["req-fullstack"],
+            },
+            {
+                "skill": "PostgreSQL",
+                "matched_requirement_ids": ["req-database"],
+            },
+            {
+                "skill": "authentication workflows",
+                "matched_requirement_ids": ["req-access"],
+            },
+            {
+                "skill": "access control",
+                "matched_requirement_ids": ["req-access"],
+            },
+        ]
+
+        reconciled, report = reconcile_final_requirement_matches(
+            before_analysis=analysis(
+                [
+                    requirement(requirement_id, text, "none")
+                    for requirement_id, text in requirements
+                ]
+            ),
+            after_analysis=analysis(
+                [
+                    requirement(requirement_id, text, "none")
+                    for requirement_id, text in requirements
+                ]
+            ),
+            generation_state=generation(
+                [project],
+                skills=skills,
+                rankings=rankings,
+            ),
+            claim_lineage=lineage(
+                project_bullets=[
+                    (
+                        "project-query",
+                        "QueryAI (React, Team of 4)",
+                        bullet_1,
+                    ),
+                    (
+                        "project-query",
+                        "QueryAI (React, Team of 4)",
+                        bullet_2,
+                    ),
+                ],
+                skills=skills,
+            ),
+        )
+
+        labels = {
+            row["requirement_id"]: row["match_label"]
+            for row in reconciled["canonical_requirements"]
+        }
+        self.assertNotEqual(labels["req-fullstack"], "none")
+        self.assertNotEqual(labels["req-database"], "none")
+        self.assertEqual(labels["req-access"], "direct")
+        self.assertEqual(
+            report["newly_supported_requirement_count"],
+            3,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

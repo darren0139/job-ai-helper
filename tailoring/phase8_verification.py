@@ -9,6 +9,7 @@ from copy import deepcopy
 from typing import Any
 
 from analysis_stability import build_stable_analysis
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.phase8_requirement_reconciliation import (
     reconcile_final_requirement_matches,
 )
@@ -20,7 +21,8 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v5"
+PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v7"
+PHASE8_BASELINE_RESOLUTION_VERSION = "phase8-current-scorer-baseline-v1"
 MATCH_RANK = {
     "none": 0,
     "weak": 1,
@@ -438,6 +440,98 @@ def audit_claim_lineage(
     )
 
 
+def build_current_baseline_analysis(
+    *,
+    baseline_report: dict[str, Any],
+    raw_jd_text: str,
+) -> dict[str, Any]:
+    """Re-score the original résumé with the currently installed scorer."""
+    baseline_profile = deepcopy(
+        baseline_report.get("resume_profile", {}) or {}
+    )
+    baseline_resume_text = build_resume_text_from_profile(
+        baseline_profile
+    )
+    baseline_keyword_match = deepcopy(
+        baseline_report.get("keyword_match", {}) or {}
+    )
+
+    return build_stable_analysis(
+        jd_profile=baseline_report.get("jd_profile", {}) or {},
+        keyword_match=baseline_keyword_match,
+        raw_jd_text=raw_jd_text,
+        raw_resume_text=baseline_resume_text,
+        resume_profile=baseline_profile,
+        bullet_quality_score=(
+            baseline_report.get("bullets", {}) or {}
+        ).get("bullet_quality_avg", 0),
+        structure_score=(
+            baseline_report.get("structure", {}) or {}
+        ).get("structure_score", 0),
+    )
+
+
+def resolve_phase8_baseline_analysis(
+    *,
+    baseline_report: dict[str, Any],
+    raw_jd_text: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return a baseline compatible with the current stable scorer."""
+    stored = baseline_report.get("stable_analysis")
+    if not isinstance(stored, dict):
+        raise ValueError(
+            "The application does not contain a stable baseline analysis."
+        )
+
+    stored_version = _clean(stored.get("scoring_version"))
+    can_reuse = bool(
+        stored_version
+        and stored_version == SCORING_VERSION
+    )
+
+    if can_reuse:
+        resolved = deepcopy(stored)
+        mode = "reused_current_stored_baseline"
+        rebuilt = False
+    else:
+        resolved = build_current_baseline_analysis(
+            baseline_report=baseline_report,
+            raw_jd_text=raw_jd_text,
+        )
+        mode = "rebuilt_with_current_scorer"
+        rebuilt = True
+
+    stored_requirements = (
+        stored.get("canonical_requirements", []) or []
+    )
+    resolved_requirements = (
+        resolved.get("canonical_requirements", []) or []
+    )
+
+    metadata = {
+        "baseline_resolution_version": (
+            PHASE8_BASELINE_RESOLUTION_VERSION
+        ),
+        "mode": mode,
+        "rebuilt": rebuilt,
+        "stored_scoring_version": stored_version,
+        "current_scoring_version": SCORING_VERSION,
+        "resolved_scoring_version": _clean(
+            resolved.get("scoring_version")
+        ),
+        "stored_input_fingerprint": _clean(
+            stored.get("input_fingerprint")
+        ),
+        "resolved_input_fingerprint": _clean(
+            resolved.get("input_fingerprint")
+        ),
+        "stored_requirement_count": len(stored_requirements),
+        "resolved_requirement_count": len(
+            resolved_requirements
+        ),
+    }
+    return resolved, metadata
+
 def _verification_fingerprint(
     baseline_report: dict[str, Any],
     generation_state: dict[str, Any],
@@ -454,6 +548,10 @@ def _verification_fingerprint(
     )
     payload = {
         "phase8_version": PHASE8_VERIFICATION_VERSION,
+        "baseline_resolution_version": (
+            PHASE8_BASELINE_RESOLUTION_VERSION
+        ),
+        "current_stable_scoring_version": SCORING_VERSION,
         "baseline_stable_fingerprint": (
             baseline_report.get("stable_analysis", {}) or {}
         ).get("input_fingerprint", ""),
@@ -557,8 +655,8 @@ def build_phase8_verification(
     raw_jd_text: str,
 ) -> dict[str, Any]:
     """Verify one fitted generation without making any model/API call."""
-    before = baseline_report.get("stable_analysis")
-    if not isinstance(before, dict):
+    stored_before = baseline_report.get("stable_analysis")
+    if not isinstance(stored_before, dict):
         raise ValueError(
             "The application does not contain a stable baseline analysis."
         )
@@ -576,6 +674,13 @@ def build_phase8_verification(
             "The comparison was stopped instead of rebuilding a different "
             "canonical requirement set."
         )
+
+    before, baseline_resolution = (
+        resolve_phase8_baseline_analysis(
+            baseline_report=baseline_report,
+            raw_jd_text=canonical_jd_text,
+        )
+    )
 
     final_profile = build_final_resume_profile(
         baseline_report.get("resume_profile", {}),
@@ -679,6 +784,7 @@ def build_phase8_verification(
         ),
         "comparison_valid": comparison_valid,
         "jd_text_source": "application_job_description",
+        "baseline_resolution": baseline_resolution,
         "application_id": generation_state.get("application_id"),
         "generation_id": generation_state.get("generation_id", ""),
         "generation_status": generation_state.get("status", "draft"),
@@ -718,6 +824,11 @@ def build_phase8_verification(
             ),
         },
         "limitations": [
+            (
+                "When the saved baseline scoring version differs from the current "
+                "stable scorer, Phase 8 deterministically rebuilds the original "
+                "résumé baseline before comparing it with the final résumé."
+            ),
             (
                 "The comparison is valid only when the canonical requirement "
                 "IDs are identical before and after. A mismatch invalidates the "

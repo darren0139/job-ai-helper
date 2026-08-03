@@ -53,7 +53,7 @@ class Phase6DStableScoringIntegrationTests(unittest.TestCase):
         taxonomy_caps.assert_called_once()
         self.assertEqual(
             result["scoring_version"],
-            "stable-evidence-v1.3-phase6d6",
+            scoring.SCORING_VERSION,
         )
         self.assertEqual(
             result["capability_taxonomy_version"],

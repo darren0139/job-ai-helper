@@ -21,7 +21,7 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-PHASE9B_VERSION = "phase9b-blueprint-candidate-v2"
+PHASE9B_VERSION = "phase9b-blueprint-candidate-v3"
 
 
 def _clean(value: Any) -> str:
@@ -96,7 +96,11 @@ def _evaluation_metadata(
     baseline_report: dict[str, Any],
     verification: dict[str, Any],
 ) -> dict[str, Any]:
-    before = baseline_report.get("stable_analysis") or {}
+    before = (
+        verification.get("before_stable_analysis")
+        or baseline_report.get("stable_analysis")
+        or {}
+    )
     after = verification.get("after_stable_analysis") or {}
     comparison = verification.get("comparison") or {}
     requirements = compact_requirement_summary(verification)
@@ -219,7 +223,11 @@ def build_blueprint_candidate(
     fit_result = deepcopy(
         generation_state.get("fit_result") or {}
     )
-    stable_before = baseline_report.get("stable_analysis") or {}
+    stable_before = (
+        verification.get("before_stable_analysis")
+        or baseline_report.get("stable_analysis")
+        or {}
+    )
     stable_after = (
         verification.get("after_stable_analysis") or {}
     )

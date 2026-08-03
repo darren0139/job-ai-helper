@@ -637,3 +637,91 @@ Having a track record of working with meticulous works that require high attenti
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JdSectionHeadingFilterTests(unittest.TestCase):
+    def test_section_headings_are_excluded_and_preferred_items_stay_preferred(
+        self,
+    ) -> None:
+        raw_jd = """
+Job Description
+
+Key Responsibilities:
+Build reliable Python services.
+
+Job Requirements
+Hands-on experience with Python.
+
+Preferred Qualifications
+Experience with Docker.
+
+Benefits
+Medical coverage and annual leave.
+"""
+        result = canonicalise_requirements({}, raw_jd)
+        rows = result["requirements"]
+        by_text = {row["text"]: row for row in rows}
+
+        for heading in (
+            "Job Description",
+            "Key Responsibilities",
+            "Job Requirements",
+            "Preferred Qualifications",
+            "Benefits",
+        ):
+            self.assertNotIn(heading, by_text)
+
+        self.assertEqual(
+            by_text["Build reliable Python services"]["importance"],
+            "core",
+        )
+        self.assertEqual(
+            by_text["Hands-on experience with Python"]["importance"],
+            "required",
+        )
+        self.assertEqual(
+            by_text["Experience with Docker"]["importance"],
+            "preferred",
+        )
+        self.assertNotIn("Medical coverage and annual leave", by_text)
+
+        filtered = result["filtered_section_headings"]
+        filtered_texts = {row["text"] for row in filtered}
+        self.assertIn("Key Responsibilities:", filtered_texts)
+        self.assertIn("Preferred Qualifications", filtered_texts)
+
+    def test_numbered_case_and_punctuation_variants_are_filtered(self) -> None:
+        raw_jd = """
+KEY RESPONSIBILITIES:
+Build internal tools.
+
+1. Job Requirements
+Experience with SQL.
+
+Preferred Qualifications:
+Experience with Docker.
+"""
+        result = canonicalise_requirements({}, raw_jd)
+        texts = {row["text"] for row in result["requirements"]}
+
+        self.assertNotIn("KEY RESPONSIBILITIES:", texts)
+        self.assertNotIn("1. Job Requirements", texts)
+        self.assertNotIn("Preferred Qualifications:", texts)
+        self.assertIn("Build internal tools", texts)
+        self.assertIn("Experience with SQL", texts)
+        self.assertIn("Experience with Docker", texts)
+
+    def test_real_requirement_sentence_containing_responsibilities_is_kept(
+        self,
+    ) -> None:
+        raw_jd = """
+Job Description
+Responsibilities include implementing production monitoring workflows.
+"""
+        result = canonicalise_requirements({}, raw_jd)
+        texts = {row["text"] for row in result["requirements"]}
+
+        self.assertIn(
+            "Responsibilities include implementing production monitoring workflows",
+            texts,
+        )

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 
 from tailoring.phase8_verification import (
+    PHASE8_VERIFICATION_VERSION,
     _normalise_multiline_text,
     _verification_fingerprint,
     build_phase8_verification,
@@ -21,6 +23,7 @@ BASE_ROW = {
 
 def stable(score: int = 50) -> dict:
     return {
+        "scoring_version": SCORING_VERSION,
         "deterministic_alignment_score": score,
         "alignment_band": "partial alignment",
         "required_core_coverage_score": score,
@@ -106,7 +109,7 @@ class Phase8MultilineJDTests(unittest.TestCase):
         )
         self.assertEqual(
             result["phase8_version"],
-            "phase8-before-after-verification-v5",
+            PHASE8_VERIFICATION_VERSION,
         )
 
     def test_fingerprint_is_stable_across_line_endings(self):
@@ -121,6 +124,26 @@ class Phase8MultilineJDTests(unittest.TestCase):
             MULTILINE_JD_LF,
         )
         self.assertEqual(left, right)
+
+
+    def test_fingerprint_changes_when_current_scorer_version_changes(
+        self,
+    ):
+        current = _verification_fingerprint(
+            baseline_report(),
+            GENERATION,
+            MULTILINE_JD_LF,
+        )
+        with patch(
+            "tailoring.phase8_verification.SCORING_VERSION",
+            "stable-evidence-v1.3-future-test",
+        ):
+            future = _verification_fingerprint(
+                baseline_report(),
+                GENERATION,
+                MULTILINE_JD_LF,
+            )
+        self.assertNotEqual(current, future)
 
     def test_collapsed_jd_has_different_fingerprint(self):
         multiline = _verification_fingerprint(

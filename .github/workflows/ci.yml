@@ -44,31 +44,8 @@ jobs:
       - name: Check dependency consistency
         run: python -m pip check
 
-      - name: Compile core modules
-        shell: bash
-        run: |
-          python -m py_compile app.py
-          python -m py_compile analysis_stability/stable_evidence_scoring.py
-          python -m py_compile tailoring/project_section_tailor.py
-          python -m py_compile tailoring/skills_section_tailor.py
-          python -m py_compile tailoring/stable_tailoring_ranking.py
-          python -m py_compile tailoring/deterministic_bullet_allocation.py
-          python -m py_compile resume_builder/evidence_aware_fitting.py
-          python -m py_compile resume_builder/fitting_render_optimizer.py
-          python -m py_compile resume_builder/docx_projects_skills_replacer.py
-          python -m py_compile scripts/check_stable_analysis.py
-          python -m py_compile scripts/run_analysis_stability_trial.py
-          python -m py_compile scripts/run_tailoring_stability_trial.py
-          python -m py_compile scripts/benchmark_models.py
-          python -m py_compile scripts/migrate_jd_identity.py
-          python -m py_compile scripts/inspect_jd_identity.py
-          python -m py_compile database/jd_library_manager.py
-          python -m py_compile database/tailoring_version_manager.py
-          python -m py_compile rag/jd_identity.py
-          python -m py_compile rag/jd_chroma_rag.py
-
-      - name: Run unit and regression tests
-        run: python -m unittest discover -s tests -v
+      - name: Run automated project checks
+        run: python scripts/run_project_checks.py --mode full --ci
 
   streamlit-smoke:
     name: Streamlit startup smoke test

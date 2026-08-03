@@ -13,7 +13,7 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-RECONCILIATION_VERSION = "phase8-final-evidence-reconciliation-v1"
+RECONCILIATION_VERSION = "phase8-final-evidence-reconciliation-v2"
 
 MATCH_RANK = {
     "none": 0,
@@ -649,7 +649,16 @@ def reconcile_final_requirement_matches(
     generation_state: dict[str, Any],
     claim_lineage: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Restore only matches whose supporting evidence is still verified."""
+    """Reconcile verified final evidence for regressions and new matches.
+
+    The raw stable scorer remains authoritative unless a saved generation
+    mapping points to evidence that is still visible and claim-lineage
+    verified in the final fitted résumé. This supports two cases:
+
+    1. restore a match that appeared to regress after fitting; and
+    2. recognise newly added final Projects/Skills evidence when both the
+       baseline and raw final scorer still report ``none`` or a weaker label.
+    """
     reconciled = deepcopy(after_analysis)
 
     before_rows = {
@@ -674,6 +683,7 @@ def reconcile_final_requirement_matches(
     }
 
     changes: list[dict[str, Any]] = []
+    newly_supported: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
 
     for requirement_id in sorted(
@@ -684,7 +694,80 @@ def reconcile_final_requirement_matches(
         before_label = _label(before_row.get("match_label"))
         raw_after_label = _label(after_row.get("match_label"))
 
-        if MATCH_RANK[raw_after_label] >= MATCH_RANK[before_label]:
+        is_regression = (
+            MATCH_RANK[raw_after_label]
+            < MATCH_RANK[before_label]
+        )
+
+        # The previous reconciliation only entered the regression branch.
+        # That meant a requirement that was ``none`` before tailoring and
+        # still ``none`` in the raw final scorer could never receive credit,
+        # even when final verified Projects/Skills directly supported it.
+        if not is_regression:
+            if MATCH_RANK[raw_after_label] >= MATCH_RANK["direct"]:
+                continue
+
+            mapping_support = _best_mapping_support(
+                requirement=after_row,
+                generation_state=generation_state,
+                claim_lineage=claim_lineage,
+            )
+            if mapping_support is None:
+                continue
+
+            target_label = mapping_support["reconciled_label"]
+            if (
+                MATCH_RANK[target_label]
+                <= MATCH_RANK[raw_after_label]
+            ):
+                continue
+
+            reason = mapping_support["reason"]
+            evidence = deepcopy(mapping_support["evidence"])
+            after_row["match_label"] = target_label
+            after_row["match_value"] = MATCH_VALUE[target_label]
+            after_row["evidence_strength"] = EVIDENCE_STRENGTH[
+                target_label
+            ]
+            after_row["evidence"] = evidence
+            after_row["phase8_reconciliation"] = {
+                "version": RECONCILIATION_VERSION,
+                "support_type": "verified_new_generation_evidence",
+                "baseline_label": before_label,
+                "raw_after_label": raw_after_label,
+                "reconciled_after_label": target_label,
+                "reason": reason,
+                "mapping_support": mapping_support,
+            }
+            newly_supported.append(
+                {
+                    "requirement_id": requirement_id,
+                    "requirement": _clean(after_row.get("text")),
+                    "importance": _importance(
+                        after_row.get("importance")
+                    ),
+                    "before_label": before_label,
+                    "raw_after_label": raw_after_label,
+                    "reconciled_after_label": target_label,
+                    "support_type": (
+                        "verified_new_generation_evidence"
+                    ),
+                    "reason": reason,
+                    "verified_project": mapping_support.get(
+                        "project"
+                    ),
+                    "verified_skills": mapping_support.get(
+                        "verified_skills",
+                        [],
+                    ),
+                    "requirement_token_coverage": mapping_support.get(
+                        "requirement_token_coverage"
+                    ),
+                    "best_snippet_similarity": mapping_support.get(
+                        "best_snippet_similarity"
+                    ),
+                }
+            )
             continue
 
         preserved = _preserved_baseline_evidence(before_row)
@@ -790,12 +873,15 @@ def reconcile_final_requirement_matches(
         "reconciliation_version": RECONCILIATION_VERSION,
         "reconciled_requirement_count": len(changes),
         "reconciled_requirements": changes,
+        "newly_supported_requirement_count": len(newly_supported),
+        "newly_supported_requirements": newly_supported,
         "unresolved_regression_count": len(unresolved),
         "unresolved_regressions": unresolved,
         "scoring_recalculated": True,
         "method": (
             "unchanged source-section floor plus verified final project/skill "
-            "mapping reconciliation"
+            "mapping reconciliation for regressions and newly added final "
+            "evidence"
         ),
     }
     report["reconciliation_fingerprint"] = hashlib.sha256(

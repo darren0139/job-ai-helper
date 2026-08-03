@@ -80,6 +80,9 @@ def _render_result(result: dict[str, Any]) -> None:
     unresolved_rows = (
         reconciliation.get("unresolved_regressions", []) or []
     )
+    newly_supported_rows = (
+        reconciliation.get("newly_supported_requirements", []) or []
+    )
     if reconciled_rows:
         st.info(
             "Phase 8 confirmed "
@@ -93,6 +96,21 @@ def _render_result(result: dict[str, Any]) -> None:
         ):
             st.dataframe(
                 reconciled_rows,
+                hide_index=True,
+                width="stretch",
+            )
+    if newly_supported_rows:
+        st.info(
+            "Phase 8 confirmed "
+            f"{len(newly_supported_rows)} additional requirement match(es) "
+            "from claim-lineage-verified final Projects and Skills."
+        )
+        with st.expander(
+            "New final evidence matches",
+            expanded=False,
+        ):
+            st.dataframe(
+                newly_supported_rows,
                 hide_index=True,
                 width="stretch",
             )

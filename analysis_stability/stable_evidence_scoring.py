@@ -30,7 +30,7 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.3-phase6d6"
+SCORING_VERSION = "stable-evidence-v1.3-phase6d7"
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -363,23 +363,128 @@ def _classify_raw_importance(text: str, default: str = "core") -> str:
 
 
 
-_RAW_RESPONSIBILITY_HEADINGS = {
-    "job description",
-    "responsibilities",
-    "job responsibilities",
-    "what you will do",
-    "what youll do",
-    "duties",
+_RAW_SECTION_HEADINGS = {
+    "responsibilities": frozenset(
+        {
+            "about the role",
+            "job description",
+            "role description",
+            "role overview",
+            "position overview",
+            "overview",
+            "key responsibilities",
+            "responsibilities",
+            "job responsibilities",
+            "role responsibilities",
+            "duties",
+            "key duties",
+            "duties and responsibilities",
+            "responsibilities and duties",
+            "what you will do",
+            "what you ll do",
+            "what youll do",
+        }
+    ),
+    "requirements": frozenset(
+        {
+            "job requirements",
+            "requirements",
+            "role requirements",
+            "candidate requirements",
+            "minimum requirements",
+            "required qualifications",
+            "minimum qualifications",
+            "qualifications",
+            "skills and experience",
+            "what we are looking for",
+            "what we re looking for",
+            "what were looking for",
+        }
+    ),
+    "preferred": frozenset(
+        {
+            "preferred qualifications",
+            "preferred requirements",
+            "preferred skills",
+            "desired qualifications",
+            "desired skills",
+            "nice to have",
+            "nice to haves",
+            "bonus qualifications",
+            "additional qualifications",
+        }
+    ),
+    "stop": frozenset(
+        {
+            "about us",
+            "about the company",
+            "company overview",
+            "benefits",
+            "what we offer",
+            "compensation",
+            "salary",
+            "equal opportunity employer",
+            "how to apply",
+            "application process",
+        }
+    ),
 }
 
-_RAW_REQUIREMENT_HEADINGS = {
-    "job requirements",
-    "requirements",
-    "qualifications",
-    "minimum qualifications",
-    "what we are looking for",
-    "what were looking for",
-}
+
+def _normalise_jd_section_heading(value: Any) -> str:
+    """Return a punctuation-insensitive exact key for a possible JD heading."""
+    text = _clean_text(value)
+    text = re.sub(
+        r"^\s*(?:[-*•]+|\d+[.)])\s*",
+        "",
+        text,
+    )
+    text = re.sub(r"[\s:;.\-–—]+$", "", text)
+    text = text.casefold()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _raw_section_for_heading(value: Any) -> str:
+    """Return the controlled section type for an exact heading, or empty."""
+    heading = _normalise_jd_section_heading(value)
+    if not heading:
+        return ""
+
+    for section, headings in _RAW_SECTION_HEADINGS.items():
+        if heading in headings:
+            return section
+
+    return ""
+
+
+def _raw_jd_section_heading_rows(
+    raw_jd_text: str,
+) -> list[dict[str, str]]:
+    """Collect recognised section markers for deterministic diagnostics."""
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for raw_line in raw_jd_text.splitlines():
+        value = _clean_text(raw_line).strip("-•* \t")
+        section = _raw_section_for_heading(value)
+        if not section:
+            continue
+
+        key = (section, _normalise_jd_section_heading(value))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rows.append(
+            {
+                "text": value,
+                "section": section,
+                "source": "raw_jd",
+            }
+        )
+
+    return rows
 
 
 
@@ -771,20 +876,19 @@ def _raw_jd_requirement_rows(raw_jd_text: str) -> list[dict[str, Any]]:
         if not value:
             continue
 
-        heading = _normalise_basic(value).rstrip(":")
-        if heading in _RAW_RESPONSIBILITY_HEADINGS:
-            active_section = "responsibilities"
-            continue
-        if heading in _RAW_REQUIREMENT_HEADINGS:
-            active_section = "requirements"
+        section = _raw_section_for_heading(value)
+        if section:
+            active_section = "" if section == "stop" else section
             continue
 
         if not active_section or len(value) < 12:
             continue
 
-        default_importance = (
-            "core" if active_section == "responsibilities" else "required"
-        )
+        default_importance = {
+            "responsibilities": "core",
+            "requirements": "required",
+            "preferred": "preferred",
+        }[active_section]
 
         for clause in _split_requirement_clauses(
             value,
@@ -887,6 +991,8 @@ def _requirement_sources(
             value = _clean_text(raw_value)
             if not value:
                 continue
+            if _raw_section_for_heading(value):
+                continue
 
             importance = default_importance
             if field_name in {
@@ -916,6 +1022,8 @@ def _requirement_sources(
     if not rows:
         for line in raw_jd_text.splitlines():
             value = _clean_text(line).strip("-•* ")
+            if _raw_section_for_heading(value):
+                continue
             if len(value) < 20:
                 continue
             for clause in _split_requirement_clauses(
@@ -938,6 +1046,39 @@ def canonicalise_requirements(
 ) -> dict[str, Any]:
     """Build stable atomic requirement rows from the raw JD/profile."""
     source_rows = _requirement_sources(jd_profile, raw_jd_text)
+    filtered_section_headings = _raw_jd_section_heading_rows(raw_jd_text)
+
+    clean_source_rows: list[dict[str, Any]] = []
+    seen_filtered = {
+        (
+            row.get("section", ""),
+            _normalise_jd_section_heading(row.get("text", "")),
+            row.get("source", ""),
+        )
+        for row in filtered_section_headings
+    }
+
+    for source_row in source_rows:
+        section = _raw_section_for_heading(source_row.get("text", ""))
+        if section:
+            diagnostic = {
+                "text": _clean_text(source_row.get("text", "")),
+                "section": section,
+                "source": _clean_text(source_row.get("source", "")),
+            }
+            key = (
+                diagnostic["section"],
+                _normalise_jd_section_heading(diagnostic["text"]),
+                diagnostic["source"],
+            )
+            if key not in seen_filtered:
+                seen_filtered.add(key)
+                filtered_section_headings.append(diagnostic)
+            continue
+
+        clean_source_rows.append(source_row)
+
+    source_rows = clean_source_rows
     text_values = [row["text"] for row in source_rows]
     text_values.append(raw_jd_text)
     acronym_map = learn_acronym_map(text_values)
@@ -1058,6 +1199,7 @@ def canonicalise_requirements(
         "requirements": canonical_rows,
         "acronym_map": acronym_map,
         "merge_debug": merge_debug,
+        "filtered_section_headings": filtered_section_headings,
     }
 
 
@@ -1928,6 +2070,13 @@ def build_stable_analysis(
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],
             "merged_requirements": canonical["merge_debug"],
+            "filtered_section_headings": canonical.get(
+                "filtered_section_headings",
+                [],
+            ),
+            "filtered_section_heading_count": len(
+                canonical.get("filtered_section_headings", [])
+            ),
             "atomic_requirement_count": sum(
                 1
                 for row in taxonomy_validated

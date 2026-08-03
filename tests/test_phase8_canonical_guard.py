@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 
 from tailoring.phase8_verification import (
+    PHASE8_VERIFICATION_VERSION,
     build_phase8_verification,
     compare_stable_analyses,
 )
@@ -11,6 +13,7 @@ from tailoring.phase8_verification import (
 
 def stable(score: int, rows: list[dict]):
     return {
+        "scoring_version": SCORING_VERSION,
         "deterministic_alignment_score": score,
         "alignment_band": "partial alignment",
         "required_core_coverage_score": score,
@@ -141,7 +144,7 @@ class Phase8CanonicalRequirementGuardTests(unittest.TestCase):
         self.assertTrue(result["blueprint_ready"])
         self.assertEqual(
             result["phase8_version"],
-            "phase8-before-after-verification-v5",
+            PHASE8_VERIFICATION_VERSION,
         )
 
     @patch("tailoring.phase8_verification.build_stable_analysis")
