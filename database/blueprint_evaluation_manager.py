@@ -79,6 +79,58 @@ def get_blueprint_evaluation(
         connection.close()
 
 
+def get_blueprint_evaluation_by_id(
+    evaluation_id: str,
+) -> dict[str, Any] | None:
+    init_blueprint_evaluation_registry()
+    connection = _connect()
+    try:
+        row = connection.execute(
+            """
+            SELECT evaluation_json
+            FROM blueprint_cross_jd_evaluations
+            WHERE evaluation_id = ?
+            LIMIT 1
+            """,
+            (str(evaluation_id),),
+        ).fetchone()
+        return json.loads(str(row["evaluation_json"])) if row is not None else None
+    finally:
+        connection.close()
+
+
+def list_blueprint_evaluations(
+    *,
+    candidate_id: str | None = None,
+    role_family_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """List persisted evaluations, including historical policy versions."""
+    init_blueprint_evaluation_registry()
+    connection = _connect()
+    try:
+        clauses: list[str] = []
+        values: list[Any] = []
+        if candidate_id:
+            clauses.append("candidate_id = ?")
+            values.append(str(candidate_id))
+        if role_family_id:
+            clauses.append("role_family_id = ?")
+            values.append(str(role_family_id))
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = connection.execute(
+            f"""
+            SELECT evaluation_json
+            FROM blueprint_cross_jd_evaluations
+            {where}
+            ORDER BY created_at DESC, evaluation_id DESC
+            """,
+            values,
+        ).fetchall()
+        return [json.loads(str(row["evaluation_json"])) for row in rows]
+    finally:
+        connection.close()
+
+
 def save_or_reuse_blueprint_evaluation(
     evaluation: dict[str, Any],
 ) -> dict[str, Any]:

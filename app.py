@@ -162,6 +162,9 @@ from tailoring.phase9b_blueprint_ui import (
 from tailoring.phase9c_blueprint_evaluation_ui import (
     render_phase9c_blueprint_evaluation,
 )
+from tailoring.phase9d_global_blueprint_ui import (
+    render_phase9d_global_blueprints,
+)
 from tailoring.phase9a_evidence_opportunity_ui import (
     render_evidence_opportunity_analysis,
 )
@@ -1405,7 +1408,12 @@ with st.sidebar:
 
     page = st.radio(
         "Go to",
-        ["Application Sessions", "Job Market Insights", "Profile & Evidence"],
+        [
+            "Application Sessions",
+            "Global Blueprints",
+            "Job Market Insights",
+            "Profile & Evidence",
+        ],
         label_visibility="collapsed",
     )
 
@@ -1697,7 +1705,7 @@ with st.sidebar:
         st.write("4. Click **Analyze Resume**.")
         st.write("5. Optionally generate or revise a cover letter.")
 
-    else:
+    elif page == "Job Market Insights":
         st.subheader("Job Market Insights")
         st.caption(
             "This page aggregates job descriptions from all previous Analyze Resume runs."
@@ -1715,6 +1723,14 @@ with st.sidebar:
         st.info(
             "Run Analyze Resume on one or more jobs first. Then this page can answer questions across those analyzed job descriptions."
         )
+    elif page == "Global Blueprints":
+        st.subheader("Global Blueprints")
+        st.caption(
+            "Approve and inspect immutable reusable role-family blueprint versions."
+        )
+    else:
+        st.subheader("Profile & Evidence")
+        st.caption("Manage truthful reusable profile evidence.")
 
 
 if page == "Application Sessions":
@@ -3976,6 +3992,10 @@ if page == "Application Sessions":
     else:
         st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
 
+elif page == "Global Blueprints":
+    st.divider()
+    render_phase9d_global_blueprints()
+
 elif page == "Job Market Insights":
     # ---------------------------------------------------------------------------
     # Job Market Insights / Chroma RAG page
@@ -4593,5 +4613,4 @@ elif page == "Profile & Evidence":
         #             delete_evidence_item(item["id"])
         #             st.success("Evidence deleted.")
         #             st.rerun()
-
 

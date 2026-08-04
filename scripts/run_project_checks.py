@@ -33,6 +33,9 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9c_shared_scoring_regression",
     "tests.test_phase9c_blueprint_evaluation",
     "tests.test_blueprint_evaluation_manager",
+    "tests.test_phase9d_global_blueprint",
+    "tests.test_global_blueprint_manager",
+    "tests.test_phase9d_streamlit_acceptance",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -43,6 +46,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9b_resolved_baseline_provenance",
     "scripts.check_phase9b_role_family_metadata",
     "scripts.check_phase9c_blueprint_evaluation",
+    "scripts.check_phase9d_global_blueprint",
 )
 
 
