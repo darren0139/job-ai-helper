@@ -151,10 +151,14 @@ def build_capability_retrieval_trace(
     requirement: dict[str, Any],
     *,
     exact_capability_id: str | None,
+    mode_override: str | None = None,
 ) -> dict[str, Any]:
     # Phase 6D.5 is shadow retrieval: candidates are diagnostics only.
     # The stable label and score remain owned by deterministic Phase 6D.4.
-    mode = capability_rag_mode()
+    cleaned_override = str(mode_override or "").strip().lower()
+    if cleaned_override and cleaned_override not in _ALLOWED_MODES:
+        raise ValueError(f"Unsupported retrieval mode override: {mode_override}")
+    mode = cleaned_override or capability_rag_mode()
     query = _requirement_text(requirement)
     top_k = capability_rag_top_k()
     vector_threshold = capability_rag_vector_threshold()

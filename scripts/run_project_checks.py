@@ -30,6 +30,9 @@ QUICK_TEST_MODULES = (
     "tests.test_phase8_verification",
     "tests.test_phase9b_blueprint_candidate",
     "tests.test_phase9b_role_family_metadata",
+    "tests.test_phase9c_shared_scoring_regression",
+    "tests.test_phase9c_blueprint_evaluation",
+    "tests.test_blueprint_evaluation_manager",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -39,6 +42,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9b_blueprint_candidate",
     "scripts.check_phase9b_resolved_baseline_provenance",
     "scripts.check_phase9b_role_family_metadata",
+    "scripts.check_phase9c_blueprint_evaluation",
 )
 
 

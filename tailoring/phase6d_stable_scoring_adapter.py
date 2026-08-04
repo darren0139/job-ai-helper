@@ -26,6 +26,8 @@ _EVIDENCE_STRENGTH_CAP = {
 
 def cap_requirement_with_taxonomy(
     requirement: dict[str, Any],
+    *,
+    retrieval_mode_override: str | None = None,
 ) -> dict[str, Any]:
     """Cap an existing stable requirement label using its own cited evidence."""
     row = deepcopy(requirement)
@@ -46,6 +48,7 @@ def cap_requirement_with_taxonomy(
             exact_capability_id=decision.get(
                 "capability_id"
             ),
+            mode_override=retrieval_mode_override,
         )
     )
 
@@ -90,9 +93,14 @@ def cap_requirement_with_taxonomy(
 
 def apply_taxonomy_caps_to_requirements(
     requirements: list[dict[str, Any]],
+    *,
+    retrieval_mode_override: str | None = None,
 ) -> list[dict[str, Any]]:
     return [
-        cap_requirement_with_taxonomy(item)
+        cap_requirement_with_taxonomy(
+            item,
+            retrieval_mode_override=retrieval_mode_override,
+        )
         for item in requirements
         if isinstance(item, dict)
     ]

@@ -159,6 +159,9 @@ from tailoring.tailoring_generation_fingerprint import (
 from tailoring.phase9b_blueprint_ui import (
     render_blueprint_candidate_promotion,
 )
+from tailoring.phase9c_blueprint_evaluation_ui import (
+    render_phase9c_blueprint_evaluation,
+)
 from tailoring.phase9a_evidence_opportunity_ui import (
     render_evidence_opportunity_analysis,
 )
@@ -3171,6 +3174,7 @@ if page == "Application Sessions":
                 application_id=int(current_application_id),
                 baseline_report=report,
             )
+            render_phase9c_blueprint_evaluation()
 
             st.divider()
             st.subheader("Generate Edited Resume Copy")

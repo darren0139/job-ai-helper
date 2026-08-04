@@ -22,6 +22,9 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.evidence_support import (
+    classify_verified_evidence_support,
+)
 from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
@@ -1298,6 +1301,62 @@ def build_resume_evidence_index(
     return rows
 
 
+def build_deterministic_keyword_match(
+    *,
+    requirements: list[dict[str, Any]],
+    acronym_map: dict[str, str],
+    resume_profile: dict[str, Any] | None,
+    raw_resume_text: str = "",
+) -> dict[str, list[dict[str, Any]]]:
+    """Build conservative zero-cost keyword rows from the complete résumé."""
+    evidence_index = build_resume_evidence_index(
+        resume_profile,
+        raw_resume_text,
+    )
+    present: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for requirement in requirements:
+        if not isinstance(requirement, dict):
+            continue
+        focus = _clean_text(
+            requirement.get("atomic_focus")
+            or requirement.get("text")
+        )
+        best, similarity, coverage, overlap = _best_resume_evidence(
+            requirement,
+            "",
+            evidence_index,
+            acronym_map,
+        )
+        matched_skill = bool(best and best.get("section") == "skills")
+        label = classify_verified_evidence_support(
+            coverage=coverage,
+            best_similarity=similarity,
+            strong_evidence_count=(1 if similarity >= 0.72 else 0),
+            has_matched_skills=matched_skill,
+        )
+        if best is None or overlap <= 0:
+            label = "none"
+        if label == "none":
+            missing.append({"keyword": focus})
+            continue
+        present.append(
+            {
+                "keyword": focus,
+                "matched_resume_term": best.get("text", ""),
+                "match_type": label,
+                "evidence_type": label,
+                "found_in": best.get("section", ""),
+                "match_reason": (
+                    "Deterministic full-snapshot evidence support using the "
+                    "shared stable evidence thresholds."
+                ),
+                "evidence_similarity": f"{similarity:.3f}",
+            }
+        )
+    return {"present": present, "missing": missing}
+
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -2004,6 +2063,7 @@ def build_stable_analysis(
     resume_profile: dict[str, Any] | None = None,
     bullet_quality_score: int | float = 0,
     structure_score: int | float = 0,
+    retrieval_mode_override: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete Phase 6A.1C stable-analysis payload."""
     canonical = canonicalise_requirements(
@@ -2033,7 +2093,8 @@ def build_stable_analysis(
 
     taxonomy_version = get_default_taxonomy().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
-        validated
+        validated,
+        retrieval_mode_override=retrieval_mode_override,
     )
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:

@@ -8,6 +8,9 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.evidence_support import (
+    classify_verified_evidence_support,
+)
 from tailoring.tailoring_generation_fingerprint import (
     get_effective_generation_sections,
 )
@@ -417,34 +420,24 @@ def _best_mapping_support(
                 else 0.0
             )
 
-            if (
-                coverage >= 0.55
-                and (
-                    best_snippet_similarity >= 0.45
-                    or bool(matched_skills)
-                )
-            ):
-                supported_label = "direct"
+            supported_label = classify_verified_evidence_support(
+                coverage=coverage,
+                best_similarity=best_snippet_similarity,
+                strong_evidence_count=strong_snippet_count,
+                has_matched_skills=bool(matched_skills),
+            )
+            if supported_label == "direct":
                 reason = (
                     "The final verified bullets and Skills still cover most "
                     "of this requirement."
                 )
-            elif (
-                strong_snippet_count >= 1
-                or coverage >= 0.30
-            ):
-                supported_label = "transferable"
+            elif supported_label == "transferable":
                 reason = (
                     "Part of the mapped evidence survived in the final "
                     "verified résumé, but not enough to preserve full direct "
                     "credit."
                 )
-            elif (
-                best_snippet_similarity >= 0.45
-                or coverage >= 0.15
-                or bool(matched_skills)
-            ):
-                supported_label = "weak"
+            elif supported_label == "weak":
                 reason = (
                     "A limited portion of the mapped evidence survived in "
                     "the final verified résumé."

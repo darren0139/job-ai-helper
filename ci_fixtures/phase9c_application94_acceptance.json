@@ -1,0 +1,535 @@
+{
+  "fixture_version": "phase9c-application94-synthetic-acceptance-v1",
+  "contains_personal_data": false,
+  "candidate": {
+    "phase9b_version": "phase9b-blueprint-candidate-v3",
+    "candidate_id": "application94syntheticphase9cv3",
+    "candidate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_application_id": 94,
+    "source_generation_id": "application94-synthetic-generation",
+    "source_verification_id": "application94-synthetic-verification",
+    "source_verification_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_job": {
+      "job_title": "Junior AI and Full-Stack Software Engineer",
+      "company": "Northstar Product Lab — Synthetic Test"
+    },
+    "source_jd_identity": {
+      "canonical_jd_id": "synthetic-application-94-source",
+      "source_version_id": "synthetic-application-94-v1",
+      "raw_jd_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "role_family_id": "ai_fullstack_software_engineering",
+    "role_family": "AI & Full-Stack Software Engineering",
+    "candidate_name": "Application 94 synthetic acceptance candidate",
+    "status": "candidate",
+    "resume_profile_snapshot": {
+      "education": [
+        {
+          "degree": "Bachelor of Computer Science",
+          "school": "Synthetic University",
+          "graduation_date": "2025",
+          "courses": [
+            "Software Engineering",
+            "Database Systems"
+          ]
+        }
+      ],
+      "experience": [
+        {
+          "title": "Software Engineering Intern",
+          "company": "Synthetic Product Studio",
+          "date": "2025",
+          "bullets": [
+            "Built user-facing Python and Streamlit applications in a small software team using Git and GitHub.",
+            "Implemented authentication workflows, Row-Level Security, PostgREST, Supabase, PostgreSQL, and SQLite data access."
+          ]
+        }
+      ],
+      "projects": [
+        {
+          "title": "QueryAI",
+          "company": "",
+          "date": "2025",
+          "bullets": [
+            "Created multi-step LLM pipelines with OpenAI API and LiteLLM for PDF and DOCX parsing, extraction, keyword matching, structured analysis, and summaries.",
+            "Implemented retrieval-augmented generation with ChromaDB and built React and JavaScript full-stack features.",
+            "Developed Kotlin and Jetpack Compose mobile interfaces plus Unity C# and C++ game-engine projects with FMOD."
+          ]
+        }
+      ],
+      "skills": {
+        "Languages": [
+          "Python",
+          "JavaScript",
+          "TypeScript",
+          "Kotlin",
+          "C#",
+          "C++"
+        ],
+        "AI": [
+          "OpenAI API",
+          "LiteLLM",
+          "LLM pipelines",
+          "ChromaDB",
+          "RAG"
+        ],
+        "Web": [
+          "Streamlit",
+          "React",
+          "Supabase",
+          "PostgREST"
+        ],
+        "Data": [
+          "SQLite",
+          "PostgreSQL",
+          "Row-Level Security"
+        ],
+        "Tools": [
+          "Git",
+          "GitHub",
+          "Android Studio",
+          "Unity",
+          "FMOD"
+        ]
+      }
+    },
+    "resume_text_snapshot": "Bachelor of Computer Science — Synthetic University — 2025\nBuilt user-facing Python and Streamlit applications in a small software team using Git and GitHub.\nImplemented authentication workflows, Row-Level Security, PostgREST, Supabase, PostgreSQL, and SQLite data access.\nCreated multi-step LLM pipelines with OpenAI API and LiteLLM for PDF and DOCX parsing, extraction, keyword matching, structured analysis, and summaries.\nImplemented retrieval-augmented generation with ChromaDB and built React and JavaScript full-stack features.\nDeveloped Kotlin and Jetpack Compose mobile interfaces plus Unity C# and C++ game-engine projects with FMOD.\nPython JavaScript TypeScript Kotlin C# C++ OpenAI API LiteLLM LLM pipelines ChromaDB RAG Streamlit React Supabase PostgREST SQLite PostgreSQL Row-Level Security Git GitHub Android Studio Unity FMOD",
+    "canonical_requirement_ids": [
+      "req_0d08d11d5e16",
+      "req_12c54221525a",
+      "req_12f7d84684cd",
+      "req_1dce6dd618cc",
+      "req_1eb1afc15396",
+      "req_29c934566aad",
+      "req_2cdc9096d49c",
+      "req_3a56e121eb66",
+      "req_514372c87205",
+      "req_538d02f88000",
+      "req_5b47e404365b",
+      "req_6c131b44f562",
+      "req_8e14defbc602",
+      "req_90dbae2dac1d",
+      "req_9335e457f093",
+      "req_a0a48792c4a7",
+      "req_b3afbffe385b",
+      "req_bafd5bd09a79",
+      "req_ca58b0414a31",
+      "req_d04302f8653f",
+      "req_e1c8f48a71aa",
+      "req_e58eea67339a",
+      "req_e74ec9dec81c",
+      "req_eda05414c413",
+      "req_f51254f902b0",
+      "req_fa27a4c4fe6e",
+      "req_fa2df5ec2bec",
+      "req_fed862f0066d"
+    ],
+    "score_summary": {
+      "original_resume_score": 32,
+      "approved_tailored_score": 92,
+      "evidence_potential_score": 41
+    },
+    "quality_gates": {
+      "is_approved": true,
+      "fits_one_page": true,
+      "canonical_requirement_ids_stable": true,
+      "no_required_core_regression": true,
+      "no_claim_review_risks": true,
+      "score_not_lower": true
+    },
+    "claim_lineage": {
+      "lineage_version": "synthetic-acceptance-v1",
+      "claim_review_required_count": 0
+    },
+    "evaluation_metadata": {
+      "evaluation_seed_version": "phase9c-seed-v1",
+      "source_scoring_version": "stable-evidence-v1.3-phase6d7",
+      "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.2",
+      "source_jd_requirement_summary": [
+        {
+          "requirement_id": "req_f51254f902b0",
+          "text": "We are looking for a Junior AI and Full-Stack Software Engineer to build user-facing software applications, AI-assisted workflows, and secure data-driven features",
+          "importance": "core",
+          "match_label": "transferable",
+          "evidence_strength": 3,
+          "capability_id": "fullstack.integration"
+        },
+        {
+          "requirement_id": "req_bafd5bd09a79",
+          "text": "Build and improve AI-assisted web applications using Python and Streamlit",
+          "importance": "core",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_2cdc9096d49c",
+          "text": "Create multi-step LLM pipelines for document parsing, information extraction, keyword matching, structured analysis, and summary generation",
+          "importance": "core",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_6c131b44f562",
+          "text": "Integrate the OpenAI API or LiteLLM and use prompt engineering to produce reliable application outputs",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_3a56e121eb66",
+          "text": "Implement retrieval-augmented generation workflows using ChromaDB to retrieve, compare, and analyse stored documents",
+          "importance": "core",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": "ai.rag_application"
+        },
+        {
+          "requirement_id": "req_eda05414c413",
+          "text": "Develop persistent saved sessions, reports, chat history, and CRUD workflows using SQLite",
+          "importance": "core",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_e74ec9dec81c",
+          "text": "Build frontend and full-stack application features using React and JavaScript or TypeScript",
+          "importance": "required",
+          "match_label": "transferable",
+          "evidence_strength": 3,
+          "capability_id": "fullstack.integration"
+        },
+        {
+          "requirement_id": "req_e58eea67339a",
+          "text": "Integrate React applications with Supabase and PostgreSQL through PostgREST",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_fed862f0066d",
+          "text": "Implement authentication workflows, Row-Level Security policies, and secure database access",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": "database.access_control"
+        },
+        {
+          "requirement_id": "req_d04302f8653f",
+          "text": "Parse PDF and DOCX documents using Python document-processing libraries",
+          "importance": "core",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_e1c8f48a71aa",
+          "text": "Use Git and GitHub for version control and collaborate effectively in a small software team",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_514372c87205",
+          "text": "Bachelor’s degree in Computer Science, Software Engineering, Game Development, or a related technical discipline",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_1dce6dd618cc",
+          "text": "Project, internship, or academic experience developing Python applications",
+          "importance": "required",
+          "match_label": "transferable",
+          "evidence_strength": 3,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_fa2df5ec2bec",
+          "text": "Hands-on experience with Python",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_8e14defbc602",
+          "text": "Hands-on experience with Streamlit",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_0d08d11d5e16",
+          "text": "Experience building AI applications or LLM-powered software workflows",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_b3afbffe385b",
+          "text": "Experience integrating the OpenAI API or LiteLLM",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_90dbae2dac1d",
+          "text": "Experience implementing retrieval-augmented generation using ChromaDB",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": "ai.rag_application"
+        },
+        {
+          "requirement_id": "req_9335e457f093",
+          "text": "Experience with SQLite or PostgreSQL database design",
+          "importance": "required",
+          "match_label": "transferable",
+          "evidence_strength": 3,
+          "capability_id": "database.design"
+        },
+        {
+          "requirement_id": "req_12f7d84684cd",
+          "text": "Experience implementing authentication workflows or database access control",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": "database.access_control"
+        },
+        {
+          "requirement_id": "req_1eb1afc15396",
+          "text": "Experience parsing PDF or DOCX documents",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_538d02f88000",
+          "text": "Experience building user-facing application features in a small development team",
+          "importance": "required",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_a0a48792c4a7",
+          "text": "Experience with Android Studio, Kotlin, or Jetpack Compose",
+          "importance": "preferred",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_12c54221525a",
+          "text": "Experience developing mobile application interfaces",
+          "importance": "preferred",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_ca58b0414a31",
+          "text": "Experience with Unity and C# gameplay scripting",
+          "importance": "preferred",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_fa27a4c4fe6e",
+          "text": "Experience with C++ custom game engines",
+          "importance": "preferred",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": ""
+        },
+        {
+          "requirement_id": "req_5b47e404365b",
+          "text": "Experience with asset management, systems programming, or FMOD audio integration",
+          "importance": "preferred",
+          "match_label": "direct",
+          "evidence_strength": 5,
+          "capability_id": "game.engine_systems"
+        },
+        {
+          "requirement_id": "req_29c934566aad",
+          "text": "Experience taking a software project from initial setup to a working user-facing application",
+          "importance": "preferred",
+          "match_label": "transferable",
+          "evidence_strength": 3,
+          "capability_id": ""
+        }
+      ],
+      "source_jd_requirement_count": 28
+    }
+  },
+  "saved_jds": [
+    {
+      "id": 9401,
+      "application_id": 94,
+      "application_ids": [
+        94
+      ],
+      "title": "Junior AI and Full-Stack Software Engineer",
+      "company": "Northstar Product Lab — Synthetic Test",
+      "raw_text": "",
+      "jd_profile": {
+        "job_title": "Junior AI and Full-Stack Software Engineer",
+        "company": "Northstar Product Lab — Synthetic Test",
+        "responsibilities": [
+          "We are looking for a Junior AI and Full-Stack Software Engineer to build user-facing software applications, AI-assisted workflows, and secure data-driven features",
+          "Build and improve AI-assisted web applications using Python and Streamlit",
+          "Create multi-step LLM pipelines for document parsing, information extraction, keyword matching, structured analysis, and summary generation",
+          "Implement retrieval-augmented generation workflows using ChromaDB to retrieve, compare, and analyse stored documents",
+          "Develop persistent saved sessions, reports, chat history, and CRUD workflows using SQLite",
+          "Parse PDF and DOCX documents using Python document-processing libraries"
+        ],
+        "required_skills": [
+          "Integrate the OpenAI API or LiteLLM and use prompt engineering to produce reliable application outputs",
+          "Build frontend and full-stack application features using React and JavaScript or TypeScript",
+          "Integrate React applications with Supabase and PostgreSQL through PostgREST",
+          "Implement authentication workflows, Row-Level Security policies, and secure database access",
+          "Use Git and GitHub for version control and collaborate effectively in a small software team",
+          "Bachelor’s degree in Computer Science, Software Engineering, Game Development, or a related technical discipline",
+          "Project, internship, or academic experience developing Python applications",
+          "Hands-on experience with Python",
+          "Hands-on experience with Streamlit",
+          "Experience building AI applications or LLM-powered software workflows",
+          "Experience integrating the OpenAI API or LiteLLM",
+          "Experience implementing retrieval-augmented generation using ChromaDB",
+          "Experience with SQLite or PostgreSQL database design",
+          "Experience implementing authentication workflows or database access control",
+          "Experience parsing PDF or DOCX documents",
+          "Experience building user-facing application features in a small development team"
+        ],
+        "preferred_skills": [
+          "Experience with Android Studio, Kotlin, or Jetpack Compose",
+          "Experience developing mobile application interfaces",
+          "Experience with Unity and C# gameplay scripting",
+          "Experience with C++ custom game engines",
+          "Experience with asset management, systems programming, or FMOD audio integration",
+          "Experience taking a software project from initial setup to a working user-facing application"
+        ]
+      },
+      "canonical_jd_id": "synthetic-application-94-source",
+      "source_version_id": "synthetic-application-94-v1"
+    },
+    {
+      "id": 9402,
+      "application_id": 95,
+      "application_ids": [
+        95
+      ],
+      "title": "AI Full-Stack Software Engineer",
+      "company": "Synthetic Portability Lab",
+      "raw_text": "",
+      "jd_profile": {
+        "job_title": "AI Full-Stack Software Engineer",
+        "company": "Synthetic Portability Lab",
+        "responsibilities": [
+          "Build Python and Streamlit AI-assisted applications",
+          "Develop secure data features with SQLite and PostgreSQL",
+          "Collaborate in a small software team using Git and GitHub"
+        ],
+        "required_skills": [
+          "Hands-on experience with Python",
+          "Experience building LLM workflows",
+          "Experience with React and JavaScript",
+          "Bachelor's degree in Computer Science"
+        ],
+        "preferred_skills": [
+          "Experience with Kotlin mobile application interfaces"
+        ]
+      },
+      "canonical_jd_id": "synthetic-ai-fullstack-target",
+      "source_version_id": "synthetic-ai-fullstack-target-v1"
+    },
+    {
+      "id": 9403,
+      "application_id": 96,
+      "application_ids": [
+        96
+      ],
+      "title": "Network Infrastructure Engineer",
+      "company": "Synthetic Network Lab",
+      "raw_text": "",
+      "jd_profile": {
+        "job_title": "Network Infrastructure Engineer",
+        "company": "Synthetic Network Lab",
+        "required_skills": [
+          "Configure enterprise routers and network firewalls"
+        ]
+      },
+      "canonical_jd_id": "synthetic-network-target",
+      "source_version_id": "synthetic-network-target-v1"
+    },
+    {
+      "id": 9404,
+      "application_id": 97,
+      "application_ids": [
+        97
+      ],
+      "title": "Engineer",
+      "company": "Synthetic Ambiguous Lab",
+      "raw_text": "",
+      "jd_profile": {
+        "job_title": "Engineer",
+        "company": "Synthetic Ambiguous Lab",
+        "required_skills": [
+          "Experience with Python applications"
+        ]
+      },
+      "canonical_jd_id": "synthetic-uncertain-target",
+      "source_version_id": "synthetic-uncertain-target-v1"
+    }
+  ],
+  "different_family_jd": {
+    "id": 9403,
+    "application_id": 96,
+    "application_ids": [
+      96
+    ],
+    "title": "Network Infrastructure Engineer",
+    "company": "Synthetic Network Lab",
+    "raw_text": "",
+    "jd_profile": {
+      "job_title": "Network Infrastructure Engineer",
+      "company": "Synthetic Network Lab",
+      "required_skills": [
+        "Configure enterprise routers and network firewalls"
+      ]
+    },
+    "canonical_jd_id": "synthetic-network-target",
+    "source_version_id": "synthetic-network-target-v1"
+  },
+  "uncertain_family_jd": {
+    "id": 9404,
+    "application_id": 97,
+    "application_ids": [
+      97
+    ],
+    "title": "Engineer",
+    "company": "Synthetic Ambiguous Lab",
+    "raw_text": "",
+    "jd_profile": {
+      "job_title": "Engineer",
+      "company": "Synthetic Ambiguous Lab",
+      "required_skills": [
+        "Experience with Python applications"
+      ]
+    },
+    "canonical_jd_id": "synthetic-uncertain-target",
+    "source_version_id": "synthetic-uncertain-target-v1"
+  }
+}
