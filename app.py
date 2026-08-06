@@ -585,6 +585,116 @@ USER QUESTION:
     return answer
 
 
+def render_application_analysis_chat(
+    *,
+    application_id: int | None,
+    analysis_report: dict[str, Any],
+    persisted_report: dict[str, Any],
+) -> None:
+    """Render the existing persistent application-analysis chat.
+
+    Immutable Phase 9E application results short-circuit the legacy tailoring
+    workflow with ``st.stop()``. Rendering this shared component before that
+    stop keeps the existing application-scoped chat available without creating
+    or mutating a résumé draft.
+    """
+    st.divider()
+    st.header("Ask About This Analysis")
+
+    if application_id is None:
+        st.info(
+            "Save or load an application session before using saved chat."
+        )
+        return
+
+    st.caption("Chat history is saved for this application session.")
+
+    saved_analysis_messages = get_application_chat_messages(application_id)
+
+    if saved_analysis_messages:
+        for message in saved_analysis_messages:
+            if message["role"] == "user":
+                st.markdown(f"**You:** {message['content']}")
+            else:
+                st.markdown(f"**AI:** {message['content']}")
+    else:
+        st.caption("No questions asked for this session yet.")
+
+    analysis_question = st.text_input(
+        "Ask a question about the analysis",
+        placeholder="Example: What should I improve first?",
+        key=f"analysis_question_{application_id}",
+    )
+
+    chat_col, clear_col = st.columns([0.75, 0.25])
+
+    with chat_col:
+        if st.button(
+            "Ask AI About Analysis",
+            width="stretch",
+            key=f"ask_analysis_ai_{application_id}",
+        ):
+            try:
+                reset_call_ledger()
+                with st.spinner("Answering question..."):
+                    answer = answer_analysis_question(
+                        analysis_report,
+                        analysis_question,
+                    )
+
+                add_application_chat_message(
+                    application_id,
+                    "user",
+                    analysis_question,
+                )
+                add_application_chat_message(
+                    application_id,
+                    "assistant",
+                    answer,
+                )
+
+                append_api_usage(
+                    application_id=application_id,
+                    action="ask_analysis_ai",
+                    report=persisted_report,
+                )
+                st.session_state["latest_report"] = persisted_report
+                update_application_report(
+                    application_id=application_id,
+                    resume_filename=st.session_state.get(
+                        "resume_filename",
+                        "",
+                    ),
+                    report=persisted_report,
+                )
+                st.rerun()
+
+            except ValueError as exc:
+                st.warning(str(exc))
+            except RuntimeError as exc:
+                st.error(f"LLM/API error: {exc}")
+            except Exception as exc:
+                st.error(
+                    "Unexpected error while answering question: "
+                    f"{exc}"
+                )
+
+        render_ai_action_subtotal(
+            application_id=application_id,
+            actions=["ask_analysis_ai"],
+            label="Ask AI About Analysis subtotal",
+        )
+
+    with clear_col:
+        if st.button(
+            "Clear Chat",
+            width="stretch",
+            key=f"clear_analysis_chat_{application_id}",
+        ):
+            clear_application_chat_history(application_id)
+            st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # File and report helpers
 # ---------------------------------------------------------------------------
@@ -2639,6 +2749,11 @@ if page == "Application Sessions":
                 render_phase9e_application_result(
                     application_id=int(current_application_id),
                     result=current_application_result,
+                )
+                render_application_analysis_chat(
+                    application_id=int(current_application_id),
+                    analysis_report=persisted_application_report,
+                    persisted_report=persisted_application_report,
                 )
                 st.stop()
 
