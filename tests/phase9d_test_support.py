@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from tailoring.phase9c_blueprint_evaluation import (
     evaluate_blueprint_candidate,
     fingerprint_semantic_identity,
 )
+from rag.jd_identity import build_job_identity
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "ci_fixtures" / (
@@ -152,11 +154,42 @@ def _seed_jd_library(jds: list[dict[str, Any]]) -> None:
         connection.close()
 
 
-def seed_phase9d_database(database_path: Path) -> dict[str, Any]:
+def seed_phase9d_database(
+    database_path: Path,
+    *,
+    materialise_jd_text: bool = False,
+) -> dict[str, Any]:
     base_manager.DB_PATH = database_path
     fixture = load_phase9d_fixture()
     candidate = copy.deepcopy(fixture["candidate"])
     saved_jds = copy.deepcopy(fixture["saved_jds"])
+    if materialise_jd_text:
+        for jd in saved_jds:
+            # A non-empty neutral raw source lets Phase 9E exercise exact raw
+            # identity without changing the fixture's canonical requirements.
+            raw_text = "."
+            identity = build_job_identity(
+                company=str(jd.get("company") or ""),
+                title=str(jd.get("title") or ""),
+                location=str(jd.get("location") or ""),
+                raw_jd_text=raw_text,
+            )
+            jd["raw_text"] = raw_text
+            jd["canonical_jd_id"] = identity.canonical_jd_id
+            jd["source_version_id"] = identity.source_version_id
+        source = next(
+            jd
+            for jd in saved_jds
+            if int(candidate["source_application_id"])
+            in {int(value) for value in jd.get("application_ids", [])}
+        )
+        candidate["source_jd_identity"] = {
+            "canonical_jd_id": source["canonical_jd_id"],
+            "source_version_id": source["source_version_id"],
+            "raw_jd_sha256": hashlib.sha256(
+                str(source["raw_text"]).encode("utf-8")
+            ).hexdigest(),
+        }
     _seed_candidate(candidate)
     _seed_jd_library(saved_jds)
     provisional = evaluate_blueprint_candidate(

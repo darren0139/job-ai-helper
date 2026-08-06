@@ -66,7 +66,25 @@ class GenerationCleanupUIModelTests(unittest.TestCase):
             loaded_generation_id="draft-abcdefgh",
         )
         self.assertEqual(rows[0]["Loaded"], "Yes")
-        self.assertEqual(rows[1]["Pages"], 2)
+        self.assertEqual(rows[1]["Pages"], "2")
+
+    def test_cleanup_rows_normalise_pages_to_one_arrow_compatible_type(self):
+        versions = [
+            *VERSIONS,
+            {
+                "generation_id": "missing-pages",
+                "status": "draft",
+                "fit_result": {},
+            },
+            {
+                "generation_id": "null-pages",
+                "status": "archived",
+                "fit_result": {"page_count": None},
+            },
+        ]
+        pages = [row["Pages"] for row in build_cleanup_rows(versions)]
+        self.assertEqual(pages, ["1", "1", "2", "—", "—"])
+        self.assertEqual({type(value) for value in pages}, {str})
 
     def test_option_label_is_readable(self):
         label = cleanup_option_label(VERSIONS[1])

@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Any
 
 
-TAILORING_FINGERPRINT_VERSION = "tailoring-input-fingerprint-v2"
+TAILORING_FINGERPRINT_VERSION = "tailoring-input-fingerprint-v3"
 TAILORING_LOCK_POLICY_VERSION = "tailoring-section-locks-v2"
 
 
@@ -36,6 +36,45 @@ def stable_content_fingerprint(value: Any) -> str:
         default=str,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def generation_matches_phase9e_binding(
+    generation: dict[str, Any] | None,
+    phase9e_binding: dict[str, Any] | None,
+) -> bool:
+    """Return whether a persisted generation belongs to the current binding."""
+    expected = phase9e_binding or {}
+    if not expected:
+        return False
+    state = generation or {}
+    settings = state.get("generation_settings") or {}
+    stored = settings.get("phase9e_binding") or {}
+    return bool(
+        stored
+        and stored.get("decision_fingerprint")
+        == expected.get("decision_fingerprint")
+        and stored.get("starting_snapshot_fingerprint")
+        == expected.get("starting_snapshot_fingerprint")
+        and stored.get("workflow_action_fingerprint")
+        == expected.get("workflow_action_fingerprint")
+    )
+
+
+def constrain_generation_control_to_phase9e(
+    control: dict[str, Any],
+    phase9e_binding: dict[str, Any],
+) -> dict[str, Any]:
+    """Ignore approved locks from a different immutable starting source."""
+    result = deepcopy(control)
+    approved = result.get("approved_generation")
+    if generation_matches_phase9e_binding(approved, phase9e_binding):
+        return result
+    result["approved_generation"] = None
+    result["approved_generation_id"] = ""
+    result["lock_projects"] = False
+    result["lock_skills"] = False
+    result["phase9e_incompatible_approval_ignored"] = bool(approved)
+    return result
 
 
 def get_effective_generation_sections(
@@ -146,6 +185,7 @@ def build_tailoring_input_fingerprint(
     approved_generation: dict[str, Any] | None = None,
     lock_projects: bool = False,
     lock_skills: bool = False,
+    phase9e_binding: dict[str, Any] | None = None,
 ) -> str:
     """Fingerprint every input that can alter Projects or Skills generation."""
     stable_analysis = report.get("stable_analysis", {}) or {}
@@ -171,6 +211,7 @@ def build_tailoring_input_fingerprint(
             "",
         ),
         "resume_profile": report.get("resume_profile", {}),
+        "phase9e_binding": deepcopy(phase9e_binding or {}),
         "jd_profile": report.get("jd_profile", {}),
         "raw_jd_text": report.get("raw_jd_text", ""),
         "evidence_items": evidence_items,

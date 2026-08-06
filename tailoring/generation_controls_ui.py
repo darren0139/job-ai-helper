@@ -27,7 +27,12 @@ from tailoring.generation_cleanup_ui_model import (
 )
 from tailoring.tailoring_generation_fingerprint import (
     compare_tailoring_generations,
+    constrain_generation_control_to_phase9e,
+    generation_matches_phase9e_binding,
     materialise_generation_for_display,
+)
+from database.tailoring_verification_manager import (
+    get_latest_tailoring_verification,
 )
 
 
@@ -158,10 +163,114 @@ def _short_state(state: dict[str, Any] | None) -> str:
 def render_tailoring_generation_controls(
     *,
     application_id: int,
+    required_phase9e_binding: dict[str, Any] | None = None,
 ) -> None:
-    versions = list_tailoring_generations(application_id)
+    all_versions = list_tailoring_generations(application_id)
+    legacy_reuse_drafts = [
+        state for state in all_versions
+        if str(state.get("generation_kind") or "")
+        == "phase9e_reuse_snapshot"
+    ]
+    all_versions = [
+        state for state in all_versions if state not in legacy_reuse_drafts
+    ]
+    if required_phase9e_binding:
+        versions = [
+            state
+            for state in all_versions
+            if generation_matches_phase9e_binding(
+                state, required_phase9e_binding
+            )
+        ]
+        incompatible = [
+            state for state in all_versions if state not in versions
+        ]
+    else:
+        versions = all_versions
+        incompatible = []
     st.divider()
     st.subheader("Versions, Approval, and Section Locks")
+
+    if legacy_reuse_drafts:
+        st.info(
+            f"{len(legacy_reuse_drafts)} legacy Phase 9E unchanged-reuse "
+            "draft(s) are preserved as historical records. They are not the "
+            "current application result and are excluded from approval and "
+            "promotion controls."
+        )
+        with st.expander("Legacy Phase 9E reuse drafts (historical only)"):
+            st.dataframe(
+                [
+                    {
+                        "Generation": state.get("generation_id"),
+                        "Status": state.get("status"),
+                        "Kind": state.get("generation_kind"),
+                        "Updated": state.get("updated_at"),
+                    }
+                    for state in legacy_reuse_drafts
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+    if incompatible:
+        st.info(
+            f"{len(incompatible)} saved generation(s) belong to another "
+            "Phase 9E starting source. They remain historical and inspectable "
+            "below, but cannot be loaded, approved, regenerated, or modified "
+            "under the current binding. Existing fitted exports remain downloadable."
+        )
+        with st.expander("Historical generations from other starting sources"):
+            st.dataframe(
+                [
+                    {
+                        "Generation": state.get("generation_id"),
+                        "Status": state.get("status"),
+                        "Kind": state.get("generation_kind"),
+                        "Updated": state.get("updated_at"),
+                    }
+                    for state in incompatible
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+            historical_by_id = {
+                str(state["generation_id"]): state for state in incompatible
+            }
+            historical_id = st.selectbox(
+                "Inspect historical generation",
+                options=list(historical_by_id),
+                format_func=lambda value: _label(historical_by_id[value]),
+                key=f"phase9e_historical_generation_{application_id}",
+            )
+            historical = historical_by_id[historical_id]
+            st.json(materialise_generation_for_display(historical))
+            historical_verification = get_latest_tailoring_verification(
+                application_id, historical_id
+            )
+            if historical_verification is not None:
+                st.write("**Historical Phase 8 verification**")
+                st.json(historical_verification)
+            for field, label, mime in (
+                (
+                    "docx_path",
+                    "Download historical fitted DOCX",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+                ("pdf_path", "Download historical fitted PDF", "application/pdf"),
+            ):
+                historical_path = Path(str(historical.get(field) or ""))
+                if historical_path.is_file():
+                    st.download_button(
+                        label,
+                        data=historical_path.read_bytes(),
+                        file_name=historical_path.name,
+                        mime=mime,
+                        key=(
+                            f"phase9e_historical_{field}_{application_id}_"
+                            f"{historical_id}"
+                        ),
+                    )
 
     if not versions:
         st.caption(
@@ -170,6 +279,10 @@ def render_tailoring_generation_controls(
         return
 
     control = get_application_generation_control(application_id)
+    if required_phase9e_binding:
+        control = constrain_generation_control_to_phase9e(
+            control, required_phase9e_binding
+        )
     approved = control.get("approved_generation")
     by_id = {
         str(state["generation_id"]): state

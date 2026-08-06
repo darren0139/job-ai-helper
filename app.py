@@ -128,6 +128,19 @@ from database.analysis_cache_manager import (
     init_analysis_cache,
     save_analysis_snapshot,
 )
+from database.application_blueprint_manager import (
+    delete_application_blueprint_decisions,
+    init_application_blueprint_decisions,
+)
+from database.application_resume_result_manager import (
+    delete_application_resume_results,
+    get_current_application_resume_result,
+    init_application_resume_results,
+)
+from database.application_cover_letter_manager import (
+    delete_application_cover_letters,
+    init_application_cover_letters,
+)
 from database.tailoring_version_manager import (
     TAILORING_PERSISTENCE_VERSION,
     delete_application_tailoring_generations,
@@ -147,14 +160,17 @@ from database.tailoring_generation_control import (
     ensure_mutable_tailoring_generation,
     find_cached_tailoring_generation,
     get_application_generation_control,
+    get_tailoring_generation,
     init_tailoring_generation_control,
     record_generation_metadata,
 )
 from tailoring.tailoring_generation_fingerprint import (
     build_generation_action_plan,
     build_tailoring_input_fingerprint,
+    constrain_generation_control_to_phase9e,
     get_effective_generation_sections,
     resolve_locked_sections,
+    stable_content_fingerprint,
 )
 from tailoring.phase9b_blueprint_ui import (
     render_blueprint_candidate_promotion,
@@ -164,6 +180,15 @@ from tailoring.phase9c_blueprint_evaluation_ui import (
 )
 from tailoring.phase9d_global_blueprint_ui import (
     render_phase9d_global_blueprints,
+)
+from tailoring.phase9e_blueprint_selection_ui import (
+    render_phase9e_blueprint_selection,
+)
+from tailoring.phase9e_application_result_ui import (
+    render_phase9e_application_result,
+)
+from tailoring.application_output_integrations_ui import (
+    render_application_output_cover_letter,
 )
 from tailoring.phase9a_evidence_opportunity_ui import (
     render_evidence_opportunity_analysis,
@@ -183,6 +208,7 @@ from database.jd_library_manager import (
     get_recent_job_descriptions,
     get_job_description_by_id,
     get_job_description_by_application_id,
+    get_exact_job_description_for_application,
     delete_job_description,
     delete_job_description_by_application_id,
     unlink_job_description_from_application,
@@ -1348,11 +1374,47 @@ def _persist_current_tailoring_state(
             else None
         ),
     )
+    stored_generation = get_tailoring_generation(application_id, generation_id)
+    effective_settings = (
+        generation_settings
+        if isinstance(generation_settings, dict)
+        else (stored_generation or {}).get("generation_settings") or {}
+    )
+    phase9e_generation_binding = (
+        effective_settings.get("phase9e_binding")
+        if isinstance(effective_settings, dict)
+        else {}
+    ) or {}
+    base_content_fingerprint = str(
+        (stored_generation or {}).get("base_content_fingerprint") or ""
+        or effective_settings.get("phase9e_base_content_fingerprint")
+        or ""
+    )
+    current_content_fingerprint = ""
+    content_changed = None
+    if base_content_fingerprint:
+        current_content_fingerprint = stable_content_fingerprint(
+            {
+                "projects": st.session_state.get(
+                    f"tailored_projects_result_{application_id}"
+                ),
+                "skills": st.session_state.get(
+                    f"tailored_skills_result_{application_id}"
+                ),
+            }
+        )
+        content_changed = current_content_fingerprint != base_content_fingerprint
     record_generation_metadata(
         application_id=application_id,
         generation_id=generation_id,
         input_fingerprint=input_fingerprint,
         generation_kind=generation_kind,
+        base_content_fingerprint=base_content_fingerprint,
+        content_fingerprint=current_content_fingerprint,
+        content_changed=content_changed,
+        phase9e_decision_fingerprint=str(
+            phase9e_generation_binding.get("decision_fingerprint") or ""
+        ),
     )
 
 
@@ -1371,6 +1433,9 @@ init_application_tailoring_versions()
 init_tailoring_generation_control()
 init_analysis_cache()
 init_tailoring_verifications()
+init_application_blueprint_decisions()
+init_application_resume_results()
+init_application_cover_letters()
 
 init_jd_library()
 init_chat_history()
@@ -1414,6 +1479,7 @@ with st.sidebar:
             "Job Market Insights",
             "Profile & Evidence",
         ],
+        key="navigation_page",
         label_visibility="collapsed",
     )
 
@@ -1660,6 +1726,11 @@ with st.sidebar:
                             delete_application_tailoring_generations(
                                 app_id
                             )
+                            delete_application_blueprint_decisions(
+                                app_id
+                            )
+                            delete_application_resume_results(app_id)
+                            delete_application_cover_letters(app_id)
                             delete_application_session(app_id)
 
                             cleanup_summary = {}
@@ -2513,7 +2584,7 @@ if page == "Application Sessions":
 
         if current_application_id is not None:
             phase9a_jd_record = (
-                get_job_description_by_application_id(
+                get_exact_job_description_for_application(
                     int(current_application_id)
                 )
                 or {}
@@ -2530,6 +2601,104 @@ if page == "Application Sessions":
                 evidence_items=get_evidence_items(limit=100),
             )
 
+        persisted_application_report = report
+        phase9e_context: dict[str, Any] = {
+            "status": "unbound",
+            "can_generate": False,
+            "reasons": [
+                "Bind a current Phase 9E starting source before tailoring."
+            ],
+        }
+        if current_application_id is not None:
+            phase9e_context = render_phase9e_blueprint_selection(
+                application_id=int(current_application_id),
+                baseline_report=persisted_application_report,
+            )
+            try:
+                current_application_result = (
+                    get_current_application_resume_result(
+                        int(current_application_id)
+                    )
+                )
+            except (ValueError, RuntimeError) as exc:
+                st.error(str(exc))
+                st.stop()
+            if (
+                current_application_result is not None
+                and (
+                    current_application_result.get("state") or {}
+                ).get("active_output_mode") == "immutable_result"
+                and current_application_result.get(
+                    "phase9e_decision_fingerprint"
+                )
+                == (
+                    phase9e_context.get("decision") or {}
+                ).get("decision_fingerprint")
+                and phase9e_context.get("status") == "current"
+            ):
+                render_phase9e_application_result(
+                    application_id=int(current_application_id),
+                    result=current_application_result,
+                )
+                st.stop()
+
+        phase9e_ready = bool(phase9e_context.get("can_generate"))
+        phase9e_enforced = bool(phase9e_context.get("phase9e_enforced"))
+        phase9e_binding = deepcopy(
+            phase9e_context.get("binding_identity") or {}
+        )
+        phase9e_base_content_fingerprint = (
+            stable_content_fingerprint(
+                phase9e_context.get("starting_sections") or {}
+            )
+            if phase9e_enforced and phase9e_ready
+            else ""
+        )
+        phase9e_section_scope = deepcopy(
+            phase9e_context.get("section_lock_scope")
+            or (
+                phase9e_context.get("decision") or {}
+            ).get("section_lock_scope")
+            or {}
+        )
+        phase9e_projects_locked = bool(
+            phase9e_section_scope.get("projects_locked")
+        )
+        phase9e_skills_locked = bool(
+            phase9e_section_scope.get("skills_locked")
+        )
+        if phase9e_ready:
+            report = deepcopy(phase9e_context["effective_report"])
+            if phase9e_enforced:
+                binding_marker = str(
+                    phase9e_binding.get("decision_fingerprint") or ""
+                )
+                binding_marker += ":" + str(
+                    phase9e_binding.get("workflow_action_fingerprint") or ""
+                )
+            else:
+                binding_marker = f"legacy:{current_application_id}"
+        else:
+            report = deepcopy(persisted_application_report)
+            binding_marker = f"blocked:{phase9e_context.get('status', 'unknown')}"
+
+        if current_application_id is not None:
+            marker_key = f"phase9e_session_binding_{current_application_id}"
+            previous_marker = st.session_state.get(marker_key)
+            if previous_marker != binding_marker and phase9e_enforced:
+                for key in (
+                    f"tailored_projects_result_{current_application_id}",
+                    f"tailored_projects_fit_{current_application_id}",
+                    f"tailored_skills_result_{current_application_id}",
+                    f"tailored_resume_copy_path_{current_application_id}",
+                    f"tailored_resume_fit_result_{current_application_id}",
+                    f"tailored_generation_id_{current_application_id}",
+                    f"debug_project_tailor_inputs_{current_application_id}",
+                    f"project_candidate_pool_{current_application_id}",
+                ):
+                    st.session_state.pop(key, None)
+            st.session_state[marker_key] = binding_marker
+
         st.divider()
         st.header("Tailor Resume for This Job")
         st.caption(
@@ -2541,6 +2710,28 @@ if page == "Application Sessions":
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
         else:
+            if not phase9e_ready:
+                st.error(
+                    "Résumé generation is blocked until the current Phase 9E "
+                    "scope is explicitly evaluated and bound."
+                )
+                for reason in phase9e_context.get("reasons") or []:
+                    st.write(f"- {reason}")
+            elif phase9e_enforced:
+                source = phase9e_context["decision"]["selection"].get(
+                    "effective_starting_source"
+                ) or phase9e_context["decision"]["selection"][
+                    "selected_source"
+                ]
+                st.success(
+                    "All downstream tailoring inputs are using a deep copy of "
+                    f"the current immutable Phase 9E {source.replace('_', ' ')} snapshot."
+                )
+            else:
+                st.info(
+                    phase9e_context.get("legacy_notice")
+                    or "The existing legacy generation scope remains current."
+                )
             tailored_projects_key = f"tailored_projects_result_{current_application_id}"
             tailored_fit_key = f"tailored_projects_fit_{current_application_id}"
             tailored_skills_key = f"tailored_skills_result_{current_application_id}"
@@ -2561,6 +2752,11 @@ if page == "Application Sessions":
             phase7_control = get_application_generation_control(
                 current_application_id
             )
+            if phase9e_enforced:
+                phase7_control = constrain_generation_control_to_phase9e(
+                    phase7_control,
+                    phase9e_binding,
+                )
             lock_projects = bool(
                 phase7_control.get("lock_projects")
             )
@@ -2602,6 +2798,19 @@ if page == "Application Sessions":
                     "approved_generation"
                 ),
             )
+            if phase9e_projects_locked and phase9e_skills_locked:
+                generation_plan = {
+                    "mode": "load_phase9e_starting_snapshot",
+                    "button_label": "Load Phase 9E Starting Projects + Skills",
+                    "requires_project_ai": False,
+                    "requires_skills_ai": False,
+                    "creates_draft": True,
+                    "note": (
+                        "The deterministic decision is Reuse Unchanged. Load "
+                        "Projects and Skills from the immutable starting "
+                        "snapshot with zero model calls."
+                    ),
+                }
             st.caption(generation_plan["note"])
 
             if st.button(
@@ -2609,16 +2818,26 @@ if page == "Application Sessions":
                 type="primary",
                 width="stretch",
                 key=f"generate_projects_skills_{current_application_id}",
+                disabled=not phase9e_ready,
             ):
                 try:
                     evidence_items = get_evidence_items(limit=100)
                     generation_settings = {
                         "max_projects": max_projects,
                         "max_bullets": max_bullets,
+                        "phase9e_binding": deepcopy(phase9e_binding),
+                        "phase9e_base_content_fingerprint": (
+                            phase9e_base_content_fingerprint
+                        ),
                     }
                     phase7_control = get_application_generation_control(
                         current_application_id
                     )
+                    if phase9e_enforced:
+                        phase7_control = constrain_generation_control_to_phase9e(
+                            phase7_control,
+                            phase9e_binding,
+                        )
                     approved_generation = phase7_control.get(
                         "approved_generation"
                     )
@@ -2633,6 +2852,76 @@ if page == "Application Sessions":
                         lock_skills=lock_skills,
                         approved_generation=approved_generation,
                     )
+                    if phase9e_projects_locked and phase9e_skills_locked:
+                        generation_plan = {
+                            "mode": "load_phase9e_starting_snapshot",
+                            "button_label": (
+                                "Load Phase 9E Starting Projects + Skills"
+                            ),
+                            "requires_project_ai": False,
+                            "requires_skills_ai": False,
+                            "creates_draft": True,
+                            "note": "Reuse the immutable Phase 9E snapshot.",
+                        }
+
+                    if generation_plan["mode"] == "load_phase9e_starting_snapshot":
+                        starting_sections = deepcopy(
+                            phase9e_context["starting_sections"]
+                        )
+                        project_result = starting_sections["projects"]
+                        skills_result = starting_sections["skills"]
+                        fit_estimate = estimate_project_section_length(
+                            project_result,
+                            max_projects=max_projects,
+                            max_total_bullets=max_projects * max_bullets,
+                        )
+                        input_fingerprint = build_tailoring_input_fingerprint(
+                            report=report,
+                            evidence_items=[],
+                            generation_settings=generation_settings,
+                            generation_kind="phase9e_reuse_snapshot",
+                            model_id="deterministic-local-reuse",
+                            phase9e_binding=phase9e_binding,
+                        )
+                        st.session_state[tailored_projects_key] = project_result
+                        st.session_state[tailored_fit_key] = fit_estimate
+                        st.session_state[tailored_skills_key] = skills_result
+                        st.session_state.pop(tailored_docx_key, None)
+                        st.session_state.pop(tailored_fit_result_key, None)
+                        generation_id = uuid.uuid4().hex
+                        st.session_state[
+                            tailored_generation_id_key
+                        ] = generation_id
+                        _persist_current_tailoring_state(
+                            application_id=current_application_id,
+                            generation_id=generation_id,
+                            generation_settings=generation_settings,
+                            input_fingerprint=input_fingerprint,
+                            generation_kind="phase9e_reuse_snapshot",
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_projects",
+                            note=(
+                                "Immutable Phase 9E starting Projects loaded; "
+                                "no project model call."
+                            ),
+                        )
+                        record_zero_cost_action_event(
+                            application_id=current_application_id,
+                            action="generate_skills",
+                            note=(
+                                "Immutable Phase 9E starting Skills loaded; "
+                                "no skills model call."
+                            ),
+                        )
+                        st.session_state[
+                            f"phase7_flash_{current_application_id}"
+                        ] = (
+                            "Loaded immutable Phase 9E Projects and Skills. "
+                            "No model call was made."
+                        )
+                        st.rerun()
 
                     if generation_plan["mode"] == "load_approved":
                         if not isinstance(approved_generation, dict):
@@ -2677,6 +2966,7 @@ if page == "Application Sessions":
                         approved_generation=approved_generation,
                         lock_projects=lock_projects,
                         lock_skills=lock_skills,
+                        phase9e_binding=phase9e_binding,
                     )
                     cached = find_cached_tailoring_generation(
                         application_id=current_application_id,
@@ -2763,7 +3053,7 @@ if page == "Application Sessions":
                             append_api_usage(
                                 application_id=current_application_id,
                                 action="generate_projects",
-                                report=report,
+                                report=persisted_application_report,
                             )
                         else:
                             project_result = deepcopy(
@@ -2802,7 +3092,7 @@ if page == "Application Sessions":
                             append_api_usage(
                                 application_id=current_application_id,
                                 action="generate_skills",
-                                report=report,
+                                report=persisted_application_report,
                             )
                         else:
                             skills_result = deepcopy(
@@ -2817,14 +3107,16 @@ if page == "Application Sessions":
                                 ),
                             )
 
-                    st.session_state["latest_report"] = report
+                    st.session_state["latest_report"] = (
+                        persisted_application_report
+                    )
                     update_application_report(
                         application_id=current_application_id,
                         resume_filename=st.session_state.get(
                             "resume_filename",
                             "",
                         ),
-                        report=report,
+                        report=persisted_application_report,
                     )
                     st.session_state[tailored_projects_key] = project_result
                     st.session_state[tailored_fit_key] = fit_estimate
@@ -2883,7 +3175,11 @@ if page == "Application Sessions":
                         type="primary",
                         width="stretch",
                         key=f"generate_projects_{current_application_id}",
-                        disabled=lock_projects,
+                        disabled=(
+                            lock_projects
+                            or phase9e_projects_locked
+                            or not phase9e_ready
+                        ),
                     ):
                         try:
                             reset_call_ledger()
@@ -2922,16 +3218,18 @@ if page == "Application Sessions":
                             append_api_usage(
                                 application_id=current_application_id,
                                 action="generate_projects",
-                                report=report,
+                                report=persisted_application_report,
                             )
-                            st.session_state["latest_report"] = report
+                            st.session_state["latest_report"] = (
+                                persisted_application_report
+                            )
                             update_application_report(
                                 application_id=current_application_id,
                                 resume_filename=st.session_state.get(
                                     "resume_filename",
                                     "",
                                 ),
-                                report=report,
+                                report=persisted_application_report,
                             )
                             st.session_state[tailored_projects_key] = project_result
                             st.session_state[tailored_fit_key] = fit_estimate
@@ -2947,7 +3245,25 @@ if page == "Application Sessions":
                                 generation_settings={
                                     "max_projects": max_projects,
                                     "max_bullets": max_bullets,
+                                    "phase9e_binding": deepcopy(
+                                        phase9e_binding
+                                    ),
+                                    "phase9e_base_content_fingerprint": (
+                                        phase9e_base_content_fingerprint
+                                    ),
                                 },
+                                input_fingerprint=build_tailoring_input_fingerprint(
+                                    report=report,
+                                    evidence_items=evidence_items,
+                                    generation_settings={
+                                        "max_projects": max_projects,
+                                        "max_bullets": max_bullets,
+                                    },
+                                    generation_kind="projects",
+                                    model_id=get_active_model("analysis"),
+                                    phase9e_binding=phase9e_binding,
+                                ),
+                                generation_kind="projects",
                             )
                             st.rerun()
 
@@ -2969,7 +3285,11 @@ if page == "Application Sessions":
                         "Generate Tailored Skills Section",
                         width="stretch",
                         key=f"generate_skills_{current_application_id}",
-                        disabled=lock_skills,
+                        disabled=(
+                            lock_skills
+                            or phase9e_skills_locked
+                            or not phase9e_ready
+                        ),
                     ):
                         try:
                             reset_call_ledger()
@@ -2987,16 +3307,18 @@ if page == "Application Sessions":
                             append_api_usage(
                                 application_id=current_application_id,
                                 action="generate_skills",
-                                report=report,
+                                report=persisted_application_report,
                             )
-                            st.session_state["latest_report"] = report
+                            st.session_state["latest_report"] = (
+                                persisted_application_report
+                            )
                             update_application_report(
                                 application_id=current_application_id,
                                 resume_filename=st.session_state.get(
                                     "resume_filename",
                                     "",
                                 ),
-                                report=report,
+                                report=persisted_application_report,
                             )
                             st.session_state[tailored_skills_key] = skills_result
                             st.session_state.pop(tailored_docx_key, None)
@@ -3011,7 +3333,25 @@ if page == "Application Sessions":
                                 generation_settings={
                                     "max_projects": max_projects,
                                     "max_bullets": max_bullets,
+                                    "phase9e_binding": deepcopy(
+                                        phase9e_binding
+                                    ),
+                                    "phase9e_base_content_fingerprint": (
+                                        phase9e_base_content_fingerprint
+                                    ),
                                 },
+                                input_fingerprint=build_tailoring_input_fingerprint(
+                                    report=report,
+                                    evidence_items=get_evidence_items(limit=100),
+                                    generation_settings={
+                                        "max_projects": max_projects,
+                                        "max_bullets": max_bullets,
+                                    },
+                                    generation_kind="skills",
+                                    model_id=get_active_model("analysis"),
+                                    phase9e_binding=phase9e_binding,
+                                ),
+                                generation_kind="skills",
                             )
                             st.rerun()
 
@@ -3163,12 +3503,21 @@ if page == "Application Sessions":
                 with st.expander("Unsupported JD skills"):
                     st.json(skills_result.get("unsupported_jd_skills", []))
 
-            render_tailoring_generation_controls(
-                application_id=current_application_id,
-            )
+            if phase9e_ready:
+                render_tailoring_generation_controls(
+                    application_id=current_application_id,
+                    required_phase9e_binding=(
+                        phase9e_binding if phase9e_enforced else None
+                    ),
+                )
+            else:
+                st.info(
+                    "Generation restoration and regeneration controls are "
+                    "blocked for an unbound or stale Phase 9E scope."
+                )
 
             phase8_jd_record = (
-                get_job_description_by_application_id(
+                get_exact_job_description_for_application(
                     int(current_application_id)
                 )
                 if current_application_id is not None
@@ -3180,16 +3529,20 @@ if page == "Application Sessions":
                 or ""
             )
 
-            render_phase8_verification(
-                application_id=current_application_id,
-                baseline_report=report,
-                raw_jd_text=phase8_raw_jd_text,
-            )
+            if phase9e_ready:
+                render_phase8_verification(
+                    application_id=current_application_id,
+                    baseline_report=report,
+                    raw_jd_text=phase8_raw_jd_text,
+                )
 
-            render_blueprint_candidate_promotion(
-                application_id=int(current_application_id),
-                baseline_report=report,
-            )
+                render_blueprint_candidate_promotion(
+                    application_id=int(current_application_id),
+                    baseline_report=report,
+                    current_phase9e_decision_fingerprint=str(
+                        phase9e_binding.get("decision_fingerprint") or ""
+                    ),
+                )
             render_phase9c_blueprint_evaluation()
 
             st.divider()
@@ -3460,23 +3813,31 @@ if page == "Application Sessions":
                     type="primary",
                     width="stretch",
                     key=f"generate_docx_{current_application_id}",
+                    disabled=not phase9e_ready,
                 ):
                     try:
                         phase7_control = get_application_generation_control(
                             current_application_id
                         )
+                        if phase9e_enforced:
+                            phase7_control = constrain_generation_control_to_phase9e(
+                                phase7_control,
+                                phase9e_binding,
+                            )
+                        fit_lock_projects = bool(
+                            phase7_control.get("lock_projects")
+                        ) or phase9e_projects_locked
+                        fit_lock_skills = bool(
+                            phase7_control.get("lock_skills")
+                        ) or phase9e_skills_locked
                         projects_for_fit, skills_for_fit = resolve_locked_sections(
                             proposed_projects=project_result,
                             proposed_skills=skills_result,
                             approved_generation=phase7_control.get(
                                 "approved_generation"
                             ),
-                            lock_projects=bool(
-                                phase7_control.get("lock_projects")
-                            ),
-                            lock_skills=bool(
-                                phase7_control.get("lock_skills")
-                            ),
+                            lock_projects=fit_lock_projects,
+                            lock_skills=fit_lock_skills,
                         )
                         # Keep the draft record consistent with the exact content
                         # sent to the fitter after approved-section lock resolution.
@@ -3525,12 +3886,8 @@ if page == "Application Sessions":
                             use_compact_before_delete=use_compact_before_delete,
                             prefer_balanced_bullets=prefer_balanced_bullets,
                             allow_skills_compaction=allow_skills_compaction,
-                            lock_projects=bool(
-                                phase7_control.get("lock_projects")
-                            ),
-                            lock_skills=bool(
-                                phase7_control.get("lock_skills")
-                            ),
+                            lock_projects=fit_lock_projects,
+                            lock_skills=fit_lock_skills,
                             page_density_mode=page_density_mode,
                             generation_id=mutable_generation_id,
                         )
@@ -3549,48 +3906,65 @@ if page == "Application Sessions":
                         st.session_state[
                             tailored_generation_id_key
                         ] = generation_id
+                        fit_generation_settings = {
+                            "max_projects": max_projects,
+                            "max_bullets": max_bullets,
+                            "use_compact_before_delete": (
+                                use_compact_before_delete
+                            ),
+                            "prefer_balanced_bullets": (
+                                prefer_balanced_bullets
+                            ),
+                            "allow_skills_compaction": (
+                                allow_skills_compaction
+                            ),
+                            "lock_projects": fit_lock_projects,
+                            "lock_skills": fit_lock_skills,
+                            "page_density_mode": page_density_mode,
+                            "spacing_mode": spacing_mode,
+                            "project_spacing_pt": project_spacing_pt,
+                            "after_projects_spacing_pt": (
+                                after_projects_spacing_pt
+                            ),
+                            "blank_lines_between_projects": (
+                                blank_lines_between_projects
+                            ),
+                            "blank_lines_after_projects": (
+                                blank_lines_after_projects
+                            ),
+                            "add_spacing_before_first_project": (
+                                add_spacing_before_first_project
+                            ),
+                            "projects_fingerprint": stable_content_fingerprint(
+                                projects_for_fit
+                            ),
+                            "skills_fingerprint": stable_content_fingerprint(
+                                skills_for_fit
+                            ),
+                            "phase9e_binding": deepcopy(phase9e_binding),
+                            "phase9e_base_content_fingerprint": (
+                                phase9e_base_content_fingerprint
+                            ),
+                        }
                         _persist_current_tailoring_state(
                             application_id=current_application_id,
                             generation_id=generation_id,
-                            generation_settings={
-                                "max_projects": max_projects,
-                                "max_bullets": max_bullets,
-                                "use_compact_before_delete": (
-                                    use_compact_before_delete
-                                ),
-                                "prefer_balanced_bullets": (
-                                    prefer_balanced_bullets
-                                ),
-                                "allow_skills_compaction": (
-                                    allow_skills_compaction
-                                ),
-                                "lock_projects": bool(
-                                    phase7_control.get("lock_projects")
-                                ),
-                                "lock_skills": bool(
-                                    phase7_control.get("lock_skills")
-                                ),
-                                "page_density_mode": (
-                                    page_density_mode
-                                ),
-                                "spacing_mode": spacing_mode,
-                                "project_spacing_pt": (
-                                    project_spacing_pt
-                                ),
-                                "after_projects_spacing_pt": (
-                                    after_projects_spacing_pt
-                                ),
-                                "blank_lines_between_projects": (
-                                    blank_lines_between_projects
-                                ),
-                                "blank_lines_after_projects": (
-                                    blank_lines_after_projects
-                                ),
-                                "add_spacing_before_first_project": (
-                                    add_spacing_before_first_project
-                                ),
-                            },
+                            generation_settings=fit_generation_settings,
                             fit_result=fit_result,
+                            input_fingerprint=build_tailoring_input_fingerprint(
+                                report=report,
+                                evidence_items=get_evidence_items(limit=100),
+                                generation_settings=fit_generation_settings,
+                                generation_kind="fit_only",
+                                model_id="deterministic-local-fit",
+                                approved_generation=phase7_control.get(
+                                    "approved_generation"
+                                ),
+                                lock_projects=fit_lock_projects,
+                                lock_skills=fit_lock_skills,
+                                phase9e_binding=phase9e_binding,
+                            ),
+                            generation_kind="fit_only",
                         )
 
                         if fit_result["fit_one_page"] is True:
@@ -3610,7 +3984,7 @@ if page == "Application Sessions":
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)
 
-            has_debug_content = any(
+            has_debug_content = phase9e_ready and any(
             (
                 report,
                 candidate_pool,
@@ -3714,7 +4088,11 @@ if page == "Application Sessions":
 
 
 
-            if tailored_resume_copy_path and Path(tailored_resume_copy_path).exists():
+            if (
+                phase9e_ready
+                and tailored_resume_copy_path
+                and Path(tailored_resume_copy_path).exists()
+            ):
                 st.write("### Preview")
 
                 preview_text = extract_docx_preview_text(tailored_resume_copy_path)
@@ -3773,7 +4151,16 @@ if page == "Application Sessions":
         st.divider()
         st.header("Tailored Cover Letter")
 
-        if st.button("Generate Cover Letter", type="primary", width="stretch"):
+        if current_application_id is not None:
+            render_application_output_cover_letter(
+                application_id=int(current_application_id),
+                model_id=get_active_model("analysis"),
+                key_prefix="application_session",
+            )
+
+        if current_application_id is None and st.button(
+            "Generate Cover Letter", type="primary", width="stretch"
+        ):
             try:
                 reset_call_ledger()
                 with st.spinner("Generating tailored cover letter..."):
@@ -3787,7 +4174,7 @@ if page == "Application Sessions":
                 if application_id is None:
                     application_id = save_application(
                         resume_filename=st.session_state.get("resume_filename", "uploaded_resume"),
-                        report=report,
+                        report=persisted_application_report,
                         cover_letter=cover_letter,
                     )
                     st.session_state["current_application_id"] = application_id
@@ -3797,16 +4184,16 @@ if page == "Application Sessions":
                 append_api_usage(
                     application_id=application_id,
                     action="generate_cover_letter",
-                    report=report,
+                    report=persisted_application_report,
                 )
-                st.session_state["latest_report"] = report
+                st.session_state["latest_report"] = persisted_application_report
                 update_application_report(
                     application_id=application_id,
                     resume_filename=st.session_state.get(
                         "resume_filename",
                         "",
                     ),
-                    report=report,
+                    report=persisted_application_report,
                 )
                 st.success("Cover letter saved to the current application session.")
 
@@ -3816,13 +4203,18 @@ if page == "Application Sessions":
             except Exception as exc:
                 st.error(f"Unexpected error while generating cover letter: {exc}")
 
-        render_ai_action_subtotal(
-            application_id=current_application_id,
-            actions=["generate_cover_letter"],
-            label="Generate Cover Letter subtotal",
-        )
+        if current_application_id is None:
+            render_ai_action_subtotal(
+                application_id=current_application_id,
+                actions=["generate_cover_letter"],
+                label="Generate Cover Letter subtotal",
+            )
 
-        cover_letter = st.session_state.get("cover_letter", "")
+        cover_letter = (
+            st.session_state.get("cover_letter", "")
+            if current_application_id is None
+            else ""
+        )
 
         if cover_letter:
             st.text_area(
@@ -3872,9 +4264,11 @@ if page == "Application Sessions":
                     append_api_usage(
                         application_id=application_id,
                         action="revise_cover_letter",
-                        report=report,
+                        report=persisted_application_report,
                     )
-                    st.session_state["latest_report"] = report
+                    st.session_state["latest_report"] = (
+                        persisted_application_report
+                    )
                     if application_id is not None:
                         update_application_report(
                             application_id=application_id,
@@ -3882,7 +4276,7 @@ if page == "Application Sessions":
                                 "resume_filename",
                                 "",
                             ),
-                            report=report,
+                            report=persisted_application_report,
                         )
 
                     st.rerun()
@@ -3950,16 +4344,18 @@ if page == "Application Sessions":
                         append_api_usage(
                             application_id=current_application_id,
                             action="ask_analysis_ai",
-                            report=report,
+                            report=persisted_application_report,
                         )
-                        st.session_state["latest_report"] = report
+                        st.session_state["latest_report"] = (
+                            persisted_application_report
+                        )
                         update_application_report(
                             application_id=current_application_id,
                             resume_filename=st.session_state.get(
                                 "resume_filename",
                                 "",
                             ),
-                            report=report,
+                            report=persisted_application_report,
                         )
 
                         st.rerun()
@@ -3994,7 +4390,9 @@ if page == "Application Sessions":
 
 elif page == "Global Blueprints":
     st.divider()
-    render_phase9d_global_blueprints()
+    render_phase9d_global_blueprints(
+        current_application_id=current_application_id
+    )
 
 elif page == "Job Market Insights":
     # ---------------------------------------------------------------------------
@@ -4613,4 +5011,3 @@ elif page == "Profile & Evidence":
         #             delete_evidence_item(item["id"])
         #             st.success("Evidence deleted.")
         #             st.rerun()
-

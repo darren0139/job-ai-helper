@@ -99,6 +99,44 @@ class Phase9BBlueprintCandidateTests(unittest.TestCase):
             result["reasons"]["approved_generation"]
         )
 
+    def test_unchanged_application_result_fork_cannot_satisfy_phase9b(self):
+        result = blueprint_candidate_eligibility(
+            generation_state={
+                **GENERATION,
+                "source_application_result_id": "immutable-result-a",
+                "content_changed": False,
+                "phase9e_scope_matches": True,
+            },
+            verification=VERIFICATION,
+        )
+        self.assertFalse(result["eligible"])
+        self.assertFalse(result["reasons"]["content_materially_changed"])
+
+    def test_changed_fork_requires_the_current_phase9e_scope(self):
+        historical = blueprint_candidate_eligibility(
+            generation_state={
+                **GENERATION,
+                "source_application_result_id": "immutable-result-a",
+                "content_changed": True,
+                "phase9e_scope_matches": False,
+            },
+            verification=VERIFICATION,
+        )
+        current = blueprint_candidate_eligibility(
+            generation_state={
+                **GENERATION,
+                "source_application_result_id": "immutable-result-a",
+                "content_changed": True,
+                "phase9e_scope_matches": True,
+            },
+            verification=VERIFICATION,
+        )
+        self.assertFalse(historical["eligible"])
+        self.assertFalse(
+            historical["reasons"]["matches_current_phase9e_scope"]
+        )
+        self.assertTrue(current["eligible"])
+
     def test_build_uses_final_fitted_projects_and_skills(self):
         candidate = build_blueprint_candidate(
             application_id=1,

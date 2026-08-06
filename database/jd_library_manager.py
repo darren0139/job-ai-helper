@@ -10,6 +10,7 @@ The migration is automatic and preserves existing job_descriptions rows.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -795,6 +796,145 @@ def get_job_description_by_application_id(application_id: int) -> dict[str, Any]
     finally:
         connection.close()
     return get_job_description_by_id(job_id)
+
+
+def get_exact_job_description_for_application(
+    application_id: int,
+) -> dict[str, Any] | None:
+    """Return the exact JD version linked to one application.
+
+    Unlike ``get_job_description_by_application_id``, this resolver joins the
+    stored ``source_version_id`` to ``job_description_versions``.  All text,
+    profile, hashes, and canonical requirements in the returned snapshot are
+    therefore derived from that one immutable linked version.
+    """
+    from analysis_stability.stable_evidence_scoring import (
+        canonicalise_requirements,
+    )
+
+    connection = _connect()
+    try:
+        row = connection.execute(
+            """
+            SELECT
+                link.application_id,
+                link.job_description_id,
+                link.source_version_id AS linked_source_version_id,
+                link.linked_at,
+                link.updated_at AS link_updated_at,
+                version.raw_text AS version_raw_text,
+                version.jd_profile_json AS version_jd_profile_json,
+                version.created_at AS version_created_at,
+                jd.canonical_jd_id
+            FROM application_job_links AS link
+            JOIN job_descriptions AS jd
+              ON jd.id = link.job_description_id
+            JOIN job_description_versions AS version
+              ON version.job_description_id = link.job_description_id
+             AND version.source_version_id = link.source_version_id
+            WHERE link.application_id = ?
+            LIMIT 1
+            """,
+            (int(application_id),),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    if row is None:
+        return None
+
+    raw_text = str(row["version_raw_text"] or "")
+    profile = _safe_json_loads(row["version_jd_profile_json"])
+    if not raw_text.strip() or not isinstance(profile, dict) or not profile:
+        raise ValueError(
+            "The linked JD version is missing its raw text or parsed profile."
+        )
+
+    title = str(profile.get("job_title") or profile.get("title") or "").strip()
+    company = str(
+        profile.get("company") or profile.get("company_name") or ""
+    ).strip()
+    location = _extract_location(profile, "")
+    if not title or not company:
+        raise ValueError(
+            "The linked JD version lacks title/company identity in its profile."
+        )
+
+    identity = build_job_identity(
+        company=company,
+        title=title,
+        location=location,
+        raw_jd_text=raw_text,
+    )
+    linked_version = str(row["linked_source_version_id"] or "")
+    stored_canonical_id = str(row["canonical_jd_id"] or "")
+    if identity.source_version_id != linked_version:
+        raise ValueError(
+            "The linked JD source-version identity does not reproduce from its text."
+        )
+    if identity.canonical_jd_id != stored_canonical_id:
+        raise ValueError(
+            "The linked JD canonical identity does not reproduce from its profile."
+        )
+
+    canonical = canonicalise_requirements(
+        jd_profile=profile,
+        raw_jd_text=raw_text,
+    )
+    requirement_rows = [
+        dict(requirement)
+        for requirement in canonical.get("requirements", [])
+        if isinstance(requirement, dict)
+    ]
+    compact_rows = [
+        {
+            "requirement_id": str(row.get("requirement_id") or ""),
+            "text": " ".join(str(row.get("text") or "").split()),
+            "importance": str(row.get("importance") or ""),
+            "atomic_group_id": str(row.get("atomic_group_id") or ""),
+            "group_weight_fraction": row.get("group_weight_fraction"),
+        }
+        for row in requirement_rows
+    ]
+    canonical_payload = json.dumps(
+        compact_rows,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+    return {
+        "id": int(row["job_description_id"]),
+        "library_jd_id": int(row["job_description_id"]),
+        "application_id": int(row["application_id"]),
+        "title": title,
+        "company": company,
+        "location": location,
+        "raw_text": raw_text,
+        "jd_profile": profile,
+        "canonical_jd_id": stored_canonical_id,
+        "source_version_id": linked_version,
+        "raw_jd_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        "canonical_requirements": requirement_rows,
+        "canonical_requirement_ids": sorted(
+            str(requirement.get("requirement_id") or "")
+            for requirement in requirement_rows
+            if str(requirement.get("requirement_id") or "").strip()
+        ),
+        "canonical_requirement_fingerprint": hashlib.sha256(
+            canonical_payload.encode("utf-8")
+        ).hexdigest(),
+        "canonicalisation": canonical,
+        "source_application_link": {
+            "application_id": int(row["application_id"]),
+            "job_description_id": int(row["job_description_id"]),
+            "source_version_id": linked_version,
+            "linked_at": str(row["linked_at"] or ""),
+            "updated_at": str(row["link_updated_at"] or ""),
+        },
+        "version_created_at": str(row["version_created_at"] or ""),
+    }
 
 
 def get_all_job_descriptions(limit: int = 200) -> list[dict[str, Any]]:

@@ -74,6 +74,16 @@ def blueprint_candidate_eligibility(
             == 0
         ),
     }
+    if (
+        _clean(generation.get("source_application_result_id"))
+        or _clean(generation.get("phase9e_decision_fingerprint"))
+    ):
+        reasons["content_materially_changed"] = (
+            generation.get("content_changed") is True
+        )
+        reasons["matches_current_phase9e_scope"] = (
+            generation.get("phase9e_scope_matches") is True
+        )
     return {
         "eligible": all(reasons.values()),
         "reasons": reasons,

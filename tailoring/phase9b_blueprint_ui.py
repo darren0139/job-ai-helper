@@ -162,6 +162,7 @@ def render_blueprint_candidate_promotion(
     *,
     application_id: int,
     baseline_report: dict[str, Any],
+    current_phase9e_decision_fingerprint: str = "",
 ) -> None:
     st.divider()
     st.subheader("Phase 9B — Blueprint Candidate Promotion")
@@ -173,6 +174,16 @@ def render_blueprint_candidate_promotion(
 
     control = get_application_generation_control(application_id)
     approved = control.get("approved_generation")
+    if (
+        isinstance(approved, dict)
+        and approved.get("source_application_result_id")
+    ):
+        approved = dict(approved)
+        approved["phase9e_scope_matches"] = bool(
+            current_phase9e_decision_fingerprint
+            and str(approved.get("phase9e_decision_fingerprint") or "")
+            == str(current_phase9e_decision_fingerprint)
+        )
     approved_id = (
         str(approved.get("generation_id") or "")
         if isinstance(approved, dict)

@@ -43,12 +43,35 @@ def init_tailoring_generation_control() -> None:
             archived_at TEXT,
             parent_generation_id TEXT,
             restored_from_generation_id TEXT,
+            source_application_result_id TEXT,
+            base_content_fingerprint TEXT,
+            content_fingerprint TEXT,
+            content_changed INTEGER,
+            phase9e_decision_fingerprint TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (application_id, generation_id)
         )
         """
     )
+    existing_columns = {
+        str(row[1])
+        for row in cursor.execute(
+            "PRAGMA table_info(application_tailoring_generation_meta)"
+        ).fetchall()
+    }
+    for column, declaration in (
+        ("source_application_result_id", "TEXT"),
+        ("base_content_fingerprint", "TEXT"),
+        ("content_fingerprint", "TEXT"),
+        ("content_changed", "INTEGER"),
+        ("phase9e_decision_fingerprint", "TEXT"),
+    ):
+        if column not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE application_tailoring_generation_meta "
+                f"ADD COLUMN {column} {declaration}"
+            )
     cursor.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_tailoring_generation_fingerprint
@@ -147,6 +170,32 @@ def _generation_from_row(row: sqlite3.Row) -> dict[str, Any]:
             if "restored_from_generation_id" in keys
             else ""
         ),
+        "source_application_result_id": (
+            str(row["source_application_result_id"] or "")
+            if "source_application_result_id" in keys
+            else ""
+        ),
+        "base_content_fingerprint": (
+            str(row["base_content_fingerprint"] or "")
+            if "base_content_fingerprint" in keys
+            else ""
+        ),
+        "content_fingerprint": (
+            str(row["content_fingerprint"] or "")
+            if "content_fingerprint" in keys
+            else ""
+        ),
+        "content_changed": (
+            bool(row["content_changed"])
+            if "content_changed" in keys
+            and row["content_changed"] is not None
+            else None
+        ),
+        "phase9e_decision_fingerprint": (
+            str(row["phase9e_decision_fingerprint"] or "")
+            if "phase9e_decision_fingerprint" in keys
+            else ""
+        ),
     }
 
 
@@ -160,7 +209,12 @@ _JOIN_SQL = """
         meta.approved_at,
         meta.archived_at,
         meta.parent_generation_id,
-        meta.restored_from_generation_id
+        meta.restored_from_generation_id,
+        meta.source_application_result_id,
+        meta.base_content_fingerprint,
+        meta.content_fingerprint,
+        meta.content_changed,
+        meta.phase9e_decision_fingerprint
     FROM application_tailoring_versions AS versions
     LEFT JOIN application_tailoring_generation_meta AS meta
       ON meta.application_id = versions.application_id
@@ -176,6 +230,11 @@ def record_generation_metadata(
     generation_kind: str = "",
     parent_generation_id: str = "",
     restored_from_generation_id: str = "",
+    source_application_result_id: str = "",
+    base_content_fingerprint: str = "",
+    content_fingerprint: str = "",
+    content_changed: bool | None = None,
+    phase9e_decision_fingerprint: str = "",
 ) -> None:
     """Create or update non-content metadata for a stored generation."""
     init_tailoring_generation_control()
@@ -197,10 +256,15 @@ def record_generation_metadata(
             status,
             parent_generation_id,
             restored_from_generation_id,
+            source_application_result_id,
+            base_content_fingerprint,
+            content_fingerprint,
+            content_changed,
+            phase9e_decision_fingerprint,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(application_id),
@@ -210,6 +274,11 @@ def record_generation_metadata(
             str(generation_kind or "manual"),
             str(parent_generation_id or ""),
             str(restored_from_generation_id or ""),
+            str(source_application_result_id or ""),
+            str(base_content_fingerprint or ""),
+            str(content_fingerprint or ""),
+            (int(bool(content_changed)) if content_changed is not None else None),
+            str(phase9e_decision_fingerprint or ""),
             now,
             now,
         ),
@@ -234,6 +303,26 @@ def record_generation_metadata(
                 WHEN ? <> '' THEN ?
                 ELSE restored_from_generation_id
             END,
+            source_application_result_id = CASE
+                WHEN ? <> '' THEN ?
+                ELSE source_application_result_id
+            END,
+            base_content_fingerprint = CASE
+                WHEN ? <> '' THEN ?
+                ELSE base_content_fingerprint
+            END,
+            content_fingerprint = CASE
+                WHEN ? <> '' THEN ?
+                ELSE content_fingerprint
+            END,
+            content_changed = CASE
+                WHEN ? IS NOT NULL THEN ?
+                ELSE content_changed
+            END,
+            phase9e_decision_fingerprint = CASE
+                WHEN ? <> '' THEN ?
+                ELSE phase9e_decision_fingerprint
+            END,
             updated_at = ?
         WHERE application_id = ?
           AND generation_id = ?
@@ -248,6 +337,16 @@ def record_generation_metadata(
             str(parent_generation_id or ""),
             str(restored_from_generation_id or ""),
             str(restored_from_generation_id or ""),
+            str(source_application_result_id or ""),
+            str(source_application_result_id or ""),
+            str(base_content_fingerprint or ""),
+            str(base_content_fingerprint or ""),
+            str(content_fingerprint or ""),
+            str(content_fingerprint or ""),
+            (int(bool(content_changed)) if content_changed is not None else None),
+            (int(bool(content_changed)) if content_changed is not None else None),
+            str(phase9e_decision_fingerprint or ""),
+            str(phase9e_decision_fingerprint or ""),
             now,
             int(application_id),
             cleaned_id,

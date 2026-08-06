@@ -14,6 +14,12 @@ from database.global_blueprint_manager import (
     list_global_blueprints,
     update_global_blueprint_display_metadata,
 )
+from database.application_resume_result_manager import (
+    create_editable_copy_from_current_application_result,
+    get_current_application_resume_result,
+)
+from database.tailoring_generation_control import get_tailoring_generation
+from tailoring.generation_controls_ui import restore_generation_to_session
 from tailoring.phase9d_global_blueprint import (
     MINIMUM_OVERRIDE_REASON_CHARACTERS,
     MINIMUM_OVERRIDE_REASON_WORDS,
@@ -49,7 +55,9 @@ def _reason_is_substantive(reason: str) -> bool:
     )
 
 
-def render_phase9d_global_blueprints() -> None:
+def render_phase9d_global_blueprints(
+    *, current_application_id: int | None = None
+) -> None:
     st.header("Global Blueprints")
     st.caption(
         "Approve one exactly persisted Phase 9C evaluation as the reusable "
@@ -249,6 +257,40 @@ def render_phase9d_global_blueprints() -> None:
         key="phase9d_inspect_blueprint_id",
     )
     selected = by_blueprint_id[selected_blueprint_id]
+    st.info(
+        "Global Blueprint content is immutable. Content changes require an "
+        "explicit editable application copy, a materially changed fitted and "
+        "verified output, and a new Phase 9B–9D version workflow."
+    )
+    current_result = (
+        get_current_application_resume_result(
+            int(current_application_id), validate_artifacts=False
+        )
+        if current_application_id is not None
+        else None
+    )
+    if (
+        current_result is not None
+        and current_result.get("blueprint_id") == selected_blueprint_id
+    ):
+        if st.button(
+            "Create editable copy for the open application",
+            key=f"phase9d_editable_copy_{selected_blueprint_id}",
+        ):
+            created = create_editable_copy_from_current_application_result(
+                application_id=int(current_application_id),
+                actor_label="Local user",
+            )
+            editable = get_tailoring_generation(
+                int(current_application_id), created["generation_id"]
+            )
+            if editable is None:
+                raise RuntimeError("The editable copy could not be reloaded.")
+            restore_generation_to_session(
+                int(current_application_id), editable
+            )
+            st.session_state["navigation_page"] = "Application Sessions"
+            st.rerun()
     export = {
         "blueprint": selected,
         "audit_events": list_global_blueprint_audit_events(

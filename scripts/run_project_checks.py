@@ -36,6 +36,11 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9d_global_blueprint",
     "tests.test_global_blueprint_manager",
     "tests.test_phase9d_streamlit_acceptance",
+    "tests.test_phase9e_blueprint_selection",
+    "tests.test_application_blueprint_manager",
+    "tests.test_phase9e_streamlit_acceptance",
+    "tests.test_phase9e_application_result_manager",
+    "tests.test_application_output_integrations",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -47,6 +52,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9b_role_family_metadata",
     "scripts.check_phase9c_blueprint_evaluation",
     "scripts.check_phase9d_global_blueprint",
+    "scripts.check_phase9e_blueprint_selection",
 )
 
 

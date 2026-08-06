@@ -59,9 +59,14 @@ def build_cleanup_rows(
     for state in versions:
         generation_id = str(state.get("generation_id") or "")
         fit_result = state.get("fit_result")
-        page_count = (
+        page_count_value = (
             fit_result.get("page_count", "—")
             if isinstance(fit_result, dict)
+            else "—"
+        )
+        page_count = (
+            str(page_count_value)
+            if page_count_value not in (None, "")
             else "—"
         )
         rows.append(

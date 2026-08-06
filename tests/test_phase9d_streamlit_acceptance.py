@@ -87,7 +87,11 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
         source = (HARNESS.parents[1] / "app.py").read_text(encoding="utf-8")
         self.assertIn('"Global Blueprints"', source)
         self.assertIn('elif page == "Global Blueprints":', source)
-        self.assertIn("render_phase9d_global_blueprints()", source)
+        self.assertIn("render_phase9d_global_blueprints(", source)
+        self.assertIn(
+            "current_application_id=current_application_id",
+            source,
+        )
 
 
 if __name__ == "__main__":
