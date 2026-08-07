@@ -25,7 +25,12 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
-def render_phase9c_blueprint_evaluation() -> None:
+def render_phase9c_blueprint_evaluation(
+    *,
+    preferred_candidate_id: str = "",
+    rerun_after_save: bool = False,
+    completion_flash_key: str = "",
+) -> None:
     st.divider()
     st.subheader("Phase 9C · Cross-JD Blueprint Evaluation")
     st.caption(
@@ -46,9 +51,19 @@ def render_phase9c_blueprint_evaluation() -> None:
     by_candidate = {
         str(candidate["candidate_id"]): candidate for candidate in candidates
     }
+    candidate_options = list(by_candidate)
+    preferred_index = next(
+        (
+            index
+            for index, value in enumerate(candidate_options)
+            if value == _clean(preferred_candidate_id)
+        ),
+        0,
+    )
     candidate_id = st.selectbox(
         "Blueprint candidate",
-        options=list(by_candidate),
+        options=candidate_options,
+        index=preferred_index,
         format_func=lambda value: (
             f"{by_candidate[value].get('candidate_name', 'Candidate')} · "
             f"{by_candidate[value].get('role_family', '')} · {value[:8]}"
@@ -146,9 +161,20 @@ def render_phase9c_blueprint_evaluation() -> None:
             existing = persisted["evaluation"]
             st.session_state[result_key] = existing
             if persisted["cache_status"] == "hit":
-                st.success("Exactly reused the identical persisted evaluation.")
+                message = "Exactly reused the identical persisted evaluation."
             else:
-                st.success("Saved the deterministic Phase 9C evaluation.")
+                message = "Saved the deterministic Phase 9C evaluation."
+            if rerun_after_save:
+                flash_key = (
+                    completion_flash_key
+                    or "phase9c_completion_flash"
+                )
+                st.session_state[flash_key] = (
+                    message
+                    + " The Blueprint Lifecycle advanced to Phase 9D."
+                )
+                st.rerun()
+            st.success(message)
         except (Phase9CEvaluationError, ValueError, RuntimeError) as exc:
             st.error(str(exc))
             existing = None

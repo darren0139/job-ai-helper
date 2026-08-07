@@ -78,11 +78,12 @@ def render_phase9e_application_result(
         )
         status_label = "Pending application verification"
 
-    summary = st.columns(4)
-    summary[0].metric("Result status", status_label)
-    summary[1].metric("Blueprint version", result.get("blueprint_version"))
-    summary[2].metric("One-page fit", "Inherited")
-    summary[3].metric("Content changed", "No")
+    st.caption("Current résumé state")
+    st.write(f"**{status_label}**")
+    summary = st.columns(3)
+    summary[0].metric("Blueprint version", result.get("blueprint_version"))
+    summary[1].metric("One-page fit", "Inherited")
+    summary[2].metric("Content changed", "No")
     st.caption(
         f"Immutable result `{result['application_result_id']}` · "
         f"fingerprint `{result['result_fingerprint']}`"

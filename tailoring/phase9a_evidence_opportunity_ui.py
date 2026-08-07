@@ -115,15 +115,16 @@ def _render_result(result: dict[str, Any]) -> None:
         st.json(result)
 
 
-def render_evidence_opportunity_analysis(
+def _render_evidence_opportunity_analysis_body(
     *,
     application_id: int,
     baseline_report: dict[str, Any],
     raw_jd_text: str,
     evidence_items: list[dict[str, Any]],
+    show_heading: bool,
 ) -> None:
-    st.divider()
-    st.subheader("Phase 9A — Evidence Opportunity Analysis")
+    if show_heading:
+        st.subheader("Phase 9A — Evidence Opportunity Analysis")
     st.caption(
         "Forecasts how much a realistically constrained selection from the "
         "Evidence Library could improve alignment. It does not replace the "
@@ -216,3 +217,40 @@ def render_evidence_opportunity_analysis(
             "No saved Evidence Opportunity Analysis exists for this "
             "application yet."
         )
+
+
+def render_evidence_opportunity_analysis(
+    *,
+    application_id: int,
+    baseline_report: dict[str, Any],
+    raw_jd_text: str,
+    evidence_items: list[dict[str, Any]],
+    collapsed: bool = False,
+) -> None:
+    """Render Phase 9A after source selection with optional disclosure."""
+    st.divider()
+    if collapsed:
+        with st.expander(
+            "Phase 9A — Evidence Opportunity Analysis",
+            expanded=False,
+        ):
+            st.caption(
+                "This zero-cost forecast is optional while the immutable "
+                "résumé is being reused unchanged."
+            )
+            _render_evidence_opportunity_analysis_body(
+                application_id=application_id,
+                baseline_report=baseline_report,
+                raw_jd_text=raw_jd_text,
+                evidence_items=evidence_items,
+                show_heading=False,
+            )
+        return
+
+    _render_evidence_opportunity_analysis_body(
+        application_id=application_id,
+        baseline_report=baseline_report,
+        raw_jd_text=raw_jd_text,
+        evidence_items=evidence_items,
+        show_heading=True,
+    )

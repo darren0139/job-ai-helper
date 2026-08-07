@@ -44,6 +44,14 @@ def _by_key(elements, key):
     return next(element for element in elements if element.key == key)
 
 
+def _visible_markdown_occurrences(app: AppTest, expected: str) -> int:
+    """Count a complete workflow label rendered through st.write/markdown."""
+    return sum(
+        str(element.value).count(expected)
+        for element in app.markdown
+    )
+
+
 class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -155,11 +163,14 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
         self.assertTrue(
             any("GENERATION_CONTEXT=current" in item.value for item in app.markdown)
         )
-        self.assertTrue(
-            any(
-                str(metric.value) == "Reuse approved blueprint"
-                for metric in app.metric
-            )
+        self.assertEqual(
+            _visible_markdown_occurrences(
+                app, "Reuse approved blueprint"
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(metric.label == "Decision" for metric in app.metric)
         )
         self.assertIsNotNone(
             _by_key(app.button, "phase9e_reuse_unchanged_94")
@@ -215,8 +226,16 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
             _by_key(restarted.button, "phase9e_change_source_94")
         )
         self.assertEqual(
-            len([metric for metric in restarted.metric if metric.label == "Decision"]),
+            _visible_markdown_occurrences(
+                restarted, "Reuse approved blueprint"
+            ),
             1,
+        )
+        self.assertFalse(
+            any(
+                metric.label == "Decision"
+                for metric in restarted.metric
+            )
         )
         self.assertEqual(
             [
@@ -321,8 +340,16 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
             any(button.key == "phase9e_bind_94" for button in restarted.button)
         )
         self.assertEqual(
-            len([metric for metric in restarted.metric if metric.label == "Decision"]),
+            _visible_markdown_occurrences(
+                restarted, "Reuse approved blueprint"
+            ),
             1,
+        )
+        self.assertFalse(
+            any(
+                metric.label == "Decision"
+                for metric in restarted.metric
+            )
         )
 
         _by_key(restarted.radio, "phase9e_selection_94").set_value(

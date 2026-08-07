@@ -917,7 +917,10 @@ def _stale_reasons(
     for field, label in (
         ("current_jd", "The application's exact JD changed."),
         ("recommendation", "The relevant active blueprint changed."),
-        ("selection", "The selected starting source changed or is no longer active."),
+        (
+            "selection",
+            "The selected starting-source content or identity changed.",
+        ),
         ("scoring", "The scorer, taxonomy, or score-derived result changed."),
         (
             "source_approval",

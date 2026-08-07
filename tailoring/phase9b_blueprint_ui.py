@@ -34,6 +34,41 @@ from tailoring.phase9b_role_family import (
 )
 
 
+def _with_current_phase9e_scope(
+    approved: dict[str, Any] | None,
+    current_phase9e_decision_fingerprint: str,
+) -> dict[str, Any] | None:
+    # Apply the same exact-scope rule to normal Phase 9E generations and
+    # editable application-result forks.
+    if not isinstance(approved, dict):
+        return approved
+
+    approved_decision_fingerprint = str(
+        approved.get("phase9e_decision_fingerprint") or ""
+    ).strip()
+    source_application_result_id = str(
+        approved.get("source_application_result_id") or ""
+    ).strip()
+
+    if not (
+        approved_decision_fingerprint
+        or source_application_result_id
+    ):
+        return approved
+
+    current_decision_fingerprint = str(
+        current_phase9e_decision_fingerprint or ""
+    ).strip()
+    scoped = dict(approved)
+    scoped["phase9e_scope_matches"] = bool(
+        approved_decision_fingerprint
+        and current_decision_fingerprint
+        and approved_decision_fingerprint
+        == current_decision_fingerprint
+    )
+    return scoped
+
+
 def _sync_generated_value(
     *,
     value_key: str,
@@ -173,17 +208,10 @@ def render_blueprint_candidate_promotion(
     )
 
     control = get_application_generation_control(application_id)
-    approved = control.get("approved_generation")
-    if (
-        isinstance(approved, dict)
-        and approved.get("source_application_result_id")
-    ):
-        approved = dict(approved)
-        approved["phase9e_scope_matches"] = bool(
-            current_phase9e_decision_fingerprint
-            and str(approved.get("phase9e_decision_fingerprint") or "")
-            == str(current_phase9e_decision_fingerprint)
-        )
+    approved = _with_current_phase9e_scope(
+        control.get("approved_generation"),
+        current_phase9e_decision_fingerprint,
+    )
     approved_id = (
         str(approved.get("generation_id") or "")
         if isinstance(approved, dict)

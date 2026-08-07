@@ -30,6 +30,9 @@ PHASE9E_VERSION = "phase9e-application-blueprint-selection-v1"
 PHASE9E_IDENTITY_POLICY_VERSION = (
     "phase9e-application-blueprint-identity-v2"
 )
+PHASE9E_ORIGINAL_SOURCE_IDENTITY_POLICY_VERSION = (
+    "phase9e-original-resume-source-identity-v2"
+)
 PHASE9E_RECOMMENDATION_POLICY_VERSION = (
     "phase9e-same-family-active-recommendation-v1"
 )
@@ -610,9 +613,13 @@ def build_blueprint_starting_snapshot(
 def build_original_resume_starting_snapshot(
     application_report: dict[str, Any],
 ) -> dict[str, Any]:
-    """Freeze authoritative persisted inputs without claiming reconstructed raw text."""
+    # Freeze only semantic original-résumé inputs. Mutable report
+    # bookkeeping such as API usage, costs, chat, and UI notices must not
+    # redefine the selected starting source after generation.
     if not isinstance(application_report, dict) or not application_report:
-        raise Phase9EDecisionError("The persisted application report is missing.")
+        raise Phase9EDecisionError(
+            "The persisted application report is missing."
+        )
     profile = application_report.get("resume_profile")
     if not isinstance(profile, dict) or not profile:
         raise Phase9EDecisionError(
@@ -633,8 +640,22 @@ def build_original_resume_starting_snapshot(
         raise Phase9EDecisionError(
             "The persisted profile could not produce a scoring representation."
         )
+
     report_meta = application_report.get("meta") or {}
     analysis_cache = report_meta.get("analysis_cache") or {}
+    semantic_source_identity = {
+        "policy_version": (
+            PHASE9E_ORIGINAL_SOURCE_IDENTITY_POLICY_VERSION
+        ),
+        "analysis_input_fingerprint": _clean(
+            analysis_cache.get("input_fingerprint")
+        ),
+        "analysis_id": _clean(analysis_cache.get("analysis_id")),
+        "persisted_resume_profile_fingerprint": fingerprint_value(profile),
+        "persisted_resume_text_sha256": _text_sha256(resume_text),
+        "source_fidelity": fidelity,
+        "resume_text_representation_method": representation,
+    }
     result = {
         "source_type": "original_resume",
         "source_fidelity": fidelity,
@@ -642,21 +663,10 @@ def build_original_resume_starting_snapshot(
         "resume_text_representation_method": representation,
         "resume_profile_snapshot": deepcopy(profile),
         "resume_text_snapshot": str(resume_text),
-        "source_identity": {
-            "analysis_input_fingerprint": _clean(
-                analysis_cache.get("input_fingerprint")
-            ),
-            "analysis_id": _clean(analysis_cache.get("analysis_id")),
-            "persisted_report_fingerprint": fingerprint_value(
-                application_report
-            ),
-            "persisted_resume_profile_fingerprint": fingerprint_value(profile),
-        },
-        "application_report_snapshot": deepcopy(application_report),
+        "source_identity": semantic_source_identity,
     }
     result["starting_snapshot_fingerprint"] = fingerprint_value(result)
     return result
-
 
 def build_phase9e_keyword_match(
     *,

@@ -187,6 +187,13 @@ from tailoring.phase9e_blueprint_selection_ui import (
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
+from tailoring.phase9e1_workflow_ui import (
+    render_application_workflow_overview,
+    render_current_legacy_resume_result,
+)
+from tailoring.phase9e1_blueprint_lifecycle_ui import (
+    render_state_aware_blueprint_lifecycle,
+)
 from tailoring.application_output_integrations_ui import (
     render_application_output_cover_letter,
 )
@@ -693,6 +700,390 @@ def render_application_analysis_chat(
         ):
             clear_application_chat_history(application_id)
             st.rerun()
+
+
+def render_application_analysis_details(
+    *,
+    report: dict[str, Any],
+    current_application_id: int | None,
+) -> None:
+    """Render diagnostic analysis, reports, and usage as secondary details."""
+    stable_analysis = report.get("stable_analysis", {}) or {}
+
+    if stable_analysis:
+        stable_score = int(
+            stable_analysis.get(
+                "deterministic_alignment_score",
+                0,
+            )
+        )
+        stable_band = stable_analysis.get(
+            "alignment_band",
+            "not classified",
+        )
+        st.info(
+            f"Role alignment: {stable_score}/100 "
+            f"— {stable_band.title()}"
+        )
+        st.caption(
+            "This evidence-linked score uses fixed Python weights and "
+            "constrained match labels. It is an alignment estimate, "
+            "not an ATS acceptance probability."
+        )
+
+        boundary_status = (
+            stable_analysis.get("boundary_status", {}) or {}
+        )
+        if boundary_status.get("is_borderline"):
+            st.warning(
+                "This result is close to an alignment-band boundary. "
+                "Review the requirement evidence instead of treating a "
+                "small point difference as pass/fail."
+            )
+
+        stable_col1, stable_col2, stable_col3, stable_col4 = st.columns(4)
+        stable_col1.metric(
+            "Required/Core Coverage",
+            f"{stable_analysis.get('required_core_coverage_score', 0)}%",
+        )
+        stable_col2.metric(
+            "Preferred Coverage",
+            f"{stable_analysis.get('preferred_coverage_score', 0)}%",
+        )
+        stable_col3.metric(
+            "Credited Requirements",
+            (
+                f"{stable_analysis.get('credited_requirement_count', 0)}"
+                f"/{stable_analysis.get('requirement_count', 0)}"
+            ),
+        )
+        stable_col4.metric(
+            "Strength of Credited Evidence",
+            f"{stable_analysis.get('evidence_strength_score', 0)}%",
+        )
+
+        with st.expander(
+            "Evidence-linked requirement breakdown",
+            expanded=False,
+        ):
+            show_result_table(
+                stable_analysis.get(
+                    "canonical_requirements",
+                    [],
+                ),
+                "No canonical requirements were created.",
+            )
+
+            warnings = stable_analysis.get(
+                "validation_warnings",
+                [],
+            )
+            if warnings:
+                st.write("### Validation warnings")
+                show_result_table(
+                    warnings,
+                    "No validation warnings.",
+                )
+
+        st.subheader("Role Alignment Summary")
+        st.markdown(build_stable_alignment_summary(report))
+
+        st.subheader("Résumé Quality")
+        quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+        quality_col1.metric(
+            "Bullet Quality",
+            report.get("bullets", {}).get("bullet_quality_avg", 0),
+        )
+        quality_col2.metric(
+            "Structure",
+            report.get("structure", {}).get("structure_score", 0),
+        )
+        quality_col3.metric(
+            "Jargon Clarity",
+            report.get("jargon", {}).get("jargon_score", 0),
+        )
+        quality_col4.metric(
+            "Degree Relevance",
+            report.get("degree_alignment", {}).get(
+                "degree_alignment_score",
+                0,
+            ),
+        )
+
+        with st.expander(
+            "Legacy AI-assisted comparison (development only)",
+            expanded=False,
+        ):
+            legacy_col1, legacy_col2 = st.columns(2)
+            legacy_col1.metric(
+                "Legacy Composite",
+                f"{overall_score}/100",
+            )
+            legacy_col2.metric(
+                "AI Keyword Diagnostic",
+                report.get("keyword_match", {}).get(
+                    "keyword_match_score",
+                    0,
+                ),
+            )
+            st.caption(
+                "This older composite is retained only for development "
+                "comparison. It is not an ATS pass/fail result."
+            )
+            st.markdown(
+                report.get(
+                    "summary",
+                    "_No legacy summary returned._",
+                )
+            )
+    else:
+        if passed:
+            st.success(
+                f"Score: {overall_score}/100 "
+                f"({score_label(overall_score)})"
+            )
+        else:
+            st.error(
+                f"Score: {overall_score}/100 "
+                f"({score_label(overall_score)})"
+            )
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
+        col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
+        col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
+        col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
+        col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
+
+        st.subheader("Executive Summary")
+        st.markdown(report.get("summary", "_No summary returned._"))
+
+    tab_keywords, tab_bullets, tab_structure, tab_jargon, tab_degree, tab_raw = st.tabs(
+        ["Keywords", "Bullets", "Structure", "Jargon", "Degree Fit", "Raw JSON"]
+    )
+
+    with tab_keywords:
+        st.write("### Present Keywords")
+        present = report.get("keyword_match", {}).get("present", [])
+        show_result_table(present, "No present keywords returned.")
+        # if present:
+        #     st.dataframe(present, width="stretch")
+        # else:
+        #     st.info("No present keywords returned.")
+
+        st.write("### Missing Keywords")
+        missing = report.get("keyword_match", {}).get("missing", [])
+        # if missing:
+        #     st.dataframe(missing, width="stretch")
+        # else:
+        #     st.success("No missing keywords returned.")
+        show_result_table(missing, "No missing keywords returned.")
+
+    with tab_bullets:
+        st.write("### Bullet Quality Audit")
+        bullet_rows = report.get("bullets", {}).get("bullets", [])
+        # if bullet_rows:
+        #     st.dataframe(bullet_rows, width="stretch")
+        # else:
+        #     st.info("No bullet audit rows returned.")
+        show_result_table(bullet_rows, "No missing keywords returned.")
+
+    with tab_structure:
+        st.write("### Three-Thirds / ATS Structure")
+        st.json(report.get("structure", {}))
+
+    with tab_jargon:
+        st.write("### Jargon Flags")
+        flags = report.get("jargon", {}).get("flags", [])
+        # if flags:
+        #     st.dataframe(flags, width="stretch")
+        # else:
+        #     st.success("No jargon flags returned.")
+        show_result_table(flags, "No jargon flags returned.")
+
+    with tab_degree:
+        st.write("### Degree Alignment")
+        st.json(report.get("degree_alignment", {}))
+
+    with tab_raw:
+        st.write("### Full Report JSON")
+        st.json(report)
+
+    usage_summary = get_api_usage_summary(
+        current_application_id,
+        report,
+    )
+    if usage_summary.get("call_count", 0):
+        st.subheader("Application API Total and Breakdown")
+        st.caption(
+            "Each AI button shows its latest-use subtotal nearby. "
+            "This section is the cumulative application total."
+        )
+
+        fitting_result_exists = bool(
+            current_application_id is not None
+            and st.session_state.get(
+                "tailored_resume_fit_result_"
+                f"{current_application_id}"
+            )
+        )
+
+        zero_actions = []
+        if fitting_result_exists:
+            zero_actions.append(
+                {
+                    "action": (
+                        "generate_and_fit_tailored_resume"
+                    ),
+                    "label": (
+                        "Generate and Fit Tailored Resume"
+                    ),
+                    "note": (
+                        "Local deterministic DOCX/PDF fitting; "
+                        "no model API call."
+                    ),
+                }
+            )
+
+        stage_rows = summarise_api_calls_by_action(
+            usage_summary.get("calls", []) or [],
+            action_order=[
+                "analyse_resume",
+                "generate_projects",
+                "generate_skills",
+                "generate_projects_and_skills",
+                "generate_and_fit_tailored_resume",
+            ],
+            action_labels={
+                "analyse_resume": "Analyse Resume",
+                "generate_projects": "Generate Projects",
+                "generate_skills": "Generate Skills",
+                "generate_projects_and_skills": (
+                    "Generate Projects + Skills (legacy)"
+                ),
+                "generate_and_fit_tailored_resume": (
+                    "Generate and Fit Tailored Resume"
+                ),
+            },
+            zero_actions=zero_actions,
+        )
+
+        st.write("#### Total breakdown by AI action")
+        st.dataframe(
+            [
+                {
+                    "Stage": row.get("label", ""),
+                    "Calls": row.get("call_count", 0),
+                    "Input tokens": row.get(
+                        "input_tokens",
+                        0,
+                    ),
+                    "Output tokens": row.get(
+                        "output_tokens",
+                        0,
+                    ),
+                    "Total tokens": row.get(
+                        "total_tokens",
+                        0,
+                    ),
+                    "Estimated cost (USD)": (
+                        "${:.6f}".format(
+                            float(
+                                row.get(
+                                    "estimated_total_cost_usd",
+                                    0.0,
+                                )
+                                or 0.0
+                            )
+                        )
+                    ),
+                    "Notes": row.get("note", ""),
+                }
+                for row in stage_rows
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+        st.write("#### Application total")
+        usage_col1, usage_col2, usage_col3 = st.columns(3)
+        usage_col1.metric(
+            "Estimated API Cost",
+            "${:.6f}".format(
+                float(
+                    usage_summary.get(
+                        "estimated_total_cost_usd",
+                        0.0,
+                    )
+                    or 0.0
+                )
+            ),
+        )
+        usage_col2.metric(
+            "Tracked API Calls",
+            usage_summary.get("call_count", 0),
+        )
+        usage_col3.metric(
+            "Total Tokens",
+            f"{usage_summary.get('total_tokens', 0):,}",
+        )
+
+        st.caption(
+            "Estimated from provider-reported usage and the local "
+            "price catalogue. DOCX/PDF fitting is deterministic "
+            "local processing and has no model-token charge."
+        )
+
+        if not usage_summary.get(
+            "cost_estimate_complete",
+            True,
+        ):
+            st.warning(
+                "Some tracked models are missing from the local "
+                "price catalogue, so the cost is partial."
+            )
+
+        with st.expander(
+            "API usage details",
+            expanded=False,
+        ):
+            st.json(usage_summary)
+
+    st.subheader("Download Reports")
+
+    json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
+    markdown_text, markdown_filename = create_markdown_report(report)
+
+    download_col1, download_col2 = st.columns(2)
+
+    with download_col1:
+        st.download_button(
+            "Download JSON Report",
+            data=json_bytes,
+            file_name=f"match_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            width="stretch",
+        )
+
+    with download_col2:
+        st.download_button(
+            "Download Markdown Report",
+            data=markdown_text,
+            file_name=markdown_filename,
+            mime="text/markdown",
+            width="stretch",
+        )
+
+    if current_application_id is not None:
+        tailored_projects_key = f"tailored_projects_result_{current_application_id}"
+        tailored_fit_key = f"tailored_projects_fit_{current_application_id}"
+        tailored_skills_key = f"tailored_skills_result_{current_application_id}"
+        tailored_docx_key = f"tailored_resume_copy_path_{current_application_id}"
+        tailored_fit_result_key = f"tailored_resume_fit_result_{current_application_id}"
+        saved_docx_key = f"saved_resume_docx_path_{current_application_id}"
+        tailored_generation_id_key = (
+            f"tailored_generation_id_{current_application_id}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1917,73 +2308,86 @@ with st.sidebar:
 if page == "Application Sessions":
     input_suffix = st.session_state["input_reset_counter"]
 
-    uploaded_resume = st.file_uploader(
-        "Upload resume",
-        type=["pdf", "docx"],
-        key=f"resume_upload_{input_suffix}",
-        help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
+    has_loaded_application_report = bool(
+        st.session_state.get("current_application_id") is not None
+        and isinstance(st.session_state.get("latest_report"), dict)
     )
-
-    uploaded_resume_is_docx = bool(
-        uploaded_resume is not None
-        and str(uploaded_resume.name).lower().endswith(".docx")
-    )
-
-    if uploaded_resume is None:
-        save_resume_docx_for_editing = False
-        st.caption(
-            "Upload a DOCX when you want the app to generate an edited "
-            "Word-document copy. PDFs can still be analysed."
+    input_panel = (
+        st.expander(
+            "Replace résumé or job description",
+            expanded=False,
         )
-    elif uploaded_resume_is_docx:
-        save_resume_docx_for_editing = st.checkbox(
-            "Save this DOCX so the app can generate an edited resume copy",
-            value=True,
-            key=f"save_resume_docx_{input_suffix}",
-            help=(
-                "The app saves a session-owned local copy. The uploaded "
-                "original is not overwritten."
+        if has_loaded_application_report
+        else st.container()
+    )
+    with input_panel:
+        uploaded_resume = st.file_uploader(
+            "Upload resume",
+            type=["pdf", "docx"],
+            key=f"resume_upload_{input_suffix}",
+            help="Upload a text-based PDF or DOCX resume. Scanned PDFs may not parse correctly.",
+        )
+
+        uploaded_resume_is_docx = bool(
+            uploaded_resume is not None
+            and str(uploaded_resume.name).lower().endswith(".docx")
+        )
+
+        if uploaded_resume is None:
+            save_resume_docx_for_editing = False
+            st.caption(
+                "Upload a DOCX when you want the app to generate an edited "
+                "Word-document copy. PDFs can still be analysed."
+            )
+        elif uploaded_resume_is_docx:
+            save_resume_docx_for_editing = st.checkbox(
+                "Save this DOCX so the app can generate an edited resume copy",
+                value=True,
+                key=f"save_resume_docx_{input_suffix}",
+                help=(
+                    "The app saves a session-owned local copy. The uploaded "
+                    "original is not overwritten."
+                ),
+            )
+        else:
+            save_resume_docx_for_editing = False
+            st.info(
+                "This PDF can be analysed, but tailored Word-document generation "
+                "requires a DOCX source. Upload the DOCX version in a new or "
+                "re-analysed session when you need an edited copy."
+            )
+
+        jd_text_input = st.text_area(
+            "Paste job description",
+            height=260,
+            key=f"jd_text_{input_suffix}",
+            placeholder=(
+                "Paste the full job description here, including responsibilities, "
+                "requirements, tools, technologies, and soft skills..."
             ),
         )
-    else:
-        save_resume_docx_for_editing = False
-        st.info(
-            "This PDF can be analysed, but tailored Word-document generation "
-            "requires a DOCX source. Upload the DOCX version in a new or "
-            "re-analysed session when you need an edited copy."
+
+        analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
+
+        analysis_cache_mode = st.radio(
+            "Analysis mode",
+            options=ANALYSIS_CACHE_MODE_OPTIONS,
+            index=0,
+            horizontal=True,
+            key=f"analysis_cache_mode_{input_suffix}",
+            help=(
+                "Choose exactly one mode. Reuse loads an exact saved analysis "
+                "when available. Force fresh bypasses the cache and incurs normal "
+                "model usage."
+            ),
         )
-
-    jd_text_input = st.text_area(
-        "Paste job description",
-        height=260,
-        key=f"jd_text_{input_suffix}",
-        placeholder=(
-            "Paste the full job description here, including responsibilities, "
-            "requirements, tools, technologies, and soft skills..."
-        ),
-    )
-
-    analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
-
-    analysis_cache_mode = st.radio(
-        "Analysis mode",
-        options=ANALYSIS_CACHE_MODE_OPTIONS,
-        index=0,
-        horizontal=True,
-        key=f"analysis_cache_mode_{input_suffix}",
-        help=(
-            "Choose exactly one mode. Reuse loads an exact saved analysis "
-            "when available. Force fresh bypasses the cache and incurs normal "
-            "model usage."
-        ),
-    )
-    reuse_exact_analysis_cache, force_fresh_analysis = (
-        resolve_analysis_cache_mode(analysis_cache_mode)
-    )
-    st.caption(
-        "Reuse exact saved analysis avoids model calls on an exact cache hit. "
-        "Force fresh AI analysis always runs the analysis pipeline again."
-    )
+        reuse_exact_analysis_cache, force_fresh_analysis = (
+            resolve_analysis_cache_mode(analysis_cache_mode)
+        )
+        st.caption(
+            "Reuse exact saved analysis avoids model calls on an exact cache hit. "
+            "Force fresh AI analysis always runs the analysis pipeline again."
+        )
 
     if analyze_clicked:
         if uploaded_resume is None:
@@ -2311,404 +2715,26 @@ if page == "Application Sessions":
         st.divider()
         st.header("Results")
 
+        has_current_legacy_result = False
         if current_application_id is not None:
             st.caption(f"Current application session: #{current_application_id}")
-
-        stable_analysis = report.get("stable_analysis", {}) or {}
-
-        if stable_analysis:
-            stable_score = int(
-                stable_analysis.get(
-                    "deterministic_alignment_score",
-                    0,
-                )
+            render_application_workflow_overview(
+                application_id=int(current_application_id),
+                baseline_report=report,
             )
-            stable_band = stable_analysis.get(
-                "alignment_band",
-                "not classified",
-            )
-            st.info(
-                f"Role alignment: {stable_score}/100 "
-                f"— {stable_band.title()}"
-            )
-            st.caption(
-                "This evidence-linked score uses fixed Python weights and "
-                "constrained match labels. It is an alignment estimate, "
-                "not an ATS acceptance probability."
-            )
-
-            boundary_status = (
-                stable_analysis.get("boundary_status", {}) or {}
-            )
-            if boundary_status.get("is_borderline"):
-                st.warning(
-                    "This result is close to an alignment-band boundary. "
-                    "Review the requirement evidence instead of treating a "
-                    "small point difference as pass/fail."
-                )
-
-            stable_col1, stable_col2, stable_col3, stable_col4 = st.columns(4)
-            stable_col1.metric(
-                "Required/Core Coverage",
-                f"{stable_analysis.get('required_core_coverage_score', 0)}%",
-            )
-            stable_col2.metric(
-                "Preferred Coverage",
-                f"{stable_analysis.get('preferred_coverage_score', 0)}%",
-            )
-            stable_col3.metric(
-                "Credited Requirements",
-                (
-                    f"{stable_analysis.get('credited_requirement_count', 0)}"
-                    f"/{stable_analysis.get('requirement_count', 0)}"
-                ),
-            )
-            stable_col4.metric(
-                "Strength of Credited Evidence",
-                f"{stable_analysis.get('evidence_strength_score', 0)}%",
-            )
-
-            with st.expander(
-                "Evidence-linked requirement breakdown",
-                expanded=False,
-            ):
-                show_result_table(
-                    stable_analysis.get(
-                        "canonical_requirements",
-                        [],
-                    ),
-                    "No canonical requirements were created.",
-                )
-
-                warnings = stable_analysis.get(
-                    "validation_warnings",
-                    [],
-                )
-                if warnings:
-                    st.write("### Validation warnings")
-                    show_result_table(
-                        warnings,
-                        "No validation warnings.",
-                    )
-
-            st.subheader("Role Alignment Summary")
-            st.markdown(build_stable_alignment_summary(report))
-
-            st.subheader("Résumé Quality")
-            quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
-            quality_col1.metric(
-                "Bullet Quality",
-                report.get("bullets", {}).get("bullet_quality_avg", 0),
-            )
-            quality_col2.metric(
-                "Structure",
-                report.get("structure", {}).get("structure_score", 0),
-            )
-            quality_col3.metric(
-                "Jargon Clarity",
-                report.get("jargon", {}).get("jargon_score", 0),
-            )
-            quality_col4.metric(
-                "Degree Relevance",
-                report.get("degree_alignment", {}).get(
-                    "degree_alignment_score",
-                    0,
-                ),
-            )
-
-            with st.expander(
-                "Legacy AI-assisted comparison (development only)",
-                expanded=False,
-            ):
-                legacy_col1, legacy_col2 = st.columns(2)
-                legacy_col1.metric(
-                    "Legacy Composite",
-                    f"{overall_score}/100",
-                )
-                legacy_col2.metric(
-                    "AI Keyword Diagnostic",
-                    report.get("keyword_match", {}).get(
-                        "keyword_match_score",
-                        0,
-                    ),
-                )
-                st.caption(
-                    "This older composite is retained only for development "
-                    "comparison. It is not an ATS pass/fail result."
-                )
-                st.markdown(
-                    report.get(
-                        "summary",
-                        "_No legacy summary returned._",
-                    )
-                )
-        else:
-            if passed:
-                st.success(
-                    f"Score: {overall_score}/100 "
-                    f"({score_label(overall_score)})"
-                )
-            else:
-                st.error(
-                    f"Score: {overall_score}/100 "
-                    f"({score_label(overall_score)})"
-                )
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Keyword Match", report.get("keyword_match", {}).get("keyword_match_score", 0))
-            col2.metric("Bullet Quality", report.get("bullets", {}).get("bullet_quality_avg", 0))
-            col3.metric("Structure", report.get("structure", {}).get("structure_score", 0))
-            col4.metric("Jargon", report.get("jargon", {}).get("jargon_score", 0))
-            col5.metric("Degree Fit", report.get("degree_alignment", {}).get("degree_alignment_score", 0))
-
-            st.subheader("Executive Summary")
-            st.markdown(report.get("summary", "_No summary returned._"))
-
-        tab_keywords, tab_bullets, tab_structure, tab_jargon, tab_degree, tab_raw = st.tabs(
-            ["Keywords", "Bullets", "Structure", "Jargon", "Degree Fit", "Raw JSON"]
-        )
-
-        with tab_keywords:
-            st.write("### Present Keywords")
-            present = report.get("keyword_match", {}).get("present", [])
-            show_result_table(present, "No present keywords returned.")
-            # if present:
-            #     st.dataframe(present, width="stretch")
-            # else:
-            #     st.info("No present keywords returned.")
-
-            st.write("### Missing Keywords")
-            missing = report.get("keyword_match", {}).get("missing", [])
-            # if missing:
-            #     st.dataframe(missing, width="stretch")
-            # else:
-            #     st.success("No missing keywords returned.")
-            show_result_table(missing, "No missing keywords returned.")
-
-        with tab_bullets:
-            st.write("### Bullet Quality Audit")
-            bullet_rows = report.get("bullets", {}).get("bullets", [])
-            # if bullet_rows:
-            #     st.dataframe(bullet_rows, width="stretch")
-            # else:
-            #     st.info("No bullet audit rows returned.")
-            show_result_table(bullet_rows, "No missing keywords returned.")
-
-        with tab_structure:
-            st.write("### Three-Thirds / ATS Structure")
-            st.json(report.get("structure", {}))
-
-        with tab_jargon:
-            st.write("### Jargon Flags")
-            flags = report.get("jargon", {}).get("flags", [])
-            # if flags:
-            #     st.dataframe(flags, width="stretch")
-            # else:
-            #     st.success("No jargon flags returned.")
-            show_result_table(flags, "No jargon flags returned.")
-
-        with tab_degree:
-            st.write("### Degree Alignment")
-            st.json(report.get("degree_alignment", {}))
-
-        with tab_raw:
-            st.write("### Full Report JSON")
-            st.json(report)
-
-        usage_summary = get_api_usage_summary(
-            current_application_id,
-            report,
-        )
-        if usage_summary.get("call_count", 0):
-            st.subheader("Application API Total and Breakdown")
-            st.caption(
-                "Each AI button shows its latest-use subtotal nearby. "
-                "This section is the cumulative application total."
-            )
-
-            fitting_result_exists = bool(
-                current_application_id is not None
-                and st.session_state.get(
-                    "tailored_resume_fit_result_"
-                    f"{current_application_id}"
+            has_current_legacy_result = (
+                render_current_legacy_resume_result(
+                    application_id=int(current_application_id),
                 )
             )
 
-            zero_actions = []
-            if fitting_result_exists:
-                zero_actions.append(
-                    {
-                        "action": (
-                            "generate_and_fit_tailored_resume"
-                        ),
-                        "label": (
-                            "Generate and Fit Tailored Resume"
-                        ),
-                        "note": (
-                            "Local deterministic DOCX/PDF fitting; "
-                            "no model API call."
-                        ),
-                    }
-                )
-
-            stage_rows = summarise_api_calls_by_action(
-                usage_summary.get("calls", []) or [],
-                action_order=[
-                    "analyse_resume",
-                    "generate_projects",
-                    "generate_skills",
-                    "generate_projects_and_skills",
-                    "generate_and_fit_tailored_resume",
-                ],
-                action_labels={
-                    "analyse_resume": "Analyse Resume",
-                    "generate_projects": "Generate Projects",
-                    "generate_skills": "Generate Skills",
-                    "generate_projects_and_skills": (
-                        "Generate Projects + Skills (legacy)"
-                    ),
-                    "generate_and_fit_tailored_resume": (
-                        "Generate and Fit Tailored Resume"
-                    ),
-                },
-                zero_actions=zero_actions,
-            )
-
-            st.write("#### Total breakdown by AI action")
-            st.dataframe(
-                [
-                    {
-                        "Stage": row.get("label", ""),
-                        "Calls": row.get("call_count", 0),
-                        "Input tokens": row.get(
-                            "input_tokens",
-                            0,
-                        ),
-                        "Output tokens": row.get(
-                            "output_tokens",
-                            0,
-                        ),
-                        "Total tokens": row.get(
-                            "total_tokens",
-                            0,
-                        ),
-                        "Estimated cost (USD)": (
-                            "${:.6f}".format(
-                                float(
-                                    row.get(
-                                        "estimated_total_cost_usd",
-                                        0.0,
-                                    )
-                                    or 0.0
-                                )
-                            )
-                        ),
-                        "Notes": row.get("note", ""),
-                    }
-                    for row in stage_rows
-                ],
-                hide_index=True,
-                width="stretch",
-            )
-
-            st.write("#### Application total")
-            usage_col1, usage_col2, usage_col3 = st.columns(3)
-            usage_col1.metric(
-                "Estimated API Cost",
-                "${:.6f}".format(
-                    float(
-                        usage_summary.get(
-                            "estimated_total_cost_usd",
-                            0.0,
-                        )
-                        or 0.0
-                    )
-                ),
-            )
-            usage_col2.metric(
-                "Tracked API Calls",
-                usage_summary.get("call_count", 0),
-            )
-            usage_col3.metric(
-                "Total Tokens",
-                f"{usage_summary.get('total_tokens', 0):,}",
-            )
-
-            st.caption(
-                "Estimated from provider-reported usage and the local "
-                "price catalogue. DOCX/PDF fitting is deterministic "
-                "local processing and has no model-token charge."
-            )
-
-            if not usage_summary.get(
-                "cost_estimate_complete",
-                True,
-            ):
-                st.warning(
-                    "Some tracked models are missing from the local "
-                    "price catalogue, so the cost is partial."
-                )
-
-            with st.expander(
-                "API usage details",
-                expanded=False,
-            ):
-                st.json(usage_summary)
-
-        st.subheader("Download Reports")
-
-        json_bytes = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
-        markdown_text, markdown_filename = create_markdown_report(report)
-
-        download_col1, download_col2 = st.columns(2)
-
-        with download_col1:
-            st.download_button(
-                "Download JSON Report",
-                data=json_bytes,
-                file_name=f"match_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json",
-                width="stretch",
-            )
-
-        with download_col2:
-            st.download_button(
-                "Download Markdown Report",
-                data=markdown_text,
-                file_name=markdown_filename,
-                mime="text/markdown",
-                width="stretch",
-            )
-
-        if current_application_id is not None:
-            tailored_projects_key = f"tailored_projects_result_{current_application_id}"
-            tailored_fit_key = f"tailored_projects_fit_{current_application_id}"
-            tailored_skills_key = f"tailored_skills_result_{current_application_id}"
-            tailored_docx_key = f"tailored_resume_copy_path_{current_application_id}"
-            tailored_fit_result_key = f"tailored_resume_fit_result_{current_application_id}"
-            saved_docx_key = f"saved_resume_docx_path_{current_application_id}"
-            tailored_generation_id_key = (
-                f"tailored_generation_id_{current_application_id}"
-            )
-
-
+        phase9a_jd_record: dict[str, Any] = {}
         if current_application_id is not None:
             phase9a_jd_record = (
                 get_exact_job_description_for_application(
                     int(current_application_id)
                 )
                 or {}
-            )
-            phase9a_raw_jd_text = str(
-                phase9a_jd_record.get("raw_text")
-                or report.get("raw_jd_text")
-                or ""
-            )
-            render_evidence_opportunity_analysis(
-                application_id=int(current_application_id),
-                baseline_report=report,
-                raw_jd_text=phase9a_raw_jd_text,
-                evidence_items=get_evidence_items(limit=100),
             )
 
         persisted_application_report = report
@@ -2720,10 +2746,22 @@ if page == "Application Sessions":
             ],
         }
         if current_application_id is not None:
-            phase9e_context = render_phase9e_blueprint_selection(
-                application_id=int(current_application_id),
-                baseline_report=persisted_application_report,
-            )
+            if has_current_legacy_result:
+                with st.expander(
+                    "Optional Phase 9E source migration",
+                    expanded=False,
+                ):
+                    phase9e_context = (
+                        render_phase9e_blueprint_selection(
+                            application_id=int(current_application_id),
+                            baseline_report=persisted_application_report,
+                        )
+                    )
+            else:
+                phase9e_context = render_phase9e_blueprint_selection(
+                    application_id=int(current_application_id),
+                    baseline_report=persisted_application_report,
+                )
             try:
                 current_application_result = (
                     get_current_application_resume_result(
@@ -2750,12 +2788,61 @@ if page == "Application Sessions":
                     application_id=int(current_application_id),
                     result=current_application_result,
                 )
+                phase9a_raw_jd_text = str(
+                    phase9a_jd_record.get("raw_text")
+                    or persisted_application_report.get("raw_jd_text")
+                    or ""
+                )
+                render_evidence_opportunity_analysis(
+                    application_id=int(current_application_id),
+                    baseline_report=persisted_application_report,
+                    raw_jd_text=phase9a_raw_jd_text,
+                    evidence_items=get_evidence_items(limit=100),
+                    collapsed=True,
+                )
+                with st.expander(
+                    "Match, scores, reports, and API usage",
+                    expanded=False,
+                ):
+                    render_application_analysis_details(
+                        report=persisted_application_report,
+                        current_application_id=current_application_id,
+                    )
                 render_application_analysis_chat(
                     application_id=int(current_application_id),
                     analysis_report=persisted_application_report,
                     persisted_report=persisted_application_report,
                 )
                 st.stop()
+
+        if current_application_id is not None:
+            phase9a_raw_jd_text = str(
+                phase9a_jd_record.get("raw_text")
+                or persisted_application_report.get("raw_jd_text")
+                or ""
+            )
+            phase9a_decision = (
+                phase9e_context.get("decision") or {}
+            ).get("recommended_tailoring")
+            render_evidence_opportunity_analysis(
+                application_id=int(current_application_id),
+                baseline_report=persisted_application_report,
+                raw_jd_text=phase9a_raw_jd_text,
+                evidence_items=get_evidence_items(limit=100),
+                collapsed=phase9a_decision in {
+                    "reuse_approved_source",
+                    "reuse_unchanged",
+                },
+            )
+
+        with st.expander(
+            "Match, scores, reports, and API usage",
+            expanded=False,
+        ):
+            render_application_analysis_details(
+                report=persisted_application_report,
+                current_application_id=current_application_id,
+            )
 
         phase9e_ready = bool(phase9e_context.get("can_generate"))
         phase9e_enforced = bool(phase9e_context.get("phase9e_enforced"))
@@ -2815,7 +2902,7 @@ if page == "Application Sessions":
             st.session_state[marker_key] = binding_marker
 
         st.divider()
-        st.header("Tailor Resume for This Job")
+        st.header("Tailor Résumé Content")
         st.caption(
             "Phase 6B uses canonical requirement IDs and fixed Python weights "
             "for Project selection and Skills priorities. AI numeric scores are "
@@ -3618,50 +3705,8 @@ if page == "Application Sessions":
                 with st.expander("Unsupported JD skills"):
                     st.json(skills_result.get("unsupported_jd_skills", []))
 
-            if phase9e_ready:
-                render_tailoring_generation_controls(
-                    application_id=current_application_id,
-                    required_phase9e_binding=(
-                        phase9e_binding if phase9e_enforced else None
-                    ),
-                )
-            else:
-                st.info(
-                    "Generation restoration and regeneration controls are "
-                    "blocked for an unbound or stale Phase 9E scope."
-                )
-
-            phase8_jd_record = (
-                get_exact_job_description_for_application(
-                    int(current_application_id)
-                )
-                if current_application_id is not None
-                else None
-            ) or {}
-            phase8_raw_jd_text = str(
-                phase8_jd_record.get("raw_text")
-                or report.get("raw_jd_text")
-                or ""
-            )
-
-            if phase9e_ready:
-                render_phase8_verification(
-                    application_id=current_application_id,
-                    baseline_report=report,
-                    raw_jd_text=phase8_raw_jd_text,
-                )
-
-                render_blueprint_candidate_promotion(
-                    application_id=int(current_application_id),
-                    baseline_report=report,
-                    current_phase9e_decision_fingerprint=str(
-                        phase9e_binding.get("decision_fingerprint") or ""
-                    ),
-                )
-            render_phase9c_blueprint_evaluation()
-
             st.divider()
-            st.subheader("Generate Edited Resume Copy")
+            st.subheader("Build and Fit Résumé Document")
 
             st.caption(
             "This can change the Skills section, Projects section, or both in a copied DOCX. "
@@ -4262,6 +4307,105 @@ if page == "Application Sessions":
                         width="stretch",
                         key=f"download_tailored_docx_{current_application_id}",
                     )
+
+            st.divider()
+            st.subheader("Approve and Verify Résumé")
+            st.caption(
+                "Workflow order: build and fit the document, approve the "
+                "chosen fitted generation, run Phase 8 verification, then "
+                "continue through Phase 9B, Phase 9C, and Phase 9D."
+            )
+
+            post_fit_control = get_application_generation_control(
+                current_application_id
+            )
+            post_fit_approved = post_fit_control.get(
+                "approved_generation"
+            )
+            session_fit_result = (
+                fit_result if isinstance(fit_result, dict) else {}
+            )
+            approved_fit_result = (
+                (post_fit_approved or {}).get("fit_result") or {}
+                if isinstance(post_fit_approved, dict)
+                else {}
+            )
+            has_fitted_output = bool(
+                session_fit_result.get("docx_path")
+                or session_fit_result.get("pdf_path")
+                or session_fit_result.get("fit_one_page") is not None
+                or approved_fit_result.get("docx_path")
+                or approved_fit_result.get("pdf_path")
+                or approved_fit_result.get("fit_one_page") is not None
+            )
+
+            if not has_fitted_output:
+                st.info(
+                    "Generate and fit the résumé document before approving "
+                    "or running Phase 8."
+                )
+            else:
+                if phase9e_ready:
+                    render_tailoring_generation_controls(
+                        application_id=current_application_id,
+                        required_phase9e_binding=(
+                            phase9e_binding
+                            if phase9e_enforced
+                            else None
+                        ),
+                    )
+                else:
+                    st.info(
+                        "Approval and generation restoration are blocked for "
+                        "an unbound or stale Phase 9E scope."
+                    )
+
+                post_approval_control = (
+                    get_application_generation_control(
+                        current_application_id
+                    )
+                )
+                approved_for_phase8 = post_approval_control.get(
+                    "approved_generation"
+                )
+
+                phase8_jd_record = (
+                    get_exact_job_description_for_application(
+                        int(current_application_id)
+                    )
+                    if current_application_id is not None
+                    else None
+                ) or {}
+                phase8_raw_jd_text = str(
+                    phase8_jd_record.get("raw_text")
+                    or report.get("raw_jd_text")
+                    or ""
+                )
+
+                if phase9e_ready and isinstance(
+                    approved_for_phase8,
+                    dict,
+                ):
+                    render_phase8_verification(
+                        application_id=current_application_id,
+                        baseline_report=report,
+                        raw_jd_text=phase8_raw_jd_text,
+                    )
+                elif phase9e_ready:
+                    st.info(
+                        "Approve one fitted generation to unlock Phase 8."
+                    )
+
+                render_state_aware_blueprint_lifecycle(
+                    application_id=int(current_application_id),
+                    baseline_report=report,
+                    current_phase9e_decision_fingerprint=str(
+                        phase9e_binding.get(
+                            "decision_fingerprint"
+                        )
+                        or ""
+                    ),
+                )
 
         st.divider()
         st.header("Tailored Cover Letter")

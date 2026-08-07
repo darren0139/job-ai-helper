@@ -107,28 +107,29 @@ def _show_blueprint_identity(blueprint: dict[str, Any]) -> None:
 def _show_decision(decision: dict[str, Any], *, heading: str) -> None:
     st.write(f"#### {heading}")
     comparison = decision.get("comparison") or {}
-    metrics = st.columns(5)
-    metrics[0].metric(
-        "Decision",
+    decision_label = (
         _clean(decision.get("recommended_tailoring_label"))
         or DECISION_LABELS.get(
             _clean(decision.get("recommended_tailoring")),
             _clean(decision.get("recommended_tailoring")),
-        ),
+        )
     )
-    metrics[1].metric(
+    st.caption("Recommended workflow")
+    st.write(f"**{decision_label}**")
+    metrics = st.columns(4)
+    metrics[0].metric(
         "Overall",
         comparison.get("deterministic_alignment_score", 0),
     )
-    metrics[2].metric(
+    metrics[1].metric(
         "Required/Core",
         f"{comparison.get('required_core_coverage_score', 0)}%",
     )
-    metrics[3].metric(
+    metrics[2].metric(
         "Preferred",
         f"{comparison.get('preferred_coverage_score', 0)}%",
     )
-    metrics[4].metric(
+    metrics[3].metric(
         "Evidence strength",
         f"{comparison.get('evidence_strength_score', 0)}%",
     )
@@ -196,7 +197,11 @@ def _show_active_binding(
     st.write(f"**Active starting source:** {source_label}")
     st.caption(source_details)
     st.caption(f"Current workflow state: {workflow_state.replace('_', ' ')}")
-    _show_decision(current, heading="Current bound decision")
+    with st.expander(
+        "View current Phase 9E decision diagnostics",
+        expanded=False,
+    ):
+        _show_decision(current, heading="Current bound decision")
     current_result = get_current_application_resume_result(
         application_id, validate_artifacts=False
     )
@@ -217,6 +222,48 @@ def _show_active_binding(
         decision=current,
         actor_label=actor_label,
     )
+
+
+
+def _preview_source_label(decision: dict[str, Any]) -> str:
+    selection = decision.get("selection") or {}
+    source = _clean(selection.get("selected_source"))
+    if source == "original_resume":
+        return "Original application résumé"
+    blueprint = selection.get("selected_blueprint") or {}
+    return (
+        _clean(selection.get("selected_blueprint_display_name"))
+        or _clean(blueprint.get("display_name"))
+        or _clean(blueprint.get("role_family_label"))
+        or "Selected Global Blueprint"
+    )
+
+
+def _render_scope_transition_summary(
+    *,
+    preview: dict[str, Any],
+    generation_context: dict[str, Any],
+) -> None:
+    """Separate the current legacy scope from the proposed Phase 9E scope."""
+    with st.container(border=True):
+        st.write("#### Workflow transition")
+        current_col, proposed_col, status_col = st.columns(3)
+        current_col.caption("Current workflow")
+        current_col.write("**Legacy generation scope**")
+        proposed_col.caption("Proposed Phase 9E source")
+        proposed_col.write(
+            f"**{_preview_source_label(preview)}**"
+        )
+        status_col.caption("Status")
+        status_col.write("**Waiting for confirmation**")
+        st.caption(
+            generation_context.get("legacy_notice")
+            or (
+                "The current legacy generation, approval, fitting, "
+                "verification, and export scope remains active until "
+                "the replacement is explicitly confirmed."
+            )
+        )
 
 
 def _render_decision_history(application_id: int) -> None:
@@ -452,10 +499,10 @@ def render_phase9e_blueprint_selection(
     """Render Phase 9E and return the fail-closed generation context."""
     del baseline_report  # persistence remains authoritative for preview/binding
     st.divider()
-    st.header("Select a Global Blueprint")
+    st.header("Starting Résumé Source")
     st.caption(
-        "Phase 9E deterministically recommends and binds one immutable starting "
-        "snapshot. It does not generate, approve, or overwrite a résumé."
+        "Review, confirm, or replace the immutable résumé source used for this "
+        "application. Phase 9E does not generate, approve, or overwrite content."
     )
 
     flash = st.session_state.pop(f"phase9e_flash_{application_id}", "")
@@ -466,12 +513,13 @@ def render_phase9e_blueprint_selection(
     generation_context = resolve_current_phase9e_generation_context(
         application_id
     )
-    actor_label = st.text_input(
-        "Binding actor label",
-        value="Local user",
-        key=f"phase9e_actor_{application_id}",
-        help="Audit metadata only; excluded from Phase 9E identity.",
-    )
+    with st.expander("Binding audit details", expanded=False):
+        actor_label = st.text_input(
+            "Binding actor label",
+            value="Local user",
+            key=f"phase9e_actor_{application_id}",
+            help="Audit metadata only; excluded from Phase 9E identity.",
+        )
     change_key = f"phase9e_change_source_mode_{application_id}"
     changing_source = bool(st.session_state.get(change_key, False))
     active_current = _is_active_current_binding(current)
@@ -665,14 +713,31 @@ def render_phase9e_blueprint_selection(
                     "source. Keep the current binding or choose a different source."
                 )
             else:
-                _show_decision(
-                    preview,
-                    heading=(
-                        "Proposed replacement decision"
-                        if active_current
-                        else "Deterministic decision preview"
-                    ),
-                )
+                if (
+                    generation_context.get("status") == "legacy"
+                    and not active_current
+                ):
+                    _render_scope_transition_summary(
+                        preview=preview,
+                        generation_context=generation_context,
+                    )
+                    with st.expander(
+                        "Review proposed source diagnostics",
+                        expanded=False,
+                    ):
+                        _show_decision(
+                            preview,
+                            heading="Deterministic decision preview",
+                        )
+                else:
+                    _show_decision(
+                        preview,
+                        heading=(
+                            "Proposed replacement decision"
+                            if active_current
+                            else "Deterministic decision preview"
+                        ),
+                    )
         except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
             st.error(str(exc))
 
@@ -747,7 +812,11 @@ def render_phase9e_blueprint_selection(
                 "This Phase 9E decision is awaiting explicit scope replacement "
                 "confirmation, so generation remains blocked."
             )
-        _show_decision(current, heading="Unconfirmed Phase 9E decision")
+        with st.expander(
+            "View saved unconfirmed Phase 9E decision",
+            expanded=False,
+        ):
+            _show_decision(current, heading="Unconfirmed Phase 9E decision")
     elif current.get("current_scope_status") == "stale":
         st.error(
             "The bound Phase 9E decision is historical/stale. It remains "
