@@ -217,6 +217,26 @@ def load_blueprint_lifecycle_state(
     }
 
 
+def build_working_draft_lifecycle_summary(
+    working_generation: dict[str, Any],
+) -> dict[str, Any]:
+    """Blueprint-stage presentation for an unapproved working draft."""
+    summary = build_blueprint_lifecycle_summary(
+        current_stage="phase8",
+        candidate=None,
+        evaluation=None,
+        active_blueprint=None,
+    )
+    summary["working_generation_id"] = _clean(
+        working_generation.get("generation_id")
+    )
+    summary["working_generation_status"] = _clean(
+        working_generation.get("status")
+    ).lower() or "draft"
+    summary["current_title"] = "Approve and Verify Working Draft"
+    return summary
+
+
 def _render_stepper(summary: dict[str, Any]) -> None:
     columns = st.columns(4)
     for column, row in zip(columns, summary["stages"]):
@@ -232,11 +252,43 @@ def _render_stepper(summary: dict[str, Any]) -> None:
                     st.caption("Waiting")
 
 
+def _render_completed_phase9b_summary(
+    candidate: dict[str, Any],
+) -> None:
+    candidate_name = _clean(
+        candidate.get("candidate_name")
+        or candidate.get("display_name")
+    ) or "Blueprint candidate"
+    with st.expander(
+        "Phase 9B — Blueprint Candidate · Complete",
+        expanded=False,
+    ):
+        st.write(f"**{candidate_name}**")
+        cols = st.columns(3)
+        cols[0].caption("Candidate ID")
+        cols[0].write(
+            f"**{_clean(candidate.get('candidate_id'))[:12] or '—'}**"
+        )
+        cols[1].caption("Source generation")
+        cols[1].write(
+            f"**{_clean(candidate.get('source_generation_id'))[:12] or '—'}**"
+        )
+        cols[2].caption("Role family")
+        cols[2].write(
+            f"**{_clean(candidate.get('role_family_label') or candidate.get('role_family')) or '—'}**"
+        )
+        st.caption(
+            "Phase 9B is complete. The candidate remains immutable while "
+            "Phase 9C evaluates it across the explicitly selected JDs."
+        )
+
+
 def render_state_aware_blueprint_lifecycle(
     *,
     application_id: int,
     baseline_report: dict[str, Any],
     current_phase9e_decision_fingerprint: str = "",
+    working_generation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = load_blueprint_lifecycle_state(
         application_id=application_id,
@@ -254,6 +306,36 @@ def render_state_aware_blueprint_lifecycle(
         "automatically, and future stages remain waiting. Opening this section "
         "never creates, evaluates, approves, or binds data."
     )
+    if (
+        isinstance(working_generation, dict)
+        and _clean(working_generation.get("status")).lower() == "draft"
+    ):
+        working_summary = build_working_draft_lifecycle_summary(
+            working_generation
+        )
+        _render_stepper(working_summary)
+        working_id = _clean(working_generation.get("generation_id"))
+        st.info(
+            "Current step: approve working draft "
+            f"**{working_id[:8] or 'draft'}**, then run Phase 8. "
+            "Phase 9B–9E stay waiting until this draft becomes the approved, "
+            "verified workflow result."
+        )
+        approved_id = _clean(
+            (state.get("approved_generation") or {}).get("generation_id")
+        )
+        if approved_id:
+            st.caption(
+                f"Previous approved lifecycle {approved_id[:8]} is preserved "
+                "as lineage/history but is not the active workflow while this "
+                "draft is open."
+            )
+        draft_state = dict(state)
+        draft_state["summary"] = working_summary
+        draft_state["working_generation"] = working_generation
+        draft_state["display_scope"] = "working_draft"
+        return draft_state
+
     _render_stepper(summary)
 
     flash_key = f"phase9e1_lifecycle_flash_{application_id}"
@@ -290,6 +372,33 @@ def render_state_aware_blueprint_lifecycle(
         return state
 
     st.info(f"Current step: **{summary['current_title']}**")
+
+    if (
+        current_stage in {"phase9c", "phase9d", "phase9e"}
+        and isinstance(state.get("candidate"), dict)
+    ):
+        lifecycle_candidate = state["candidate"]
+        source_generation_short = _clean(
+            lifecycle_candidate.get("source_generation_id")
+        )[:8]
+        candidate_short = _clean(
+            lifecycle_candidate.get("candidate_id")
+        )[:8]
+        source_parts = []
+        if source_generation_short:
+            source_parts.append(
+                f"Approved résumé {source_generation_short}"
+            )
+        if candidate_short:
+            source_parts.append(
+                f"Candidate {candidate_short}"
+            )
+        if source_parts:
+            st.caption(
+                "Blueprint lifecycle source: "
+                + " · ".join(source_parts)
+            )
+        _render_completed_phase9b_summary(lifecycle_candidate)
 
     if current_stage == "phase9b":
         render_blueprint_candidate_promotion(

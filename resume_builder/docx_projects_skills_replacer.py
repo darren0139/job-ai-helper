@@ -1916,15 +1916,42 @@ def _add_project_title_after(
 #     return new_paragraph
 
 
+def _paragraph_has_native_numbering(
+    paragraph: Paragraph | None,
+) -> bool:
+    # True when the paragraph carries explicit Word list numbering.
+    if paragraph is None:
+        return False
+    ppr = paragraph._p.pPr
+    return bool(ppr is not None and ppr.numPr is not None)
+
+
+def _literal_bullet_prefix(
+    paragraph: Paragraph | None,
+) -> str:
+    # Preserve literal Unicode bullets only for non-numbered templates.
+    # Native Word numbered/list paragraphs deliberately return no text prefix
+    # so they never receive a second bullet.
+    if paragraph is None or _paragraph_has_native_numbering(paragraph):
+        return ""
+
+    text = str(paragraph.text or "")
+    match = re.match(
+        r"^\s*([•●▪◦‣∙])(?:[ \t\u00a0]+)?",
+        text,
+    )
+    if match is None:
+        return ""
+    return f"{match.group(1)} "
+
+
 def _add_project_bullet_after(
     anchor: Paragraph,
     *,
     bullet: str,
     template: Paragraph | None = None,
 ) -> Paragraph:
-    """
-    Add bullet after anchor, preserving original bullet formatting.
-    """
+    # Add a project bullet while preserving the template's bullet mechanism.
     new_paragraph = _insert_paragraph_after(anchor)
 
     if template is not None:
@@ -1938,7 +1965,19 @@ def _add_project_bullet_after(
 
     source_run = _get_first_run_template(template)
 
-    run = new_paragraph.add_run(str(bullet).strip())
+    bullet_text = str(bullet).strip()
+    literal_prefix = _literal_bullet_prefix(template)
+
+    # Preserve a literal-bullet template such as Resume (Tech) 3, but do not
+    # duplicate a bullet if generated text already contains one.
+    if (
+        literal_prefix
+        and bullet_text
+        and not re.match(r"^[•●▪◦‣∙](?:\s|$)", bullet_text)
+    ):
+        bullet_text = literal_prefix + bullet_text
+
+    run = new_paragraph.add_run(bullet_text)
     _copy_run_format(source_run, run)
 
     return new_paragraph

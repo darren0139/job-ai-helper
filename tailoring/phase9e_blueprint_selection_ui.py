@@ -266,6 +266,75 @@ def _render_scope_transition_summary(
         )
 
 
+
+def _render_active_original_source_guidance(
+    application_id: int,
+) -> None:
+    # Do not tell the user to regenerate when a working draft is already open.
+    workspace: dict[str, Any] = {}
+    try:
+        from tailoring.phase9e1_resume_workspace_ui import (
+            get_resume_workspace_context,
+        )
+
+        workspace = get_resume_workspace_context(int(application_id)) or {}
+    except (ImportError, OSError, RuntimeError, ValueError):
+        workspace = {}
+
+    working = (
+        workspace.get("loaded_generation")
+        if workspace.get("loaded_mode") == "working_draft"
+        else None
+    )
+
+    if isinstance(working, dict):
+        working_id = _clean(working.get("generation_id"))[:8] or "draft"
+        fit_result = working.get("fit_result") or {}
+        page_count_raw = fit_result.get("page_count")
+        try:
+            page_count = (
+                int(page_count_raw)
+                if page_count_raw not in (None, "")
+                else None
+            )
+        except (TypeError, ValueError):
+            page_count = None
+
+        if page_count == 1:
+            st.info(
+                f"Working draft {working_id} is already generated and fitted "
+                "to one page. Continue with review and approval below; after "
+                "approval, run Phase 8 verification. The persisted original "
+                "résumé remains the immutable starting source if you choose "
+                "to regenerate."
+            )
+            return
+
+        if page_count is not None:
+            st.info(
+                f"Working draft {working_id} is already generated but is "
+                f"currently {page_count} pages. Continue Build/Fit until it "
+                "fits one page, then approve and run Phase 8. The persisted "
+                "original résumé remains the immutable starting source if "
+                "you choose to regenerate."
+            )
+            return
+
+        st.info(
+            f"Working draft {working_id} is already active. Continue editing "
+            "and Build/Fit this draft below; regenerate only if you intend to "
+            "create a new tailored version. The persisted original résumé "
+            "remains the immutable starting source if you choose to regenerate."
+        )
+        return
+
+    st.info(
+        "The persisted original résumé is the active starting source. "
+        "Use Generate Projects + Skills below to create the first tailored "
+        "working draft; Education and Work Experience remain protected."
+    )
+
+
 def _render_decision_history(application_id: int) -> None:
     history = list_application_blueprint_decisions(application_id)
     if not history:
@@ -452,11 +521,7 @@ def _render_workflow_actions(
                 (decision.get("selection") or {}).get("selected_source")
             )
             if selected_source == "original_resume":
-                st.info(
-                    "The persisted original résumé is the active starting source. "
-                    "Use Generate Projects + Skills below to perform the actual "
-                    "generation; Education and Work Experience remain protected."
-                )
+                _render_active_original_source_guidance(application_id)
             else:
                 st.warning(
                     "The selected blueprint is unsuitable. Restart from the persisted "

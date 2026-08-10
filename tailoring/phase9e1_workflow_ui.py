@@ -27,10 +27,13 @@ from tailoring.phase9e_application_result import (
     STATUS_REUSED_APPROVED,
     STATUS_REUSED_UNCHANGED_PENDING,
 )
+from tailoring.phase9e1_resume_workspace_ui import (
+    render_resume_workspace,
+)
 from tailoring.phase9e_blueprint_selection import DECISION_LABELS
 
 
-PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v3"
+PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v4"
 
 
 def _clean(value: Any) -> str:
@@ -176,6 +179,21 @@ def build_application_workflow_overview(
                 "Review the verification and explicitly accept the "
                 "unchanged résumé for this application."
             )
+    elif phase9e_active and has_legacy_approved:
+        workflow_mode = "Phase 9E tailored workflow"
+        verified = bool(verification)
+        verification_label = (
+            "Phase 8 verified" if verified else "verification pending"
+        )
+        result_label = (
+            f"Approved · {_page_label(legacy_generation)} · "
+            f"{verification_label}"
+        )
+        phase9e_status = "Active"
+        next_action = (
+            "Review or download the approved résumé, continue the "
+            "current working draft, or advance the Blueprint Lifecycle."
+        )
     elif has_legacy_approved:
         workflow_mode = "Legacy approved workflow"
         verified = bool(verification)
@@ -352,6 +370,10 @@ def render_application_workflow_overview(
     decision, result, approved, verification, errors = _load_state(
         application_id
     )
+    from tailoring.phase9e1_resume_workspace_ui import (
+        get_resume_workspace_context,
+    )
+
     overview = build_application_workflow_overview(
         application_id=application_id,
         application_record=get_application_by_id(application_id) or {},
@@ -366,6 +388,61 @@ def render_application_workflow_overview(
         legacy_verification=verification,
         load_error=" ".join(errors),
     )
+
+    workspace_state = get_resume_workspace_context(
+        int(application_id)
+    )
+    working_generation = (
+        workspace_state.get("loaded_generation")
+        if workspace_state.get("loaded_mode") == "working_draft"
+        else None
+    )
+    if isinstance(working_generation, dict):
+        working_id = _clean(working_generation.get("generation_id"))
+        working_pages = _page_label(working_generation)
+        fit_result = working_generation.get("fit_result") or {}
+        page_count_raw = fit_result.get("page_count")
+        try:
+            working_page_count = (
+                int(page_count_raw)
+                if page_count_raw not in (None, "")
+                else None
+            )
+        except (TypeError, ValueError):
+            working_page_count = None
+
+        overview = dict(overview)
+
+        if working_page_count == 1:
+            overview["current_result"] = (
+                f"Working draft {working_id[:8]} · {working_pages} · "
+                "approval + Phase 8 required"
+            )
+            overview["next_action"] = (
+                "Review and approve fitted working draft "
+                f"{working_id[:8]}. After approval, run Phase 8 "
+                "verification before advancing the Blueprint Lifecycle."
+            )
+        elif working_page_count is not None:
+            overview["current_result"] = (
+                f"Working draft {working_id[:8]} · {working_pages} · "
+                "one-page fit + approval + Phase 8 required"
+            )
+            overview["next_action"] = (
+                "Continue fitting working draft "
+                f"{working_id[:8]} to one page, then approve it and run "
+                "Phase 8 verification."
+            )
+        else:
+            overview["current_result"] = (
+                f"Working draft {working_id[:8]} · {working_pages} · "
+                "fit + approval + Phase 8 required"
+            )
+            overview["next_action"] = (
+                "Finish editing and build/fit working draft "
+                f"{working_id[:8]}, then approve it and run Phase 8 "
+                "verification."
+            )
 
     st.subheader("Application workflow")
     with st.container(border=True):
@@ -474,10 +551,26 @@ def render_current_legacy_resume_result(
 
     st.subheader("Current Résumé Result")
     with st.container(border=True):
-        st.success(
-            "This approved legacy résumé remains the current application "
-            "output. Phase 9E migration is optional."
+        current_decision = (
+            get_current_application_blueprint_decision(application_id)
+            or {}
         )
+        active_phase9e = bool(
+            _clean(current_decision.get("scope_activation_status"))
+            == "active"
+            and _clean(current_decision.get("current_scope_status"))
+            == "current"
+        )
+        if active_phase9e:
+            st.success(
+                "This approved résumé is the current Phase 9E "
+                "application output."
+            )
+        else:
+            st.success(
+                "This approved legacy résumé remains the current "
+                "application output. Phase 9E migration is optional."
+            )
         status_col, fit_col, verification_col = st.columns(3)
         status_col.metric("Status", "Approved")
         fit_col.metric("Fit", _page_label(approved))
@@ -528,7 +621,7 @@ def render_current_legacy_resume_result(
             "controls remain available below."
         )
         with st.expander(
-            "Current legacy result technical details",
+            "Current résumé result technical details",
             expanded=False,
         ):
             st.json(
@@ -546,4 +639,7 @@ def render_current_legacy_resume_result(
                     "lock_skills": control.get("lock_skills"),
                 }
             )
+    render_resume_workspace(
+        application_id=application_id,
+    )
     return True

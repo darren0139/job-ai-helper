@@ -46,6 +46,13 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9e1_state_aware_workflow",
     "tests.test_phase9e1_blueprint_lifecycle",
     "tests.test_phase9e1_workflow_stage_order",
+    "tests.test_phase9e1_resume_workspace",
+    "tests.test_phase9e1_resume_revision_workspace_v4",
+    "tests.test_phase9e1_workspace_history_cleanup_v6",
+    "tests.test_phase9e1_lifecycle_scope_clarity_v7",
+    "tests.test_phase9e1_working_draft_lifecycle_v8",
+    "tests.test_phase9e1_workflow_guidance_v9",
+    "tests.test_docx_project_bullet_preservation",
     "tests.test_phase9e_application_result_manager",
     "tests.test_application_output_integrations",
 )

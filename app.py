@@ -187,11 +187,17 @@ from tailoring.phase9e_blueprint_selection_ui import (
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
+from tailoring.phase9e1_resume_workspace_ui import (
+    get_resume_workspace_context,
+    should_clear_phase9e_session_state,
+    workspace_requires_edit_draft,
+)
 from tailoring.phase9e1_workflow_ui import (
     render_application_workflow_overview,
     render_current_legacy_resume_result,
 )
 from tailoring.phase9e1_blueprint_lifecycle_ui import (
+    load_blueprint_lifecycle_state,
     render_state_aware_blueprint_lifecycle,
 )
 from tailoring.application_output_integrations_ui import (
@@ -2824,15 +2830,55 @@ if page == "Application Sessions":
             phase9a_decision = (
                 phase9e_context.get("decision") or {}
             ).get("recommended_tailoring")
+            phase9a_decision_fingerprint = str(
+                (
+                    phase9e_context.get("binding_identity") or {}
+                ).get("decision_fingerprint")
+                or (
+                    phase9e_context.get("decision") or {}
+                ).get("decision_fingerprint")
+                or ""
+            )
+            phase9a_lifecycle_state = load_blueprint_lifecycle_state(
+                application_id=int(current_application_id),
+                current_phase9e_decision_fingerprint=(
+                    phase9a_decision_fingerprint
+                ),
+            )
+            phase9a_lifecycle_stage = str(
+                (
+                    phase9a_lifecycle_state.get("summary") or {}
+                ).get("current_stage")
+                or ""
+            )
+            phase9a_workspace_state = get_resume_workspace_context(
+                int(current_application_id)
+            )
+            phase9a_has_working_draft = bool(
+                phase9a_workspace_state.get("loaded_mode")
+                == "working_draft"
+                and isinstance(
+                    phase9a_workspace_state.get("loaded_generation"),
+                    dict,
+                )
+            )
             render_evidence_opportunity_analysis(
                 application_id=int(current_application_id),
                 baseline_report=persisted_application_report,
                 raw_jd_text=phase9a_raw_jd_text,
                 evidence_items=get_evidence_items(limit=100),
-                collapsed=phase9a_decision in {
-                    "reuse_approved_source",
-                    "reuse_unchanged",
-                },
+                collapsed=(
+                    (phase9a_has_working_draft or (phase9a_decision in {
+                        "reuse_approved_source",
+                        "reuse_unchanged",
+                    }
+                    or phase9a_lifecycle_stage in {
+                        "phase9b",
+                        "phase9c",
+                        "phase9d",
+                        "phase9e",
+                    }))
+                ),
             )
 
         with st.expander(
@@ -2887,7 +2933,11 @@ if page == "Application Sessions":
         if current_application_id is not None:
             marker_key = f"phase9e_session_binding_{current_application_id}"
             previous_marker = st.session_state.get(marker_key)
-            if previous_marker != binding_marker and phase9e_enforced:
+            if should_clear_phase9e_session_state(
+                previous_marker=previous_marker,
+                binding_marker=binding_marker,
+                phase9e_enforced=phase9e_enforced,
+            ):
                 for key in (
                     f"tailored_projects_result_{current_application_id}",
                     f"tailored_projects_fit_{current_application_id}",
@@ -2908,6 +2958,20 @@ if page == "Application Sessions":
             "for Project selection and Skills priorities. AI numeric scores are "
             "diagnostic only."
         )
+
+        workspace_edit_required = False
+        if current_application_id is not None:
+            workspace_edit_required = workspace_requires_edit_draft(
+                int(current_application_id)
+            )
+        if workspace_edit_required:
+            st.info(
+                "The current approved résumé is read-only. Use "
+                "Revise approved résumé from the Résumé Workspace "
+                "to remove the approval and continue normal editing, "
+                "or Create alternative copy to experiment while "
+                "keeping the approved result active."
+            )
 
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
@@ -2978,6 +3042,7 @@ if page == "Application Sessions":
                 max_value=8,
                 value=int(restored_settings.get("max_projects", 3)),
                 key=f"max_projects_{current_application_id}",
+                disabled=workspace_edit_required,
             )
 
             max_bullets = st.slider(
@@ -3020,7 +3085,10 @@ if page == "Application Sessions":
                 type="primary",
                 width="stretch",
                 key=f"generate_projects_skills_{current_application_id}",
-                disabled=not phase9e_ready,
+                disabled=(
+                    not phase9e_ready
+                    or workspace_edit_required
+                ),
             ):
                 try:
                     evidence_items = get_evidence_items(limit=100)
@@ -3381,6 +3449,7 @@ if page == "Application Sessions":
                             lock_projects
                             or phase9e_projects_locked
                             or not phase9e_ready
+                            or workspace_edit_required
                         ),
                     ):
                         try:
@@ -3491,6 +3560,7 @@ if page == "Application Sessions":
                             lock_skills
                             or phase9e_skills_locked
                             or not phase9e_ready
+                            or workspace_edit_required
                         ),
                     ):
                         try:
@@ -3715,7 +3785,21 @@ if page == "Application Sessions":
 
             saved_resume_docx_path = st.session_state.get(saved_docx_key)
 
-            if not saved_resume_docx_path:
+            if workspace_edit_required:
+                active_approved = get_application_generation_control(
+                    current_application_id
+                ).get("approved_generation")
+                active_approved_id = str(
+                    (active_approved or {}).get("generation_id") or ""
+                )[:8]
+                st.info(
+                    "Approved résumé "
+                    f"{active_approved_id or 'result'} is already fitted "
+                    "and read-only. Revise it or create an alternative "
+                    "copy in the Résumé Workspace before generating "
+                    "another fitted document."
+                )
+            elif not saved_resume_docx_path:
                 latest_saved_docx = get_latest_saved_docx_for_application(current_application_id)
                 
                 if latest_saved_docx:
@@ -3973,7 +4057,10 @@ if page == "Application Sessions":
                     type="primary",
                     width="stretch",
                     key=f"generate_docx_{current_application_id}",
-                    disabled=not phase9e_ready,
+                    disabled=(
+                        not phase9e_ready
+                        or workspace_edit_required
+                    ),
                 ):
                     try:
                         phase7_control = get_application_generation_control(
@@ -4353,6 +4440,7 @@ if page == "Application Sessions":
                             if phase9e_enforced
                             else None
                         ),
+                        workspace_managed=True,
                     )
                 else:
                     st.info(
@@ -4369,6 +4457,18 @@ if page == "Application Sessions":
                     "approved_generation"
                 )
 
+                active_workspace_context = get_resume_workspace_context(
+                    int(current_application_id)
+                )
+                active_workspace_generation = (
+                    active_workspace_context.get("loaded_generation")
+                )
+                active_workspace_is_draft = bool(
+                    active_workspace_context.get("loaded_mode")
+                    == "working_draft"
+                    and isinstance(active_workspace_generation, dict)
+                )
+
                 phase8_jd_record = (
                     get_exact_job_description_for_application(
                         int(current_application_id)
@@ -4382,15 +4482,66 @@ if page == "Application Sessions":
                     or ""
                 )
 
-                if phase9e_ready and isinstance(
+                post_fit_lifecycle_state = (
+                    load_blueprint_lifecycle_state(
+                        application_id=int(current_application_id),
+                        current_phase9e_decision_fingerprint=str(
+                            phase9e_binding.get(
+                                "decision_fingerprint"
+                            )
+                            or ""
+                        ),
+                    )
+                )
+                post_fit_lifecycle_stage = str(
+                    (
+                        post_fit_lifecycle_state.get("summary") or {}
+                    ).get("current_stage")
+                    or ""
+                )
+
+                if active_workspace_is_draft:
+                    working_draft_short = str(
+                        active_workspace_generation.get("generation_id")
+                        or ""
+                    )[:8]
+                    st.info(
+                        "Phase 8 — Waiting for working draft "
+                        f"{working_draft_short or 'draft'}. Approve this fitted "
+                        "draft first; then verify it before Phase 9B can begin."
+                    )
+                elif phase9e_ready and isinstance(
                     approved_for_phase8,
                     dict,
                 ):
-                    render_phase8_verification(
-                        application_id=current_application_id,
-                        baseline_report=report,
-                        raw_jd_text=phase8_raw_jd_text,
-                    )
+                    if post_fit_lifecycle_stage in {
+                        "phase9c",
+                        "phase9d",
+                        "phase9e",
+                    }:
+                        approved_phase8_short = str(
+                            approved_for_phase8.get("generation_id")
+                            or ""
+                        )[:8]
+                        phase8_complete_label = (
+                            "Phase 8 — Approved résumé "
+                            f"{approved_phase8_short or 'result'} · Complete"
+                        )
+                        with st.expander(
+                            phase8_complete_label,
+                            expanded=False,
+                        ):
+                            render_phase8_verification(
+                                application_id=current_application_id,
+                                baseline_report=report,
+                                raw_jd_text=phase8_raw_jd_text,
+                            )
+                    else:
+                        render_phase8_verification(
+                            application_id=current_application_id,
+                            baseline_report=report,
+                            raw_jd_text=phase8_raw_jd_text,
+                        )
                 elif phase9e_ready:
                     st.info(
                         "Approve one fitted generation to unlock Phase 8."
@@ -4399,6 +4550,11 @@ if page == "Application Sessions":
                 render_state_aware_blueprint_lifecycle(
                     application_id=int(current_application_id),
                     baseline_report=report,
+                    working_generation=(
+                        active_workspace_generation
+                        if active_workspace_is_draft
+                        else None
+                    ),
                     current_phase9e_decision_fingerprint=str(
                         phase9e_binding.get(
                             "decision_fingerprint"

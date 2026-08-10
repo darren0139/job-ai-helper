@@ -699,30 +699,207 @@ def _delete_unreferenced_generation_files(
     }
 
 
+
+def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+    row = cursor.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = ?
+        LIMIT 1
+        """,
+        (str(table_name),),
+    ).fetchone()
+    return row is not None
+
+
+def get_tailoring_generation_delete_plan(
+    *,
+    application_id: int,
+    generation_id: str,
+) -> dict[str, Any]:
+    """Return a fail-closed deletion plan for one saved generation."""
+    state = get_tailoring_generation(application_id, generation_id)
+    if state is None:
+        raise ValueError("Tailoring generation was not found.")
+
+    status = str(state.get("status") or "draft").lower()
+    blockers: list[str] = []
+    references: dict[str, int] = {}
+
+    if status == "approved":
+        blockers.append("Current approved résumé")
+    elif status not in {"draft", "archived"}:
+        blockers.append(f"Unsupported generation status: {status}")
+
+    init_tailoring_generation_control()
+    connection = _connect()
+    cursor = connection.cursor()
+    try:
+        if _table_exists(cursor, "application_tailoring_preferences"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_tailoring_preferences
+                WHERE application_id = ?
+                  AND approved_generation_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["active_approval"] = count
+            if count:
+                blockers.append("Active approval pointer")
+
+        if _table_exists(cursor, "application_tailoring_verifications"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_tailoring_verifications
+                WHERE application_id = ?
+                  AND generation_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["phase8_verifications"] = count
+            if count:
+                blockers.append(
+                    f"Phase 8 verification reference ({count})"
+                )
+
+        if _table_exists(cursor, "global_blueprint_candidates"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM global_blueprint_candidates
+                WHERE source_application_id = ?
+                  AND source_generation_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["phase9b_candidates"] = count
+            if count:
+                blockers.append(
+                    f"Phase 9B Blueprint candidate reference ({count})"
+                )
+
+        if _table_exists(cursor, "application_resume_results"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_resume_results
+                WHERE source_application_id = ?
+                  AND source_generation_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["application_results"] = count
+            if count:
+                blockers.append(
+                    f"Immutable application-result reference ({count})"
+                )
+
+        if _table_exists(cursor, "application_resume_result_state"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_resume_result_state
+                WHERE application_id = ?
+                  AND current_generation_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["current_application_output"] = count
+            if count:
+                blockers.append("Current application-output pointer")
+
+        if _table_exists(cursor, "application_cover_letter_results"):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_cover_letter_results
+                WHERE application_id = ?
+                  AND resume_output_id = ?
+                """,
+                (int(application_id), str(generation_id)),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["cover_letters"] = count
+            if count:
+                blockers.append(
+                    f"Cover-letter provenance reference ({count})"
+                )
+
+        if _table_exists(
+            cursor,
+            "application_tailoring_generation_meta",
+        ):
+            row = cursor.execute(
+                """
+                SELECT COUNT(*) AS reference_count
+                FROM application_tailoring_generation_meta
+                WHERE application_id = ?
+                  AND generation_id <> ?
+                  AND (
+                      parent_generation_id = ?
+                      OR restored_from_generation_id = ?
+                  )
+                """,
+                (
+                    int(application_id),
+                    str(generation_id),
+                    str(generation_id),
+                    str(generation_id),
+                ),
+            ).fetchone()
+            count = int(row["reference_count"] or 0) if row else 0
+            references["child_generations"] = count
+            if count:
+                blockers.append(
+                    f"Child-generation lineage reference ({count})"
+                )
+    finally:
+        connection.close()
+
+    blockers = list(dict.fromkeys(blockers))
+    return {
+        "application_id": int(application_id),
+        "generation_id": str(generation_id),
+        "status": status,
+        "generation": state,
+        "references": references,
+        "blockers": blockers,
+        "deletable": bool(
+            status in {"draft", "archived"} and not blockers
+        ),
+    }
+
+
 def delete_tailoring_generation(
     *,
     application_id: int,
     generation_id: str,
     delete_unreferenced_files: bool = False,
 ) -> dict[str, Any]:
-    """Permanently delete one Draft or Archived generation.
-
-    Approved generations are deliberately protected. Approve another version or
-    archive the approved version before deleting it.
-    """
-    state = get_tailoring_generation(application_id, generation_id)
-    if state is None:
-        raise ValueError("Tailoring generation was not found.")
-
-    status = str(state.get("status") or "draft").lower()
-    if status == "approved":
+    """Permanently delete one unreferenced Draft or Archived generation."""
+    plan = get_tailoring_generation_delete_plan(
+        application_id=int(application_id),
+        generation_id=str(generation_id),
+    )
+    if not plan["deletable"]:
+        blockers = "; ".join(plan.get("blockers") or [])
         raise ValueError(
-            "The active approved generation cannot be deleted. "
-            "Approve another version or archive it first."
+            "This saved résumé version is protected from deletion"
+            + (f": {blockers}" if blockers else ".")
         )
-    if status not in {"draft", "archived"}:
-        raise ValueError(f"Unsupported generation status: {status}")
 
+    state = plan["generation"]
+    status = str(plan["status"])
     stored_paths = [
         str(state.get("stored_docx_path") or ""),
         str(state.get("stored_pdf_path") or ""),
@@ -769,6 +946,7 @@ def delete_tailoring_generation(
         "version_deleted": version_deleted,
         "metadata_deleted": metadata_deleted,
         "files": file_result,
+        "delete_plan": plan,
     }
 
 
@@ -778,8 +956,10 @@ def clear_tailoring_drafts(
     delete_unreferenced_files: bool = False,
     exclude_generation_ids: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Delete all Draft generations for one application.
+    """Delete every unreferenced Draft for one application.
 
+    Drafts that protect Phase 8, Blueprint, application-result, cover-letter,
+    active-output, or child-generation lineage are skipped rather than removed.
     Approved and Archived versions are never removed by this operation.
     """
     excluded = {
@@ -788,84 +968,68 @@ def clear_tailoring_drafts(
         if str(value or "").strip()
     }
 
-    init_tailoring_generation_control()
-    connection = _connect()
-    cursor = connection.cursor()
-    params: list[Any] = [int(application_id)]
-    exclusion_sql = ""
-    if excluded:
-        placeholders = ", ".join("?" for _ in excluded)
-        exclusion_sql = f" AND versions.generation_id NOT IN ({placeholders})"
-        params.extend(sorted(excluded))
-
-    cursor.execute(
-        _JOIN_SQL
-        + f"""
-        WHERE versions.application_id = ?
-          AND COALESCE(meta.status, 'draft') = 'draft'
-          {exclusion_sql}
-        ORDER BY versions.id
-        """,
-        tuple(params),
-    )
-    rows = cursor.fetchall()
-    generation_ids = [str(row["generation_id"]) for row in rows]
-    stored_paths: list[str] = []
-    for row in rows:
-        stored_paths.extend(
-            [
-                str(row["docx_path"] or ""),
-                str(row["pdf_path"] or ""),
-            ]
-        )
-
-    if not generation_ids:
-        connection.close()
-        return {
-            "application_id": int(application_id),
-            "deleted_count": 0,
-            "deleted_generation_ids": [],
-            "files": {"deleted": [], "kept": [], "missing": []},
-        }
-
-    placeholders = ", ".join("?" for _ in generation_ids)
-    delete_params = (int(application_id), *generation_ids)
-    try:
-        cursor.execute("BEGIN")
-        cursor.execute(
-            f"""
-            DELETE FROM application_tailoring_generation_meta
-            WHERE application_id = ?
-              AND generation_id IN ({placeholders})
-            """,
-            delete_params,
-        )
-        cursor.execute(
-            f"""
-            DELETE FROM application_tailoring_versions
-            WHERE application_id = ?
-              AND generation_id IN ({placeholders})
-            """,
-            delete_params,
-        )
-        deleted_count = max(0, int(cursor.rowcount or 0))
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
-
+    pending = [
+        state
+        for state in list_tailoring_generations(int(application_id))
+        if str(state.get("status") or "draft").lower() == "draft"
+        and str(state.get("generation_id") or "") not in excluded
+    ]
+    deleted_ids: list[str] = []
+    skipped: dict[str, list[str]] = {}
     file_result = {"deleted": [], "kept": [], "missing": []}
-    if delete_unreferenced_files:
-        file_result = _delete_unreferenced_generation_files(stored_paths)
+
+    while pending:
+        progress = False
+        for state in list(pending):
+            generation_id = str(state.get("generation_id") or "")
+            plan = get_tailoring_generation_delete_plan(
+                application_id=int(application_id),
+                generation_id=generation_id,
+            )
+            if not plan["deletable"]:
+                skipped[generation_id] = list(plan.get("blockers") or [])
+                continue
+
+            result = delete_tailoring_generation(
+                application_id=int(application_id),
+                generation_id=generation_id,
+                delete_unreferenced_files=delete_unreferenced_files,
+            )
+            deleted_ids.append(generation_id)
+            pending.remove(state)
+            skipped.pop(generation_id, None)
+            progress = True
+
+            for key in ("deleted", "kept", "missing"):
+                file_result[key].extend(
+                    str(value)
+                    for value in (result.get("files") or {}).get(key, [])
+                )
+
+        if not progress:
+            break
+
+    final_skipped: dict[str, list[str]] = {}
+    for state in pending:
+        generation_id = str(state.get("generation_id") or "")
+        plan = get_tailoring_generation_delete_plan(
+            application_id=int(application_id),
+            generation_id=generation_id,
+        )
+        final_skipped[generation_id] = list(plan.get("blockers") or [])
+
+    for key in file_result:
+        file_result[key] = sorted(set(file_result[key]))
 
     return {
         "application_id": int(application_id),
-        "deleted_count": deleted_count,
-        "deleted_generation_ids": generation_ids,
+        "deleted_count": len(deleted_ids),
+        "deleted_generation_ids": deleted_ids,
+        "skipped_generation_ids": sorted(final_skipped),
+        "skipped": final_skipped,
         "files": file_result,
     }
+
 
 def delete_application_generation_control(
     application_id: int,
@@ -930,6 +1094,23 @@ def restore_tailoring_generation_as_draft(
         generation_kind=source.get("generation_kind", "restored"),
         parent_generation_id=str(source_generation_id),
         restored_from_generation_id=str(source_generation_id),
+        source_application_result_id=source.get(
+            "source_application_result_id",
+            "",
+        ),
+        base_content_fingerprint=source.get(
+            "base_content_fingerprint",
+            "",
+        ),
+        content_fingerprint=source.get(
+            "content_fingerprint",
+            "",
+        ),
+        content_changed=source.get("content_changed"),
+        phase9e_decision_fingerprint=source.get(
+            "phase9e_decision_fingerprint",
+            "",
+        ),
     )
     restored = get_tailoring_generation(application_id, restored_id)
     if restored is None:

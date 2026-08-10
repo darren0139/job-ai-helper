@@ -235,8 +235,9 @@ def render_evidence_opportunity_analysis(
             expanded=False,
         ):
             st.caption(
-                "This zero-cost forecast is optional while the immutable "
-                "résumé is being reused unchanged."
+                "This is an advisory, zero-cost forecast. Reopen it to "
+                "inspect evidence opportunities; it does not replace the "
+                "active résumé workflow or Phase 8 verification."
             )
             _render_evidence_opportunity_analysis_body(
                 application_id=application_id,
