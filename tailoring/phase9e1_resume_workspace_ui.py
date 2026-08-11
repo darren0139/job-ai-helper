@@ -170,6 +170,18 @@ def build_resume_workspace_state(
         else None
     )
 
+    application_approved = (
+        approved_generation
+        if isinstance(approved_generation, dict)
+        else None
+    )
+    previous_scope_approved = (
+        application_approved
+        if application_approved is not None
+        and current_approved is None
+        else None
+    )
+
     current_versions: list[dict[str, Any]] = []
     approved_id = _generation_id(current_approved)
     if current_approved is not None:
@@ -214,6 +226,8 @@ def build_resume_workspace_state(
     return {
         "ui_version": PHASE9E1_RESUME_WORKSPACE_UI_VERSION,
         "approved_generation": current_approved,
+        "application_approved_generation": application_approved,
+        "previous_scope_approved_generation": previous_scope_approved,
         "loaded_generation": loaded,
         "loaded_mode": loaded_mode,
         "current_versions": current_versions,
@@ -270,12 +284,21 @@ def should_clear_phase9e_session_state(
     )
 
 
-def workspace_requires_edit_draft(application_id: int) -> bool:
-    state = get_resume_workspace_context(int(application_id))
+def workspace_state_requires_edit_draft(
+    state: dict[str, Any],
+) -> bool:
+    # Use the raw application approval pointer. A previous-scope approved
+    # result is still read-only and must block silent mutation until the user
+    # explicitly transitions to the current Tailoring Base.
     return bool(
-        state.get("approved_generation")
+        state.get("application_approved_generation")
         and state.get("loaded_mode") != "working_draft"
     )
+
+
+def workspace_requires_edit_draft(application_id: int) -> bool:
+    state = get_resume_workspace_context(int(application_id))
+    return workspace_state_requires_edit_draft(state)
 
 
 def _version_label(
@@ -521,9 +544,19 @@ def _begin_approved_revision(
 def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
     state = get_resume_workspace_context(int(application_id))
     approved = state["approved_generation"]
+    previous_scope_approved = state.get(
+        "previous_scope_approved_generation"
+    )
     loaded = state["loaded_generation"]
     current_versions = state["current_versions"]
     historical_versions = state["historical_versions"]
+    if isinstance(previous_scope_approved, dict):
+        previous_scope_id = _generation_id(previous_scope_approved)
+        historical_versions = [
+            version
+            for version in historical_versions
+            if _generation_id(version) != previous_scope_id
+        ]
     revision_draft = state["revision_draft"]
 
     st.write("#### Résumé Workspace")
@@ -547,6 +580,90 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
     flash = st.session_state.pop(flash_key, "")
     if flash:
         st.success(flash)
+
+    if isinstance(previous_scope_approved, dict):
+        previous_scope_id = _generation_id(previous_scope_approved)
+        previous_scope_pages = _page_count(previous_scope_approved)
+
+        st.warning(
+            "Current application result from previous Tailoring Base"
+        )
+        st.caption(
+            "This résumé is still the active approved application result, "
+            "but it was created under a different Phase 9E starting-source "
+            "decision. It is read-only; its Phase 8 and Blueprint lineage "
+            "remain preserved."
+        )
+        cols = st.columns(3)
+        cols[0].caption("Approved result")
+        cols[0].write(f"**{previous_scope_id[:8] or 'result'}**")
+        cols[1].caption("Status")
+        cols[1].write("**Approved · read-only**")
+        cols[2].caption("Pages")
+        cols[2].write(
+            "**—**"
+            if previous_scope_pages is None
+            else f"**{previous_scope_pages}**"
+        )
+
+        with st.expander("Preview current application result", expanded=False):
+            _render_pdf_preview(previous_scope_approved)
+
+        docx_col, pdf_col = st.columns(2)
+        with docx_col:
+            _download_button(
+                state=previous_scope_approved,
+                field="docx_path",
+                label="Download approved DOCX",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                key=(
+                    "phase9e1_previous_scope_docx_"
+                    f"{application_id}_{previous_scope_id}"
+                ),
+            )
+        with pdf_col:
+            _download_button(
+                state=previous_scope_approved,
+                field="pdf_path",
+                label="Download approved PDF",
+                mime="application/pdf",
+                key=(
+                    "phase9e1_previous_scope_pdf_"
+                    f"{application_id}_{previous_scope_id}"
+                ),
+            )
+
+        st.info(
+            "Keep this approved result: do nothing. To build against the "
+            "current Tailoring Base, start a new résumé below. The old "
+            "approved result moves to history; it is not deleted or retagged."
+        )
+        if st.button(
+            "Start new résumé from current Tailoring Base",
+            key=(
+                "phase9e1_start_current_base_"
+                f"{application_id}_{previous_scope_id}"
+            ),
+            type="primary",
+            width="stretch",
+        ):
+            if not previous_scope_id:
+                st.error("Approved generation identity is missing.")
+            else:
+                archive_tailoring_generation(
+                    int(application_id),
+                    previous_scope_id,
+                )
+                _clear_generation_session_state(int(application_id))
+                st.session_state[flash_key] = (
+                    "Moved the previous-scope approved résumé to history. "
+                    "Generate and fit a replacement from the current "
+                    "Tailoring Base, then approve it and run Phase 8."
+                )
+                st.rerun()
 
     if approved is None and state["loaded_mode"] == "working_draft":
         st.warning(
@@ -918,11 +1035,18 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
                             )
                             st.rerun()
     else:
-        st.info(
-            "No current-scope résumé version is available. Historical "
-            "versions, when present, remain available below for recovery "
-            "and cleanup."
-        )
+        if isinstance(previous_scope_approved, dict):
+            st.info(
+                "No current-scope working résumé exists yet. The approved "
+                "application result above remains active until you choose "
+                "Start new résumé from current Tailoring Base."
+            )
+        else:
+            st.info(
+                "No current-scope résumé version is available. Historical "
+                "versions, when present, remain available below for recovery "
+                "and cleanup."
+            )
 
     if historical_versions:
         with st.expander(

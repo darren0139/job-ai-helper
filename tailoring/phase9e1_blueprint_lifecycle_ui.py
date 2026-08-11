@@ -348,6 +348,27 @@ def render_state_aware_blueprint_lifecycle(
 
     _render_stepper(summary)
 
+    lifecycle_approved = state.get("approved_generation")
+    if (
+        isinstance(lifecycle_approved, dict)
+        and lifecycle_approved.get("phase9e_scope_matches") is False
+    ):
+        previous_id = _clean(lifecycle_approved.get("generation_id"))
+        st.warning(
+            "Approved résumé "
+            f"**{previous_id[:8] or 'result'}** belongs to a previous "
+            "Tailoring Base. Its old Phase 8 / Blueprint lineage remains "
+            "preserved, but it cannot advance the current lifecycle."
+        )
+        st.info(
+            "Use the Résumé Workspace to keep that result as-is or choose "
+            "**Start new résumé from current Tailoring Base**. A replacement "
+            "must be fitted, approved, and pass Phase 8 before Phase 9B."
+        )
+        mismatch_state = dict(state)
+        mismatch_state["display_scope"] = "previous_scope_approved"
+        return mismatch_state
+
     flash_key = f"phase9e1_lifecycle_flash_{application_id}"
     flash = st.session_state.pop(flash_key, "")
     if flash:

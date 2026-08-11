@@ -161,6 +161,7 @@ from database.tailoring_generation_control import (
     find_cached_tailoring_generation,
     get_application_generation_control,
     get_tailoring_generation,
+    list_tailoring_generations,
     init_tailoring_generation_control,
     record_generation_metadata,
 )
@@ -1140,6 +1141,96 @@ def create_full_debug_bundle(
 
     chat_model = get_active_model("chat")
 
+    workspace_provenance_debug: dict[str, Any] = {}
+    if application_id is not None:
+        try:
+            ws = get_resume_workspace_context(int(application_id))
+            control = get_application_generation_control(int(application_id))
+            binding = ws.get("phase9e_binding") or {}
+            current_fp = str(binding.get("decision_fingerprint") or "")
+            raw_approved = control.get("approved_generation")
+            previous_approved = ws.get(
+                "previous_scope_approved_generation"
+            )
+            generation_rows = []
+            for row in list_tailoring_generations(int(application_id)):
+                if not isinstance(row, dict):
+                    continue
+                row_fp = str(
+                    row.get("phase9e_decision_fingerprint") or ""
+                )
+                generation_rows.append(
+                    {
+                        "generation_id": str(
+                            row.get("generation_id") or ""
+                        ),
+                        "status": str(row.get("status") or ""),
+                        "generation_kind": str(
+                            row.get("generation_kind") or ""
+                        ),
+                        "phase9e_decision_fingerprint": row_fp,
+                        "matches_current_phase9e": (
+                            bool(
+                                current_fp
+                                and row_fp
+                                and row_fp == current_fp
+                            )
+                            if row_fp
+                            else None
+                        ),
+                    }
+                )
+            workspace_provenance_debug = {
+                "current_phase9e": {
+                    "decision_id": str(
+                        binding.get("decision_id") or ""
+                    ),
+                    "decision_fingerprint": current_fp,
+                    "selected_source": str(
+                        (binding.get("selection") or {}).get(
+                            "selected_source"
+                        )
+                        or binding.get("selected_source")
+                        or ""
+                    ),
+                    "starting_snapshot_fingerprint": str(
+                        binding.get("starting_snapshot_fingerprint")
+                        or binding.get("source_snapshot_fingerprint")
+                        or ""
+                    ),
+                },
+                "workspace": {
+                    "loaded_mode": str(ws.get("loaded_mode") or ""),
+                    "current_approved_generation_id": str(
+                        (ws.get("approved_generation") or {}).get(
+                            "generation_id"
+                        )
+                        or ""
+                    ),
+                    "application_approved_generation_id": str(
+                        (raw_approved or {}).get("generation_id") or ""
+                    ),
+                    "previous_scope_approved_generation_id": str(
+                        (previous_approved or {}).get("generation_id")
+                        or ""
+                    ),
+                },
+                "generation_control": {
+                    "approved_generation_id": str(
+                        (raw_approved or {}).get("generation_id") or ""
+                    ),
+                    "approved_phase9e_decision_fingerprint": str(
+                        (raw_approved or {}).get(
+                            "phase9e_decision_fingerprint"
+                        )
+                        or ""
+                    ),
+                },
+                "generations": generation_rows,
+            }
+        except Exception as exc:
+            workspace_provenance_debug = {"error": str(exc)}
+
     debug_bundle = {
         "debug_meta": {
             "created_at": datetime.now().isoformat(
@@ -1162,6 +1253,7 @@ def create_full_debug_bundle(
             ),
         },
         "analysis_report": report or {},
+        "workspace_provenance_debug": workspace_provenance_debug,
         "api_cost_summary": get_api_usage_summary(
             application_id,
             report,
@@ -4507,6 +4599,28 @@ if page == "Application Sessions":
                     and isinstance(active_workspace_generation, dict)
                 )
 
+                active_previous_scope_approved = (
+                    active_workspace_context.get(
+                        "previous_scope_approved_generation"
+                    )
+                )
+                approved_for_phase8_id = str(
+                    (approved_for_phase8 or {}).get("generation_id")
+                    or ""
+                )
+                previous_scope_phase8_id = str(
+                    (active_previous_scope_approved or {}).get(
+                        "generation_id"
+                    )
+                    or ""
+                )
+                approved_for_phase8_is_current_scope = not bool(
+                    previous_scope_phase8_id
+                    and approved_for_phase8_id
+                    and previous_scope_phase8_id
+                    == approved_for_phase8_id
+                )
+
                 phase8_jd_record = (
                     get_exact_job_description_for_application(
                         int(current_application_id)
@@ -4548,9 +4662,10 @@ if page == "Application Sessions":
                         f"{working_draft_short or 'draft'}. Approve this fitted "
                         "draft first; then verify it before Phase 9B can begin."
                     )
-                elif phase9e_ready and isinstance(
-                    approved_for_phase8,
-                    dict,
+                elif (
+                    phase9e_ready
+                    and isinstance(approved_for_phase8, dict)
+                    and approved_for_phase8_is_current_scope
                 ):
                     if post_fit_lifecycle_stage in {
                         "phase9c",
@@ -4586,6 +4701,22 @@ if page == "Application Sessions":
                             baseline_report=report,
                             raw_jd_text=phase8_raw_jd_text,
                         )
+                elif isinstance(
+                    active_previous_scope_approved,
+                    dict,
+                ):
+                    previous_phase8_short = str(
+                        active_previous_scope_approved.get(
+                            "generation_id"
+                        )
+                        or ""
+                    )[:8]
+                    st.info(
+                        "Phase 8 — Waiting for a résumé under the current "
+                        "Tailoring Base. Previous approved résumé "
+                        f"{previous_phase8_short or 'result'} keeps its old "
+                        "verification as preserved lineage/history."
+                    )
                 elif phase9e_ready:
                     st.info(
                         "Approve one fitted generation to unlock Phase 8."

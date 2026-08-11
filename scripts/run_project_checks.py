@@ -53,6 +53,7 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9e1_workspace_history_cleanup_v6",
     "tests.test_phase9e1_lifecycle_scope_clarity_v7",
     "tests.test_phase9e1_working_draft_lifecycle_v8",
+    "tests.test_phase9e1_previous_scope_approved_transition_v1",
     "tests.test_phase9e1_blueprint_lifecycle_usability_v1",
     "tests.test_phase9e1_workflow_guidance_v9",
     "tests.test_docx_project_bullet_preservation",
