@@ -11,6 +11,9 @@ from typing import Any
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
+from analysis_stability.stable_evidence_scoring import (
+    compute_deterministic_alignment,
+)
 from tailoring.tailoring_generation_fingerprint import (
     get_effective_generation_sections,
 )
@@ -536,103 +539,16 @@ def _boundary_status(score: int) -> dict[str, Any]:
 def _recalculate_stable_summary(
     analysis: dict[str, Any],
 ) -> None:
+    # Rebuild Phase 8 aggregates through the production scorer only.
     rows = [
-        row
+        deepcopy(row)
         for row in analysis.get("canonical_requirements", []) or []
         if isinstance(row, dict)
     ]
-
-    required_rows = [
-        row
-        for row in rows
-        if _importance(row.get("importance")) in IMPORTANT_REQUIREMENTS
-    ]
-    preferred_rows = [
-        row
-        for row in rows
-        if _importance(row.get("importance")) == "preferred"
-    ]
-
-    def coverage(rows_to_score: list[dict[str, Any]]) -> int:
-        denominator = sum(
-            IMPORTANCE_WEIGHT[_importance(row.get("importance"))]
-            * float(row.get("group_weight_fraction", 1.0) or 1.0)
-            for row in rows_to_score
-        )
-        if denominator <= 0:
-            return 0
-        numerator = sum(
-            IMPORTANCE_WEIGHT[_importance(row.get("importance"))]
-            * float(row.get("group_weight_fraction", 1.0) or 1.0)
-            * MATCH_VALUE[_label(row.get("match_label"))]
-            for row in rows_to_score
-        )
-        return round(100 * numerator / denominator)
-
-    credited = [
-        row
-        for row in rows
-        if _label(row.get("match_label")) != "none"
-    ]
-    evidence_denominator = sum(
-        IMPORTANCE_WEIGHT[_importance(row.get("importance"))]
-        * float(row.get("group_weight_fraction", 1.0) or 1.0)
-        for row in credited
-    )
-    evidence_score = (
-        round(
-            100
-            * sum(
-                IMPORTANCE_WEIGHT[_importance(row.get("importance"))]
-                * float(row.get("group_weight_fraction", 1.0) or 1.0)
-                * int(row.get("evidence_strength", 0) or 0)
-                / 5.0
-                for row in credited
-            )
-            / evidence_denominator
-        )
-        if evidence_denominator > 0
-        else 0
-    )
-
-    required_score = coverage(required_rows)
-    preferred_score = coverage(preferred_rows)
-    weights = analysis.get("score_weights") or {
-        "required_core_coverage": 0.8,
-        "preferred_coverage": 0.1,
-        "evidence_strength": 0.1,
-    }
-    alignment_score = round(
-        required_score
-        * float(weights.get("required_core_coverage", 0.8) or 0)
-        + preferred_score
-        * float(weights.get("preferred_coverage", 0.1) or 0)
-        + evidence_score
-        * float(weights.get("evidence_strength", 0.1) or 0)
-    )
-
-    analysis["deterministic_alignment_score"] = alignment_score
-    analysis["alignment_band"] = _alignment_band(alignment_score)
-    analysis["required_core_coverage_score"] = required_score
-    analysis["preferred_coverage_score"] = preferred_score
-    analysis["evidence_strength_score"] = evidence_score
-    analysis["credited_requirement_count"] = len(credited)
-    analysis["direct_requirement_count"] = sum(
-        _label(row.get("match_label")) == "direct"
-        for row in rows
-    )
-    analysis["transferable_requirement_count"] = sum(
-        _label(row.get("match_label")) == "transferable"
-        for row in rows
-    )
-    analysis["weak_requirement_count"] = sum(
-        _label(row.get("match_label")) == "weak"
-        for row in rows
-    )
-    analysis["required_core_requirement_count"] = len(required_rows)
-    analysis["preferred_requirement_count"] = len(preferred_rows)
-    analysis["boundary_status"] = _boundary_status(alignment_score)
+    canonical_summary = compute_deterministic_alignment(rows)
+    analysis.update(canonical_summary)
     analysis["phase8_reconciliation_version"] = RECONCILIATION_VERSION
+
 
 
 def reconcile_final_requirement_matches(

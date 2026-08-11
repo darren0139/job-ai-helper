@@ -163,7 +163,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(row["requirement_id"], "req-access")
         self.assertEqual(row["match_label"], "direct")
         self.assertEqual(row["evidence_strength"], 5)
-        self.assertEqual(reconciled["deterministic_alignment_score"], 90)
+        self.assertEqual(reconciled["deterministic_alignment_score"], 100)
         self.assertEqual(reconciled["required_core_coverage_score"], 100)
         self.assertEqual(reconciled["preferred_coverage_score"], 0)
         self.assertEqual(reconciled["evidence_strength_score"], 100)

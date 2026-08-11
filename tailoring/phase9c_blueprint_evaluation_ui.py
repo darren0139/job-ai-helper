@@ -51,15 +51,29 @@ def render_phase9c_blueprint_evaluation(
     by_candidate = {
         str(candidate["candidate_id"]): candidate for candidate in candidates
     }
-    candidate_options = list(by_candidate)
-    preferred_index = next(
-        (
-            index
-            for index, value in enumerate(candidate_options)
-            if value == _clean(preferred_candidate_id)
-        ),
-        0,
-    )
+    preferred_id = _clean(preferred_candidate_id)
+    if preferred_id:
+        if preferred_id not in by_candidate:
+            st.error(
+                "The current application candidate is no longer available "
+                "as an active Phase 9B candidate. Re-open Phase 8 / Phase 9B "
+                "for this application before evaluating."
+            )
+            return
+        candidate_options = [preferred_id]
+        preferred_index = 0
+        # The same widget key may have previously held another global
+        # candidate. Synchronize it before instantiating the selectbox.
+        st.session_state["phase9c_candidate_id"] = preferred_id
+        st.caption(
+            "This application lifecycle is locked to its current "
+            "Phase 9B candidate. Historical or unrelated candidates are "
+            "available only from their own lifecycle/history views."
+        )
+    else:
+        candidate_options = list(by_candidate)
+        preferred_index = 0
+
     candidate_id = st.selectbox(
         "Blueprint candidate",
         options=candidate_options,

@@ -19,6 +19,10 @@ from analysis_stability.stable_evidence_scoring import (
     compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.final_scoring_seed import (
+    FINAL_SCORING_SEED_VERSION,
+    fingerprint_final_scoring_seed,
+)
 from tailoring.phase9b_blueprint_candidate import PHASE9B_VERSION
 from tailoring.phase9b_role_family import (
     canonical_role_family_id,
@@ -76,6 +80,26 @@ def source_requirement_summary_fingerprint(
     candidate: dict[str, Any],
 ) -> str:
     metadata = candidate.get("evaluation_metadata") or {}
+    final_seed = metadata.get("source_final_scoring_seed")
+    stored_seed_fingerprint = _clean(
+        metadata.get("source_final_scoring_seed_fingerprint")
+    )
+    if isinstance(final_seed, dict) and final_seed:
+        if _clean(final_seed.get("seed_version")) != FINAL_SCORING_SEED_VERSION:
+            raise Phase9CEvaluationError(
+                "Candidate final scoring seed version is unsupported."
+            )
+        if not stored_seed_fingerprint:
+            raise Phase9CEvaluationError(
+                "Candidate final scoring seed fingerprint is missing."
+            )
+        actual = fingerprint_final_scoring_seed(final_seed)
+        if actual != stored_seed_fingerprint:
+            raise Phase9CEvaluationError(
+                "Candidate final scoring seed fingerprint mismatch."
+            )
+        return stored_seed_fingerprint
+
     rows = metadata.get("source_jd_requirement_summary") or []
     compact = sorted(
         (
@@ -84,7 +108,9 @@ def source_requirement_summary_fingerprint(
                 "text": _clean(row.get("text")),
                 "importance": _clean(row.get("importance")),
                 "match_label": _clean(row.get("match_label")).lower(),
-                "evidence_strength": int(row.get("evidence_strength", 0) or 0),
+                "evidence_strength": int(
+                    row.get("evidence_strength", 0) or 0
+                ),
                 "capability_id": _clean(row.get("capability_id")),
             }
             for row in rows
@@ -97,6 +123,7 @@ def source_requirement_summary_fingerprint(
             "The Phase 9B source requirement summary is missing."
         )
     return _fingerprint(compact)
+
 
 
 def _candidate_role_family_id(candidate: dict[str, Any]) -> str:
@@ -454,55 +481,136 @@ def _stable_input_fingerprint(candidate: dict[str, Any], jd: dict[str, Any]) -> 
     )
 
 
+def _phase8_version_requires_final_seed(version: Any) -> bool:
+    cleaned = _clean(version)
+    prefix = "phase8-before-after-verification-v"
+    if not cleaned.startswith(prefix):
+        return False
+    try:
+        number = int(cleaned[len(prefix):])
+    except ValueError:
+        return False
+    return number >= 8
+
+
 def _source_analysis(
     candidate: dict[str, Any],
     source_jd: dict[str, Any],
     canonical: dict[str, Any],
 ) -> dict[str, Any]:
-    seed_rows = (
-        (candidate.get("evaluation_metadata") or {}).get(
-            "source_jd_requirement_summary"
-        )
-        or []
+    metadata = candidate.get("evaluation_metadata") or {}
+    final_seed = metadata.get("source_final_scoring_seed")
+    final_seed_fingerprint = _clean(
+        metadata.get("source_final_scoring_seed_fingerprint")
     )
+
+    phase8_version = _clean(
+        (candidate.get("provenance") or {}).get("phase8_version")
+    )
+    if (
+        not (isinstance(final_seed, dict) and final_seed)
+        and _phase8_version_requires_final_seed(phase8_version)
+    ):
+        raise Phase9CEvaluationError(
+            "This Phase 9B candidate was created from Phase 8 v8+ but is "
+            "missing the canonical Phase 8 final scoring seed. Re-run "
+            "Phase 8 on the approved résumé and promote a new Phase 9B "
+            "candidate. Keep this candidate as historical provenance."
+        )
+
+    if isinstance(final_seed, dict) and final_seed:
+        if _clean(final_seed.get("seed_version")) != FINAL_SCORING_SEED_VERSION:
+            raise Phase9CEvaluationError(
+                "Candidate final scoring seed version is unsupported."
+            )
+        actual_seed_fingerprint = fingerprint_final_scoring_seed(final_seed)
+        if (
+            not final_seed_fingerprint
+            or actual_seed_fingerprint != final_seed_fingerprint
+        ):
+            raise Phase9CEvaluationError(
+                "Candidate final scoring seed fingerprint mismatch."
+            )
+        seed_rows = final_seed.get("canonical_requirements") or []
+        seed_aggregate = final_seed.get("aggregate") or {}
+    else:
+        seed_rows = metadata.get("source_jd_requirement_summary") or []
+        seed_aggregate = {}
+
     seed_by_id = {
         _clean(row.get("requirement_id")): row
         for row in seed_rows
-        if isinstance(row, dict) and _clean(row.get("requirement_id"))
+        if isinstance(row, dict)
+        and _clean(row.get("requirement_id"))
     }
     current_ids = sorted(
         _clean(row.get("requirement_id"))
         for row in canonical.get("requirements", [])
-        if isinstance(row, dict) and _clean(row.get("requirement_id"))
+        if isinstance(row, dict)
+        and _clean(row.get("requirement_id"))
     )
     if current_ids != sorted(seed_by_id):
         raise Phase9CEvaluationError(
-            "Resolved source-JD canonical requirements do not match the immutable Phase 9B seed."
+            "Resolved source-JD canonical requirements do not match "
+            "the immutable Phase 9B seed."
         )
+
     hydrated: list[dict[str, Any]] = []
     for row in canonical.get("requirements", []):
         copy = deepcopy(row)
         seed = seed_by_id[_clean(copy.get("requirement_id"))]
+        if isinstance(final_seed, dict) and final_seed:
+            for field in ("text", "importance", "atomic_group_id"):
+                if _clean(copy.get(field)) != _clean(seed.get(field)):
+                    raise Phase9CEvaluationError(
+                        "Resolved source-JD scoring structure does not "
+                        "match the frozen Phase 8 final scoring seed."
+                    )
+
         label = _clean(seed.get("match_label")).lower() or "none"
         if label not in MATCH_VALUES:
             raise Phase9CEvaluationError("Invalid source seed match label.")
         copy["match_label"] = label
         copy["match_value"] = MATCH_VALUES[label]
-        copy["evidence_strength"] = int(seed.get("evidence_strength", 0) or 0)
+        copy["evidence_strength"] = int(
+            seed.get("evidence_strength", 0) or 0
+        )
         if _clean(seed.get("capability_id")):
             copy["capability_id"] = _clean(seed.get("capability_id"))
         copy["evidence"] = []
         copy["phase9c_source_seed_reused"] = True
         hydrated.append(copy)
+
     score = compute_deterministic_alignment(hydrated)
+    reproduced_score = int(score["deterministic_alignment_score"])
     expected_score = int(
-        (candidate.get("score_summary") or {}).get("approved_tailored_score", 0)
+        (candidate.get("score_summary") or {}).get(
+            "approved_tailored_score",
+            0,
+        )
         or 0
     )
-    if score["deterministic_alignment_score"] != expected_score:
-        raise Phase9CEvaluationError(
-            "Source-JD parity failed: immutable Phase 9B seed no longer reproduces the approved score."
+
+    if isinstance(final_seed, dict) and final_seed:
+        frozen_seed_score = int(
+            seed_aggregate.get("deterministic_alignment_score", 0) or 0
         )
+        if reproduced_score != frozen_seed_score:
+            raise Phase9CEvaluationError(
+                "Source-JD parity failed: the frozen Phase 8 final "
+                "scoring seed does not reproduce its own aggregate."
+            )
+        if frozen_seed_score != expected_score:
+            raise Phase9CEvaluationError(
+                "Source-JD parity failed: Phase 9B approved score does "
+                "not match the frozen Phase 8 final scoring seed."
+            )
+    elif reproduced_score != expected_score:
+        raise Phase9CEvaluationError(
+            "Source-JD parity failed: immutable Phase 9B seed no longer "
+            "reproduces the approved score."
+        )
+
     return {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
@@ -512,10 +620,21 @@ def _source_analysis(
         "source_jd_parity": {
             "accepted": True,
             "expected_approved_score": expected_score,
-            "reproduced_score": score["deterministic_alignment_score"],
+            "reproduced_score": reproduced_score,
             "canonical_requirement_ids_match": True,
+            "seed_version": (
+                _clean(final_seed.get("seed_version"))
+                if isinstance(final_seed, dict)
+                else "phase9c-seed-v1"
+            ),
+            "final_scoring_seed_fingerprint": (
+                final_seed_fingerprint
+                if isinstance(final_seed, dict)
+                else ""
+            ),
         },
     }
+
 
 
 def _target_analysis(

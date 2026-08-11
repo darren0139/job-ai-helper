@@ -103,6 +103,7 @@ def _current_candidate(
     *,
     application_id: int,
     generation_id: str,
+    verification_fingerprint: str = "",
 ) -> dict[str, Any] | None:
     matches = [
         candidate
@@ -110,8 +111,14 @@ def _current_candidate(
         if int(candidate.get("source_application_id", -1) or -1)
         == int(application_id)
         and _clean(candidate.get("source_generation_id")) == generation_id
+        and (
+            not _clean(verification_fingerprint)
+            or _clean(candidate.get("source_verification_fingerprint"))
+            == _clean(verification_fingerprint)
+        )
     ]
     return matches[0] if matches else None
+
 
 
 def _current_evaluation(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -189,6 +196,9 @@ def load_blueprint_lifecycle_state(
     candidate = _current_candidate(
         application_id=application_id,
         generation_id=generation_id,
+        verification_fingerprint=_clean(
+            (verification or {}).get("verification_fingerprint")
+        ),
     )
     evaluation = _current_evaluation(candidate)
     active_blueprint = _active_blueprint(
@@ -415,6 +425,29 @@ def render_state_aware_blueprint_lifecycle(
             rerun_after_save=True,
             completion_flash_key=flash_key,
         )
+        with st.expander(
+            "Phase 9C recovery",
+            expanded=False,
+        ):
+            st.caption(
+                "If Phase 9C reports source-JD parity, frozen-seed, or stale "
+                "verification errors, re-open Phase 8 and verify the current "
+                "approved résumé before promoting/evaluating again."
+            )
+            if st.button(
+                "Open Phase 8 for re-verification",
+                key=f"phase9e1_phase9c_recovery_{application_id}",
+                width="stretch",
+            ):
+                st.session_state[
+                    f"phase8_force_open_{application_id}"
+                ] = True
+                st.session_state[flash_key] = (
+                    "Phase 8 was reopened for re-verification. "
+                    "Run the verification there, then return to the "
+                    "Blueprint Lifecycle."
+                )
+                st.rerun()
     elif current_stage == "phase9d":
         evaluation = state["evaluation"] or {}
         aggregate = evaluation.get("aggregate_result") or {}
@@ -441,7 +474,12 @@ def render_state_aware_blueprint_lifecycle(
                 st.session_state["phase9d_evaluation_id"] = _clean(
                     evaluation.get("evaluation_id")
                 )
-                st.session_state["navigation_page"] = "Global Blueprints"
+                # navigation_page belongs to the sidebar radio, which was
+                # already instantiated during this Streamlit run. Defer the
+                # state mutation until the beginning of the next run.
+                st.session_state["_pending_navigation_page"] = (
+                    "Global Blueprints"
+                )
                 st.rerun()
     else:
         blueprint = state["active_blueprint"] or {}

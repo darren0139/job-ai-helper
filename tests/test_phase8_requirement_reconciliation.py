@@ -439,7 +439,7 @@ class Phase8RequirementReconciliationTests(unittest.TestCase):
         )
         self.assertEqual(
             reconciled["deterministic_alignment_score"],
-            90,
+            100,
         )
         self.assertEqual(
             reconciled["required_core_coverage_score"],

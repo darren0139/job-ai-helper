@@ -1978,6 +1978,13 @@ CATEGORY_OPTIONS = [
 with st.sidebar:
     st.header("Navigation")
 
+    pending_navigation_page = st.session_state.pop(
+        "_pending_navigation_page",
+        "",
+    )
+    if pending_navigation_page:
+        st.session_state["navigation_page"] = pending_navigation_page
+
     page = st.radio(
         "Go to",
         [
@@ -4519,6 +4526,12 @@ if page == "Application Sessions":
                         "phase9d",
                         "phase9e",
                     }:
+                        phase8_force_open = bool(
+                            st.session_state.pop(
+                                f"phase8_force_open_{current_application_id}",
+                                False,
+                            )
+                        )
                         approved_phase8_short = str(
                             approved_for_phase8.get("generation_id")
                             or ""
@@ -4529,7 +4542,7 @@ if page == "Application Sessions":
                         )
                         with st.expander(
                             phase8_complete_label,
-                            expanded=False,
+                            expanded=phase8_force_open,
                         ):
                             render_phase8_verification(
                                 application_id=current_application_id,
@@ -4805,8 +4818,11 @@ if page == "Application Sessions":
 
 elif page == "Global Blueprints":
     st.divider()
+    global_blueprint_application_id = st.session_state.get(
+        "current_application_id"
+    )
     render_phase9d_global_blueprints(
-        current_application_id=current_application_id
+        current_application_id=global_blueprint_application_id
     )
 
 elif page == "Job Market Insights":

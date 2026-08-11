@@ -127,7 +127,7 @@ def main():
     )
     assert (
         result["phase8_version"]
-        == "phase8-before-after-verification-v7"
+        == PHASE8_VERIFICATION_VERSION
     )
 
     print("PHASE 8 CURRENT-SCORER BASELINE REBUILD: PASS")

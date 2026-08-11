@@ -13,6 +13,11 @@ from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.phase8_requirement_reconciliation import (
     reconcile_final_requirement_matches,
 )
+from tailoring.final_scoring_seed import (
+    FINAL_SCORING_SEED_VERSION,
+    build_final_scoring_seed,
+    fingerprint_final_scoring_seed,
+)
 from tailoring.phase8_claim_lineage import (
     audit_claim_lineage_v2,
 )
@@ -21,7 +26,7 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v7"
+PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v8"
 PHASE8_BASELINE_RESOLUTION_VERSION = "phase8-current-scorer-baseline-v1"
 MATCH_RANK = {
     "none": 0,
@@ -716,6 +721,13 @@ def build_phase8_verification(
         generation_state=generation_state,
         claim_lineage=lineage,
     )
+
+    final_scoring_seed = build_final_scoring_seed(after)
+    after.update(deepcopy(final_scoring_seed.get("aggregate") or {}))
+    final_scoring_seed = build_final_scoring_seed(after)
+    final_scoring_seed_fingerprint = (
+        fingerprint_final_scoring_seed(final_scoring_seed)
+    )
     comparison = compare_stable_analyses(before, after)
 
     important_regressions = comparison["important_regressions"]
@@ -792,6 +804,9 @@ def build_phase8_verification(
         "page_count": fit_result.get("page_count"),
         "before_stable_analysis": before,
         "after_stable_analysis": after,
+        "final_scoring_seed_version": FINAL_SCORING_SEED_VERSION,
+        "final_scoring_seed": final_scoring_seed,
+        "final_scoring_seed_fingerprint": final_scoring_seed_fingerprint,
         "raw_comparison_before_reconciliation": raw_comparison,
         "comparison": comparison,
         "requirement_reconciliation": reconciliation,
