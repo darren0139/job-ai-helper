@@ -21,8 +21,6 @@ from database.application_resume_result_manager import (
 from database.tailoring_generation_control import get_tailoring_generation
 from tailoring.generation_controls_ui import restore_generation_to_session
 from tailoring.phase9d_global_blueprint import (
-    MINIMUM_OVERRIDE_REASON_CHARACTERS,
-    MINIMUM_OVERRIDE_REASON_WORDS,
     Phase9DApprovalError,
     evaluation_policy_status,
 )
@@ -44,14 +42,6 @@ def _evaluation_label(evaluation: dict[str, Any]) -> str:
         f"[{state}] {candidate.get('role_family', 'Role family')} · "
         f"{provisional} · {policy.get('policy_version', 'unknown policy')} · "
         f"{str(evaluation.get('evaluation_id') or '')[:10]}"
-    )
-
-
-def _reason_is_substantive(reason: str) -> bool:
-    cleaned = _clean(reason)
-    return (
-        len(cleaned) >= MINIMUM_OVERRIDE_REASON_CHARACTERS
-        and len(cleaned.split()) >= MINIMUM_OVERRIDE_REASON_WORDS
     )
 
 
@@ -164,23 +154,14 @@ def render_phase9d_global_blueprints(
                 value=False,
                 key="phase9d_provisional_acknowledgement",
             )
-            override_reason = st.text_area(
-                "Required provisional override reason",
-                value="",
-                key="phase9d_provisional_reason",
-                help=(
-                    "Explain why approval should proceed despite the limited scope. "
-                    f"Minimum {MINIMUM_OVERRIDE_REASON_CHARACTERS} characters and "
-                    f"{MINIMUM_OVERRIDE_REASON_WORDS} words."
-                ),
-            )
+            if acknowledgement:
+                override_reason = (
+                    "User explicitly acknowledged approval with a provisional "
+                    "Phase 9C evaluated-JD scope."
+                )
 
         approval_disabled = not policy_status["approvable_policy"] or (
-            provisional
-            and (
-                not acknowledgement
-                or not _reason_is_substantive(override_reason)
-            )
+            provisional and not acknowledgement
         )
         if st.button(
             "Approve or exactly reuse global blueprint",

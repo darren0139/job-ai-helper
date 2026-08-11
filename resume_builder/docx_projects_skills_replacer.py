@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 from docx.document import Document as DocumentObject
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
@@ -448,6 +448,59 @@ def _add_blank_line_after(anchor: Paragraph) -> Paragraph:
         pass
 
     return spacer
+
+
+_MARGIN_PROFILE_TARGET_INCHES: dict[str, float | None] = {
+    "source": None,
+    "compact_075": 0.75,
+    "compact_065": 0.65,
+    "compact_050": 0.50,
+}
+
+
+def _normalise_margin_profile(value: str) -> str:
+    profile = str(value or "source").strip().lower()
+    return profile if profile in _MARGIN_PROFILE_TARGET_INCHES else "source"
+
+
+def _apply_margin_profile(document: DocumentObject, profile: str) -> bool:
+    # Shrink section margins conservatively; never expand them.
+    profile = _normalise_margin_profile(profile)
+    target_inches = _MARGIN_PROFILE_TARGET_INCHES[profile]
+    if target_inches is None:
+        return False
+    target = Inches(float(target_inches))
+    changed = False
+    for section in document.sections:
+        for attr in ("top_margin", "bottom_margin", "left_margin", "right_margin"):
+            current = getattr(section, attr, None)
+            if current is not None and int(current) > int(target):
+                setattr(section, attr, target)
+                changed = True
+    return changed
+
+
+def _available_margin_compaction_profiles(saved_resume_docx_path: str | Path) -> list[str]:
+    # Return only profiles that would actually shrink at least one margin.
+    try:
+        document = Document(str(saved_resume_docx_path))
+    except Exception:
+        return []
+    profiles: list[str] = []
+    for profile in ("compact_075", "compact_065", "compact_050"):
+        target_inches = _MARGIN_PROFILE_TARGET_INCHES[profile]
+        if target_inches is None:
+            continue
+        target = Inches(float(target_inches))
+        if any(
+            int(getattr(section, attr)) > int(target)
+            for section in document.sections
+            for attr in ("top_margin", "bottom_margin", "left_margin", "right_margin")
+            if getattr(section, attr, None) is not None
+        ):
+            profiles.append(profile)
+    return profiles
+
 
 # ---------------------------------------------------------------------------
 # One page helpers
@@ -2124,6 +2177,7 @@ def generate_tailored_resume_copy(
     blank_lines_between_projects: int = 1,
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
+    margin_profile: str = "source",
 ) -> Path:
     """
     Generate a new tailored resume DOCX copy.
@@ -2150,6 +2204,7 @@ def generate_tailored_resume_copy(
     shutil.copy2(saved_resume_docx_path, output_path)
 
     document = Document(output_path)
+    _apply_margin_profile(document, margin_profile)
 
     # Change only the sections that were generated.
     if not tailored_projects and not tailored_skills:
@@ -2552,7 +2607,8 @@ def _whole_resume_restoration_quality_gain(change: dict[str, Any]) -> int:
 
 
 _LAYOUT_EFFECT_THRESHOLD = 0.002
-_PAGE_DENSITY_MAX_FILL = {
+_PAGE_DENSITY_MAX_FILL: dict[str, float | None] = {
+    "none": None,
     "balanced": 0.92,
     "maximize": 0.97,
 }
@@ -2690,6 +2746,7 @@ def generate_tailored_resume_copy_fit_one_page(
     lock_skills: bool = False,
     minimum_total_skills: int = 8,
     page_density_mode: str = "balanced",
+    allow_margin_compaction: bool = False,
     generation_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -2763,6 +2820,8 @@ def generate_tailored_resume_copy_fit_one_page(
         ),
     }
     render_cache: dict[str, dict[str, Any]] = {}
+    active_margin_profile = "source"
+    margin_compaction_used = False
     optimization_stats: dict[str, int] = {
         "candidate_state_requests": 0,
         "render_cache_hits": 0,
@@ -2839,11 +2898,18 @@ def generate_tailored_resume_copy_fit_one_page(
     ) -> dict[str, Any]:
         projects_state = specification.get("projects")
         skills_state = specification.get("skills")
+        margin_profile = _normalise_margin_profile(
+            specification.get("margin_profile") or active_margin_profile
+        )
+        candidate_layout_options = {
+            **render_layout_options,
+            "margin_profile": margin_profile,
+        }
         fingerprint = build_render_state_fingerprint(
             source_signature=source_signature,
             projects_state=projects_state,
             skills_state=skills_state,
-            layout_options=render_layout_options,
+            layout_options=candidate_layout_options,
         )
         docx_path = generate_tailored_resume_copy(
             saved_resume_docx_path=saved_resume_docx_path,
@@ -2864,9 +2930,11 @@ def generate_tailored_resume_copy_fit_one_page(
             add_spacing_before_first_project=(
                 add_spacing_before_first_project
             ),
+            margin_profile=margin_profile,
         )
         return {
             **specification,
+            "margin_profile": margin_profile,
             "docx_path": Path(docx_path),
             "render_state_fingerprint": fingerprint,
         }
@@ -3089,6 +3157,7 @@ def generate_tailored_resume_copy_fit_one_page(
         restoration_quality_gain: int | None = None,
         probe_candidate: bool = False,
         quality_loss: int | None = None,
+        margin_profile: str | None = None,
     ) -> dict[str, Any]:
         return render_candidates_batch(
             [
@@ -3105,6 +3174,9 @@ def generate_tailored_resume_copy_fit_one_page(
                     ),
                     "probe_candidate": probe_candidate,
                     "quality_loss": quality_loss,
+                    "margin_profile": (
+                        margin_profile or active_margin_profile
+                    ),
                 }
             ],
             batch_label=attempt_type,
@@ -3168,6 +3240,8 @@ def generate_tailored_resume_copy_fit_one_page(
             "estimated_unused_page_ratio": None,
             "page_density_mode": density_mode,
             "density_target_max": density_max_fill,
+            "margin_profile": active_margin_profile,
+            "margin_compaction_used": margin_compaction_used,
             **optimization_summary(),
             "note": (
                 "Could not check page count because LibreOffice is unavailable "
@@ -3176,6 +3250,58 @@ def generate_tailored_resume_copy_fit_one_page(
         }
 
     fitting_render: dict[str, Any] | None = None
+
+    if allow_margin_compaction and int(current_render["page_count"]) > 1:
+        margin_profiles = _available_margin_compaction_profiles(
+            saved_resume_docx_path
+        )
+        margin_candidates = [
+            render_candidate(
+                working_projects,
+                working_skills,
+                attempt_type=f"margin_{profile}",
+                probe_candidate=True,
+                quality_loss=0,
+                margin_profile=profile,
+            )
+            for profile in margin_profiles
+        ]
+        usable_margin_candidates = [
+            candidate for candidate in margin_candidates
+            if candidate.get("pdf_path") is not None
+        ]
+        if usable_margin_candidates:
+            baseline_overflow = _rendered_overflow_value(current_render)
+            reaching_one_page = [
+                candidate for candidate in usable_margin_candidates
+                if int(candidate.get("page_count") or 99) <= 1
+            ]
+            chosen_margin = (
+                reaching_one_page[0]
+                if reaching_one_page
+                else min(usable_margin_candidates, key=_rendered_overflow_value)
+            )
+            chosen_overflow = _rendered_overflow_value(chosen_margin)
+            margin_improved = (
+                int(chosen_margin.get("page_count") or 99) <= 1
+                or chosen_overflow <= baseline_overflow - _LAYOUT_EFFECT_THRESHOLD
+            )
+            for candidate in usable_margin_candidates:
+                if candidate is not chosen_margin or not margin_improved:
+                    _delete_generated_output(
+                        candidate.get("docx_path"),
+                        candidate.get("pdf_path"),
+                    )
+            if margin_improved:
+                _delete_generated_output(
+                    current_render.get("docx_path"),
+                    current_render.get("pdf_path"),
+                )
+                current_render = chosen_margin
+                active_margin_profile = str(
+                    chosen_margin.get("margin_profile") or "source"
+                )
+                margin_compaction_used = active_margin_profile != "source"
 
     if int(current_render["page_count"]) <= 1:
         fitting_render = current_render
@@ -3544,6 +3670,8 @@ def generate_tailored_resume_copy_fit_one_page(
             "estimated_unused_page_ratio": None,
             "page_density_mode": density_mode,
             "density_target_max": density_max_fill,
+            "margin_profile": active_margin_profile,
+            "margin_compaction_used": margin_compaction_used,
             **optimization_summary(),
             "note": (
                 (
@@ -3566,7 +3694,7 @@ def generate_tailored_resume_copy_fit_one_page(
     restored_change_count = 0
     permanently_rejected_restorations: set[str] = set()
 
-    while active_changes:
+    while active_changes and density_max_fill is not None:
         candidate_results: list[
             dict[str, Any]
         ] = []
@@ -3857,6 +3985,17 @@ def generate_tailored_resume_copy_fit_one_page(
             "and a restoration pass recovered the strongest content that fit "
             "within the selected density target."
         )
+    elif margin_compaction_used and not active_changes:
+        note = (
+            "Generated resume fits within one page after safe margin compaction; "
+            "no résumé evidence was removed to achieve the one-page fit."
+        )
+    elif density_mode == "none" and active_changes:
+        note = (
+            "Generated resume fits within one page. Fit only was selected, so "
+            "the fitter kept the first evidence-safe one-page "
+            "result instead of restoring content to fill spare space."
+        )
     else:
         note = (
             "Generated resume fits within one page after comparing actual "
@@ -3887,6 +4026,8 @@ def generate_tailored_resume_copy_fit_one_page(
         "page_fill_measurement_method": fill_metrics.get("measurement_method"),
         "page_density_mode": density_mode,
         "density_target_max": density_max_fill,
+        "margin_profile": active_margin_profile,
+        "margin_compaction_used": margin_compaction_used,
         **optimization_summary(),
         "fitting_objective": (
             "Protect unique requirement evidence, then minimise deterministic "

@@ -200,12 +200,12 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
         self.assertEqual(list(restarted.exception), [])
         self.assertTrue(
             any(
-                "current immutable Phase 9E starting snapshot" in item.value
+                "current immutable Phase 9E tailoring base" in item.value
                 for item in restarted.success
             )
         )
         self.assertTrue(
-            any("Active starting source" in item.value for item in restarted.markdown)
+            any("Active tailoring base" in item.value for item in restarted.markdown)
         )
         self.assertTrue(
             any("Current workflow state" in item.value for item in restarted.caption)
@@ -352,7 +352,7 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
             )
         )
 
-        _by_key(restarted.radio, "phase9e_selection_94").set_value(
+        _by_key(restarted.selectbox, "phase9e_selection_94").set_value(
             "original_resume"
         ).run()
         replacement = _by_key(
@@ -387,7 +387,7 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
 
     def test_original_resume_preview_labels_profile_only_fidelity(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=60).run()
-        selection = _by_key(app.radio, "phase9e_selection_94")
+        selection = _by_key(app.selectbox, "phase9e_selection_94")
         selection.set_value("original_resume").run()
         self.assertEqual(list(app.exception), [])
         self.assertTrue(
@@ -396,7 +396,7 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
 
     def test_original_resume_activation_has_no_unsuitable_blueprint_action(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=60).run()
-        _by_key(app.radio, "phase9e_selection_94").set_value(
+        _by_key(app.selectbox, "phase9e_selection_94").set_value(
             "original_resume"
         ).run()
         app = self.confirm_and_bind(app)

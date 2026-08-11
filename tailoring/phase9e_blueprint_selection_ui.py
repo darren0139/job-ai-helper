@@ -192,9 +192,9 @@ def _show_active_binding(
     workflow_state = _clean(workflow.get("workflow_action")) or "not selected"
 
     st.success(
-        "A current immutable Phase 9E starting snapshot is bound for generation."
+        "A current immutable Phase 9E tailoring base is bound for generation."
     )
-    st.write(f"**Active starting source:** {source_label}")
+    st.write(f"**Active tailoring base:** {source_label}")
     st.caption(source_details)
     st.caption(f"Current workflow state: {workflow_state.replace('_', ' ')}")
     with st.expander(
@@ -564,10 +564,11 @@ def render_phase9e_blueprint_selection(
     """Render Phase 9E and return the fail-closed generation context."""
     del baseline_report  # persistence remains authoritative for preview/binding
     st.divider()
-    st.header("Starting Résumé Source")
+    st.header("Tailoring Base")
     st.caption(
-        "Review, confirm, or replace the immutable résumé source used for this "
-        "application. Phase 9E does not generate, approve, or overwrite content."
+        "Choose the immutable résumé base that future JD-specific tailoring "
+        "should start from for this application. Phase 9E only binds the base; "
+        "it does not generate, approve, or overwrite résumé content."
     )
 
     flash = st.session_state.pop(f"phase9e_flash_{application_id}", "")
@@ -598,7 +599,7 @@ def render_phase9e_blueprint_selection(
         )
         if not changing_source:
             if st.button(
-                "Change starting source",
+                "Change tailoring base",
                 key=f"phase9e_change_source_{application_id}",
             ):
                 st.session_state[change_key] = True
@@ -613,12 +614,12 @@ def render_phase9e_blueprint_selection(
             "historical and inspectable."
         )
         if st.button(
-            "Keep current starting source",
+            "Keep current tailoring base",
             key=f"phase9e_cancel_change_source_{application_id}",
         ):
             st.session_state[change_key] = False
             st.rerun()
-        st.write("### Preview a replacement starting source")
+        st.write("### Preview a replacement tailoring base")
 
     try:
         exact_jd = get_exact_job_description_for_application(application_id)
@@ -704,8 +705,8 @@ def render_phase9e_blueprint_selection(
             if current_option:
                 st.session_state[selection_widget_key] = current_option
 
-    selection_key = st.radio(
-        "Starting résumé source",
+    selection_key = st.selectbox(
+        "Tailoring base",
         options=options,
         format_func=lambda value: (
             "Original résumé for this application"
@@ -716,6 +717,11 @@ def render_phase9e_blueprint_selection(
             )
         ),
         key=selection_widget_key,
+        help=(
+            "Choose the immutable résumé base used before JD-specific tailoring. "
+            "Changing this dropdown only previews the choice; the base is not "
+            "rebound until you explicitly confirm below."
+        ),
     )
     selected_blueprint = option_rows[selection_key]
     selected_source = (
@@ -818,9 +824,9 @@ def render_phase9e_blueprint_selection(
             "export, Phase 8, and Phase 9B scope remains current."
         )
         action_label = (
-            "Use original résumé for this application"
+            "Use original résumé as tailoring base"
             if selected_source == "original_resume"
-            else "Use selected blueprint for this application"
+            else "Use selected Blueprint as tailoring base"
         )
         if st.button(
             action_label,
@@ -862,7 +868,7 @@ def render_phase9e_blueprint_selection(
             )
         else:
             st.warning(
-                "No Phase 9E starting source is active. Generation is blocked "
+                "No Phase 9E tailoring base is active. Generation is blocked "
                 "until a source is explicitly confirmed."
             )
     elif current.get("scope_activation_status") != "active":

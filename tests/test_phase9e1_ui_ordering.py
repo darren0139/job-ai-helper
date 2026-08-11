@@ -49,7 +49,7 @@ class Phase9E1UIOrderingTests(unittest.TestCase):
         text = (
             REPO_ROOT / "tailoring" / "phase9e_blueprint_selection_ui.py"
         ).read_text(encoding="utf-8")
-        self.assertIn('st.header("Starting Résumé Source")', text)
+        self.assertIn('st.header("Tailoring Base")', text)
         self.assertNotIn('st.header("Select a Global Blueprint")', text)
 
     def test_long_workflow_labels_are_not_streamlit_metrics(self) -> None:

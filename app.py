@@ -1826,6 +1826,7 @@ def _restore_application_tailoring_to_session(
         f"prefer_balanced_bullets_{application_id}",
         f"allow_skills_compaction_{application_id}",
         f"page_density_mode_{application_id}",
+        f"allow_margin_compaction_{application_id}",
         f"spacing_mode_{application_id}",
         f"spacing_before_first_project_{application_id}",
         f"project_spacing_pt_{application_id}",
@@ -1989,9 +1990,9 @@ with st.sidebar:
         "Go to",
         [
             "Application Sessions",
-            "Global Blueprints",
-            "Job Market Insights",
             "Profile & Evidence",
+            "Job Market Insights",
+            "Global Blueprints",
         ],
         key="navigation_page",
         label_visibility="collapsed",
@@ -3053,7 +3054,7 @@ if page == "Application Sessions":
             )
 
             max_bullets = st.slider(
-                "Maximum bullets per project",
+                "Bullet limit per project",
                 min_value=1,
                 max_value=4,
                 value=int(restored_settings.get("max_bullets", 3)),
@@ -3903,6 +3904,7 @@ if page == "Application Sessions":
                     )
 
                     page_density_options = [
+                        "Fit only",
                         "Balanced",
                         "Maximize relevant content",
                     ]
@@ -3912,11 +3914,12 @@ if page == "Application Sessions":
                             "balanced",
                         )
                     ).strip().lower()
-                    default_page_density_label = (
-                        "Maximize relevant content"
-                        if saved_page_density == "maximize"
-                        else "Balanced"
-                    )
+                    if saved_page_density == "none":
+                        default_page_density_label = "Fit only"
+                    elif saved_page_density == "maximize":
+                        default_page_density_label = "Maximize relevant content"
+                    else:
+                        default_page_density_label = "Balanced"
 
                     page_density_label = st.radio(
                         "Page density",
@@ -3927,16 +3930,40 @@ if page == "Application Sessions":
                         horizontal=True,
                         key=f"page_density_mode_{current_application_id}",
                         help=(
-                            "Balanced restores content up to about 92% page fill. "
+                            "Fit only reaches one page and then stops; it does not restore "
+                            "content just to fill spare space. Balanced restores the "
+                            "strongest removed content up to about 92% page fill. "
                             "Maximize relevant content restores more truthful content "
-                            "up to about 97%. This setting never removes content when "
-                            "the full version already fits."
+                            "up to about 97%. If the full generated version already "
+                            "fits on one page, all three modes keep it unchanged."
                         ),
                     )
                     page_density_mode = (
-                        "maximize"
+                        "none"
+                        if page_density_label == "Fit only"
+                        else "maximize"
                         if page_density_label == "Maximize relevant content"
                         else "balanced"
+                    )
+
+                    allow_margin_compaction = st.checkbox(
+                        "Allow safe margin compaction before deleting content",
+                        value=bool(
+                            restored_settings.get(
+                                "allow_margin_compaction",
+                                False,
+                            )
+                        ),
+                        key=(
+                            "allow_margin_compaction_"
+                            f"{current_application_id}"
+                        ),
+                        help=(
+                            "If the full résumé exceeds one page, the fitter may "
+                            "reduce larger source margins in conservative steps before "
+                            "removing project bullets or Skills. It never expands a "
+                            "margin and never reduces any margin below 0.50 in."
+                        ),
                     )
 
                     st.caption(
@@ -4143,6 +4170,7 @@ if page == "Application Sessions":
                             lock_projects=fit_lock_projects,
                             lock_skills=fit_lock_skills,
                             page_density_mode=page_density_mode,
+                            allow_margin_compaction=allow_margin_compaction,
                             generation_id=mutable_generation_id,
                         )
 
@@ -4175,6 +4203,9 @@ if page == "Application Sessions":
                             "lock_projects": fit_lock_projects,
                             "lock_skills": fit_lock_skills,
                             "page_density_mode": page_density_mode,
+                            "allow_margin_compaction": (
+                                allow_margin_compaction
+                            ),
                             "spacing_mode": spacing_mode,
                             "project_spacing_pt": project_spacing_pt,
                             "after_projects_spacing_pt": (

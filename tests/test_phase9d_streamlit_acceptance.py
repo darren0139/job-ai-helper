@@ -63,11 +63,13 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
         self.assertFalse(acknowledgement.value)
         self.assertTrue(_by_key(app.button, "phase9d_approve").disabled)
 
-        acknowledgement.set_value(True)
-        reason = _by_key(app.text_area, "phase9d_provisional_reason")
-        reason.set_value(
-            "Source parity is strong while more target JDs are collected."
-        ).run()
+        acknowledgement.set_value(True).run()
+        self.assertFalse(
+            any(
+                element.key == "phase9d_provisional_reason"
+                for element in app.text_area
+            )
+        )
         approve = _by_key(app.button, "phase9d_approve")
         self.assertFalse(approve.disabled)
         approve.click().run()
