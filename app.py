@@ -3186,6 +3186,40 @@ if page == "Application Sessions":
                 ),
             )
 
+            saved_bullet_allocation_mode = str(
+                restored_settings.get(
+                    "bullet_allocation_mode",
+                    "prefer_available_evidence",
+                )
+            ).strip().lower()
+
+            bullet_allocation_label = st.radio(
+                "Bullet allocation",
+                ["Adaptive", "Prefer available evidence"],
+                index=(
+                    1
+                    if saved_bullet_allocation_mode
+                    == "prefer_available_evidence"
+                    else 0
+                ),
+                horizontal=True,
+                key=f"bullet_allocation_mode_{current_application_id}",
+                disabled=workspace_edit_required,
+                help=(
+                    "Adaptive starts with a compact allocation and adds extra "
+                    "bullets only when the existing evidence gates justify them. "
+                    "Prefer available evidence includes as many truthful canonical "
+                    "Evidence Library bullets as are available up to the Bullet "
+                    "limit per project, then lets one-page fitting remove lower-value "
+                    "content if needed. Neither mode invents filler bullets."
+                ),
+            )
+            bullet_allocation_mode = (
+                "prefer_available_evidence"
+                if bullet_allocation_label == "Prefer available evidence"
+                else "adaptive"
+            )
+
             generation_plan = build_generation_action_plan(
                 lock_projects=lock_projects,
                 lock_skills=lock_skills,
@@ -3223,6 +3257,7 @@ if page == "Application Sessions":
                     generation_settings = {
                         "max_projects": max_projects,
                         "max_bullets": max_bullets,
+                        "bullet_allocation_mode": bullet_allocation_mode,
                         "phase9e_binding": deepcopy(phase9e_binding),
                         "phase9e_base_content_fingerprint": (
                             phase9e_base_content_fingerprint
@@ -3438,6 +3473,7 @@ if page == "Application Sessions":
                                 evidence_items=evidence_items,
                                 max_projects=max_projects,
                                 max_bullets_per_project=max_bullets,
+                                bullet_allocation_mode=bullet_allocation_mode,
                                 keyword_match=report.get(
                                     "keyword_match",
                                     {},
@@ -3603,6 +3639,7 @@ if page == "Application Sessions":
                                     evidence_items=evidence_items,
                                     max_projects=max_projects,
                                     max_bullets_per_project=max_bullets,
+                                    bullet_allocation_mode=bullet_allocation_mode,
                                     keyword_match=report.get("keyword_match", {}),
                                     raw_jd_text=report.get("raw_jd_text","",),
                                     stable_analysis=report.get("stable_analysis", {}),
@@ -3644,6 +3681,7 @@ if page == "Application Sessions":
                                 generation_settings={
                                     "max_projects": max_projects,
                                     "max_bullets": max_bullets,
+                                    "bullet_allocation_mode": bullet_allocation_mode,
                                     "phase9e_binding": deepcopy(
                                         phase9e_binding
                                     ),
@@ -3657,6 +3695,7 @@ if page == "Application Sessions":
                                     generation_settings={
                                         "max_projects": max_projects,
                                         "max_bullets": max_bullets,
+                                        "bullet_allocation_mode": bullet_allocation_mode,
                                     },
                                     generation_kind="projects",
                                     model_id=get_active_model("analysis"),
@@ -3733,6 +3772,7 @@ if page == "Application Sessions":
                                 generation_settings={
                                     "max_projects": max_projects,
                                     "max_bullets": max_bullets,
+                                    "bullet_allocation_mode": bullet_allocation_mode,
                                     "phase9e_binding": deepcopy(
                                         phase9e_binding
                                     ),
@@ -3746,6 +3786,7 @@ if page == "Application Sessions":
                                     generation_settings={
                                         "max_projects": max_projects,
                                         "max_bullets": max_bullets,
+                                        "bullet_allocation_mode": bullet_allocation_mode,
                                     },
                                     generation_kind="skills",
                                     model_id=get_active_model("analysis"),

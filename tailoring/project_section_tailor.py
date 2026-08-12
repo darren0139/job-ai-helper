@@ -1569,6 +1569,7 @@ def tailor_projects_section(
     evidence_items: list[dict[str, Any]],
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
+    bullet_allocation_mode: str = "adaptive",
     keyword_match: dict[str, Any] | None = None,
     raw_jd_text: str = "",
     stable_analysis: dict[str, Any] | None = None,
@@ -1796,6 +1797,7 @@ IMPORTANT:
             max_bullets_per_project=(
                 max_bullets_per_project
             ),
+            allocation_mode=bullet_allocation_mode,
         )
     )
     selected_pairs = (
@@ -1839,6 +1841,9 @@ IMPORTANT:
                 ),
                 "bullet_allocation_version": (
                     BULLET_ALLOCATION_VERSION
+                ),
+                "bullet_allocation_mode": (
+                    bullet_allocation.get("allocation_mode")
                 ),
             }
         )
@@ -2048,6 +2053,7 @@ IMPORTANT:
     }
 
     return _sort_recommended_projects_latest_first(result)
+
 
 
 # ---------------------------------------------------------------------------

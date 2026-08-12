@@ -21,7 +21,11 @@ from tailoring.stable_tailoring_ranking import (
 
 
 BULLET_ALLOCATION_VERSION = (
-    "phase6b2-deterministic-bullet-allocation-v2"
+    "phase6b2-deterministic-bullet-allocation-v3"
+)
+BULLET_ALLOCATION_MODE_ADAPTIVE = "adaptive"
+BULLET_ALLOCATION_MODE_PREFER_AVAILABLE = (
+    "prefer_available_evidence"
 )
 
 _MATCH_STRENGTH = {
@@ -79,6 +83,21 @@ _SOFT_NAMED_TERMS = {
 
 def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
+
+def normalise_bullet_allocation_mode(value: Any) -> str:
+    """Normalise aliases; unknown values fail safe to Adaptive."""
+    mode = _clean_text(value).lower()
+    mode = re.sub(r"[^a-z0-9]+", "_", mode).strip("_")
+    if mode in {
+        "prefer_available",
+        "prefer_available_evidence",
+        "use_available_evidence",
+        "evidence_first",
+        "fill_then_trim",
+    }:
+        return BULLET_ALLOCATION_MODE_PREFER_AVAILABLE
+    return BULLET_ALLOCATION_MODE_ADAPTIVE
+
 
 
 def _clean_string_list(value: Any) -> list[str]:
@@ -928,6 +947,7 @@ def build_deterministic_bullet_allocation(
         ]
     ],
     max_bullets_per_project: int,
+    allocation_mode: str = BULLET_ALLOCATION_MODE_ADAPTIVE,
 ) -> dict[str, Any]:
     """
     Allocate exact canonical bullets across selected projects.
@@ -937,6 +957,7 @@ def build_deterministic_bullet_allocation(
     that baseline only when another bullet adds uncovered requirement evidence
     or unusually strong distinct evidence.
     """
+    mode = normalise_bullet_allocation_mode(allocation_mode)
     maximum = max(
         1,
         int(max_bullets_per_project),
@@ -1008,43 +1029,62 @@ def build_deterministic_bullet_allocation(
         ),
     )
 
-    # Fill the baseline budget using marginal requirement value and a stable
-    # balance preference when evidence value is otherwise comparable.
-    while target_count < base_budget:
-        choice = _best_remaining_choice(
-            states,
-            _global_covered(states),
-        )
-        if choice is None:
-            break
+    if mode == BULLET_ALLOCATION_MODE_PREFER_AVAILABLE:
+        # Evidence-first / fill-then-trim: admit every truthful canonical slot
+        # up to the user's per-project ceiling. The existing one-page fitter
+        # decides later whether lower-value content must be removed.
+        while target_count < total_capacity:
+            choice = _best_remaining_choice(
+                states,
+                _global_covered(states),
+            )
+            if choice is None:
+                break
 
-        state, record, _ = choice
-        _select_record(
-            state=state,
-            record=record,
-            reason="baseline_budget",
-            trace=trace,
-        )
-        target_count += 1
+            state, record, _ = choice
+            _select_record(
+                state=state,
+                record=record,
+                reason="prefer_available_evidence_fill",
+                trace=trace,
+            )
+            target_count += 1
+    else:
+        # Adaptive: keep the existing compact baseline, then expand only when
+        # another bullet clears the established marginal-evidence gates.
+        while target_count < base_budget:
+            choice = _best_remaining_choice(
+                states,
+                _global_covered(states),
+            )
+            if choice is None:
+                break
 
-    # Add evidence-justified expansion slots. This is what permits outcomes
-    # such as 3/3/2, 3/3/3, or a fourth bullet when the configured maximum is 4.
-    while target_count < total_capacity:
-        choice = _best_expansion_choice(
-            states,
-            _global_covered(states),
-        )
-        if choice is None:
-            break
+            state, record, _ = choice
+            _select_record(
+                state=state,
+                record=record,
+                reason="baseline_budget",
+                trace=trace,
+            )
+            target_count += 1
 
-        state, record, reason = choice
-        _select_record(
-            state=state,
-            record=record,
-            reason=reason,
-            trace=trace,
-        )
-        target_count += 1
+        while target_count < total_capacity:
+            choice = _best_expansion_choice(
+                states,
+                _global_covered(states),
+            )
+            if choice is None:
+                break
+
+            state, record, reason = choice
+            _select_record(
+                state=state,
+                record=record,
+                reason=reason,
+                trace=trace,
+            )
+            target_count += 1
 
     project_plans: list[dict[str, Any]] = []
     for state in states:
@@ -1114,6 +1154,7 @@ def build_deterministic_bullet_allocation(
                 "allocation_version": (
                     BULLET_ALLOCATION_VERSION
                 ),
+                "allocation_mode": mode,
             }
         )
 
@@ -1121,6 +1162,7 @@ def build_deterministic_bullet_allocation(
         "allocation_version": (
             BULLET_ALLOCATION_VERSION
         ),
+        "allocation_mode": mode,
         "max_bullets_per_project": maximum,
         "selected_project_count": len(states),
         "base_bullet_budget": base_budget,
@@ -1136,6 +1178,7 @@ def build_deterministic_bullet_allocation(
         "projects": project_plans,
         "selection_trace": trace,
     }
+
 
 
 def _allocation_lookup_key(
@@ -1332,5 +1375,10 @@ def enforce_writer_plan_allocation(
     )
     plan["bullet_allocation_version"] = (
         BULLET_ALLOCATION_VERSION
+    )
+    plan["bullet_allocation_mode"] = (
+        normalise_bullet_allocation_mode(
+            allocation_plan.get("allocation_mode")
+        )
     )
     return plan

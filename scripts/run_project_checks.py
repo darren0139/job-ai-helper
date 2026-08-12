@@ -62,6 +62,7 @@ QUICK_TEST_MODULES = (
     "tests.test_docx_project_bullet_preservation",
     "tests.test_phase9e_application_result_manager",
     "tests.test_application_output_integrations",
+    "tests.test_bullet_allocation_preference_v1",
 )
 
 SAFE_SMOKE_MODULES = (
