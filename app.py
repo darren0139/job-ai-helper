@@ -3060,18 +3060,46 @@ if page == "Application Sessions":
         )
 
         workspace_edit_required = False
+        workspace_message_context: dict[str, Any] = {}
+        previous_scope_message_approved: dict[str, Any] | None = None
         if current_application_id is not None:
             workspace_edit_required = workspace_requires_edit_draft(
                 int(current_application_id)
             )
-        if workspace_edit_required:
-            st.info(
-                "The current approved résumé is read-only. Use "
-                "Revise approved résumé from the Résumé Workspace "
-                "to remove the approval and continue normal editing, "
-                "or Create alternative copy to experiment while "
-                "keeping the approved result active."
+            workspace_message_context = (
+                get_resume_workspace_context(
+                    int(current_application_id)
+                )
+                or {}
             )
+            candidate_previous_scope = workspace_message_context.get(
+                "previous_scope_approved_generation"
+            )
+            if isinstance(candidate_previous_scope, dict):
+                previous_scope_message_approved = candidate_previous_scope
+
+        if workspace_edit_required:
+            if isinstance(previous_scope_message_approved, dict):
+                previous_scope_id = str(
+                    previous_scope_message_approved.get("generation_id")
+                    or ""
+                )[:8]
+                st.info(
+                    "Approved résumé "
+                    f"{previous_scope_id or 'result'} belongs to a previous "
+                    "Tailoring Base and is read-only. Use Start new résumé "
+                    "from current Tailoring Base in the Résumé Workspace "
+                    "before generating new Projects or Skills. The existing "
+                    "approved result and its earlier lineage remain preserved."
+                )
+            else:
+                st.info(
+                    "The current approved résumé is read-only. Use "
+                    "Revise approved résumé from the Résumé Workspace "
+                    "to remove the approval and continue normal editing, "
+                    "or Create alternative copy to experiment while "
+                    "keeping the approved result active."
+                )
 
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
@@ -3886,19 +3914,32 @@ if page == "Application Sessions":
             saved_resume_docx_path = st.session_state.get(saved_docx_key)
 
             if workspace_edit_required:
-                active_approved = get_application_generation_control(
-                    current_application_id
-                ).get("approved_generation")
-                active_approved_id = str(
-                    (active_approved or {}).get("generation_id") or ""
-                )[:8]
-                st.info(
-                    "Approved résumé "
-                    f"{active_approved_id or 'result'} is already fitted "
-                    "and read-only. Revise it or create an alternative "
-                    "copy in the Résumé Workspace before generating "
-                    "another fitted document."
-                )
+                if isinstance(previous_scope_message_approved, dict):
+                    previous_scope_id = str(
+                        previous_scope_message_approved.get("generation_id")
+                        or ""
+                    )[:8]
+                    st.info(
+                        "Approved résumé "
+                        f"{previous_scope_id or 'result'} belongs to a previous "
+                        "Tailoring Base and is read-only. Use Start new résumé "
+                        "from current Tailoring Base in the Résumé Workspace "
+                        "before generating or fitting a replacement document."
+                    )
+                else:
+                    active_approved = get_application_generation_control(
+                        current_application_id
+                    ).get("approved_generation")
+                    active_approved_id = str(
+                        (active_approved or {}).get("generation_id") or ""
+                    )[:8]
+                    st.info(
+                        "Approved résumé "
+                        f"{active_approved_id or 'result'} is already fitted "
+                        "and read-only. Revise it or create an alternative "
+                        "copy in the Résumé Workspace before generating "
+                        "another fitted document."
+                    )
             elif not saved_resume_docx_path:
                 latest_saved_docx = get_latest_saved_docx_for_application(current_application_id)
                 
@@ -3906,7 +3947,10 @@ if page == "Application Sessions":
                     saved_resume_docx_path = str(latest_saved_docx)
                     st.session_state[saved_docx_key] = saved_resume_docx_path
 
-            if not saved_resume_docx_path:
+            if (
+                not saved_resume_docx_path
+                and not isinstance(previous_scope_message_approved, dict)
+            ):
                 st.info(
                     "No saved DOCX found for this session. Upload a DOCX resume, "
                     "tick the save checkbox, and run Analyze Resume again."
@@ -3934,7 +3978,8 @@ if page == "Application Sessions":
                 if skills_result:
                     selected_sections.append("Skills")
 
-                st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
+                if saved_resume_docx_path:
+                    st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
                 st.caption(f"Will update: {', '.join(selected_sections)}")
 
                 with st.expander("Fitting strategy", expanded=True):

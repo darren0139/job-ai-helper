@@ -410,8 +410,18 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
                 for button in app.button
             )
         )
+        guidance_values = [
+            str(item.value) for item in app.info
+        ]
         self.assertTrue(
-            any("Generate Projects + Skills below" in item.value for item in app.info)
+            any(
+                (
+                    "Generate Projects + Skills below" in value
+                    or "Start new résumé from current Tailoring Base" in value
+                )
+                for value in guidance_values
+            ),
+            guidance_values,
         )
         context = resolve_current_phase9e_generation_context(94)
         self.assertTrue(context["can_generate"])

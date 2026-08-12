@@ -139,6 +139,20 @@ def build_application_workflow_overview(
         and _clean(legacy_generation.get("status")) == "approved"
     )
 
+    current_phase9e_fingerprint = _clean(
+        decision.get("decision_fingerprint")
+    )
+    approved_phase9e_fingerprint = _clean(
+        legacy_generation.get("phase9e_decision_fingerprint")
+    )
+    previous_scope_approved = bool(
+        phase9e_active
+        and has_legacy_approved
+        and current_phase9e_fingerprint
+        and approved_phase9e_fingerprint
+        and approved_phase9e_fingerprint != current_phase9e_fingerprint
+    )
+
     if phase9e_active:
         source_label = proposed_source
         source_detail = proposed_source_detail
@@ -179,6 +193,18 @@ def build_application_workflow_overview(
                 "Review the verification and explicitly accept the "
                 "unchanged résumé for this application."
             )
+    elif previous_scope_approved:
+        workflow_mode = "Phase 9E tailored workflow"
+        result_label = (
+            f"Approved · {_page_label(legacy_generation)} · "
+            "Previous Tailoring Base"
+        )
+        phase9e_status = "Active · replacement not started"
+        next_action = (
+            "Keep the existing approved application result as-is, or "
+            "Start a new résumé from the current Tailoring Base. The old "
+            "Phase 8 / Blueprint lineage remains preserved as history."
+        )
     elif phase9e_active and has_legacy_approved:
         workflow_mode = "Phase 9E tailored workflow"
         verified = bool(verification)
@@ -310,6 +336,7 @@ def build_application_workflow_overview(
             verification.get("verification_id")
         ),
         "has_immutable_result": has_immutable_result,
+        "previous_scope_approved": previous_scope_approved,
         "has_legacy_approved_result": has_legacy_approved,
         "load_error": _clean(load_error),
     }
@@ -561,7 +588,23 @@ def render_current_legacy_resume_result(
             and _clean(current_decision.get("current_scope_status"))
             == "current"
         )
-        if active_phase9e:
+        current_phase9e_fingerprint = _clean(
+            current_decision.get("decision_fingerprint")
+        )
+        approved_phase9e_fingerprint = _clean(
+            approved.get("phase9e_decision_fingerprint")
+        )
+        previous_scope_approved = bool(
+            active_phase9e
+            and current_phase9e_fingerprint
+            and approved_phase9e_fingerprint
+            and approved_phase9e_fingerprint != current_phase9e_fingerprint
+        )
+        if previous_scope_approved:
+            st.warning(
+                "This is still the approved application result, but it belongs to a previous Tailoring Base."
+            )
+        elif active_phase9e:
             st.success(
                 "This approved résumé is the current Phase 9E "
                 "application output."
@@ -576,7 +619,13 @@ def render_current_legacy_resume_result(
         fit_col.metric("Fit", _page_label(approved))
         verification_col.metric(
             "Phase 8",
-            "Verified" if verification else "Pending",
+            (
+                "Previously verified"
+                if previous_scope_approved and verification
+                else "Verified"
+                if verification
+                else "Pending"
+            ),
         )
 
         docx_path = _artifact_path(approved, "docx_path")
@@ -616,10 +665,18 @@ def render_current_legacy_resume_result(
                 "artifact path is available for a top-level download."
             )
 
-        st.caption(
-            "Tailoring, fitting, approval, and detailed verification "
-            "controls remain available below."
-        )
+        if previous_scope_approved:
+            st.caption(
+                "Current-scope tailoring and fitting stay blocked until you "
+                "start a new résumé from the current Tailoring Base. The "
+                "existing approval and its earlier Phase 8 / Blueprint lineage "
+                "remain preserved."
+            )
+        else:
+            st.caption(
+                "Tailoring, fitting, approval, and detailed verification "
+                "controls remain available below."
+            )
         with st.expander(
             "Current résumé result technical details",
             expanded=False,

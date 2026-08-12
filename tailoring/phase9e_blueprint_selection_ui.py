@@ -328,6 +328,22 @@ def _render_active_original_source_guidance(
         )
         return
 
+    previous_scope_approved = workspace.get(
+        "previous_scope_approved_generation"
+    )
+    if isinstance(previous_scope_approved, dict):
+        previous_scope_id = _clean(
+            previous_scope_approved.get("generation_id")
+        )[:8] or "result"
+        st.info(
+            "The current Tailoring Base is ready, but approved résumé "
+            f"{previous_scope_id} belongs to a previous Tailoring Base. "
+            "Before generating, use Start new résumé from current Tailoring Base "
+            "in the Résumé Workspace. The previous approved result remains "
+            "preserved until you make that explicit transition."
+        )
+        return
+
     st.info(
         "The persisted original résumé is the active starting source. "
         "Use Generate Projects + Skills below to create the first tailored "
