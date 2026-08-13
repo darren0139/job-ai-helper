@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
-from streamlit.errors import StreamlitAPIException
 
 from database.application_blueprint_manager import (
     get_current_application_blueprint_decision,
@@ -20,6 +18,9 @@ from database.tailoring_generation_control import (
     list_tailoring_generations,
     record_generation_metadata,
     restore_tailoring_generation_as_draft,
+)
+from resume_builder.docx_projects_skills_replacer import (
+    pdf_to_preview_html,
 )
 from tailoring.generation_controls_ui import restore_generation_to_session
 from tailoring.tailoring_generation_fingerprint import (
@@ -348,23 +349,22 @@ def _render_pdf_preview(state: dict[str, Any]) -> None:
         )
         return
 
-    data = pdf_path.read_bytes()
-    pdf_renderer = getattr(st, "pdf", None)
-    if callable(pdf_renderer):
-        try:
-            pdf_renderer(data, height=720)
-            return
-        except StreamlitAPIException:
-            # st.pdf exists in core Streamlit even when the optional
-            # streamlit-pdf component is not installed. Fall through to the
-            # dependency-free embedded PDF preview below.
-            pass
-
-    encoded = base64.b64encode(data).decode("ascii")
-    st.iframe(
-        "data:application/pdf;base64," + encoded,
-        height=720,
-    )
+    try:
+        st.markdown(
+            pdf_to_preview_html(
+                pdf_path,
+                max_width=820,
+                max_pages=5,
+                zoom=1.35,
+                include_download=False,
+            ),
+            unsafe_allow_html=True,
+        )
+    except Exception as exc:
+        st.info(
+            "The visual PDF preview could not be rendered "
+            f"({exc}). The PDF and DOCX downloads remain available."
+        )
 
 
 def _download_button(
@@ -1320,4 +1320,3 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
                             )
 
     return state
-

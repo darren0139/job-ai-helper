@@ -66,6 +66,8 @@ QUICK_TEST_MODULES = (
     "tests.test_all_canonical_before_fitting_v1",
     "tests.test_all_canonical_followup_fixes_v1",
     "tests.test_all_canonical_sequence_regressions_v1",
+    "tests.test_pre_phase9f_tailoring_polish_v1",
+    "tests.test_shared_resume_pdf_preview_v1",
 )
 
 SAFE_SMOKE_MODULES = (

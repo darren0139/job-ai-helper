@@ -4629,14 +4629,116 @@ def convert_docx_batch_to_pdf_if_possible(
     return results, diagnostics
 
 
-def pdf_to_iframe_html(pdf_path: str | Path, *, height: int = 800) -> str:
-    """Create HTML iframe for PDF preview in Streamlit."""
-    pdf_path = Path(pdf_path)
-    encoded = base64.b64encode(pdf_path.read_bytes()).decode("utf-8")
-    return (
-        f'<iframe src="data:application/pdf;base64,{encoded}" '
-        f'width="100%" height="{height}" type="application/pdf"></iframe>'
+def pdf_to_preview_pngs(
+    pdf_path: str | Path,
+    *,
+    zoom: float = 1.35,
+    max_pages: int = 5,
+) -> list[bytes]:
+    """Render PDF pages to opaque PNG bytes for reliable Streamlit preview.
+
+    This avoids browser-native PDF viewer differences (including dark/black
+    canvases in some browser/theme combinations). PDF generation and page-count
+    logic remain unchanged.
+    """
+    try:
+        import fitz
+    except Exception as exc:
+        raise RuntimeError(
+            "PyMuPDF is required for rendered PDF previews."
+        ) from exc
+
+    path = Path(pdf_path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"PDF preview file does not exist: {path}"
+        )
+
+    safe_zoom = min(4.0, max(0.5, float(zoom)))
+    safe_max_pages = min(20, max(1, int(max_pages)))
+    rendered: list[bytes] = []
+
+    with fitz.open(str(path)) as document:
+        for page_index in range(
+            min(len(document), safe_max_pages)
+        ):
+            page = document[page_index]
+            pixmap = page.get_pixmap(
+                matrix=fitz.Matrix(safe_zoom, safe_zoom),
+                alpha=False,
+            )
+            rendered.append(pixmap.tobytes("png"))
+
+    return rendered
+
+
+def pdf_to_preview_html(
+    pdf_path: str | Path,
+    *,
+    max_width: int = 820,
+    max_pages: int = 5,
+    zoom: float = 1.35,
+    include_download: bool = True,
+) -> str:
+    """Return a centered rasterized PDF preview and optional PDF download."""
+    import html
+
+    path = Path(pdf_path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"PDF preview file does not exist: {path}"
+        )
+
+    safe_width = min(1400, max(360, int(max_width)))
+    pages = pdf_to_preview_pngs(
+        path,
+        zoom=zoom,
+        max_pages=max_pages,
     )
+    if not pages:
+        raise RuntimeError("PDF preview renderer returned no pages.")
+
+    parts = [
+        '<div style="display:flex;flex-direction:column;'
+        'align-items:center;gap:14px;width:100%;">'
+    ]
+    for page_index, page_png in enumerate(pages, start=1):
+        encoded_png = base64.b64encode(page_png).decode("ascii")
+        parts.append(
+            '<div style="width:100%;display:flex;'
+            'justify-content:center;">'
+            f'<img src="data:image/png;base64,{encoded_png}" '
+            f'alt="PDF preview page {page_index}" '
+            'style="display:block;width:100%;'
+            f'max-width:{safe_width}px;height:auto;background:white;'
+            'border-radius:8px;" />'
+            '</div>'
+        )
+
+    if include_download:
+        pdf_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        safe_name = html.escape(path.name, quote=True)
+        parts.append(
+            f'<a href="data:application/pdf;base64,{pdf_b64}" '
+            f'download="{safe_name}" '
+            'style="display:inline-block;padding:8px 14px;'
+            'border:1px solid rgba(128,128,128,.45);'
+            'border-radius:8px;text-decoration:none;font-weight:600;">'
+            'Download PDF</a>'
+        )
+
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def pdf_to_iframe_html(
+    pdf_path: str | Path,
+    *,
+    height: int = 800,
+) -> str:
+    """Compatibility wrapper returning the safe rasterized PDF preview."""
+    _ = height
+    return pdf_to_preview_html(pdf_path)
 
 
 

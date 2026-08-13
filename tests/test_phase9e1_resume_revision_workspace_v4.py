@@ -139,7 +139,7 @@ class Phase9E1ResumeWorkspaceV4Tests(unittest.TestCase):
             "old-draft",
         )
 
-    def test_pdf_preview_falls_back_when_streamlit_pdf_component_missing(self):
+    def test_pdf_preview_uses_shared_raster_renderer(self):
         path = (
             REPO_ROOT
             / "tailoring"
@@ -147,20 +147,9 @@ class Phase9E1ResumeWorkspaceV4Tests(unittest.TestCase):
         )
         source = path.read_text(encoding="utf-8")
 
-        # V8 first uses Streamlit's PDF renderer when available, and falls
-        # back to the dependency-free iframe path if that renderer cannot run.
-        self.assertIn(
-            'pdf_renderer = getattr(st, "pdf", None)',
-            source,
-        )
-        self.assertIn(
-            "except StreamlitAPIException:",
-            source,
-        )
-        self.assertIn(
-            "st.iframe(",
-            source,
-        )
+        self.assertIn("pdf_to_preview_html(", source)
+        self.assertNotIn('pdf_renderer = getattr(st, "pdf", None)', source)
+        self.assertNotIn("st.iframe(", source)
         self.assertNotIn(
             "components.html(",
             source,

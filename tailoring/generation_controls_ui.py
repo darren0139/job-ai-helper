@@ -160,6 +160,154 @@ def _short_state(state: dict[str, Any] | None) -> str:
     )
 
 
+def render_tailoring_section_update_scope(
+    *,
+    application_id: int,
+    required_phase9e_binding: dict[str, Any] | None = None,
+    disabled: bool = False,
+) -> tuple[bool, bool, bool]:
+    """Render generation-time section scope using existing persisted locks.
+
+    Returns the persisted ``(lock_projects, lock_skills, dirty)`` state.
+    Generation should fail closed while ``dirty`` is true so an unsaved UI
+    choice cannot disagree with the lock provenance used by generation/fitting.
+    """
+    control = get_application_generation_control(application_id)
+    if required_phase9e_binding:
+        control = constrain_generation_control_to_phase9e(
+            control,
+            required_phase9e_binding,
+        )
+
+    approved = control.get("approved_generation")
+    saved_lock_projects = bool(control.get("lock_projects"))
+    saved_lock_skills = bool(control.get("lock_skills"))
+    approved_key = (
+        str(approved.get("generation_id") or "none")[:12]
+        if isinstance(approved, dict)
+        else "none"
+    )
+
+    st.write("#### Section update scope")
+    st.caption(
+        "Choose what the next tailoring generation may change. "
+        "An unchecked section reuses the section from the current approved "
+        "final fitted résumé."
+    )
+
+    if not isinstance(approved, dict):
+        scope_col1, scope_col2 = st.columns(2)
+        scope_col1.checkbox(
+            "Update Projects",
+            value=True,
+            disabled=True,
+            key=f"tailor_scope_projects_{application_id}_{approved_key}",
+            help=(
+                "There is no approved fitted Projects section to reuse yet."
+            ),
+        )
+        scope_col2.checkbox(
+            "Update Skills",
+            value=True,
+            disabled=True,
+            key=f"tailor_scope_skills_{application_id}_{approved_key}",
+            help=(
+                "There is no approved fitted Skills section to reuse yet."
+            ),
+        )
+        st.caption(
+            "No approved fitted résumé is available to reuse yet, "
+            "so both sections must be updated."
+        )
+        return False, False, False
+
+    scope_col1, scope_col2 = st.columns(2)
+    update_projects = scope_col1.checkbox(
+        "Update Projects",
+        value=not saved_lock_projects,
+        disabled=disabled,
+        key=f"tailor_scope_projects_{application_id}_{approved_key}",
+        help=(
+            "If unchecked, reuse Projects exactly from the current approved "
+            "final fitted résumé. The fitter cannot compact or remove that "
+            "reused Projects content."
+        ),
+    )
+    update_skills = scope_col2.checkbox(
+        "Update Skills",
+        value=not saved_lock_skills,
+        disabled=disabled,
+        key=f"tailor_scope_skills_{application_id}_{approved_key}",
+        help=(
+            "If unchecked, reuse Skills exactly from the current approved "
+            "final fitted résumé. The fitter cannot compact that reused "
+            "Skills content."
+        ),
+    )
+
+    proposed_lock_projects = not bool(update_projects)
+    proposed_lock_skills = not bool(update_skills)
+    dirty = (
+        proposed_lock_projects != saved_lock_projects
+        or proposed_lock_skills != saved_lock_skills
+    )
+
+    if dirty:
+        st.warning(
+            "The displayed update scope differs from the saved generation "
+            "scope. Save it before generating or fitting."
+        )
+    else:
+        st.caption(
+            "Saved scope: "
+            + (
+                "Projects update"
+                if not saved_lock_projects
+                else "Projects reuse approved"
+            )
+            + " · "
+            + (
+                "Skills update"
+                if not saved_lock_skills
+                else "Skills reuse approved"
+            )
+        )
+
+    if st.button(
+        "Save Update Scope",
+        key=f"tailor_scope_save_{application_id}_{approved_key}",
+        disabled=disabled or not dirty,
+        width="stretch",
+    ):
+        saved_control = set_tailoring_section_locks(
+            application_id=application_id,
+            lock_projects=proposed_lock_projects,
+            lock_skills=proposed_lock_skills,
+        )
+        st.session_state[
+            f"phase7_flash_{application_id}"
+        ] = (
+            "Saved section update scope. "
+            + _lock_state_text(
+                bool(saved_control.get("lock_projects")),
+                bool(saved_control.get("lock_skills")),
+            )
+        )
+        st.rerun()
+
+    if (
+        proposed_lock_projects
+        and proposed_lock_skills
+        and not dirty
+    ):
+        st.info(
+            "Both sections will reuse the approved final fitted output. "
+            "The combined action can load them without model calls."
+        )
+
+    return saved_lock_projects, saved_lock_skills, dirty
+
+
 def render_tailoring_generation_controls(
     *,
     application_id: int,
@@ -191,9 +339,9 @@ def render_tailoring_generation_controls(
         incompatible = []
     st.divider()
     st.subheader(
-        "Approval and Section Locks"
+        "Approval"
         if workspace_managed
-        else "Versions, Approval, and Section Locks"
+        else "Versions and Approval"
     )
 
     if legacy_reuse_drafts and not workspace_managed:
@@ -492,102 +640,33 @@ def render_tailoring_generation_controls(
             ] = "Copied the selected version into a new editable draft."
             st.rerun()
 
-    st.write("#### Lock approved final sections")
-    approved_key = (
-        str(approved.get("generation_id") or "none")[:12]
-        if isinstance(approved, dict)
-        else "none"
-    )
+    st.write("#### Section update scope")
     saved_lock_projects = bool(control.get("lock_projects"))
     saved_lock_skills = bool(control.get("lock_skills"))
-    saved_lock_updated_at = str(control.get("updated_at") or "")
-
-    lock_status_col1, lock_status_col2 = st.columns(2)
-    lock_status_col1.metric(
-        "Saved Projects lock",
-        "Locked" if saved_lock_projects else "Unlocked",
-    )
-    lock_status_col2.metric(
-        "Saved Skills lock",
-        "Locked" if saved_lock_skills else "Unlocked",
-    )
-    if saved_lock_updated_at:
-        st.caption(f"Saved in SQLite: {saved_lock_updated_at}")
-
-    confirmation_key = f"phase7_lock_confirmation_{application_id}"
-    confirmation = st.session_state.pop(confirmation_key, "")
-    if confirmation:
-        st.success(
-            "Section locks saved. "
-            + _lock_state_text(
-                saved_lock_projects,
-                saved_lock_skills,
-            )
-        )
-
-    lock_projects = st.checkbox(
-        "Lock approved Projects",
-        value=saved_lock_projects,
-        disabled=not isinstance(approved, dict),
-        key=f"phase7_lock_projects_{application_id}_{approved_key}",
-        help=(
-            "Reuses the Projects that appeared in the approved fitted DOCX. "
-            "The fitter cannot compact, remove bullets from, or remove them."
+    scope_status_col1, scope_status_col2 = st.columns(2)
+    scope_status_col1.metric(
+        "Projects",
+        (
+            "Reuse approved final"
+            if saved_lock_projects
+            else "Update"
         ),
     )
-    lock_skills = st.checkbox(
-        "Lock approved Skills",
-        value=saved_lock_skills,
-        disabled=not isinstance(approved, dict),
-        key=f"phase7_lock_skills_{application_id}_{approved_key}",
-        help=(
-            "Reuses the Skills that appeared in the approved fitted DOCX. "
-            "The fitter cannot compact them."
+    scope_status_col2.metric(
+        "Skills",
+        (
+            "Reuse approved final"
+            if saved_lock_skills
+            else "Update"
         ),
     )
-    locks_changed = (
-        bool(lock_projects) != saved_lock_projects
-        or bool(lock_skills) != saved_lock_skills
-    )
-    if locks_changed:
-        st.warning(
-            "These lock choices have not been saved yet. "
-            "Click Save Section Locks."
+    if isinstance(approved, dict):
+        st.caption(
+            "Change this scope in Tailor Résumé Content before generating."
         )
     else:
-        st.success(
-            "Displayed lock choices match the saved state: "
-            + _lock_state_text(
-                saved_lock_projects,
-                saved_lock_skills,
-            )
-        )
-
-    if st.button(
-        "Save Section Locks",
-        key=f"phase7_save_locks_{application_id}",
-        disabled=(
-            not isinstance(approved, dict)
-            or not locks_changed
-        ),
-    ):
-        saved_control = set_tailoring_section_locks(
-            application_id=application_id,
-            lock_projects=lock_projects,
-            lock_skills=lock_skills,
-        )
-        st.session_state[confirmation_key] = str(
-            saved_control.get("updated_at") or "saved"
-        )
-        st.session_state[
-            f"phase7_flash_{application_id}"
-        ] = "Saved the approved final-section locks."
-        st.rerun()
-
-    if lock_projects and lock_skills:
-        st.info(
-            "Both sections are locked. The main action should load the approved "
-            "final content at no AI cost instead of creating a duplicate draft."
+        st.caption(
+            "No approved fitted result is available to reuse yet."
         )
 
     if not workspace_managed:

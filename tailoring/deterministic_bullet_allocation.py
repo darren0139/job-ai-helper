@@ -21,8 +21,9 @@ from tailoring.stable_tailoring_ranking import (
 
 
 BULLET_ALLOCATION_VERSION = (
-    "phase6b2-deterministic-bullet-allocation-v4"
+    "phase6b2-deterministic-bullet-allocation-v5"
 )
+LEAD_BULLET_POLICY_VERSION = "phase6b2-first-canonical-lead-v1"
 BULLET_ALLOCATION_MODE_ADAPTIVE = "adaptive"
 BULLET_ALLOCATION_MODE_PREFER_AVAILABLE = (
     "prefer_available_evidence"
@@ -948,6 +949,32 @@ def _expansion_reason(
     return None
 
 
+def _selected_display_order_key(
+    record: dict[str, Any],
+) -> tuple[Any, ...]:
+    """Order selected bullets for presentation without changing selection.
+
+    Canonical Evidence Library bullet #1 (index 0) is the project lead.
+    If it was selected by the existing allocation policy, display it first.
+    Remaining bullets keep the existing deterministic evidence-priority order.
+    """
+    bullet_index = int(
+        record.get("bullet_index", 0) or 0
+    )
+    return (
+        0 if bullet_index == 0 else 1,
+        int(
+            record.get(
+                "evidence_priority",
+                999,
+            )
+            or 999
+        ),
+        bullet_index,
+        str(record.get("bullet_id") or ""),
+    )
+
+
 def build_deterministic_bullet_allocation(
     *,
     selected_pairs: list[
@@ -1115,23 +1142,7 @@ def build_deterministic_bullet_allocation(
     for state in states:
         selected_records = sorted(
             state["selected"],
-            key=lambda record: (
-                int(
-                    record.get(
-                        "evidence_priority",
-                        999,
-                    )
-                    or 999
-                ),
-                int(
-                    record.get(
-                        "bullet_index",
-                        0,
-                    )
-                    or 0
-                ),
-                record.get("bullet_id", ""),
-            ),
+            key=_selected_display_order_key,
         )
         allocated_bullets = [
             record["bullet_text"]
@@ -1183,6 +1194,18 @@ def build_deterministic_bullet_allocation(
                     BULLET_ALLOCATION_VERSION
                 ),
                 "allocation_mode": mode,
+                "lead_bullet_policy_version": (
+                    LEAD_BULLET_POLICY_VERSION
+                ),
+                "lead_bullet_id": (
+                    state["records"][0]["bullet_id"]
+                    if state["records"]
+                    else ""
+                ),
+                "lead_bullet_selected": any(
+                    int(record.get("bullet_index", -1)) == 0
+                    for record in selected_records
+                ),
             }
         )
 
@@ -1191,6 +1214,7 @@ def build_deterministic_bullet_allocation(
             BULLET_ALLOCATION_VERSION
         ),
         "allocation_mode": mode,
+        "lead_bullet_policy_version": LEAD_BULLET_POLICY_VERSION,
         "max_bullets_per_project": maximum,
         "bullet_limit_applied": (
             mode != BULLET_ALLOCATION_MODE_ALL_CANONICAL

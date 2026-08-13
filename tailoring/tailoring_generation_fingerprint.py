@@ -193,7 +193,7 @@ def build_tailoring_input_fingerprint(
     effective = get_effective_generation_sections(approved)
     payload = {
         "fingerprint_version": TAILORING_FINGERPRINT_VERSION,
-        "generator_contract_version": "phase7-projects-skills-cache-v2",
+        "generator_contract_version": "phase7-projects-skills-cache-v3",
         "generation_kind": generation_kind,
         "model_id": model_id,
         "analysis_cache_fingerprint": (

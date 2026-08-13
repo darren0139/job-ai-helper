@@ -82,39 +82,16 @@ class Phase9E1WorkingDraftLifecycleV8Tests(unittest.TestCase):
         self.assertIn("approval + Phase 8 required", text)
         self.assertIn("get_resume_workspace_context", text)
 
-    def test_pdf_fallback_uses_current_streamlit_iframe(self) -> None:
+    def test_pdf_preview_uses_shared_raster_renderer(self) -> None:
         path = (
             REPO_ROOT / "tailoring" / "phase9e1_resume_workspace_ui.py"
         )
         text = path.read_text(encoding="utf-8")
         self.assertNotIn("components.html(", text)
         self.assertNotIn("streamlit.components.v1", text)
-        self.assertIn("st.iframe(", text)
-
-        tree = ast.parse(text)
-        iframe_calls = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if (
-                isinstance(func, ast.Attribute)
-                and func.attr == "iframe"
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "st"
-            ):
-                iframe_calls.append(node)
-
-        self.assertTrue(iframe_calls)
-        for call in iframe_calls:
-            self.assertNotIn(
-                "scrolling",
-                {
-                    keyword.arg
-                    for keyword in call.keywords
-                    if keyword.arg is not None
-                },
-            )
+        self.assertIn("pdf_to_preview_html(", text)
+        self.assertNotIn("st.iframe(", text)
+        self.assertNotIn("data:application/pdf;base64,", text)
 
 
 

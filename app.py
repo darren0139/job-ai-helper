@@ -71,7 +71,7 @@ from resume_builder.docx_projects_skills_replacer import (
     generate_tailored_resume_copy,
     extract_docx_preview_text,
     convert_docx_to_pdf_if_possible,
-    pdf_to_iframe_html,
+    pdf_to_preview_html,
     cleanup_old_tailored_outputs_for_application,
     cleanup_application_resume_files,
 )
@@ -214,6 +214,7 @@ from tailoring.phase8_verification_ui import (
 )
 from tailoring.generation_controls_ui import (
     render_tailoring_generation_controls,
+    render_tailoring_section_update_scope,
     restore_generation_to_session,
 )
 
@@ -3153,12 +3154,6 @@ if page == "Application Sessions":
                     phase7_control,
                     phase9e_binding,
                 )
-            lock_projects = bool(
-                phase7_control.get("lock_projects")
-            )
-            lock_skills = bool(
-                phase7_control.get("lock_skills")
-            )
             phase7_flash = st.session_state.pop(
                 f"phase7_flash_{current_application_id}",
                 "",
@@ -3166,13 +3161,36 @@ if page == "Application Sessions":
             if phase7_flash:
                 st.success(phase7_flash)
 
+            (
+                lock_projects,
+                lock_skills,
+                update_scope_dirty,
+            ) = render_tailoring_section_update_scope(
+                application_id=current_application_id,
+                required_phase9e_binding=(
+                    phase9e_binding
+                    if phase9e_enforced
+                    else None
+                ),
+                disabled=(
+                    workspace_edit_required
+                    or not phase9e_ready
+                ),
+            )
+            project_controls_disabled = (
+                workspace_edit_required
+                or lock_projects
+                or phase9e_projects_locked
+                or update_scope_dirty
+            )
+
             max_projects = st.slider(
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
                 value=int(restored_settings.get("max_projects", 3)),
                 key=f"max_projects_{current_application_id}",
-                disabled=workspace_edit_required,
+                disabled=project_controls_disabled,
             )
 
             saved_bullet_allocation_mode = str(
@@ -3206,7 +3224,7 @@ if page == "Application Sessions":
                 index=bullet_allocation_index,
                 horizontal=True,
                 key=f"bullet_allocation_mode_{current_application_id}",
-                disabled=workspace_edit_required,
+                disabled=project_controls_disabled,
                 help=(
                     "Adaptive starts compact and expands only when evidence gates "
                     "justify another bullet. Prefer available evidence includes "
@@ -3240,7 +3258,7 @@ if page == "Application Sessions":
                 value=int(restored_settings.get("max_bullets", 3)),
                 key=f"max_bullets_{current_application_id}",
                 disabled=(
-                    workspace_edit_required
+                    project_controls_disabled
                     or bullet_allocation_mode
                     == "all_canonical_before_fitting"
                 ),
@@ -3291,6 +3309,7 @@ if page == "Application Sessions":
                 disabled=(
                     not phase9e_ready
                     or workspace_edit_required
+                    or update_scope_dirty
                 ),
             ):
                 try:
@@ -3701,6 +3720,7 @@ if page == "Application Sessions":
                             or phase9e_projects_locked
                             or not phase9e_ready
                             or workspace_edit_required
+                            or update_scope_dirty
                         ),
                     ):
                         try:
@@ -3838,6 +3858,7 @@ if page == "Application Sessions":
                             or phase9e_skills_locked
                             or not phase9e_ready
                             or workspace_edit_required
+                            or update_scope_dirty
                         ),
                     ):
                         try:
@@ -4390,6 +4411,7 @@ if page == "Application Sessions":
                     disabled=(
                         not phase9e_ready
                         or workspace_edit_required
+                        or update_scope_dirty
                     ),
                 ):
                     try:
@@ -4728,10 +4750,23 @@ if page == "Application Sessions":
                     )
 
                 if pdf_preview_path:
-                    st.markdown(
-                        pdf_to_iframe_html(pdf_preview_path, height=800),
-                        unsafe_allow_html=True,
-                    )
+                    try:
+                        st.markdown(
+                            pdf_to_preview_html(
+                                pdf_preview_path,
+                                max_width=820,
+                                max_pages=5,
+                                zoom=1.35,
+                                include_download=True,
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    except Exception as preview_exc:
+                        st.caption(
+                            "The visual PDF preview could not be rendered "
+                            f"({preview_exc}). The text preview and DOCX "
+                            "download remain available."
+                        )
                 else:
                     st.caption(
                         "PDF visual preview and page-count checking are unavailable because LibreOffice "
@@ -5495,6 +5530,11 @@ elif page == "Profile & Evidence":
     )
 
     st.subheader("Add Evidence Item")
+    st.caption(
+        "For Project evidence, bullet order matters. "
+        "The first canonical bullet is the project lead and is shown first "
+        "in tailored résumés whenever that bullet is selected."
+    )
 
     with st.form("add_evidence_form"):
         category = st.selectbox(
@@ -5599,11 +5639,19 @@ elif page == "Profile & Evidence":
                     lines = [line.strip() for line in description.splitlines() if line.strip()]
 
                     if lines:
-                        for line in lines:
+                        for line_index, line in enumerate(lines):
                             cleaned_line = line.lstrip("•-* ").strip()
 
                             if cleaned_line:
-                                st.markdown(f"- {cleaned_line}")
+                                if (
+                                    item.get("category") == "Project"
+                                    and line_index == 0
+                                ):
+                                    st.markdown(
+                                        f"- **Lead:** {cleaned_line}"
+                                    )
+                                else:
+                                    st.markdown(f"- {cleaned_line}")
                     else:
                         st.write(description)
 
@@ -5741,9 +5789,17 @@ elif page == "Profile & Evidence":
                             key=f"edit_description_{item['id']}",
                             help=(
                                 "These are the user-approved master bullets. "
-                                "Tailoring should select or lightly rephrase from these, not rewrite from scratch."
+                                "The first bullet is the project lead and is shown first "
+                                "in tailored résumés when selected. Tailoring should "
+                                "select or lightly rephrase from these, not rewrite from scratch."
                             ),
                         )
+                        if edited_category == "Project":
+                            st.caption(
+                                "Lead bullet: put the bullet that best summarizes "
+                                "the project or your main contribution first. "
+                                "It is shown first whenever it is selected."
+                            )
 
                         edited_skills = st.text_input(
                             "Supported skills, comma-separated",
