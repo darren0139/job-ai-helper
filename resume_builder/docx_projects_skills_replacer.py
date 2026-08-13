@@ -2725,6 +2725,67 @@ def _choose_layout_aware_reduction(
 
     return min(pool, key=key)
 
+
+def resolve_fitting_bullet_allocation_mode(
+    tailored_projects: dict[str, Any] | None,
+    *,
+    fallback_mode: str,
+) -> str:
+    """Return persisted allocation provenance when the payload carries it."""
+    allocation = (
+        (((tailored_projects or {}).get("deterministic_rule_debug") or {}).get(
+            "bullet_allocation"
+        ))
+        or {}
+    )
+    payload_mode = str(
+        allocation.get("allocation_mode") or ""
+    ).strip().lower()
+    if payload_mode in {
+        "adaptive",
+        "prefer_available_evidence",
+        "all_canonical_before_fitting",
+    }:
+        return payload_mode
+    return str(fallback_mode or "adaptive").strip().lower() or "adaptive"
+
+
+def resolve_effective_fitting_bullet_ceiling(
+    tailored_projects: dict[str, Any] | None,
+    *,
+    configured_max_bullets_per_project: int,
+) -> int:
+    """Resolve the pre-render ceiling from immutable allocation provenance.
+
+    Adaptive and Prefer-available payloads retain the configured UI ceiling.
+    An all-canonical payload is different: its persisted deterministic
+    allocation is the authoritative pre-fit content, so every allocated bullet
+    must reach the first render even if mutable/restored widget state says 4.
+    """
+    try:
+        configured = max(1, int(configured_max_bullets_per_project))
+    except (TypeError, ValueError):
+        configured = 1
+
+    projects_state = tailored_projects or {}
+    if (
+        resolve_fitting_bullet_allocation_mode(
+            projects_state,
+            fallback_mode="adaptive",
+        )
+        != "all_canonical_before_fitting"
+    ):
+        return configured
+
+    allocated_counts = [
+        len(project.get("draft_bullets", []) or [])
+        for project in (
+            projects_state.get("recommended_projects", []) or []
+        )
+        if isinstance(project, dict)
+    ]
+    return max([configured, *allocated_counts])
+
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
@@ -2767,13 +2828,17 @@ def generate_tailored_resume_copy_fit_one_page(
         lock_projects=lock_projects,
         lock_skills=lock_skills,
     )
+    payload_max_bullets = resolve_effective_fitting_bullet_ceiling(
+        tailored_projects,
+        configured_max_bullets_per_project=max_bullets_per_project,
+    )
     effective_max_projects = (
         999999 if lock_policy["lock_projects"] else max_projects
     )
     effective_max_bullets = (
         999999
         if lock_policy["lock_projects"]
-        else max_bullets_per_project
+        else payload_max_bullets
     )
 
     # Preserve completed historical outputs. Temporary candidates are still
@@ -2790,10 +2855,10 @@ def generate_tailored_resume_copy_fit_one_page(
         for project in visible_projects:
             project["draft_bullets"] = (
                 project.get("draft_bullets", []) or []
-            )[:max_bullets_per_project]
+            )[:payload_max_bullets]
             project["compact_bullets"] = (
                 project.get("compact_bullets", []) or []
-            )[:max_bullets_per_project]
+            )[:payload_max_bullets]
 
             sync_project_bullet_metadata(
                 project,

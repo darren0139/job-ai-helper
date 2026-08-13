@@ -21,11 +21,14 @@ from tailoring.stable_tailoring_ranking import (
 
 
 BULLET_ALLOCATION_VERSION = (
-    "phase6b2-deterministic-bullet-allocation-v3"
+    "phase6b2-deterministic-bullet-allocation-v4"
 )
 BULLET_ALLOCATION_MODE_ADAPTIVE = "adaptive"
 BULLET_ALLOCATION_MODE_PREFER_AVAILABLE = (
     "prefer_available_evidence"
+)
+BULLET_ALLOCATION_MODE_ALL_CANONICAL = (
+    "all_canonical_before_fitting"
 )
 
 _MATCH_STRENGTH = {
@@ -89,6 +92,12 @@ def normalise_bullet_allocation_mode(value: Any) -> str:
     mode = _clean_text(value).lower()
     mode = re.sub(r"[^a-z0-9]+", "_", mode).strip("_")
     if mode in {
+        "all_canonical",
+        "all_canonical_before_fitting",
+        "fit_from_all_canonical_evidence",
+    }:
+        return BULLET_ALLOCATION_MODE_ALL_CANONICAL
+    if mode in {
         "prefer_available",
         "prefer_available_evidence",
         "use_available_evidence",
@@ -97,6 +106,7 @@ def normalise_bullet_allocation_mode(value: Any) -> str:
     }:
         return BULLET_ALLOCATION_MODE_PREFER_AVAILABLE
     return BULLET_ALLOCATION_MODE_ADAPTIVE
+
 
 
 
@@ -975,6 +985,14 @@ def build_deterministic_bullet_allocation(
         ) in enumerate(selected_pairs)
     ]
 
+    if mode == BULLET_ALLOCATION_MODE_ALL_CANONICAL:
+        # Explicit all-canonical mode ignores the pre-fit bullet limit for
+        # existing canonical evidence. No filler is created.
+        for state in states:
+            records = state.get("records", []) or []
+            if records:
+                state["capacity"] = len(records)
+
     trace: list[dict[str, Any]] = []
 
     # Minimum coverage: one bullet/target slot for every selected project.
@@ -1029,10 +1047,17 @@ def build_deterministic_bullet_allocation(
         ),
     )
 
-    if mode == BULLET_ALLOCATION_MODE_PREFER_AVAILABLE:
-        # Evidence-first / fill-then-trim: admit every truthful canonical slot
-        # up to the user's per-project ceiling. The existing one-page fitter
-        # decides later whether lower-value content must be removed.
+    if mode in {
+        BULLET_ALLOCATION_MODE_PREFER_AVAILABLE,
+        BULLET_ALLOCATION_MODE_ALL_CANONICAL,
+    }:
+        # Both evidence-first modes use the same deterministic marginal ranking.
+        # The all-canonical mode expands capacity to the full canonical pool.
+        fill_reason = (
+            "all_canonical_before_fitting_fill"
+            if mode == BULLET_ALLOCATION_MODE_ALL_CANONICAL
+            else "prefer_available_evidence_fill"
+        )
         while target_count < total_capacity:
             choice = _best_remaining_choice(
                 states,
@@ -1045,7 +1070,7 @@ def build_deterministic_bullet_allocation(
             _select_record(
                 state=state,
                 record=record,
-                reason="prefer_available_evidence_fill",
+                reason=fill_reason,
                 trace=trace,
             )
             target_count += 1
@@ -1139,6 +1164,9 @@ def build_deterministic_bullet_allocation(
                     state["records"]
                 ),
                 "max_bullets_per_project": maximum,
+                "bullet_limit_applied": (
+                    mode != BULLET_ALLOCATION_MODE_ALL_CANONICAL
+                ),
                 "allocated_bullet_count": (
                     allocated_count
                 ),
@@ -1164,6 +1192,9 @@ def build_deterministic_bullet_allocation(
         ),
         "allocation_mode": mode,
         "max_bullets_per_project": maximum,
+        "bullet_limit_applied": (
+            mode != BULLET_ALLOCATION_MODE_ALL_CANONICAL
+        ),
         "selected_project_count": len(states),
         "base_bullet_budget": base_budget,
         "total_available_slots": total_capacity,

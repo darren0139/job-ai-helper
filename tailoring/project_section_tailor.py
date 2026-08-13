@@ -713,10 +713,13 @@ def build_project_candidate_pool(
                 "evidence_library_evidence"
             ]
 
-            if len(candidate["display_title"]) > len(existing.get("display_title", "")):
+            # The resume snapshot remains frozen provenance, but the
+            # user-maintained Evidence Library is the current canonical source
+            # for project display metadata used by new tailoring generations.
+            if candidate.get("display_title"):
                 existing["display_title"] = candidate["display_title"]
 
-            if not existing.get("period") and candidate.get("period"):
+            if candidate.get("period"):
                 existing["period"] = candidate["period"]
         else:
             candidates_by_key[key] = candidate
@@ -1807,6 +1810,33 @@ IMPORTANT:
         )
     )
 
+    writer_bullet_ceiling = max(
+        max(1, int(max_bullets_per_project)),
+        max(
+            (
+                int(
+                    plan.get(
+                        "allocated_bullet_count",
+                        0,
+                    )
+                    or 0
+                )
+                for plan in (
+                    bullet_allocation.get("projects", [])
+                    or []
+                )
+                if isinstance(plan, dict)
+            ),
+            default=1,
+        ),
+    )
+    writer_max_tokens = (
+        4800
+        if bullet_allocation.get("allocation_mode")
+        == "all_canonical_before_fitting"
+        else 3200
+    )
+
     selected_writer_candidates = []
     for candidate, ranking_row in selected_pairs:
         writer_candidate = (
@@ -1853,7 +1883,7 @@ IMPORTANT:
 
     writing_user_prompt = f"""
 MAXIMUM BULLETS PER PROJECT:
-{max_bullets_per_project}
+{writer_bullet_ceiling}
 
 PHASE 6B.2 DETERMINISTIC BULLET ALLOCATION:
 {json.dumps(bullet_allocation, indent=2, ensure_ascii=False)}
@@ -1876,7 +1906,7 @@ IMPORTANT:
         PROJECT_BULLET_WRITING_PROMPT,
         writing_user_prompt,
         temperature=0.0,
-        max_tokens=3200,
+        max_tokens=writer_max_tokens,
     )
 
     writer_plans = _normalise_writer_plans(writer_result)
@@ -1905,7 +1935,7 @@ IMPORTANT:
             ranking_row=ranking_row,
             writer_plan=enforced_writer_plan,
             max_bullets_per_project=(
-                max_bullets_per_project
+                writer_bullet_ceiling
             ),
         )
         project[
@@ -1950,12 +1980,22 @@ IMPORTANT:
         "families, canonical requirement IDs, complementary coverage, and stable "
         "near-tie rules."
     )
-    notes.append(
-        "Phase 6B.2 allocated "
-        f"{bullet_allocation.get('total_allocated_bullets', 0)} "
-        "canonical project bullet(s) deterministically, with "
-        f"{max_bullets_per_project} as the per-project ceiling."
-    )
+    if (
+        bullet_allocation.get("allocation_mode")
+        == "all_canonical_before_fitting"
+    ):
+        notes.append(
+            "Phase 6B.2 allocated all available truthful canonical project "
+            "bullets before fitting. The configured Bullet limit per project "
+            "was intentionally not applied in this mode."
+        )
+    else:
+        notes.append(
+            "Phase 6B.2 allocated "
+            f"{bullet_allocation.get('total_allocated_bullets', 0)} "
+            "canonical project bullet(s) deterministically, with "
+            f"{max_bullets_per_project} as the per-project ceiling."
+        )
 
     missing_writer_titles = [
         candidate.get("display_title") or candidate.get("title", "")
@@ -2043,7 +2083,16 @@ IMPORTANT:
     fit = estimate_project_section_length(
         result,
         max_projects=max_projects,
-        max_total_bullets=max_projects * max_bullets_per_project,
+        max_total_bullets=max(
+            max_projects * max_bullets_per_project,
+            int(
+                bullet_allocation.get(
+                    "total_allocated_bullets",
+                    0,
+                )
+                or 0
+            ),
+        ),
     )
     result["one_page_fit"] = {
         "risk": fit["risk"],

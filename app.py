@@ -66,6 +66,8 @@ from resume_builder.docx_projects_skills_replacer import (
     save_uploaded_docx_for_editing,
     get_latest_saved_docx_for_application,
     generate_tailored_resume_copy_fit_one_page,
+    resolve_effective_fitting_bullet_ceiling,
+    resolve_fitting_bullet_allocation_mode,
     generate_tailored_resume_copy,
     extract_docx_preview_text,
     convert_docx_to_pdf_if_possible,
@@ -3173,19 +3175,6 @@ if page == "Application Sessions":
                 disabled=workspace_edit_required,
             )
 
-            max_bullets = st.slider(
-                "Bullet limit per project",
-                min_value=1,
-                max_value=4,
-                value=int(restored_settings.get("max_bullets", 3)),
-                key=f"max_bullets_{current_application_id}",
-                help=(
-                    "This is a ceiling for every selected project. "
-                    "Phase 6B.2 deterministically decides the actual "
-                    "allocation, such as 3/3/2 or 3/2/1."
-                ),
-            )
-
             saved_bullet_allocation_mode = str(
                 restored_settings.get(
                     "bullet_allocation_mode",
@@ -3193,32 +3182,84 @@ if page == "Application Sessions":
                 )
             ).strip().lower()
 
+            bullet_allocation_options = [
+                "Adaptive",
+                "Prefer available evidence",
+                "Fit from all canonical evidence",
+            ]
+            if (
+                saved_bullet_allocation_mode
+                == "all_canonical_before_fitting"
+            ):
+                bullet_allocation_index = 2
+            elif (
+                saved_bullet_allocation_mode
+                == "prefer_available_evidence"
+            ):
+                bullet_allocation_index = 1
+            else:
+                bullet_allocation_index = 0
+
             bullet_allocation_label = st.radio(
                 "Bullet allocation",
-                ["Adaptive", "Prefer available evidence"],
-                index=(
-                    1
-                    if saved_bullet_allocation_mode
-                    == "prefer_available_evidence"
-                    else 0
-                ),
+                bullet_allocation_options,
+                index=bullet_allocation_index,
                 horizontal=True,
                 key=f"bullet_allocation_mode_{current_application_id}",
                 disabled=workspace_edit_required,
                 help=(
-                    "Adaptive starts with a compact allocation and adds extra "
-                    "bullets only when the existing evidence gates justify them. "
-                    "Prefer available evidence includes as many truthful canonical "
-                    "Evidence Library bullets as are available up to the Bullet "
-                    "limit per project, then lets one-page fitting remove lower-value "
-                    "content if needed. Neither mode invents filler bullets."
+                    "Adaptive starts compact and expands only when evidence gates "
+                    "justify another bullet. Prefer available evidence includes "
+                    "truthful canonical bullets up to the Bullet limit per project. "
+                    "Fit from all canonical evidence sends every available truthful "
+                    "canonical bullet from each selected project into fitting, where "
+                    "lower-value content is removed only if needed for one page."
                 ),
             )
-            bullet_allocation_mode = (
-                "prefer_available_evidence"
-                if bullet_allocation_label == "Prefer available evidence"
-                else "adaptive"
+            if (
+                bullet_allocation_label
+                == "Fit from all canonical evidence"
+            ):
+                bullet_allocation_mode = (
+                    "all_canonical_before_fitting"
+                )
+            elif (
+                bullet_allocation_label
+                == "Prefer available evidence"
+            ):
+                bullet_allocation_mode = (
+                    "prefer_available_evidence"
+                )
+            else:
+                bullet_allocation_mode = "adaptive"
+
+            max_bullets = st.slider(
+                "Bullet limit per project",
+                min_value=1,
+                max_value=4,
+                value=int(restored_settings.get("max_bullets", 3)),
+                key=f"max_bullets_{current_application_id}",
+                disabled=(
+                    workspace_edit_required
+                    or bullet_allocation_mode
+                    == "all_canonical_before_fitting"
+                ),
+                help=(
+                    "Adaptive and Prefer available evidence use this as a "
+                    "pre-fit per-project ceiling. Fit from all canonical evidence "
+                    "ignores this ceiling and lets the one-page fitter determine "
+                    "the final retained bullet count."
+                ),
             )
+            if (
+                bullet_allocation_mode
+                == "all_canonical_before_fitting"
+            ):
+                st.caption(
+                    "Bullet limit is disabled in this mode. All available "
+                    "truthful canonical bullets enter fitting; the fitter then "
+                    "compacts or removes lower-value evidence only when needed."
+                )
 
             generation_plan = build_generation_action_plan(
                 lock_projects=lock_projects,
@@ -3306,7 +3347,30 @@ if page == "Application Sessions":
                         fit_estimate = estimate_project_section_length(
                             project_result,
                             max_projects=max_projects,
-                            max_total_bullets=max_projects * max_bullets,
+                            max_total_bullets=(
+                                max(
+                                    max_projects * max_bullets,
+                                    sum(
+                                        len(
+                                            project.get(
+                                                "draft_bullets",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                        for project in (
+                                            project_result.get(
+                                                "recommended_projects",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                    ),
+                                )
+                                if bullet_allocation_mode
+                                == "all_canonical_before_fitting"
+                                else max_projects * max_bullets
+                            ),
                         )
                         input_fingerprint = build_tailoring_input_fingerprint(
                             report=report,
@@ -3505,7 +3569,30 @@ if page == "Application Sessions":
                         fit_estimate = estimate_project_section_length(
                             project_result,
                             max_projects=max_projects,
-                            max_total_bullets=max_projects * max_bullets,
+                            max_total_bullets=(
+                                max(
+                                    max_projects * max_bullets,
+                                    sum(
+                                        len(
+                                            project.get(
+                                                "draft_bullets",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                        for project in (
+                                            project_result.get(
+                                                "recommended_projects",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                    ),
+                                )
+                                if bullet_allocation_mode
+                                == "all_canonical_before_fitting"
+                                else max_projects * max_bullets
+                            ),
                         )
 
                         reset_call_ledger()
@@ -3648,7 +3735,30 @@ if page == "Application Sessions":
                                 fit_estimate = estimate_project_section_length(
                                     project_result,
                                     max_projects=max_projects,
-                                    max_total_bullets=max_projects * max_bullets,
+                                    max_total_bullets=(
+                                max(
+                                    max_projects * max_bullets,
+                                    sum(
+                                        len(
+                                            project.get(
+                                                "draft_bullets",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                        for project in (
+                                            project_result.get(
+                                                "recommended_projects",
+                                                [],
+                                            )
+                                            or []
+                                        )
+                                    ),
+                                )
+                                if bullet_allocation_mode
+                                == "all_canonical_before_fitting"
+                                else max_projects * max_bullets
+                            ),
                                 )
 
                             append_api_usage(
@@ -3931,11 +4041,19 @@ if page == "Application Sessions":
             if skills_result:
                 st.write("### Recommended Skills Section")
 
+                skills_preview_fingerprint = (
+                    stable_content_fingerprint(
+                        skills_result
+                    )[:12]
+                )
                 st.text_area(
                     "Preview skills text",
                     value=skill_lines_to_plain_text(skills_result),
                     height=160,
-                    key=f"skills_preview_{current_application_id}",
+                    key=(
+                        f"skills_preview_{current_application_id}_"
+                        f"{skills_preview_fingerprint}"
+                    ),
                 )
 
                 with st.expander("Evidence-supported additions"):
@@ -4298,6 +4416,21 @@ if page == "Application Sessions":
                             lock_projects=fit_lock_projects,
                             lock_skills=fit_lock_skills,
                         )
+                        fit_max_bullets_per_project = (
+                            resolve_effective_fitting_bullet_ceiling(
+                                projects_for_fit,
+                                configured_max_bullets_per_project=(
+                                    max_bullets
+                                ),
+                            )
+                        )
+                        fit_bullet_allocation_mode = (
+                            resolve_fitting_bullet_allocation_mode(
+                                projects_for_fit,
+                                fallback_mode=bullet_allocation_mode,
+                            )
+                        )
+
                         # Keep the draft record consistent with the exact content
                         # sent to the fitter after approved-section lock resolution.
                         st.session_state[tailored_projects_key] = projects_for_fit
@@ -4335,7 +4468,7 @@ if page == "Application Sessions":
                             tailored_skills=skills_for_fit,
                             application_id=current_application_id,
                             max_projects=max_projects,
-                            max_bullets_per_project=max_bullets,
+                            max_bullets_per_project=fit_max_bullets_per_project,
                             spacing_mode=spacing_mode,
                             project_spacing_pt=project_spacing_pt,
                             after_projects_spacing_pt=after_projects_spacing_pt,
@@ -4369,6 +4502,10 @@ if page == "Application Sessions":
                         fit_generation_settings = {
                             "max_projects": max_projects,
                             "max_bullets": max_bullets,
+                            "fit_effective_max_bullets": fit_max_bullets_per_project,
+                            "bullet_allocation_mode": (
+                                fit_bullet_allocation_mode
+                            ),
                             "use_compact_before_delete": (
                                 use_compact_before_delete
                             ),

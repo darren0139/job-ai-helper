@@ -1500,6 +1500,14 @@ def _collect_supported_skill_candidates(
             },
         )
         row["sources"].add(source)
+
+        # Equivalent skill identities may come from both the frozen resume
+        # snapshot and the current Evidence Library. Keep one deterministic
+        # identity, but prefer the user's current Evidence Library spelling for
+        # new tailoring output (for example GitHub Actions (CI)).
+        if source.startswith("evidence_library"):
+            row["skill"] = display
+
         if category_hint:
             row["category_hints"].append(category_hint)
         if selected_project:
