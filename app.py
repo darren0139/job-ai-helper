@@ -187,6 +187,7 @@ from tailoring.phase9d_global_blueprint_ui import (
 from tailoring.phase9e_blueprint_selection_ui import (
     render_phase9e_blueprint_selection,
 )
+from tailoring.phase9f_orchestrator_ui import render_phase9f_jd_intake
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
@@ -2074,20 +2075,26 @@ CATEGORY_OPTIONS = [
 with st.sidebar:
     st.header("Navigation")
 
+    if st.session_state.get("navigation_page") == "Global Blueprints":
+        st.session_state["navigation_page"] = "Blueprint Library"
+
     pending_navigation_page = st.session_state.pop(
         "_pending_navigation_page",
         "",
     )
+    if pending_navigation_page == "Global Blueprints":
+        pending_navigation_page = "Blueprint Library"
     if pending_navigation_page:
         st.session_state["navigation_page"] = pending_navigation_page
 
     page = st.radio(
         "Go to",
         [
+            "Tailor Resume",
             "Application Sessions",
+            "Blueprint Library",
             "Profile & Evidence",
             "Job Market Insights",
-            "Global Blueprints",
         ],
         key="navigation_page",
         label_visibility="collapsed",
@@ -2386,6 +2393,11 @@ with st.sidebar:
         st.write("4. Click **Analyze Resume**.")
         st.write("5. Optionally generate or revise a cover letter.")
 
+    elif page == "Tailor Resume":
+        st.subheader("Tailor Resume")
+        st.caption(
+            "Analyse a job description without creating an Application Session."
+        )
     elif page == "Job Market Insights":
         st.subheader("Job Market Insights")
         st.caption(
@@ -2404,8 +2416,8 @@ with st.sidebar:
         st.info(
             "Run Analyze Resume on one or more jobs first. Then this page can answer questions across those analyzed job descriptions."
         )
-    elif page == "Global Blueprints":
-        st.subheader("Global Blueprints")
+    elif page == "Blueprint Library":
+        st.subheader("Blueprint Library")
         st.caption(
             "Approve and inspect immutable reusable role-family blueprint versions."
         )
@@ -2414,7 +2426,10 @@ with st.sidebar:
         st.caption("Manage truthful reusable profile evidence.")
 
 
-if page == "Application Sessions":
+if page == "Tailor Resume":
+    render_phase9f_jd_intake()
+
+elif page == "Application Sessions":
     input_suffix = st.session_state["input_reset_counter"]
 
     has_loaded_application_report = bool(
@@ -5236,7 +5251,7 @@ if page == "Application Sessions":
     else:
         st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
 
-elif page == "Global Blueprints":
+elif page == "Blueprint Library":
     st.divider()
     global_blueprint_application_id = st.session_state.get(
         "current_application_id"

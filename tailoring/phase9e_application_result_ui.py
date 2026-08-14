@@ -105,7 +105,7 @@ def render_phase9e_application_result(
         st.session_state["phase9d_inspect_blueprint_id"] = result[
             "blueprint_id"
         ]
-        st.session_state["navigation_page"] = "Global Blueprints"
+        st.session_state["_pending_navigation_page"] = "Blueprint Library"
         st.rerun()
 
     provenance = st.columns(3)

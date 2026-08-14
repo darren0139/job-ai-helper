@@ -334,6 +334,89 @@ def drain_call_ledger() -> list[dict[str, Any]]:
     return calls
 
 
+def summarise_call_usage(
+    calls: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return safe aggregate token and estimated-cost diagnostics for calls."""
+    selected = [
+        dict(call)
+        for call in (
+            calls
+            if calls is not None
+            else get_call_ledger()
+        )
+        if isinstance(call, dict)
+    ]
+
+    prompt_tokens = 0
+    completion_tokens = 0
+    cached_prompt_tokens = 0
+    total_tokens = 0
+    estimated_cost_usd = 0.0
+    costed_calls = 0
+
+    for call in selected:
+        usage = call.get("usage")
+        if isinstance(usage, dict):
+            prompt_tokens += int(
+                usage.get("prompt_tokens")
+                or usage.get("input_tokens")
+                or 0
+            )
+            completion_tokens += int(
+                usage.get("completion_tokens")
+                or usage.get("output_tokens")
+                or 0
+            )
+            total_tokens += int(usage.get("total_tokens") or 0)
+
+            details = (
+                usage.get("prompt_tokens_details")
+                or usage.get("input_tokens_details")
+                or {}
+            )
+            if isinstance(details, dict):
+                cached_prompt_tokens += int(
+                    details.get("cached_tokens")
+                    or details.get("cached_input_tokens")
+                    or 0
+                )
+
+        value = call.get("response_cost_usd")
+        try:
+            if value is not None:
+                estimated_cost_usd += float(value)
+                costed_calls += 1
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "currency": "USD",
+        "estimated_cost_usd": (
+            round(estimated_cost_usd, 10)
+            if costed_calls
+            else None
+        ),
+        "call_count": len(selected),
+        "costed_call_count": costed_calls,
+        "uncosted_call_count": max(
+            0,
+            len(selected) - costed_calls,
+        ),
+        "prompt_tokens": prompt_tokens,
+        "cached_prompt_tokens": cached_prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cost_source": "litellm_response_cost",
+        "cost_is_estimate": True,
+        "billing_note": (
+            "LiteLLM estimate for recorded LLM completion calls only; "
+            "embedding/indexing charges are not included; provider "
+            "billing is authoritative."
+        ),
+    }
+
+
 def record_external_usage(
     *,
     route: RouteName,
@@ -792,6 +875,37 @@ def _serialise_usage(
     return repr(usage)
 
 
+def _response_cost_usd(
+    response: Any,
+) -> float | None:
+    """Return LiteLLM's estimated USD response cost when available."""
+    hidden = getattr(
+        response,
+        "_hidden_params",
+        None,
+    )
+    if isinstance(hidden, dict):
+        value = hidden.get("response_cost")
+        try:
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        value = litellm.completion_cost(
+            completion_response=response,
+        )
+        if value is not None:
+            return float(value)
+    except Exception:
+        # Cost reporting is diagnostic only. Never fail a valid model response
+        # because pricing metadata is unavailable or unknown.
+        return None
+
+    return None
+
+
 def _record_response_metadata(
     *,
     response: Any,
@@ -828,6 +942,9 @@ def _record_response_metadata(
         ),
         "usage": _serialise_usage(
             getattr(response, "usage", None)
+        ),
+        "response_cost_usd": _response_cost_usd(
+            response
         ),
         "elapsed_seconds": round(elapsed_seconds, 3),
     }

@@ -68,6 +68,9 @@ QUICK_TEST_MODULES = (
     "tests.test_all_canonical_sequence_regressions_v1",
     "tests.test_pre_phase9f_tailoring_polish_v1",
     "tests.test_shared_resume_pdf_preview_v1",
+    "tests.test_phase9f_jd_intake",
+    "tests.test_phase9f_jd_library",
+    "tests.test_phase9f_streamlit_acceptance",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -81,6 +84,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase8_phase9c_aggregation_parity",
     "scripts.check_phase9d_global_blueprint",
     "scripts.check_phase9e_blueprint_selection",
+    "scripts.check_phase9f_jd_intake",
 )
 
 
