@@ -1,0 +1,37 @@
+{
+  "resumes": [
+    {
+      "resume_id": "synthetic-software-engineer-resume",
+      "resume_text": "Alex Lim\nalex.lim@example.com | +65 6123 4567 | linkedin.com/in/alexlim | github.com/alexlim\n\nSUMMARY\nSoftware engineering graduate focused on backend systems, web applications, and automation.\n\nEDUCATION\nExample Institute of Technology\nBSc Computer Science\nAug 2022 - Apr 2026\nRelevant Courses: Data Structures, Software Engineering\n\nPROJECTS\nQueryAI (React, Team of 4) May 2025 - Jul 2025\n• Built authentication workflows with React and Supabase/PostgreSQL.\n• Implemented Row Level Security policies and REST API integration.\n\nSensor Monitor (ESP32, Solo) Jan 2025 - Feb 2025\n• Built an ESP32 temperature and humidity monitor with a simulated DHT sensor.\n• Added serial diagnostics and documented the GPIO wiring.\n\nWORK EXPERIENCE\nSoftware Engineer Intern | Harbour Analytics Pte Ltd May 2025 - Apr 2026\n• Built Python data-cleaning pipelines for geospatial datasets.\n• Integrated a REST API with MinIO-backed object storage.\n• Dockerised the processing workflow and added CI/CD checks with GitHub Actions.\n\nSKILLS\nLanguages: Python, C++, SQL, TypeScript\nFrameworks: React, FastAPI\nTools: Git, GitHub Actions, Docker, MinIO\nConcepts: REST API, CI/CD, OOP, data pipelines\nPlatforms: Linux, AWS, ESP32\n",
+      "expected_anchors": {
+        "name": "Alex Lim",
+        "email": "alex.lim@example.com",
+        "project_titles": [
+          "QueryAI (React, Team of 4)",
+          "Sensor Monitor (ESP32, Solo)"
+        ],
+        "experience_companies": [
+          "Harbour Analytics Pte Ltd"
+        ],
+        "skills": [
+          "Python",
+          "C++",
+          "SQL",
+          "TypeScript",
+          "React",
+          "FastAPI",
+          "Git",
+          "GitHub Actions",
+          "Docker",
+          "MinIO",
+          "REST API",
+          "CI/CD",
+          "OOP",
+          "Linux",
+          "AWS",
+          "ESP32"
+        ]
+      }
+    }
+  ]
+}
