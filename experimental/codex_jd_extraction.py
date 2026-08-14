@@ -7,13 +7,15 @@ it. The returned dictionary has the same shape as ``analyzer.extract_jd_profile`
 
 from __future__ import annotations
 
-import json
-import tempfile
-import time
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from experimental.codex_llm_backend import (
+    CodexLLMBackendError,
+    get_last_codex_call_metadata,
+)
+from llm import ask_json
 from prompts import JD_PROFILE_PROMPT
 
 
@@ -103,82 +105,77 @@ def validate_jd_profile_contract(candidate: Any) -> dict[str, Any]:
     return profile
 
 
-def _strip_markdown_fence(raw: str) -> str:
-    stripped = raw.strip()
-    if stripped.startswith("```json") and stripped.endswith("```"):
-        return stripped[7:-3].strip()
-    if stripped.startswith("```") and stripped.endswith("```"):
-        return stripped[3:-3].strip()
-    return stripped
 
 
-def _build_prompt(jd_text: str) -> str:
+def _build_system_prompt() -> str:
     return (
         "You are performing one isolated data-extraction operation. Do not "
         "inspect files, run commands, call tools, score alignment, or modify "
-        "anything. Use only the job-description text below.\n\n"
+        "anything. Use only the job-description text supplied in the user "
+        "message.\n\n"
         "POC field clarification: experience_level is for an explicitly stated "
         "seniority classification such as Intern, Entry Level, Junior, Mid-Level, "
         "Senior, Lead, or Manager. Do not put a minimum-years requirement such "
         "as 'Minimum 1 year of experience' in experience_level; keep that "
         "requirement in the appropriate skills/deal-breakers fields. If no "
         "seniority classification is explicit, use an empty string.\n\n"
-        f"{JD_PROFILE_PROMPT.strip()}\n\n"
-        f"JOB DESCRIPTION TEXT:\n\n{jd_text}"
+        f"{JD_PROFILE_PROMPT.strip()}"
     )
-
 
 def extract_job_description_with_codex_result(
     jd_text: str, *, model: str | None = None,
 ) -> CodexJDExtractionResult:
-    """Run one local Codex SDK extraction with enforced read-only access."""
     if not isinstance(jd_text, str) or not jd_text.strip():
         raise ValueError("jd_text must be a non-empty string.")
+
+    user = f"JOB DESCRIPTION TEXT:\n\n{jd_text}"
+
     try:
-        from openai_codex import Codex, Sandbox
-    except ImportError as exc:
+        parsed = ask_json(
+            _build_system_prompt(),
+            user,
+            route="analysis",
+            model=model,
+            backend="codex",
+            operation="jd-extraction",
+        )
+    except CodexLLMBackendError as exc:
+        if "invalid JSON" in str(exc):
+            raise CodexJDExtractionError(
+                "Codex returned invalid or missing JSON; profile was rejected."
+            ) from exc
         raise CodexJDExtractionError(
-            "The official Codex Python SDK is not installed. Install the POC "
-            "runtime with `pip install openai-codex`; it is intentionally not "
-            "a production dependency."
+            f"Codex SDK invocation failed: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise CodexJDExtractionError(
+            f"Codex SDK invocation failed: {exc}"
         ) from exc
 
-    started_at = time.perf_counter()
-    try:
-        # Read-only still permits reads. Run the agent from an empty temporary
-        # directory so this JD-only POC does not expose repository files.
-        with tempfile.TemporaryDirectory(prefix="codex-jd-extraction-") as temp_dir:
-            with Codex() as codex:
-                thread_kwargs: dict[str, Any] = {
-                    "cwd": temp_dir,
-                    "sandbox": Sandbox.read_only,
-                    "ephemeral": True,
-                }
-                if model:
-                    thread_kwargs["model"] = model
-                thread = codex.thread_start(**thread_kwargs)
-                response = thread.run(_build_prompt(jd_text), sandbox=Sandbox.read_only)
-                raw = str(response.final_response)
-    except Exception as exc:
-        raise CodexJDExtractionError(f"Codex SDK invocation failed: {exc}") from exc
-
+    raw_metadata = get_last_codex_call_metadata() or {}
     metadata = CodexInvocationMetadata(
-        runtime="openai-codex Python SDK",
-        model=model or SDK_DEFAULT_MODEL_LABEL,
-        elapsed_seconds=round(time.perf_counter() - started_at, 3),
-        output_length=len(raw),
+        runtime=str(
+            raw_metadata.get("runtime", "openai-codex Python SDK")
+        ),
+        model=str(
+            raw_metadata.get(
+                "model",
+                model or SDK_DEFAULT_MODEL_LABEL,
+            )
+        ),
+        elapsed_seconds=float(
+            raw_metadata.get("elapsed_seconds", 0.0) or 0.0
+        ),
+        output_length=int(
+            raw_metadata.get("output_length", 0) or 0
+        ),
     )
     _LAST_METADATA.set(metadata)
-    try:
-        parsed = json.loads(_strip_markdown_fence(raw))
-    except json.JSONDecodeError as exc:
-        raise CodexJDExtractionError(
-            "Codex returned invalid or missing JSON; profile was rejected."
-        ) from exc
-    return CodexJDExtractionResult(
-        profile=validate_jd_profile_contract(parsed), metadata=metadata,
-    )
 
+    return CodexJDExtractionResult(
+        profile=validate_jd_profile_contract(parsed),
+        metadata=metadata,
+    )
 
 def extract_job_description_with_codex(
     jd_text: str, *, model: str | None = None,

@@ -49,6 +49,14 @@ import litellm
 from dotenv import load_dotenv
 from litellm import completion
 
+from experimental.ai_backend_core import (
+    AI_BACKEND_CODEX,
+    get_active_ai_backend,
+    get_ai_backend_options,
+    resolve_ai_backend,
+    set_runtime_ai_backend,
+)
+
 
 load_dotenv()
 
@@ -1062,12 +1070,29 @@ def ask_json(
     model: str | None = None,
     reasoning_effort: str | None = None,
     seed: int | None = None,
+    backend: str | None = None,
+    operation: str = "json",
 ) -> dict:
     """
     Send a system/user request and return a parsed JSON object.
 
     Existing calls remain compatible because all new parameters are optional.
     """
+    selected_backend = resolve_ai_backend(
+        backend if backend is not None else get_active_ai_backend(route)
+    )
+    if selected_backend == AI_BACKEND_CODEX:
+        from experimental.codex_llm_backend import ask_json_with_codex
+        parsed = ask_json_with_codex(
+            system,
+            user,
+            route=route,
+            model=model,
+            operation=operation,
+        )
+        _check_no_rewrite(parsed)
+        return parsed
+
     selected_model = (
         resolve_model(model)
         if model
@@ -1216,12 +1241,27 @@ def ask_text(
     model: str | None = None,
     reasoning_effort: str | None = None,
     seed: int | None = None,
+    backend: str | None = None,
+    operation: str = "text",
 ) -> str:
     """
     Send a system/user request and return plain text.
 
     Use route="chat" for chatbot calls that should use the chat selector.
     """
+    selected_backend = resolve_ai_backend(
+        backend if backend is not None else get_active_ai_backend(route)
+    )
+    if selected_backend == AI_BACKEND_CODEX:
+        from experimental.codex_llm_backend import ask_text_with_codex
+        return ask_text_with_codex(
+            system,
+            user,
+            route=route,
+            model=model,
+            operation=operation,
+        )
+
     selected_model = (
         resolve_model(model)
         if model
