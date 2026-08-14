@@ -71,6 +71,8 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9f_jd_intake",
     "tests.test_phase9f_jd_library",
     "tests.test_phase9f_streamlit_acceptance",
+    "tests.test_phase9f_master_resume",
+    "tests.test_phase9f_master_streamlit",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -85,6 +87,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9d_global_blueprint",
     "scripts.check_phase9e_blueprint_selection",
     "scripts.check_phase9f_jd_intake",
+    "scripts.check_phase9f_master_resume",
 )
 
 

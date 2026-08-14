@@ -187,7 +187,11 @@ from tailoring.phase9d_global_blueprint_ui import (
 from tailoring.phase9e_blueprint_selection_ui import (
     render_phase9e_blueprint_selection,
 )
+from database.global_master_resume_manager import (
+    init_global_master_resume_registry,
+)
 from tailoring.phase9f_orchestrator_ui import render_phase9f_jd_intake
+from tailoring.phase9f_master_resume_ui import render_phase9f_master_resume
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
@@ -2040,6 +2044,7 @@ init_tailoring_verifications()
 init_application_blueprint_decisions()
 init_application_resume_results()
 init_application_cover_letters()
+init_global_master_resume_registry()
 
 init_jd_library()
 init_chat_history()
@@ -5543,6 +5548,10 @@ elif page == "Profile & Evidence":
         "The app can use this later to recommend which projects or skills to include "
         "without inventing experience."
     )
+
+    render_phase9f_master_resume()
+
+    st.divider()
 
     st.subheader("Add Evidence Item")
     st.caption(

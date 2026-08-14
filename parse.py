@@ -20,7 +20,11 @@ _MIN_JD_CHARS = 100
 # Rough token estimate: 1 token ≈ 4 chars. Truncate above ~6 000 tokens.
 _MAX_RESUME_CHARS = 6000 * 4
 
-def read_resume_docx(path: str) -> str:
+def read_resume_docx(
+    path: str,
+    *,
+    preserve_complete_text: bool = False,
+) -> str:
     """
     Extract plain text from a DOCX résumé.
 
@@ -50,13 +54,17 @@ def read_resume_docx(path: str) -> str:
             "The DOCX may be empty or mostly image-based."
         )
 
-    if len(text) > _MAX_RESUME_CHARS:
+    if len(text) > _MAX_RESUME_CHARS and not preserve_complete_text:
         text = text[:_MAX_RESUME_CHARS]
 
     return text
 
 
-def read_resume_pdf(path: str) -> str:
+def read_resume_pdf(
+    path: str,
+    *,
+    preserve_complete_text: bool = False,
+) -> str:
     """
     Extract plain text from a PDF résumé using pypdf.
 
@@ -131,7 +139,7 @@ def read_resume_pdf(path: str) -> str:
         )
 
     # Step 8: Truncate very long resumes.
-    if len(text) > _MAX_RESUME_CHARS:
+    if len(text) > _MAX_RESUME_CHARS and not preserve_complete_text:
         print(
             f"WARNING: Resume text is very long ({len(text)} chars). "
             f"Truncating to {_MAX_RESUME_CHARS} chars.",
