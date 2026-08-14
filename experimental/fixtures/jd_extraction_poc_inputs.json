@@ -1,0 +1,11 @@
+{
+  "fixture_version": "codex-jd-extraction-poc-v1",
+  "source": "tests/test_stable_evidence_scoring.py::_garena_raw_jd",
+  "contains_personal_data": false,
+  "inputs": [
+    {
+      "id": "garena-qa-live-operations-synthetic",
+      "raw_text": "Job Description\nOperate and maintain the daily operations of the gaming product from configuration, quality assurance, live environment handling (including bugs and hacks), and operational evaluation.\nCoordinate configuration & QA tasks between different offices.\nCollaborate with both local and global stakeholders in resolving product-related problems.\n\nJob Requirements\nMinimum 1 year of experience in quality assurance, live operations, or related fields, preferably within tech or gaming companies.\nPassionate about games with basic knowledge of the gaming industry, preferably being familiar with recent shooting games.\nGood written and verbal communication skills along with the ability to effectively collaborate with cross-functional teams.\nHaving a track record of working with meticulous works that require high attention to detail would be preferred."
+    }
+  ]
+}

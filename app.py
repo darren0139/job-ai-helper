@@ -100,7 +100,6 @@ from tailoring.project_section_tailor import (
 
 from analyzer import (
     extract_resume_profile,
-    extract_jd_profile,
     analyse_keyword_match,
     analyse_bullets,
     analyse_jargon,
@@ -108,6 +107,11 @@ from analyzer import (
     analyse_degree_alignment,
     summarise_overall,
     compute_overall_score,
+)
+from experimental.jd_extraction_backend import (
+    JD_EXTRACTION_BACKEND_OPTIONS,
+    extract_jd_profile_with_backend,
+    normalise_jd_extraction_backend,
 )
 from analysis_stability import build_stable_analysis
 from database.db_manager import (
@@ -1656,6 +1660,7 @@ def run_resume_analysis(
     degree: str,
     *,
     actual_page_count: int | None = None,
+    jd_extraction_backend: str = "api",
 ) -> dict:
     """Run the full resume-job analysis pipeline and return the report dict."""
     progress = st.progress(0)
@@ -1668,8 +1673,17 @@ def run_resume_analysis(
     resume_profile = extract_resume_profile(resume_text)
     progress.progress(25)
 
-    log.write("[3/8] Extracting job description profile...")
-    jd_profile = extract_jd_profile(jd_text)
+    jd_extraction_backend = normalise_jd_extraction_backend(
+        jd_extraction_backend
+    )
+    log.write(
+        "[3/8] Extracting job description profile "
+        f"({jd_extraction_backend})..."
+    )
+    jd_profile = extract_jd_profile_with_backend(
+        jd_text,
+        backend=jd_extraction_backend,
+    )
     progress.progress(37)
 
     log.write("[4/8] Analysing keyword match...")
@@ -1705,6 +1719,7 @@ def run_resume_analysis(
             "degree": degree,
             "ats_pass_threshold": ATS_PASS_THRESHOLD,
             "actual_page_count": (actual_page_count),
+            "jd_extraction_backend": jd_extraction_backend,
         },
         "resume_profile": resume_profile,
         "jd_profile": jd_profile,
@@ -2057,6 +2072,9 @@ if flash_message:
 page = "Application Sessions"
 degree = VALID_DEGREES[VALID_DEGREES.index("IMGD")]
 show_debug_text = False
+jd_extraction_backend = normalise_jd_extraction_backend(
+    os.getenv("JD_EXTRACTION_BACKEND", "api")
+)
 
 CATEGORY_OPTIONS = [
     "Project",
@@ -2154,6 +2172,44 @@ with st.sidebar:
             "Job Market Insights RAG chatbot."
         ),
     )
+
+    jd_backend_labels = list(JD_EXTRACTION_BACKEND_OPTIONS.keys())
+    jd_backend_default_index = next(
+        (
+            index
+            for index, label in enumerate(jd_backend_labels)
+            if JD_EXTRACTION_BACKEND_OPTIONS[label] == jd_extraction_backend
+        ),
+        0,
+    )
+    jd_backend_label = st.selectbox(
+        "JD extraction backend",
+        jd_backend_labels,
+        index=jd_backend_default_index,
+        key="jd_extraction_backend_selector",
+        help=(
+            "API uses the existing two-call extraction/review path. "
+            "Codex is an experimental local-only alternative for JD extraction. "
+            "It does not replace the other analysis model calls."
+        ),
+    )
+    jd_extraction_backend = JD_EXTRACTION_BACKEND_OPTIONS[
+        jd_backend_label
+    ]
+
+    if jd_extraction_backend == "codex":
+        st.caption(
+            "Codex replaces only JD extraction. Remaining résumé-analysis "
+            "stages still use the configured API analysis model. "
+            "There is no automatic API fallback if Codex fails."
+        )
+        st.caption(
+            "Codex model: "
+            + (
+                os.getenv("CODEX_JD_MODEL", "").strip()
+                or "SDK configured default"
+            )
+        )
 
     set_runtime_model(
         model_options[analysis_model_label],
@@ -2569,6 +2625,7 @@ if page == "Application Sessions":
                             "CAPABILITY_RAG_VECTOR_THRESHOLD",
                             "0.30",
                         ),
+                        "jd_extraction_backend": jd_extraction_backend,
                     },
                 )
 
@@ -2631,6 +2688,7 @@ if page == "Application Sessions":
                         jd_text,
                         degree,
                         actual_page_count=actual_page_count,
+                        jd_extraction_backend=jd_extraction_backend,
                     )
                     report["raw_jd_text"] = jd_text
                     report.setdefault("meta", {})[

@@ -6,3 +6,4 @@ openai
 python-docx
 chromadb
 PyMuPDF
+openai-codex
