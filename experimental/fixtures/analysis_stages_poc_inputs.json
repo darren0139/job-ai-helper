@@ -1,0 +1,222 @@
+{
+  "fixture_id": "synthetic-full-stack-analysis",
+  "degree_program": "IMGD",
+  "actual_page_count": 1,
+  "resume_text": "Alex Lim\nalex.lim@example.com | +65 0000 0000 | https://example.com/linkedin/alex-lim | https://example.com/github/alex-lim\n\nSUMMARY\nSoftware engineering graduate focused on backend systems, web applications, and automation.\n\nEDUCATION\nExample Institute of Technology\nBSc Computer Science\nAug 2022 - Apr 2026\n\nPROJECTS\nQueryAI (React, Team of 4) May 2025 - Jul 2025\n• Built authentication workflows with React and Supabase/PostgreSQL.\n• Implemented Row Level Security policies and REST API integration.\n\nRealtime Demo (C++, Solo) Jan 2025 - Feb 2025\n• Implemented a game loop in C++ for a small real-time simulation.\n\nWORK EXPERIENCE\nSoftware Engineer Intern | Harbour Analytics Pte Ltd May 2025 - Apr 2026\n• Built Python data-cleaning pipelines and Dockerised the workflow with GitHub Actions CI/CD.\n\nSKILLS\nLanguages: Python, C++, SQL, TypeScript\nFrameworks: React, FastAPI\nTools: Git, GitHub Actions, Docker, MinIO\nConcepts: REST API, CI/CD, OOP, data pipelines\nPlatforms: Linux, AWS\n",
+  "jd_text": "Full Stack Developer\nExample Software Pte Ltd\nSingapore\n\nRequirements:\n- Python development experience\n- Experience building REST APIs\n- Docker knowledge\n- React experience\n- Strong written communication\n\nPreferred:\n- Kubernetes familiarity\n\nResponsibilities:\n- Build and maintain backend APIs and web application features.\n- Collaborate with product and engineering teams.\n",
+  "resume_profile": {
+    "name": "Alex Lim",
+    "contact": {
+      "email": "alex.lim@example.com",
+      "phone": "+65 0000 0000",
+      "linkedin": "https://example.com/linkedin/alex-lim",
+      "github": "https://example.com/github/alex-lim",
+      "portfolio": ""
+    },
+    "summary": "Software engineering graduate focused on backend systems, web applications, and automation.",
+    "education": [
+      {
+        "school": "Example Institute of Technology",
+        "degree": "BSc Computer Science",
+        "graduation_date": "Aug 2022 - Apr 2026",
+        "courses": []
+      }
+    ],
+    "projects": [
+      {
+        "title": "QueryAI (React, Team of 4)",
+        "date": "May 2025 - Jul 2025",
+        "bullets": [
+          "Built authentication workflows with React and Supabase/PostgreSQL.",
+          "Implemented Row Level Security policies and REST API integration."
+        ]
+      },
+      {
+        "title": "Realtime Demo (C++, Solo)",
+        "date": "Jan 2025 - Feb 2025",
+        "bullets": [
+          "Implemented a game loop in C++ for a small real-time simulation."
+        ]
+      }
+    ],
+    "experience": [
+      {
+        "title": "Software Engineer Intern",
+        "company": "Harbour Analytics Pte Ltd",
+        "date": "May 2025 - Apr 2026",
+        "bullets": [
+          "Built Python data-cleaning pipelines and Dockerised the workflow with GitHub Actions CI/CD."
+        ]
+      }
+    ],
+    "skills": {
+      "languages": [
+        "Python",
+        "C++",
+        "SQL",
+        "TypeScript"
+      ],
+      "frameworks": [
+        "React",
+        "FastAPI"
+      ],
+      "tools": [
+        "Git",
+        "GitHub Actions",
+        "Docker",
+        "MinIO"
+      ],
+      "concepts": [
+        "REST API",
+        "CI/CD",
+        "OOP",
+        "data pipelines"
+      ],
+      "platforms": [
+        "Linux",
+        "AWS"
+      ]
+    }
+  },
+  "jd_profile": {
+    "job_title": "Full Stack Developer",
+    "company": "Example Software Pte Ltd",
+    "location": "Singapore",
+    "experience_level": "",
+    "required_skills": [
+      "Python development experience",
+      "Experience building REST APIs",
+      "Docker knowledge",
+      "React experience",
+      "Strong written communication"
+    ],
+    "preferred_skills": [
+      "Kubernetes familiarity"
+    ],
+    "tools_technologies": [
+      "Python",
+      "REST API",
+      "Docker",
+      "React",
+      "Kubernetes"
+    ],
+    "responsibilities": [
+      "Build and maintain backend APIs and web application features",
+      "Collaborate with product and engineering teams"
+    ],
+    "soft_skills": [
+      "Strong written communication",
+      "Collaboration"
+    ],
+    "buzzwords": [
+      "REST APIs"
+    ],
+    "deal_breakers": []
+  },
+  "summary_report": {
+    "overall_score": 82,
+    "passes_ats_threshold": true,
+    "keyword_match": {
+      "present": [
+        {
+          "keyword": "Python",
+          "category": "language",
+          "importance": "required",
+          "found_in": "skills",
+          "matched_resume_term": "Python",
+          "match_type": "exact",
+          "evidence_type": "direct",
+          "match_reason": "Python is explicitly listed."
+        },
+        {
+          "keyword": "REST API",
+          "category": "concept",
+          "importance": "required",
+          "found_in": "projects",
+          "matched_resume_term": "REST API",
+          "match_type": "exact",
+          "evidence_type": "direct",
+          "match_reason": "REST API work is explicit."
+        }
+      ],
+      "missing": [
+        {
+          "keyword": "Kubernetes",
+          "category": "tool",
+          "importance": "preferred",
+          "suggested_section": "skills",
+          "alternative_sections": [
+            "projects",
+            "experience"
+          ],
+          "why_it_matters": "It is a stated preferred technology.",
+          "missing_reason": "Kubernetes is not present."
+        }
+      ],
+      "keyword_match_score": 80
+    },
+    "bullets": {
+      "bullets": [],
+      "bullet_quality_avg": 83
+    },
+    "jargon": {
+      "flags": [],
+      "jargon_score": 90,
+      "role_appropriate_terms_removed_from_flags": []
+    },
+    "structure": {
+      "page_count_estimate": 1,
+      "single_column_likely": true,
+      "section_headings_present": [
+        "EDUCATION",
+        "PROJECTS",
+        "WORK EXPERIENCE",
+        "SKILLS"
+      ],
+      "section_headings_missing": [],
+      "three_thirds": {
+        "top_third_has_name": true,
+        "top_third_has_contact": true,
+        "top_third_has_summary_or_featured": true,
+        "middle_third_has_projects_or_experience": true,
+        "bottom_third_has_skills_keywords": true
+      },
+      "ats_red_flags": [],
+      "structure_score": 95
+    },
+    "degree_alignment": {
+      "student_degree": "IMGD",
+      "jd_title": "Full Stack Developer",
+      "title_on_suggested_list": true,
+      "matched_against": "IMGD suggested job titles: Full Stack Developer",
+      "fit_commentary": "The role directly aligns with the IMGD suggested title list. The degree background supports interactive and software systems work.",
+      "degree_alignment_score": 100
+    }
+  },
+  "expected_anchors": {
+    "keyword": {
+      "present_any": [
+        "Python",
+        "REST API",
+        "Docker",
+        "React"
+      ],
+      "missing_any": [
+        "Kubernetes"
+      ]
+    },
+    "jargon": {
+      "flag_term_contains": "game loop"
+    },
+    "degree": {
+      "jd_title": "Full Stack Developer",
+      "title_on_suggested_list": true,
+      "minimum_score": 85
+    },
+    "summary": {
+      "must_contain": [
+        "82"
+      ]
+    }
+  }
+}
