@@ -130,15 +130,23 @@ class OptionalCodexJDBackendTests(unittest.TestCase):
             app_text,
         )
         self.assertIn(
-            "jd_extraction_backend=jd_extraction_backend,",
+            "analysis_backend=analysis_backend,",
             app_text,
         )
-        self.assertGreaterEqual(
-            app_text.count('"jd_extraction_backend": jd_extraction_backend'),
-            2,
+        self.assertIn(
+            '"analysis_backend": analysis_backend',
+            app_text,
         )
         self.assertIn(
-            "Codex replaces only JD extraction.",
+            '"jd_extraction_backend": (',
+            app_text,
+        )
+        self.assertIn(
+            "Codex applies to the Analyze Resume pipeline.",
+            app_text,
+        )
+        self.assertNotIn(
+            '"JD extraction backend"',
             app_text,
         )
 

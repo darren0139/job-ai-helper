@@ -113,6 +113,14 @@ from experimental.jd_extraction_backend import (
     extract_jd_profile_with_backend,
     normalise_jd_extraction_backend,
 )
+from experimental.ai_backend_core import (
+    AI_BACKEND_API,
+    AI_BACKEND_CODEX,
+    get_active_ai_backend,
+    get_ai_backend_options,
+    resolve_ai_backend,
+    set_runtime_ai_backend,
+)
 from analysis_stability import build_stable_analysis
 from database.db_manager import (
     init_db,
@@ -1654,6 +1662,66 @@ def calculate_uploaded_resume_page_count(
                 pass
 
 
+def _analysis_backend_model_id(
+    backend: str,
+) -> str:
+    """Return a cache/report identity for the selected Analyze Resume backend."""
+    resolved = resolve_ai_backend(backend)
+    if resolved == AI_BACKEND_CODEX:
+        codex_model = (
+            os.getenv("CODEX_ANALYSIS_MODEL", "").strip()
+            or os.getenv("CODEX_MODEL", "").strip()
+            or "sdk-configured-default"
+        )
+        return f"codex:{codex_model}"
+
+    return get_active_model("analysis")
+
+
+def run_resume_analysis_with_backend(
+    resume_text: str,
+    jd_text: str,
+    degree: str,
+    *,
+    actual_page_count: int | None = None,
+    analysis_backend: str = "api",
+) -> dict:
+    """Run Analyze Resume with a temporary backend and always restore it."""
+    selected_backend = resolve_ai_backend(analysis_backend)
+    previous_backend = get_active_ai_backend("analysis")
+    jd_backend = (
+        "codex"
+        if selected_backend == AI_BACKEND_CODEX
+        else "api"
+    )
+
+    try:
+        set_runtime_ai_backend(
+            selected_backend,
+            route="analysis",
+        )
+        report = run_resume_analysis(
+            resume_text,
+            jd_text,
+            degree,
+            actual_page_count=actual_page_count,
+            jd_extraction_backend=jd_backend,
+        )
+    finally:
+        set_runtime_ai_backend(
+            previous_backend,
+            route="analysis",
+        )
+
+    report.setdefault("meta", {})["analysis_backend"] = selected_backend
+    report["meta"]["analysis_backend_model"] = (
+        _analysis_backend_model_id(
+            selected_backend
+        )
+    )
+    return report
+
+
 def run_resume_analysis(
     resume_text: str,
     jd_text: str,
@@ -2072,8 +2140,11 @@ if flash_message:
 page = "Application Sessions"
 degree = VALID_DEGREES[VALID_DEGREES.index("IMGD")]
 show_debug_text = False
-jd_extraction_backend = normalise_jd_extraction_backend(
-    os.getenv("JD_EXTRACTION_BACKEND", "api")
+analysis_backend = resolve_ai_backend(
+    os.getenv(
+        "ANALYSIS_AI_BACKEND",
+        os.getenv("AI_BACKEND", "api"),
+    )
 )
 
 CATEGORY_OPTIONS = [
@@ -2113,6 +2184,70 @@ with st.sidebar:
 
     st.divider()
 
+    st.subheader("AI Backend")
+
+    ai_backend_options = get_ai_backend_options()
+    ai_backend_labels = list(ai_backend_options.keys())
+    current_analysis_backend = resolve_ai_backend(
+        analysis_backend
+    )
+    analysis_backend_default_index = next(
+        (
+            index
+            for index, label in enumerate(
+                ai_backend_labels
+            )
+            if ai_backend_options[label]
+            == current_analysis_backend
+        ),
+        0,
+    )
+
+    analysis_backend_label = st.selectbox(
+        "Analysis backend",
+        ai_backend_labels,
+        index=analysis_backend_default_index,
+        key="analysis_backend_selector",
+        help=(
+            "API uses the existing provider/LiteLLM analysis path. "
+            "Codex (Local / Experimental) routes only the Analyze Resume "
+            "pipeline through the locally authenticated Codex SDK."
+        ),
+    )
+    analysis_backend = ai_backend_options[
+        analysis_backend_label
+    ]
+
+    set_runtime_ai_backend(
+        AI_BACKEND_API,
+        route="analysis",
+    )
+
+    if analysis_backend == AI_BACKEND_CODEX:
+        st.caption(
+            "Codex applies to the Analyze Resume pipeline. "
+            "Chat, cover letters, project/skills generation, and other "
+            "generation features continue using their configured API models."
+        )
+        st.caption(
+            "Requires the local openai-codex SDK and ChatGPT/Codex sign-in. "
+            "There is no automatic fallback to the API if Codex fails."
+        )
+        st.caption(
+            "Codex analysis model: "
+            + (
+                os.getenv(
+                    "CODEX_ANALYSIS_MODEL",
+                    "",
+                ).strip()
+                or os.getenv(
+                    "CODEX_MODEL",
+                    "",
+                ).strip()
+                or "SDK configured default"
+            )
+        )
+
     st.subheader("AI Models")
 
     model_options = get_model_options()
@@ -2121,7 +2256,6 @@ with st.sidebar:
     current_analysis_model = get_active_model(
         "analysis"
     )
-
     current_chat_model = get_active_model(
         "chat"
     )
@@ -2129,36 +2263,35 @@ with st.sidebar:
     analysis_default_index = next(
         (
             index
-            for index, label in enumerate(
-                model_labels
-            )
-            if model_options[label]
-            == current_analysis_model
+            for index, label in enumerate(model_labels)
+            if model_options[label] == current_analysis_model
         ),
         0,
     )
-
     chat_default_index = next(
         (
             index
-            for index, label in enumerate(
-                model_labels
-            )
-            if model_options[label]
-            == current_chat_model
+            for index, label in enumerate(model_labels)
+            if model_options[label] == current_chat_model
         ),
         0,
     )
 
+    analysis_model_widget_label = (
+        "API analysis / generation model"
+        if analysis_backend == AI_BACKEND_CODEX
+        else "Analysis model"
+    )
     analysis_model_label = st.selectbox(
-        "Analysis model",
+        analysis_model_widget_label,
         model_labels,
         index=analysis_default_index,
         key="analysis_model_selector",
         help=(
-            "Used for resume analysis, JD extraction, "
-            "project scoring, bullet writing and "
-            "cover-letter generation."
+            "Used by the API analysis path and by generation features that "
+            "have not been migrated to Codex. When Codex is selected for "
+            "Analyze Resume, this model remains the API model for those "
+            "other features."
         ),
     )
 
@@ -2168,68 +2301,36 @@ with st.sidebar:
         index=chat_default_index,
         key="chat_model_selector",
         help=(
-            "Used for analysis questions and the "
-            "Job Market Insights RAG chatbot."
+            "Used for analysis questions and the Job Market Insights RAG chatbot. "
+            "The Analysis Backend selector does not change chat."
         ),
     )
-
-    jd_backend_labels = list(JD_EXTRACTION_BACKEND_OPTIONS.keys())
-    jd_backend_default_index = next(
-        (
-            index
-            for index, label in enumerate(jd_backend_labels)
-            if JD_EXTRACTION_BACKEND_OPTIONS[label] == jd_extraction_backend
-        ),
-        0,
-    )
-    jd_backend_label = st.selectbox(
-        "JD extraction backend",
-        jd_backend_labels,
-        index=jd_backend_default_index,
-        key="jd_extraction_backend_selector",
-        help=(
-            "API uses the existing two-call extraction/review path. "
-            "Codex is an experimental local-only alternative for JD extraction. "
-            "It does not replace the other analysis model calls."
-        ),
-    )
-    jd_extraction_backend = JD_EXTRACTION_BACKEND_OPTIONS[
-        jd_backend_label
-    ]
-
-    if jd_extraction_backend == "codex":
-        st.caption(
-            "Codex replaces only JD extraction. Remaining résumé-analysis "
-            "stages still use the configured API analysis model. "
-            "There is no automatic API fallback if Codex fails."
-        )
-        st.caption(
-            "Codex model: "
-            + (
-                os.getenv("CODEX_JD_MODEL", "").strip()
-                or "SDK configured default"
-            )
-        )
 
     set_runtime_model(
         model_options[analysis_model_label],
         route="analysis",
     )
-
     set_runtime_model(
         model_options[chat_model_label],
         route="chat",
     )
 
-    st.caption("Active analysis model")
-    st.code(
-        get_active_model("analysis")
-    )
+    st.caption("Selected Analyze Resume backend")
+    st.code(analysis_backend)
+
+    if analysis_backend == AI_BACKEND_API:
+        st.caption("Active API analysis model")
+        st.code(get_active_model("analysis"))
+    else:
+        st.caption("Active Codex analysis runtime")
+        st.code(
+            _analysis_backend_model_id(
+                analysis_backend
+            )
+        )
 
     st.caption("Active chatbot model")
-    st.code(
-        get_active_model("chat")
-    )
+    st.code(get_active_model("chat"))
 
     st.divider()
 
@@ -2611,7 +2712,7 @@ if page == "Application Sessions":
                     jd_text=jd_text,
                     degree=degree,
                     actual_page_count=actual_page_count,
-                    model_id=get_active_model("analysis"),
+                    model_id=_analysis_backend_model_id(analysis_backend),
                     retrieval_config={
                         "capability_rag_mode": os.getenv(
                             "CAPABILITY_RAG_MODE",
@@ -2625,7 +2726,15 @@ if page == "Application Sessions":
                             "CAPABILITY_RAG_VECTOR_THRESHOLD",
                             "0.30",
                         ),
-                        "jd_extraction_backend": jd_extraction_backend,
+                        "analysis_backend": analysis_backend,
+                        "analysis_backend_model": _analysis_backend_model_id(
+                            analysis_backend
+                        ),
+                        "jd_extraction_backend": (
+                            "codex"
+                            if analysis_backend == AI_BACKEND_CODEX
+                            else "api"
+                        ),
                     },
                 )
 
@@ -2683,12 +2792,12 @@ if page == "Application Sessions":
                         state="running",
                     )
                     reset_call_ledger()
-                    report = run_resume_analysis(
+                    report = run_resume_analysis_with_backend(
                         resume_text,
                         jd_text,
                         degree,
                         actual_page_count=actual_page_count,
-                        jd_extraction_backend=jd_extraction_backend,
+                        analysis_backend=analysis_backend,
                     )
                     report["raw_jd_text"] = jd_text
                     report.setdefault("meta", {})[
@@ -2811,16 +2920,27 @@ if page == "Application Sessions":
                 )
 
             if not analysis_cache_hit:
-                append_api_usage(
-                    application_id=application_id,
-                    action="analyse_resume",
-                    report=report,
-                )
+                if analysis_backend == AI_BACKEND_CODEX:
+                    record_zero_cost_action_event(
+                        application_id=application_id,
+                        action="analyse_resume",
+                        note=(
+                            "Codex analysis completed; no provider API billing calls "
+                            "were recorded for Analyze Resume. ChatGPT/Codex plan "
+                            "allowance may still apply."
+                        ),
+                    )
+                else:
+                    append_api_usage(
+                        application_id=application_id,
+                        action="analyse_resume",
+                        report=report,
+                    )
                 snapshot = save_analysis_snapshot(
                     application_id=application_id,
                     input_fingerprint=analysis_fingerprint,
                     report=report,
-                    analysis_model=get_active_model("analysis"),
+                    analysis_model=_analysis_backend_model_id(analysis_backend),
                     resume_filename=uploaded_resume.name,
                 )
                 report.setdefault("meta", {})[
