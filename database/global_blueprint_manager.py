@@ -719,6 +719,22 @@ def list_global_blueprints(
         connection.close()
 
 
+def list_active_global_blueprints_read_only() -> list[dict[str, Any]]:
+    """Return the active Phase 9D scope without schema or lifecycle writes."""
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT * FROM global_blueprint_versions
+            WHERE status = 'active'
+            ORDER BY role_family_label ASC, version_number DESC
+            """
+        ).fetchall()
+        return [_row_to_blueprint(row) for row in rows]
+    finally:
+        connection.close()
+
+
 def list_global_blueprint_audit_events(
     *,
     blueprint_id: str | None = None,

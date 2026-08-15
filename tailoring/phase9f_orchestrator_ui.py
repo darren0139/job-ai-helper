@@ -1,4 +1,4 @@
-"""Streamlit UI for Phase 9F-A job-description intake only."""
+"""Streamlit UI for Phase 9F-A intake and transient Phase 9F-B ranking."""
 
 from __future__ import annotations
 
@@ -26,6 +26,9 @@ from tailoring.phase9f_jd_intake import (
     phase9f_analysis_diagnostics_json,
     phase9f_jd_input_fingerprint,
     validate_jd_text,
+)
+from tailoring.phase9f_starting_source_ranking_ui import (
+    render_phase9f_starting_source_ranking,
 )
 
 
@@ -339,10 +342,11 @@ def _render_analysis(snapshot: dict[str, Any], *, current_source_url: str) -> No
             )
 
     _render_diagnostics(snapshot)
+    render_phase9f_starting_source_ranking(snapshot)
 
 
 def render_phase9f_jd_intake() -> None:
-    """Render only Phase 9F-A; no application or Blueprint lifecycle actions."""
+    """Render Phase 9F-A and 9F-B without application/lifecycle mutations."""
     st.header("Tailor Resume")
     st.caption(
         "Analyse and optionally save an exact job description before deciding "
