@@ -57,6 +57,28 @@ ROLE_FAMILY_NEAR_TIE_TOLERANCES = {
     "preferred_coverage_points": 5,
 }
 
+RANKING_RESULT_IDENTITY_FIELDS = (
+    "rank",
+    "source_type",
+    "source_id",
+    "source_version",
+    "source_fingerprint",
+    "source_content_fingerprint",
+    "normalized_source_fingerprint",
+    "role_family_relationship",
+    "role_family_prior_eligible",
+    "role_family_prior_applied",
+    "ranking_reason",
+    "deterministic_alignment_score",
+    "required_core_coverage_score",
+    "preferred_coverage_score",
+    "evidence_strength_score",
+    "important_gap_count",
+    "deal_breaker_gap_count",
+    "stable_input_fingerprint",
+    "comparison_result_fingerprint",
+)
+
 
 class Phase9FBRankingError(ValueError):
     """A deterministic Phase 9F-B integrity or scoring failure."""
@@ -927,22 +949,22 @@ def score_normalized_source(
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
         "retrieval_mode": "lexical",
     }
-    semantic_result = {
-        "canonical_requirement_results": compact_results,
-        "deterministic_alignment_score": int(
+    semantic_result = build_comparison_result_identity(
+        canonical_requirement_results=compact_results,
+        deterministic_alignment_score=int(
             analysis.get("deterministic_alignment_score") or 0
         ),
-        "required_core_coverage_score": int(
+        required_core_coverage_score=int(
             analysis.get("required_core_coverage_score") or 0
         ),
-        "preferred_coverage_score": int(
+        preferred_coverage_score=int(
             analysis.get("preferred_coverage_score") or 0
         ),
-        "evidence_strength_score": int(
+        evidence_strength_score=int(
             analysis.get("evidence_strength_score") or 0
         ),
-        "important_gaps": important_gaps,
-    }
+        important_gaps=important_gaps,
+    )
     jd_role = exact_jd["semantic_identity"]["role_family"]
     if source["source_type"] == "base_resume":
         relationship = "neutral_base_resume"
@@ -1117,6 +1139,197 @@ def _public_context(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_comparison_result_identity(
+    *,
+    canonical_requirement_results: Iterable[dict[str, Any]],
+    deterministic_alignment_score: int,
+    required_core_coverage_score: int,
+    preferred_coverage_score: int,
+    evidence_strength_score: int,
+    important_gaps: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the authoritative semantic identity for one fresh comparison."""
+    return {
+        "canonical_requirement_results": deepcopy(
+            list(canonical_requirement_results)
+        ),
+        "deterministic_alignment_score": int(
+            deterministic_alignment_score
+        ),
+        "required_core_coverage_score": int(required_core_coverage_score),
+        "preferred_coverage_score": int(preferred_coverage_score),
+        "evidence_strength_score": int(evidence_strength_score),
+        "important_gaps": deepcopy(list(important_gaps)),
+    }
+
+
+def validate_ranked_candidate_comparison_contract(
+    candidate: Any,
+) -> dict[str, Any]:
+    """Validate one Phase 9F-B candidate comparison without rescoring it."""
+    if not isinstance(candidate, dict):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranked candidate is missing.",
+            code="ranked_candidate_missing",
+        )
+    try:
+        identity = build_comparison_result_identity(
+            canonical_requirement_results=candidate[
+                "canonical_requirement_results"
+            ],
+            deterministic_alignment_score=candidate[
+                "deterministic_alignment_score"
+            ],
+            required_core_coverage_score=candidate[
+                "required_core_coverage_score"
+            ],
+            preferred_coverage_score=candidate[
+                "preferred_coverage_score"
+            ],
+            evidence_strength_score=candidate["evidence_strength_score"],
+            important_gaps=candidate["important_gaps"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate comparison is incomplete.",
+            code="ranked_candidate_comparison_incomplete",
+        ) from exc
+    expected = fingerprint_value(identity)
+    if _clean(candidate.get("comparison_result_fingerprint")) != expected:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate comparison fingerprint is inconsistent.",
+            code="ranked_candidate_comparison_fingerprint_mismatch",
+        )
+    return {
+        "comparison_identity": identity,
+        "comparison_result_fingerprint": expected,
+    }
+
+
+def build_ranking_result_identity(
+    *,
+    ranking_input_fingerprint: str,
+    ranked_candidates: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the authoritative Phase 9F-B result identity without reranking."""
+    rows = list(ranked_candidates)
+    if not rows:
+        raise Phase9FBRankingError(
+            "A ranked Phase 9F-B result requires at least one candidate.",
+            code="ranked_candidate_scope_empty",
+        )
+    try:
+        semantic_ranked = [
+            {key: row[key] for key in RANKING_RESULT_IDENTITY_FIELDS}
+            for row in rows
+        ]
+    except (KeyError, TypeError) as exc:
+        raise Phase9FBRankingError(
+            "A ranked candidate is missing authoritative identity fields.",
+            code="ranked_candidate_identity_incomplete",
+        ) from exc
+    return {
+        "ranking_input_fingerprint": ranking_input_fingerprint,
+        "ranked_candidates": semantic_ranked,
+        "recommended_normalized_source_fingerprint": rows[0][
+            "normalized_source_fingerprint"
+        ],
+    }
+
+
+def validate_ranked_result_contract(
+    result: Any,
+    *,
+    expected_ranking_input_fingerprint: str,
+) -> dict[str, Any]:
+    """Validate one current Phase 9F-B result without scoring or reranking."""
+    if not isinstance(result, dict):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranking result is missing.",
+            code="ranking_result_missing",
+        )
+    if _clean(result.get("phase9f_b_version")) != PHASE9F_B_VERSION:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranking result version is unsupported.",
+            code="ranking_result_version_unsupported",
+        )
+    if _clean(result.get("status")) != "ranked":
+        raise Phase9FBRankingError(
+            "The Phase 9F-B result has no valid ranked winner.",
+            code="ranking_result_not_ranked",
+        )
+    expected_input = _clean(expected_ranking_input_fingerprint)
+    actual_input = _clean(result.get("ranking_input_fingerprint"))
+    if not expected_input or actual_input != expected_input:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B result is stale for the current semantic input.",
+            code="ranking_result_stale",
+        )
+    semantic_identity = result.get("semantic_identity")
+    if (
+        not isinstance(semantic_identity, dict)
+        or fingerprint_value(semantic_identity) != actual_input
+    ):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranking-input fingerprint is inconsistent.",
+            code="ranking_input_fingerprint_mismatch",
+        )
+
+    rows = result.get("ranked_candidates")
+    winner = result.get("recommended_source")
+    if not isinstance(rows, list) or not rows or not all(
+        isinstance(row, dict) for row in rows
+    ):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranked candidate scope is invalid.",
+            code="ranked_candidate_scope_invalid",
+        )
+    expected_ranks = list(range(1, len(rows) + 1))
+    try:
+        actual_ranks = [int(row.get("rank") or 0) for row in rows]
+    except (TypeError, ValueError) as exc:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate ranks are invalid.",
+            code="ranked_candidate_order_invalid",
+        ) from exc
+    if actual_ranks != expected_ranks:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate ranks are ambiguous or incomplete.",
+            code="ranked_candidate_order_invalid",
+        )
+    normalized = [
+        _clean(row.get("normalized_source_fingerprint")) for row in rows
+    ]
+    if any(not value for value in normalized) or len(set(normalized)) != len(
+        normalized
+    ):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B winner scope has duplicate or missing identities.",
+            code="ranked_candidate_identity_ambiguous",
+        )
+    if not isinstance(winner, dict) or winner != rows[0]:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B recommended source does not match rank one.",
+            code="ranking_winner_mismatch",
+        )
+
+    identity = build_ranking_result_identity(
+        ranking_input_fingerprint=actual_input,
+        ranked_candidates=rows,
+    )
+    expected_result_fingerprint = fingerprint_value(identity)
+    if _clean(result.get("ranking_fingerprint")) != expected_result_fingerprint:
+        raise Phase9FBRankingError(
+            "The Phase 9F-B ranking fingerprint is inconsistent.",
+            code="ranking_result_fingerprint_mismatch",
+        )
+    return {
+        "ranking_identity": identity,
+        "ranking_fingerprint": expected_result_fingerprint,
+        "recommended_source": deepcopy(winner),
+    }
+
+
 def rank_prepared_context(context: dict[str, Any]) -> dict[str, Any]:
     """Score a prepared context or return its fail-closed status."""
     public = _public_context(context)
@@ -1167,40 +1380,10 @@ def rank_prepared_context(context: dict[str, Any]) -> dict[str, Any]:
         return base_result
 
     ordered = order_scored_candidates(scored)
-    semantic_ranked = [
-        {
-            key: row[key]
-            for key in (
-                "rank",
-                "source_type",
-                "source_id",
-                "source_version",
-                "source_fingerprint",
-                "source_content_fingerprint",
-                "normalized_source_fingerprint",
-                "role_family_relationship",
-                "role_family_prior_eligible",
-                "role_family_prior_applied",
-                "ranking_reason",
-                "deterministic_alignment_score",
-                "required_core_coverage_score",
-                "preferred_coverage_score",
-                "evidence_strength_score",
-                "important_gap_count",
-                "deal_breaker_gap_count",
-                "stable_input_fingerprint",
-                "comparison_result_fingerprint",
-            )
-        }
-        for row in ordered
-    ]
-    ranking_identity = {
-        "ranking_input_fingerprint": context["ranking_input_fingerprint"],
-        "ranked_candidates": semantic_ranked,
-        "recommended_normalized_source_fingerprint": ordered[0][
-            "normalized_source_fingerprint"
-        ],
-    }
+    ranking_identity = build_ranking_result_identity(
+        ranking_input_fingerprint=context["ranking_input_fingerprint"],
+        ranked_candidates=ordered,
+    )
     base_result.update(
         {
             "status": "ranked",

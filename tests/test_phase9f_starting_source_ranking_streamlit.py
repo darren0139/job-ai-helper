@@ -127,6 +127,13 @@ class Phase9FStartingSourceRankingStreamlitTests(unittest.TestCase):
         self.assertTrue(
             _contains(app.success, "Recommended starting source")
         )
+        self.assertEqual(
+            sum(
+                "Recommended tailoring:" in str(item.value)
+                for item in app.markdown
+            ),
+            1,
+        )
         self.assertTrue(
             any(item.label == "Current JD alignment" for item in app.metric)
         )

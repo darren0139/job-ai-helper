@@ -1,0 +1,239 @@
+{
+  "fixture_version": "phase9f-c-tailoring-intensity-golden-v1",
+  "policy_version": "phase9f-tailoring-intensity-policy-v1",
+  "thresholds": {
+    "full_required_core_below": 50,
+    "full_important_gap_minimum": 3,
+    "full_important_gap_ratio": "1/5 inclusive",
+    "reuse_required_core_minimum": 80,
+    "reuse_alignment_minimum": 80,
+    "reuse_evidence_minimum": 60,
+    "preferred_coverage": "explanatory_only"
+  },
+  "cases": [
+    {
+      "name": "obvious_reuse",
+      "metrics": {"overall": 90, "required_core": 90, "preferred": 70, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "preferred_requirement_count": 2,
+      "expected_status": "recommended",
+      "expected_intensity": "reuse",
+      "expected_rule": "reuse_all_gates_passed"
+    },
+    {
+      "name": "preferred_below_50_is_reuse",
+      "metrics": {"overall": 90, "required_core": 90, "preferred": 20, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "preferred_requirement_count": 2,
+      "expected_status": "recommended",
+      "expected_intensity": "reuse",
+      "expected_rule": "reuse_all_gates_passed"
+    },
+    {
+      "name": "required_core_49",
+      "metrics": {"overall": 80, "required_core": 49, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_required_core_below_partial"
+    },
+    {
+      "name": "required_core_50",
+      "metrics": {"overall": 80, "required_core": 50, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "required_core_79",
+      "metrics": {"overall": 80, "required_core": 79, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "required_core_80",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "reuse",
+      "expected_rule": "reuse_all_gates_passed"
+    },
+    {
+      "name": "overall_79",
+      "metrics": {"overall": 79, "required_core": 80, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "overall_80",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 90, "evidence": 80},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "reuse",
+      "expected_rule": "reuse_all_gates_passed"
+    },
+    {
+      "name": "evidence_59",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 90, "evidence": 59},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "evidence_60",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 90, "evidence": 60},
+      "important_requirement_count": 10,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "reuse",
+      "expected_rule": "reuse_all_gates_passed"
+    },
+    {
+      "name": "three_of_sixteen",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 80, "evidence": 80},
+      "important_requirement_count": 16,
+      "important_gap_count": 3,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "three_of_fifteen",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 80, "evidence": 80},
+      "important_requirement_count": 15,
+      "important_gap_count": 3,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_broad_important_gap_deficiency"
+    },
+    {
+      "name": "three_of_fourteen",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 80, "evidence": 80},
+      "important_requirement_count": 14,
+      "important_gap_count": 3,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_broad_important_gap_deficiency"
+    },
+    {
+      "name": "three_of_twenty_two",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 80, "evidence": 80},
+      "important_requirement_count": 22,
+      "important_gap_count": 3,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "four_of_twenty",
+      "metrics": {"overall": 80, "required_core": 80, "preferred": 80, "evidence": 80},
+      "important_requirement_count": 20,
+      "important_gap_count": 4,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_broad_important_gap_deficiency"
+    },
+    {
+      "name": "one_gap_strong_metrics",
+      "metrics": {"overall": 95, "required_core": 95, "preferred": 95, "evidence": 95},
+      "important_requirement_count": 10,
+      "important_gap_count": 1,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "two_gaps_strong_metrics",
+      "metrics": {"overall": 95, "required_core": 95, "preferred": 95, "evidence": 95},
+      "important_requirement_count": 10,
+      "important_gap_count": 2,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "minor",
+      "expected_rule": "minor_remaining_valid_scope"
+    },
+    {
+      "name": "perfect_metrics_one_deal_breaker",
+      "metrics": {"overall": 100, "required_core": 100, "preferred": 100, "evidence": 100},
+      "important_requirement_count": 10,
+      "important_gap_count": 1,
+      "deal_breaker_gap_count": 1,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_deal_breaker_gap"
+    },
+    {
+      "name": "preferred_only_scope",
+      "metrics": {"overall": 50, "required_core": 0, "preferred": 100, "evidence": 100},
+      "important_requirement_count": 0,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "preferred_requirement_count": 3,
+      "expected_status": "fail_closed",
+      "expected_intensity": null,
+      "expected_rule": "insufficient_important_requirement_scope"
+    },
+    {
+      "name": "empty_requirement_scope",
+      "metrics": {"overall": 0, "required_core": 0, "preferred": 0, "evidence": 0},
+      "important_requirement_count": 0,
+      "important_gap_count": 0,
+      "deal_breaker_gap_count": 0,
+      "preferred_requirement_count": 0,
+      "expected_status": "fail_closed",
+      "expected_intensity": null,
+      "expected_rule": "insufficient_important_requirement_scope"
+    },
+    {
+      "name": "garena_reference",
+      "metrics": {"overall": 7, "required_core": 2, "preferred": 10, "evidence": 40},
+      "important_requirement_count": 15,
+      "important_gap_count": 12,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_required_core_below_partial"
+    },
+    {
+      "name": "ai_fullstack_reference",
+      "metrics": {"overall": 48, "required_core": 46, "preferred": 49, "evidence": 59},
+      "important_requirement_count": 22,
+      "important_gap_count": 3,
+      "deal_breaker_gap_count": 0,
+      "expected_status": "recommended",
+      "expected_intensity": "full",
+      "expected_rule": "full_required_core_below_partial"
+    }
+  ]
+}

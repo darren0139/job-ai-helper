@@ -1,0 +1,34 @@
+{
+  "fixture_version": "phase9f-b-ranking-identity-pinned-v1",
+  "ranking_input_fingerprint": "1c932dce653e2505445a6f569e40bde55a7f0677b7687487c5886bc80a955280",
+  "ranking_fingerprint": "4e79840826c6b71dabd7ad3c616158feb52c1389289b31623b9a713b825db362",
+  "winner": "2272809689d4a08cf6d146e7b62a53eb3b150c54afc1a5797439f5cb8f8ad376",
+  "candidate_order": [
+    "2272809689d4a08cf6d146e7b62a53eb3b150c54afc1a5797439f5cb8f8ad376",
+    "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25"
+  ],
+  "candidate_metrics": [
+    {
+      "normalized_source_fingerprint": "2272809689d4a08cf6d146e7b62a53eb3b150c54afc1a5797439f5cb8f8ad376",
+      "deterministic_alignment_score": 27,
+      "required_core_coverage_score": 24,
+      "preferred_coverage_score": 0,
+      "evidence_strength_score": 80,
+      "important_gap_count": 4,
+      "deal_breaker_gap_count": 0
+    },
+    {
+      "normalized_source_fingerprint": "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25",
+      "deterministic_alignment_score": 7,
+      "required_core_coverage_score": 4,
+      "preferred_coverage_score": 0,
+      "evidence_strength_score": 40,
+      "important_gap_count": 5,
+      "deal_breaker_gap_count": 0
+    }
+  ],
+  "comparison_result_fingerprints": [
+    "e0f6537b1968a49a5b97718a74487d8146ecb1ab48377cec674bca40e8e16525",
+    "9dd8cae7f86be9ea3428bba4aadd2f01eeb1802b0e4fe3274ee1b2ee22da14df"
+  ]
+}

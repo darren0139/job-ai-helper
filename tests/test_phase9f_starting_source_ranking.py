@@ -50,6 +50,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
+PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
+    "phase9f_b_ranking_identity_pinned_v1.json"
+)
 
 
 JD_TEXT = """AI Full-Stack Software Engineer
@@ -462,6 +465,59 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
             role_family_label="AI & Full-Stack Software Engineering",
             marker="same",
         )
+
+    def test_pinned_ranking_identity_contract(self):
+        pinned = json.loads(PINNED_IDENTITY.read_text(encoding="utf-8"))
+        base, artifact = make_base(strong=False)
+        blueprint = make_blueprint(
+            strong=True,
+            role_family_id="ai_fullstack_software_engineering",
+            role_family_label="AI & Full-Stack Software Engineering",
+            marker="identity-pin",
+        )
+        result = rank_starting_resume_sources(
+            exact_jd=make_exact_jd(),
+            current_base_resume=base,
+            current_base_artifact=artifact,
+            global_blueprints=[blueprint],
+        )
+        actual = {
+            "ranking_input_fingerprint": result[
+                "ranking_input_fingerprint"
+            ],
+            "ranking_fingerprint": result["ranking_fingerprint"],
+            "winner": result["recommended_source"][
+                "normalized_source_fingerprint"
+            ],
+            "candidate_order": [
+                row["normalized_source_fingerprint"]
+                for row in result["ranked_candidates"]
+            ],
+            "candidate_metrics": [
+                {
+                    key: row[key]
+                    for key in (
+                        "normalized_source_fingerprint",
+                        "deterministic_alignment_score",
+                        "required_core_coverage_score",
+                        "preferred_coverage_score",
+                        "evidence_strength_score",
+                        "important_gap_count",
+                        "deal_breaker_gap_count",
+                    )
+                }
+                for row in result["ranked_candidates"]
+            ],
+            "comparison_result_fingerprints": [
+                row["comparison_result_fingerprint"]
+                for row in result["ranked_candidates"]
+            ],
+        }
+        self.assertEqual(actual, {
+            key: value
+            for key, value in pinned.items()
+            if key != "fixture_version"
+        })
 
     def rank(self, *, base=True, blueprints=None, jd=None):
         return rank_starting_resume_sources(

@@ -77,6 +77,8 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9f_starting_source_provenance",
     "tests.test_phase9f_starting_source_transparency",
     "tests.test_phase9f_starting_source_ranking_streamlit",
+    "tests.test_phase9f_tailoring_intensity",
+    "tests.test_phase9f_tailoring_intensity_streamlit",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -93,6 +95,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9f_jd_intake",
     "scripts.check_phase9f_master_resume",
     "scripts.check_phase9f_starting_source_ranking",
+    "scripts.check_phase9f_tailoring_intensity",
 )
 
 

@@ -36,6 +36,9 @@ from tailoring.phase9f_starting_source_transparency import (
     build_ranking_transparency,
     build_requirement_comparison_csv,
 )
+from tailoring.phase9f_tailoring_intensity_ui import (
+    render_phase9f_tailoring_intensity,
+)
 
 
 RANKING_RESULT_STATE_KEY = "phase9f_b_ranking_result"
@@ -797,6 +800,13 @@ def _render_ranked_result(
             mime="application/json",
             key="phase9f_b_download_ranking_json",
         )
+
+    render_phase9f_tailoring_intensity(
+        result,
+        expected_ranking_input_fingerprint=_clean(
+            context.get("ranking_input_fingerprint")
+        ),
+    )
 
 
 def render_phase9f_starting_source_ranking(
