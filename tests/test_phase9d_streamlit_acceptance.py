@@ -8,7 +8,10 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from database import tailoring_version_manager as base_manager
-from database.global_blueprint_manager import list_global_blueprints
+from database.global_blueprint_manager import (
+    list_global_blueprint_audit_events,
+    list_global_blueprints,
+)
 from tests.phase9d_test_support import (
     persist_historical_v2_evaluation,
     seed_phase9d_database,
@@ -94,6 +97,90 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
             "current_application_id=current_application_id",
             source,
         )
+
+    def test_remove_is_confirmed_hidden_by_default_and_restorable(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        evaluation = _by_key(app.selectbox, "phase9d_evaluation_id")
+        evaluation.set_value(
+            self.state["provisional_evaluation"]["evaluation_id"]
+        ).run()
+        _by_key(
+            app.checkbox, "phase9d_provisional_acknowledgement"
+        ).set_value(True).run()
+        _by_key(app.button, "phase9d_approve").click().run()
+        self.assertEqual(list(app.exception), [])
+        blueprint = list_global_blueprints()[0]
+
+        remove = _by_key(
+            app.button, f"phase9d_remove_{blueprint['blueprint_id']}"
+        )
+        remove.click().run()
+        confirm = _by_key(
+            app.button,
+            f"phase9d_confirm_remove_{blueprint['blueprint_id']}",
+        )
+        self.assertTrue(confirm.disabled)
+        _by_key(
+            app.checkbox,
+            f"phase9d_remove_ack_{blueprint['blueprint_id']}",
+        ).set_value(True).run()
+        _by_key(
+            app.button,
+            f"phase9d_confirm_remove_{blueprint['blueprint_id']}",
+        ).click().run()
+        self.assertEqual(list(app.exception), [])
+        removed = list_global_blueprints()[0]
+        self.assertEqual(removed["status"], "active")
+        self.assertEqual(removed["availability_status"], "removed")
+        self.assertTrue(
+            any(
+                "Historical provenance was preserved" in message.value
+                for message in app.success
+            )
+        )
+        self.assertFalse(
+            any(
+                item.key == f"phase9d_remove_{blueprint['blueprint_id']}"
+                for item in app.button
+            )
+        )
+        self.assertTrue(_by_key(app.toggle, "phase9d_show_history").value)
+
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        self.assertEqual(list(app.exception), [])
+        self.assertFalse(_by_key(app.toggle, "phase9d_show_history").value)
+        self.assertFalse(
+            any(
+                "removed" in {
+                    str(value).lower()
+                    for value in frame.value.get("Availability", [])
+                }
+                for frame in app.dataframe
+                if "Availability" in frame.value.columns
+            )
+        )
+
+        _by_key(app.toggle, "phase9d_show_history").set_value(True).run()
+        restore = _by_key(
+            app.button, f"phase9d_restore_{blueprint['blueprint_id']}"
+        )
+        restore.click().run()
+        _by_key(
+            app.button,
+            f"phase9d_confirm_restore_{blueprint['blueprint_id']}",
+        ).click().run()
+        self.assertEqual(list(app.exception), [])
+        restored = list_global_blueprints()[0]
+        self.assertEqual(restored["availability_status"], "available")
+        self.assertTrue(restored["is_reusable"])
+        event_types = {
+            event["event_type"]
+            for event in list_global_blueprint_audit_events(
+                blueprint_id=blueprint["blueprint_id"]
+            )
+        }
+        self.assertIn("removed_from_reuse", event_types)
+        self.assertIn("restored_to_reuse", event_types)
 
 
 if __name__ == "__main__":

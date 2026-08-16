@@ -35,6 +35,10 @@ changed_scope = st.checkbox(
     "Test changed source scope",
     key="phase9f_b_test_changed_scope",
 )
+removed_blueprint = st.checkbox(
+    "Test removed Blueprint scope",
+    key="phase9f_b_test_removed_blueprint",
+)
 missing_source_application = st.checkbox(
     "Test missing source Application provenance",
     key="phase9f_b_test_missing_source_application",
@@ -42,7 +46,9 @@ missing_source_application = st.checkbox(
 
 
 def _test_scope():
-    blueprints = [copy.deepcopy(same_family)]
+    blueprints = []
+    if not removed_blueprint:
+        blueprints.append(copy.deepcopy(same_family))
     if changed_scope:
         blueprints.append(copy.deepcopy(additional))
     return copy.deepcopy(base), copy.deepcopy(base_artifact), blueprints

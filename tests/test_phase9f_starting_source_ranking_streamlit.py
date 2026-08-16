@@ -179,6 +179,99 @@ class Phase9FStartingSourceRankingStreamlitTests(unittest.TestCase):
             )
         )
 
+    def test_removed_blueprint_stales_b_and_hides_c_until_exact_scope_returns(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=20).run()
+        _button(app, "phase9f_b_compare_sources").click().run()
+        self.assertEqual(app.exception, [])
+        before = app.session_state["phase9f_b_ranking_result"]
+        before_fingerprint = before["ranking_fingerprint"]
+        before_input = before["ranking_input_fingerprint"]
+        before_order = [
+            row["normalized_source_fingerprint"]
+            for row in before["ranked_candidates"]
+        ]
+        before_metrics = [
+            (
+                row["deterministic_alignment_score"],
+                row["required_core_coverage_score"],
+                row["preferred_coverage_score"],
+                row["evidence_strength_score"],
+            )
+            for row in before["ranked_candidates"]
+        ]
+        before_intensity = next(
+            str(item.value)
+            for item in app.markdown
+            if "Recommended tailoring:" in str(item.value)
+        )
+
+        removed = next(
+            item
+            for item in app.checkbox
+            if item.key == "phase9f_b_test_removed_blueprint"
+        )
+        removed.check().run()
+        self.assertEqual(app.exception, [])
+        self.assertTrue(_contains(app.warning, "historical/stale"))
+        self.assertFalse(
+            any(
+                "Recommended tailoring:" in str(item.value)
+                for item in app.markdown
+            )
+        )
+        self.assertEqual(
+            app.session_state["phase9f_b_ranking_result"][
+                "ranking_fingerprint"
+            ],
+            before_fingerprint,
+        )
+        self.assertEqual(
+            _button(app, "phase9f_b_compare_sources").label,
+            "Compare starting resume sources",
+        )
+
+        removed = next(
+            item
+            for item in app.checkbox
+            if item.key == "phase9f_b_test_removed_blueprint"
+        )
+        removed.uncheck().run()
+        self.assertEqual(app.exception, [])
+        self.assertEqual(
+            _button(app, "phase9f_b_compare_sources").label,
+            "Recompute comparison",
+        )
+        _button(app, "phase9f_b_compare_sources").click().run()
+        self.assertEqual(app.exception, [])
+        restored = app.session_state["phase9f_b_ranking_result"]
+        self.assertEqual(restored["ranking_input_fingerprint"], before_input)
+        self.assertEqual(restored["ranking_fingerprint"], before_fingerprint)
+        self.assertEqual(
+            [
+                row["normalized_source_fingerprint"]
+                for row in restored["ranked_candidates"]
+            ],
+            before_order,
+        )
+        self.assertEqual(
+            [
+                (
+                    row["deterministic_alignment_score"],
+                    row["required_core_coverage_score"],
+                    row["preferred_coverage_score"],
+                    row["evidence_strength_score"],
+                )
+                for row in restored["ranked_candidates"]
+            ],
+            before_metrics,
+        )
+        restored_intensity = next(
+            str(item.value)
+            for item in app.markdown
+            if "Recommended tailoring:" in str(item.value)
+        )
+        self.assertEqual(restored_intensity, before_intensity)
+
     def test_rendering_is_zero_cost_and_has_separate_download(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=20).run()
         _button(app, "phase9f_b_compare_sources").click().run()

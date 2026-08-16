@@ -480,6 +480,30 @@ class Phase9FStartingSourceProvenanceTests(unittest.TestCase):
             self.assertNotIn("UPDATE ", module_source)
             self.assertNotIn("DELETE ", module_source)
 
+    def test_removed_blueprint_exact_provenance_remains_resolvable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "removed-provenance.sqlite"
+            blueprint, _ = _create_provenance_database(database)
+            blueprint["availability_status"] = "removed"
+            blueprint["is_reusable"] = False
+            before = hashlib.sha256(database.read_bytes()).hexdigest()
+            resolved = load_blueprint_provenance_read_only(
+                blueprint,
+                database_path=database,
+            )
+            after = hashlib.sha256(database.read_bytes()).hexdigest()
+        self.assertEqual(resolved["chain_status"], "resolved")
+        self.assertEqual(
+            resolved["blueprint_identity"]["blueprint_id"],
+            blueprint["blueprint_id"],
+        )
+        self.assertEqual(
+            resolved["blueprint_identity"]["availability_status"],
+            "removed",
+        )
+        self.assertFalse(resolved["blueprint_identity"]["is_reusable"])
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()

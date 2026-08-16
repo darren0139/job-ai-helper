@@ -561,6 +561,17 @@ def load_blueprint_provenance_read_only(
     missing = sorted(set(missing))
     semantic = blueprint.get("semantic_identity") or {}
     resume_identity = semantic.get("resume_snapshot") or {}
+    lifecycle_status = _clean(blueprint.get("status"))
+    availability_status = (
+        _clean(blueprint.get("availability_status")) or "available"
+    )
+    is_reusable = bool(
+        blueprint.get(
+            "is_reusable",
+            lifecycle_status == "active"
+            and availability_status == "available",
+        )
+    )
     result = {
         "provenance_debug_version": PHASE9F_B_PROVENANCE_DEBUG_VERSION,
         "chain_status": "resolved" if not missing else "incomplete",
@@ -571,7 +582,9 @@ def load_blueprint_provenance_read_only(
                 blueprint.get("blueprint_fingerprint")
             ),
             "version_number": int(blueprint.get("version_number") or 0),
-            "status": _clean(blueprint.get("status")),
+            "status": lifecycle_status,
+            "availability_status": availability_status,
+            "is_reusable": is_reusable,
             "phase9d_version": _clean(blueprint.get("phase9d_version")),
             "fingerprint_policy_version": _clean(
                 blueprint.get("fingerprint_policy_version")
@@ -592,7 +605,8 @@ def load_blueprint_provenance_read_only(
         "phase9c_evaluation": phase9c_evaluation,
         "phase9d_approval": {
             "blueprint_id": _clean(blueprint.get("blueprint_id")),
-            "status": _clean(blueprint.get("status")),
+            "status": lifecycle_status,
+            "availability_status": availability_status,
             "activated_at": _clean(blueprint.get("activated_at")),
             "created_at": _clean(blueprint.get("created_at")),
             "provisional_source": bool(

@@ -11,8 +11,9 @@ from typing import Any
 
 from database import db_manager as base_manager
 from database.global_blueprint_manager import (
+    get_global_blueprint,
     init_global_blueprint_registry,
-    list_global_blueprints,
+    list_reusable_global_blueprints,
 )
 from database.jd_library_manager import (
     get_exact_job_description_for_application,
@@ -240,7 +241,7 @@ def _application_report(application_id: int) -> dict[str, Any]:
 
 
 def _active_blueprints() -> list[dict[str, Any]]:
-    return list_global_blueprints(include_superseded=False)
+    return list_reusable_global_blueprints()
 
 
 def preview_application_blueprint_decision(
@@ -250,6 +251,7 @@ def preview_application_blueprint_decision(
     selected_blueprint_id: str = "",
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
+    historical_bound_blueprint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = _application_report(application_id)
     exact_jd = get_exact_job_description_for_application(application_id)
@@ -257,11 +259,21 @@ def preview_application_blueprint_decision(
         raise Phase9EDecisionError(
             "The application has no exact persisted JD version link."
         )
+    active_blueprints = _active_blueprints()
+    if isinstance(historical_bound_blueprint, dict):
+        historical_id = str(
+            historical_bound_blueprint.get("blueprint_id") or ""
+        )
+        if historical_id and all(
+            str(row.get("blueprint_id") or "") != historical_id
+            for row in active_blueprints
+        ):
+            active_blueprints.append(deepcopy(historical_bound_blueprint))
     return build_phase9e_decision(
         application_id=application_id,
         application_report=report,
         exact_jd=exact_jd,
-        active_blueprints=_active_blueprints(),
+        active_blueprints=active_blueprints,
         selected_source=selected_source,
         selected_blueprint_id=selected_blueprint_id,
         selection_mode=selection_mode,
@@ -305,14 +317,20 @@ def _database_context_signature(
     active = connection.execute(
         """
         SELECT
-            blueprint_id,
-            blueprint_fingerprint,
-            version_number,
-            role_family_id,
-            blueprint_snapshot_json
-        FROM global_blueprint_versions
-        WHERE status = 'active'
-        ORDER BY role_family_id, blueprint_id
+            blueprint.blueprint_id,
+            blueprint.blueprint_fingerprint,
+            blueprint.version_number,
+            blueprint.role_family_id,
+            blueprint.blueprint_snapshot_json
+        FROM global_blueprint_versions AS blueprint
+        LEFT JOIN global_blueprint_availability AS availability
+          ON availability.blueprint_id = blueprint.blueprint_id
+        WHERE blueprint.status = 'active'
+          AND COALESCE(
+                availability.availability_status,
+                'available'
+              ) = 'available'
+        ORDER BY blueprint.role_family_id, blueprint.blueprint_id
         """
     ).fetchall()
     return fingerprint_value(
@@ -984,6 +1002,25 @@ def get_current_application_blueprint_decision(
     rebuilt: dict[str, Any] | None = None
     error: Exception | None = None
     try:
+        historical_bound_blueprint = None
+        selected_blueprint = selection.get("selected_blueprint") or {}
+        selected_blueprint_id = str(
+            selected_blueprint.get("blueprint_id") or ""
+        )
+        selected_blueprint_fingerprint = str(
+            selected_blueprint.get("blueprint_fingerprint") or ""
+        )
+        if selected_blueprint_id and selected_blueprint_fingerprint:
+            exact_blueprint = get_global_blueprint(selected_blueprint_id)
+            if (
+                exact_blueprint is not None
+                and str(exact_blueprint.get("blueprint_fingerprint") or "")
+                == selected_blueprint_fingerprint
+                and str(exact_blueprint.get("status") or "") == "active"
+                and str(exact_blueprint.get("availability_status") or "")
+                == "removed"
+            ):
+                historical_bound_blueprint = exact_blueprint
         rebuilt = preview_application_blueprint_decision(
             application_id=application_id,
             selected_source=str(selection.get("selected_source") or ""),
@@ -997,6 +1034,7 @@ def get_current_application_blueprint_decision(
             mismatch_acknowledged=bool(
                 selection.get("mismatch_acknowledged")
             ),
+            historical_bound_blueprint=historical_bound_blueprint,
         )
     except Exception as exc:  # reported as a fail-closed stale reason
         error = exc

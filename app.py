@@ -134,6 +134,7 @@ from database.application_blueprint_manager import (
     delete_application_blueprint_decisions,
     init_application_blueprint_decisions,
 )
+from database.global_blueprint_manager import init_global_blueprint_registry
 from database.application_resume_result_manager import (
     delete_application_resume_results,
     get_current_application_resume_result,
@@ -2041,6 +2042,7 @@ init_application_tailoring_versions()
 init_tailoring_generation_control()
 init_analysis_cache()
 init_tailoring_verifications()
+init_global_blueprint_registry()
 init_application_blueprint_decisions()
 init_application_resume_results()
 init_application_cover_letters()

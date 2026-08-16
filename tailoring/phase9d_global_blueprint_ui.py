@@ -12,6 +12,9 @@ from database.global_blueprint_manager import (
     approve_persisted_phase9c_evaluation,
     list_global_blueprint_audit_events,
     list_global_blueprints,
+    list_reusable_global_blueprints,
+    remove_global_blueprint_from_reuse,
+    restore_global_blueprint_to_reuse,
     update_global_blueprint_display_metadata,
 )
 from database.application_resume_result_manager import (
@@ -23,6 +26,10 @@ from tailoring.generation_controls_ui import restore_generation_to_session
 from tailoring.phase9d_global_blueprint import (
     Phase9DApprovalError,
     evaluation_policy_status,
+)
+from tailoring.phase9f_starting_source_provenance import (
+    Phase9FBProvenanceError,
+    load_blueprint_provenance_read_only,
 )
 
 
@@ -45,6 +52,110 @@ def _evaluation_label(evaluation: dict[str, Any]) -> str:
     )
 
 
+@st.dialog("Remove Blueprint from reuse")
+def _confirm_blueprint_removal(blueprint: dict[str, Any]) -> None:
+    st.warning(
+        "This Blueprint will no longer be available for future recommendations "
+        "or new starting-source selections, and it will be hidden from the "
+        "normal Blueprint Library. Its immutable history, source Application, "
+        "and provenance will be preserved."
+    )
+    st.write(
+        f"**{_clean(blueprint.get('display_name')) or 'Global Blueprint'}** · "
+        f"version {int(blueprint.get('version_number') or 0)}"
+    )
+    actor_label = st.text_input(
+        "Removal actor label",
+        value="Local user",
+        key=f"phase9d_remove_actor_{blueprint['blueprint_id']}",
+    )
+    reason = st.text_area(
+        "Removal reason (optional)",
+        key=f"phase9d_remove_reason_{blueprint['blueprint_id']}",
+    )
+    acknowledgement = st.checkbox(
+        "I understand that this removes the Blueprint from future reusable choices.",
+        value=False,
+        key=f"phase9d_remove_ack_{blueprint['blueprint_id']}",
+    )
+    if st.button(
+        "Cancel",
+        key=f"phase9d_cancel_remove_{blueprint['blueprint_id']}",
+        width="stretch",
+    ):
+        st.session_state.pop("phase9d_pending_remove", None)
+        st.rerun()
+    if st.button(
+        "Confirm removal",
+        type="primary",
+        disabled=not acknowledgement,
+        key=f"phase9d_confirm_remove_{blueprint['blueprint_id']}",
+        width="stretch",
+    ):
+        try:
+            result = remove_global_blueprint_from_reuse(
+                blueprint_id=blueprint["blueprint_id"],
+                blueprint_fingerprint=blueprint["blueprint_fingerprint"],
+                acknowledged=acknowledgement,
+                actor_label=actor_label,
+                reason=reason,
+            )
+        except (Phase9DApprovalError, ValueError, RuntimeError) as exc:
+            st.error(str(exc))
+            return
+        st.session_state["phase9d_lifecycle_flash"] = (
+            "Blueprint removed from future reuse. Historical provenance was preserved."
+            if result["cache_status"] == "removed"
+            else "This Blueprint was already removed; no duplicate event was created."
+        )
+        st.session_state.pop("phase9d_pending_remove", None)
+        st.session_state["phase9d_force_show_history"] = True
+        st.rerun()
+
+
+@st.dialog("Restore Blueprint to reuse")
+def _confirm_blueprint_restore(blueprint: dict[str, Any]) -> None:
+    st.info(
+        "Restore makes this exact immutable Blueprint eligible for future "
+        "recommendations again. It does not create a version, alter content, "
+        "or change Phase 9D activation/supersession history."
+    )
+    actor_label = st.text_input(
+        "Restore actor label",
+        value="Local user",
+        key=f"phase9d_restore_actor_{blueprint['blueprint_id']}",
+    )
+    if st.button(
+        "Cancel",
+        key=f"phase9d_cancel_restore_{blueprint['blueprint_id']}",
+        width="stretch",
+    ):
+        st.session_state.pop("phase9d_pending_restore", None)
+        st.rerun()
+    if st.button(
+        "Confirm restore",
+        type="primary",
+        key=f"phase9d_confirm_restore_{blueprint['blueprint_id']}",
+        width="stretch",
+    ):
+        try:
+            result = restore_global_blueprint_to_reuse(
+                blueprint_id=blueprint["blueprint_id"],
+                blueprint_fingerprint=blueprint["blueprint_fingerprint"],
+                actor_label=actor_label,
+            )
+        except (Phase9DApprovalError, ValueError, RuntimeError) as exc:
+            st.error(str(exc))
+            return
+        st.session_state["phase9d_lifecycle_flash"] = (
+            "Blueprint restored to future reusable choices."
+            if result["cache_status"] == "restored"
+            else "This Blueprint was already available; no duplicate event was created."
+        )
+        st.session_state.pop("phase9d_pending_restore", None)
+        st.rerun()
+
+
 def render_phase9d_global_blueprints(
     *, current_application_id: int | None = None
 ) -> None:
@@ -54,10 +165,13 @@ def render_phase9d_global_blueprints(
         "global blueprint for its role family. Approval never changes the "
         "candidate, evaluation, frozen résumé, or saved JD library."
     )
+    lifecycle_flash = st.session_state.pop("phase9d_lifecycle_flash", "")
+    if lifecycle_flash:
+        st.success(lifecycle_flash)
 
     blueprints = list_global_blueprints(include_superseded=True)
-    active = [row for row in blueprints if row["status"] == "active"]
-    st.subheader("Active role-family blueprints")
+    active = list_reusable_global_blueprints()
+    st.subheader("Reusable role-family blueprints")
     if active:
         st.dataframe(
             [
@@ -74,7 +188,7 @@ def render_phase9d_global_blueprints(
             width="stretch",
         )
     else:
-        st.info("No active global blueprints have been approved yet.")
+        st.info("No reusable global blueprints are currently available.")
 
     st.divider()
     st.subheader("Approve a persisted Phase 9C evaluation")
@@ -206,38 +320,105 @@ def render_phase9d_global_blueprints(
             st.json(evaluation)
 
     st.divider()
-    st.subheader("Blueprint versions and inspection")
+    st.subheader("Blueprint inspection")
     blueprints = list_global_blueprints(include_superseded=True)
     if not blueprints:
         st.caption("No Phase 9D versions are stored.")
+        return
+    reusable_ids = {
+        row["blueprint_id"] for row in blueprints if row.get("is_reusable")
+    }
+    requested_id = _clean(
+        st.session_state.get("phase9d_inspect_blueprint_id")
+    )
+    force_show_history = bool(
+        st.session_state.pop("phase9d_force_show_history", False)
+    )
+    if force_show_history or (
+        requested_id and requested_id not in reusable_ids
+    ):
+        st.session_state["phase9d_show_history"] = True
+    show_history = st.toggle(
+        "Show removed Blueprints and version history",
+        key="phase9d_show_history",
+    )
+    inspection_rows = (
+        blueprints
+        if show_history
+        else [row for row in blueprints if row.get("is_reusable")]
+    )
+    if not inspection_rows:
+        st.info(
+            "No reusable Blueprint is available in the normal library. "
+            "Use the history toggle to inspect removed or superseded versions."
+        )
         return
     st.dataframe(
         [
             {
                 "Role family": row["role_family_label"],
                 "Version": row["version_number"],
-                "Status": row["status"],
+                "Lifecycle": row["status"],
+                "Availability": row["availability_status"],
                 "Blueprint": row["blueprint_id"],
                 "Evaluation": row["evaluation_id"],
                 "Activated": row["activated_at"],
             }
-            for row in blueprints
+            for row in inspection_rows
         ],
         hide_index=True,
         width="stretch",
     )
-    by_blueprint_id = {row["blueprint_id"]: row for row in blueprints}
+    by_blueprint_id = {
+        row["blueprint_id"]: row for row in inspection_rows
+    }
     selected_blueprint_id = st.selectbox(
         "Inspect blueprint version",
         options=list(by_blueprint_id),
         format_func=lambda value: (
             f"{by_blueprint_id[value]['role_family_label']} · "
             f"v{by_blueprint_id[value]['version_number']} · "
-            f"{by_blueprint_id[value]['status']}"
+            f"{by_blueprint_id[value]['status']} / "
+            f"{by_blueprint_id[value]['availability_status']}"
         ),
         key="phase9d_inspect_blueprint_id",
     )
     selected = by_blueprint_id[selected_blueprint_id]
+    if selected.get("is_reusable"):
+        if st.button(
+            "Remove Blueprint",
+            key=f"phase9d_remove_{selected_blueprint_id}",
+        ):
+            st.session_state["phase9d_pending_remove"] = selected_blueprint_id
+        if (
+            st.session_state.get("phase9d_pending_remove")
+            == selected_blueprint_id
+        ):
+            _confirm_blueprint_removal(selected)
+    elif selected.get("availability_status") == "removed":
+        if selected.get("status") == "active":
+            if st.button(
+                "Restore Blueprint",
+                key=f"phase9d_restore_{selected_blueprint_id}",
+            ):
+                st.session_state["phase9d_pending_restore"] = (
+                    selected_blueprint_id
+                )
+            if (
+                st.session_state.get("phase9d_pending_restore")
+                == selected_blueprint_id
+            ):
+                _confirm_blueprint_restore(selected)
+        else:
+            st.warning(
+                "Restore is unavailable because this removed version has since "
+                "been superseded. Restore never reactivates or supersedes versions."
+            )
+            st.button(
+                "Restore Blueprint",
+                disabled=True,
+                key=f"phase9d_restore_disabled_{selected_blueprint_id}",
+            )
     st.info(
         "Global Blueprint content is immutable. Content changes require an "
         "explicit editable application copy, a materially changed fitted and "
@@ -280,6 +461,14 @@ def render_phase9d_global_blueprints(
     }
     with st.expander("Standalone blueprint JSON", expanded=False):
         st.json(export)
+    with st.expander("View immutable source provenance", expanded=False):
+        try:
+            st.json(load_blueprint_provenance_read_only(selected))
+        except (Phase9FBProvenanceError, OSError, ValueError) as exc:
+            st.warning(
+                "The immutable Blueprint remains inspectable, but one or more "
+                f"source provenance links could not be resolved: {exc}"
+            )
     st.download_button(
         "Download Phase 9D blueprint JSON",
         data=json.dumps(export, ensure_ascii=False, indent=2, default=str),
@@ -287,6 +476,13 @@ def render_phase9d_global_blueprints(
         mime="application/json",
         key="phase9d_download",
     )
+
+    if selected.get("availability_status") == "removed":
+        st.caption(
+            "Removed Blueprint provenance is read-only. Restore it before "
+            "changing display metadata."
+        )
+        return
 
     st.write("**Editable display metadata**")
     edited_name = st.text_input(

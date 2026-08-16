@@ -33,6 +33,7 @@ from database.tailoring_version_manager import (
     save_application_tailoring_generation,
 )
 from database.global_blueprint_manager import (
+    remove_global_blueprint_from_reuse,
     update_global_blueprint_display_metadata,
 )
 from database.jd_library_manager import get_exact_job_description_for_application
@@ -40,6 +41,7 @@ from rag.jd_identity import build_job_identity
 from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
 )
+from tailoring.phase9e_blueprint_selection import Phase9EDecisionError
 from tests.phase9e_test_support import seed_phase9e_database
 
 
@@ -390,6 +392,33 @@ class ApplicationBlueprintManagerTests(unittest.TestCase):
         context = resolve_current_phase9e_generation_context(94)
         self.assertFalse(context["can_generate"])
         self.assertEqual(context["status"], "stale")
+
+    def test_removed_blueprint_is_blocked_for_new_selection_but_existing_binding_resolves(self):
+        before_sources = self.source_rows()
+        bound = self.bind_blueprint()["decision"]
+        removed = remove_global_blueprint_from_reuse(
+            blueprint_id=self.blueprint["blueprint_id"],
+            blueprint_fingerprint=self.blueprint["blueprint_fingerprint"],
+            acknowledged=True,
+            actor_label="Application 94 lifecycle test",
+        )["blueprint"]
+        self.assertEqual(removed["availability_status"], "removed")
+
+        current = get_current_application_blueprint_decision(94)
+        self.assertEqual(current["decision_id"], bound["decision_id"])
+        self.assertEqual(
+            current["decision_fingerprint"], bound["decision_fingerprint"]
+        )
+        self.assertEqual(current["current_scope_status"], "current")
+        self.assertEqual(current["scope_activation_status"], "active")
+        with self.assertRaisesRegex(Phase9EDecisionError, "not active"):
+            preview_application_blueprint_decision(
+                application_id=94,
+                selected_source="global_blueprint",
+                selected_blueprint_id=self.blueprint["blueprint_id"],
+                selection_mode="recommended",
+            )
+        self.assertEqual(before_sources, self.source_rows())
 
     def test_changed_exact_jd_version_makes_decision_stale(self):
         self.bind_blueprint()

@@ -91,6 +91,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9c_blueprint_evaluation",
     "scripts.check_phase8_phase9c_aggregation_parity",
     "scripts.check_phase9d_global_blueprint",
+    "scripts.check_global_blueprint_availability",
     "scripts.check_phase9e_blueprint_selection",
     "scripts.check_phase9f_jd_intake",
     "scripts.check_phase9f_master_resume",

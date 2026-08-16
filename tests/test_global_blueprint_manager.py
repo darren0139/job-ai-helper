@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import tempfile
 import unittest
@@ -12,12 +13,20 @@ from database.blueprint_evaluation_manager import (
     list_blueprint_evaluations,
 )
 from database.global_blueprint_manager import (
+    PHASE9D_AVAILABILITY_EVENT_VERSION,
+    PHASE9D_AVAILABILITY_POLICY_VERSION,
     approve_persisted_phase9c_evaluation,
     get_active_global_blueprint,
+    init_global_blueprint_registry,
+    list_active_global_blueprints_read_only,
     list_global_blueprint_audit_events,
     list_global_blueprints,
+    list_reusable_global_blueprints,
+    remove_global_blueprint_from_reuse,
+    restore_global_blueprint_to_reuse,
     update_global_blueprint_display_metadata,
 )
+from tailoring.phase9d_global_blueprint import Phase9DApprovalError
 from tests.phase9d_test_support import (
     persist_historical_v2_evaluation,
     persist_non_provisional_evaluation,
@@ -175,6 +184,298 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
             "display_metadata_updated",
             {event["event_type"] for event in events},
         )
+
+    def test_remove_restore_is_exact_idempotent_and_preserves_identity(self):
+        before_sources = self.source_rows()
+        original = self.approve_provisional()["blueprint"]
+        original_identity = original["semantic_identity"]
+        original_snapshot = original["blueprint_snapshot"]
+        original_activated_at = original["activated_at"]
+
+        removed = remove_global_blueprint_from_reuse(
+            blueprint_id=original["blueprint_id"],
+            blueprint_fingerprint=original["blueprint_fingerprint"],
+            acknowledged=True,
+            actor_label="Lifecycle tester",
+            reason="Retire this test source from future recommendations.",
+        )
+        self.assertEqual(removed["cache_status"], "removed")
+        self.assertEqual(removed["blueprint"]["status"], "active")
+        self.assertEqual(
+            removed["blueprint"]["availability_status"], "removed"
+        )
+        self.assertFalse(removed["blueprint"]["is_reusable"])
+        self.assertEqual(list_reusable_global_blueprints(), [])
+        self.assertEqual(list_active_global_blueprints_read_only(), [])
+        self.assertEqual(removed["blueprint"]["semantic_identity"], original_identity)
+        self.assertEqual(removed["blueprint"]["blueprint_snapshot"], original_snapshot)
+        self.assertEqual(removed["blueprint"]["activated_at"], original_activated_at)
+
+        event_count = len(
+            list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            )
+        )
+        repeated_remove = remove_global_blueprint_from_reuse(
+            blueprint_id=original["blueprint_id"],
+            blueprint_fingerprint=original["blueprint_fingerprint"],
+            acknowledged=True,
+        )
+        self.assertEqual(repeated_remove["cache_status"], "hit_removed")
+        self.assertEqual(
+            len(
+                list_global_blueprint_audit_events(
+                    blueprint_id=original["blueprint_id"]
+                )
+            ),
+            event_count,
+        )
+        with self.assertRaisesRegex(Phase9DApprovalError, "explicit Restore"):
+            self.approve_provisional()
+
+        restored = restore_global_blueprint_to_reuse(
+            blueprint_id=original["blueprint_id"],
+            blueprint_fingerprint=original["blueprint_fingerprint"],
+            actor_label="Lifecycle tester",
+        )
+        self.assertEqual(restored["cache_status"], "restored")
+        self.assertEqual(restored["blueprint"]["status"], "active")
+        self.assertEqual(
+            restored["blueprint"]["availability_status"], "available"
+        )
+        self.assertTrue(restored["blueprint"]["is_reusable"])
+        self.assertEqual(restored["blueprint"]["activated_at"], original_activated_at)
+        self.assertEqual(
+            list_reusable_global_blueprints()[0]["blueprint_id"],
+            original["blueprint_id"],
+        )
+        restored_event_count = len(
+            list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            )
+        )
+        repeated_restore = restore_global_blueprint_to_reuse(
+            blueprint_id=original["blueprint_id"],
+            blueprint_fingerprint=original["blueprint_fingerprint"],
+        )
+        self.assertEqual(repeated_restore["cache_status"], "hit_available")
+        self.assertEqual(
+            len(
+                list_global_blueprint_audit_events(
+                    blueprint_id=original["blueprint_id"]
+                )
+            ),
+            restored_event_count,
+        )
+        event_types = {
+            event["event_type"]
+            for event in list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            )
+        }
+        self.assertIn("removed_from_reuse", event_types)
+        self.assertIn("restored_to_reuse", event_types)
+        availability_events = [
+            event
+            for event in list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            )
+            if event["event_type"]
+            in {"removed_from_reuse", "restored_to_reuse"}
+        ]
+        self.assertEqual(len(availability_events), 2)
+        self.assertEqual(
+            {
+                event["lifecycle_change"]["transition_number"]
+                for event in availability_events
+            },
+            {1, 2},
+        )
+        self.assertTrue(
+            all(
+                event["event_version"]
+                == PHASE9D_AVAILABILITY_EVENT_VERSION
+                for event in availability_events
+            )
+        )
+        self.assertTrue(
+            all(
+                event["lifecycle_change"][
+                    "availability_policy_version"
+                ]
+                == PHASE9D_AVAILABILITY_POLICY_VERSION
+                for event in availability_events
+            )
+        )
+        self.assertEqual(before_sources, self.source_rows())
+
+    def test_removed_v1_new_v2_is_available_and_old_restore_fails_closed(self):
+        first = self.approve_provisional()["blueprint"]
+        remove_global_blueprint_from_reuse(
+            blueprint_id=first["blueprint_id"],
+            blueprint_fingerprint=first["blueprint_fingerprint"],
+            acknowledged=True,
+        )
+        non_provisional = persist_non_provisional_evaluation(self.state)
+        second = approve_persisted_phase9c_evaluation(
+            evaluation_id=non_provisional["evaluation_id"],
+            evaluation_fingerprint=non_provisional["evaluation_fingerprint"],
+        )["blueprint"]
+        versions = {
+            row["blueprint_id"]: row for row in list_global_blueprints()
+        }
+        self.assertEqual(versions[first["blueprint_id"]]["status"], "superseded")
+        self.assertEqual(
+            versions[first["blueprint_id"]]["availability_status"], "removed"
+        )
+        self.assertEqual(versions[second["blueprint_id"]]["status"], "active")
+        self.assertEqual(
+            versions[second["blueprint_id"]]["availability_status"], "available"
+        )
+        self.assertEqual(
+            [row["blueprint_id"] for row in list_reusable_global_blueprints()],
+            [second["blueprint_id"]],
+        )
+        with self.assertRaisesRegex(Phase9DApprovalError, "superseded"):
+            restore_global_blueprint_to_reuse(
+                blueprint_id=first["blueprint_id"],
+                blueprint_fingerprint=first["blueprint_fingerprint"],
+            )
+
+    def test_remove_event_failure_rolls_back_projection(self):
+        original = self.approve_provisional()["blueprint"]
+        before_events = list_global_blueprint_audit_events(
+            blueprint_id=original["blueprint_id"]
+        )
+        with patch(
+            "database.global_blueprint_manager._insert_audit_event",
+            side_effect=RuntimeError("availability audit failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "availability audit failed"):
+                remove_global_blueprint_from_reuse(
+                    blueprint_id=original["blueprint_id"],
+                    blueprint_fingerprint=original["blueprint_fingerprint"],
+                    acknowledged=True,
+                )
+        current = list_global_blueprints()[0]
+        self.assertEqual(current["availability_status"], "available")
+        self.assertTrue(current["is_reusable"])
+        self.assertEqual(
+            list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            ),
+            before_events,
+        )
+
+    def test_restore_event_failure_rolls_back_projection(self):
+        original = self.approve_provisional()["blueprint"]
+        remove_global_blueprint_from_reuse(
+            blueprint_id=original["blueprint_id"],
+            blueprint_fingerprint=original["blueprint_fingerprint"],
+            acknowledged=True,
+        )
+        before_events = list_global_blueprint_audit_events(
+            blueprint_id=original["blueprint_id"]
+        )
+        with patch(
+            "database.global_blueprint_manager._insert_audit_event",
+            side_effect=RuntimeError("restore audit failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "restore audit failed"):
+                restore_global_blueprint_to_reuse(
+                    blueprint_id=original["blueprint_id"],
+                    blueprint_fingerprint=original["blueprint_fingerprint"],
+                )
+        current = list_global_blueprints()[0]
+        self.assertEqual(current["availability_status"], "removed")
+        self.assertFalse(current["is_reusable"])
+        self.assertEqual(
+            list_global_blueprint_audit_events(
+                blueprint_id=original["blueprint_id"]
+            ),
+            before_events,
+        )
+
+    def test_availability_migration_is_additive_and_idempotent(self):
+        original = self.approve_provisional()["blueprint"]
+        connection = sqlite3.connect(self.database_path)
+        try:
+            version_before = connection.execute(
+                "SELECT * FROM global_blueprint_versions"
+            ).fetchall()
+            audit_before = connection.execute(
+                "SELECT * FROM global_blueprint_audit_events"
+            ).fetchall()
+            connection.execute("DROP TABLE global_blueprint_availability")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(
+            list_active_global_blueprints_read_only()[0]["blueprint_id"],
+            original["blueprint_id"],
+        )
+        init_global_blueprint_registry()
+        init_global_blueprint_registry()
+        connection = sqlite3.connect(self.database_path)
+        try:
+            version_schema = connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'global_blueprint_versions'
+                """
+            ).fetchone()[0]
+            audit_schema = connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'global_blueprint_audit_events'
+                """
+            ).fetchone()[0]
+            availability_schema = connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'global_blueprint_availability'
+                """
+            ).fetchone()[0]
+            availability_rows = connection.execute(
+                "SELECT COUNT(*) FROM global_blueprint_availability"
+            ).fetchone()[0]
+            version_after = connection.execute(
+                "SELECT * FROM global_blueprint_versions"
+            ).fetchall()
+            audit_after = connection.execute(
+                "SELECT * FROM global_blueprint_audit_events"
+            ).fetchall()
+        finally:
+            connection.close()
+        self.assertIn("'active', 'superseded'", version_schema)
+        self.assertNotIn("'removed'", version_schema)
+        self.assertNotIn("CHECK (event_type", audit_schema)
+        self.assertIn("availability_status", availability_schema)
+        self.assertEqual(availability_rows, 0)
+        self.assertEqual(version_after, version_before)
+        self.assertEqual(audit_after, audit_before)
+        self.assertEqual(
+            list_reusable_global_blueprints()[0]["blueprint_id"],
+            original["blueprint_id"],
+        )
+
+    def test_passive_lifecycle_browsing_is_read_only(self):
+        original = self.approve_provisional()["blueprint"]
+        before = hashlib.sha256(self.database_path.read_bytes()).hexdigest()
+        self.assertEqual(len(list_global_blueprints()), 1)
+        self.assertEqual(len(list_reusable_global_blueprints()), 1)
+        self.assertEqual(len(list_active_global_blueprints_read_only()), 1)
+        self.assertIsNotNone(get_active_global_blueprint(original["role_family_id"]))
+        self.assertGreaterEqual(
+            len(
+                list_global_blueprint_audit_events(
+                    blueprint_id=original["blueprint_id"]
+                )
+            ),
+            1,
+        )
+        after = hashlib.sha256(self.database_path.read_bytes()).hexdigest()
+        self.assertEqual(after, before)
 
     def test_historical_evaluations_remain_listed_but_are_not_approvable(self):
         historical = persist_historical_v2_evaluation(self.provisional)
