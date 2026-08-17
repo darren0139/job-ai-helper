@@ -134,6 +134,10 @@ from database.application_blueprint_manager import (
     delete_application_blueprint_decisions,
     init_application_blueprint_decisions,
 )
+from database.phase9f_application_confirmation_manager import (
+    delete_phase9f_application_confirmation,
+    init_phase9f_application_confirmation_schema,
+)
 from database.global_blueprint_manager import init_global_blueprint_registry
 from database.application_resume_result_manager import (
     delete_application_resume_results,
@@ -193,6 +197,9 @@ from database.global_master_resume_manager import (
 )
 from tailoring.phase9f_orchestrator_ui import render_phase9f_jd_intake
 from tailoring.phase9f_master_resume_ui import render_phase9f_master_resume
+from tailoring.phase9f_application_confirmation import (
+    PHASE9F_D_EXECUTION_NOT_STARTED_STATUS,
+)
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
@@ -2047,6 +2054,7 @@ init_application_blueprint_decisions()
 init_application_resume_results()
 init_application_cover_letters()
 init_global_master_resume_registry()
+init_phase9f_application_confirmation_schema()
 
 init_jd_library()
 init_chat_history()
@@ -2350,6 +2358,7 @@ with st.sidebar:
                             delete_application_tailoring_generations(
                                 app_id
                             )
+                            delete_phase9f_application_confirmation(app_id)
                             delete_application_blueprint_decisions(
                                 app_id
                             )
@@ -3017,6 +3026,13 @@ elif page == "Application Sessions":
 
         phase9e_ready = bool(phase9e_context.get("can_generate"))
         phase9e_enforced = bool(phase9e_context.get("phase9e_enforced"))
+        phase9f_d_execution_waiting = (
+            phase9e_context.get("status")
+            == PHASE9F_D_EXECUTION_NOT_STARTED_STATUS
+        )
+        phase9f_d_intensity_label = str(
+            phase9e_context.get("confirmed_intensity_label") or ""
+        ).strip()
         phase9e_binding = deepcopy(
             phase9e_context.get("binding_identity") or {}
         )
@@ -3051,6 +3067,13 @@ elif page == "Application Sessions":
                 )
             else:
                 binding_marker = f"legacy:{current_application_id}"
+        elif phase9f_d_execution_waiting:
+            report = deepcopy(persisted_application_report)
+            binding_marker = (
+                "phase9f-d-bound:"
+                + str(phase9e_binding.get("decision_fingerprint") or "")
+                + ":not_started"
+            )
         else:
             report = deepcopy(persisted_application_report)
             binding_marker = f"blocked:{phase9e_context.get('status', 'unknown')}"
@@ -3129,7 +3152,15 @@ elif page == "Application Sessions":
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
         else:
-            if not phase9e_ready:
+            if phase9f_d_execution_waiting:
+                st.success("Exact starting source is bound.")
+                st.info(
+                    f"{phase9f_d_intensity_label or 'Confirmed'} tailoring "
+                    "has not started yet. The future Phase 9F execution "
+                    "router will begin the confirmed path without changing "
+                    "the immutable starting source."
+                )
+            elif not phase9e_ready:
                 st.error(
                     "Résumé generation is blocked until the current Phase 9E "
                     "scope is explicitly evaluated and bound."
@@ -3183,22 +3214,33 @@ elif page == "Application Sessions":
             if phase7_flash:
                 st.success(phase7_flash)
 
-            (
-                lock_projects,
-                lock_skills,
-                update_scope_dirty,
-            ) = render_tailoring_section_update_scope(
-                application_id=current_application_id,
-                required_phase9e_binding=(
-                    phase9e_binding
-                    if phase9e_enforced
-                    else None
-                ),
-                disabled=(
-                    workspace_edit_required
-                    or not phase9e_ready
-                ),
-            )
+            if phase9f_d_execution_waiting:
+                lock_projects = True
+                lock_skills = True
+                update_scope_dirty = False
+                st.write("#### Section update scope")
+                st.caption(
+                    "The future Phase 9F execution router will configure the "
+                    "supported section scope when the confirmed tailoring "
+                    "path begins. No editable working copy exists yet."
+                )
+            else:
+                (
+                    lock_projects,
+                    lock_skills,
+                    update_scope_dirty,
+                ) = render_tailoring_section_update_scope(
+                    application_id=current_application_id,
+                    required_phase9e_binding=(
+                        phase9e_binding
+                        if phase9e_enforced
+                        else None
+                    ),
+                    disabled=(
+                        workspace_edit_required
+                        or not phase9e_ready
+                    ),
+                )
             project_controls_disabled = (
                 workspace_edit_required
                 or lock_projects
@@ -3308,7 +3350,24 @@ elif page == "Application Sessions":
                     "approved_generation"
                 ),
             )
-            if phase9e_projects_locked and phase9e_skills_locked:
+            if phase9f_d_execution_waiting:
+                generation_plan = {
+                    "mode": "phase9f_d_execution_not_started",
+                    "button_label": (
+                        f"Begin {phase9f_d_intensity_label or 'confirmed'} "
+                        "tailoring"
+                    ),
+                    "requires_project_ai": False,
+                    "requires_skills_ai": False,
+                    "creates_draft": False,
+                    "note": (
+                        "The exact starting source is bound. Tailoring "
+                        "execution has not started; Phase 9F-E/F will route "
+                        "the confirmed intensity through the existing "
+                        "application workflow."
+                    ),
+                }
+            elif phase9e_projects_locked and phase9e_skills_locked:
                 generation_plan = {
                     "mode": "load_phase9e_starting_snapshot",
                     "button_label": "Load Phase 9E Starting Projects + Skills",
@@ -4153,10 +4212,17 @@ elif page == "Application Sessions":
                 not saved_resume_docx_path
                 and not isinstance(previous_scope_message_approved, dict)
             ):
-                st.info(
-                    "No saved DOCX found for this session. Upload a DOCX resume, "
-                    "tick the save checkbox, and run Analyze Resume again."
-                )
+                if phase9f_d_execution_waiting:
+                    st.info(
+                        "Tailoring execution has not started. A working résumé "
+                        "document will be prepared from the exact immutable "
+                        "starting source when the confirmed tailoring path begins."
+                    )
+                else:
+                    st.info(
+                        "No saved DOCX found for this session. Upload a DOCX resume, "
+                        "tick the save checkbox, and run Analyze Resume again."
+                    )
             elif not project_result and not skills_result:
                 recovered_path = st.session_state.get(
                     tailored_docx_key

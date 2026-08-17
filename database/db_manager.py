@@ -149,6 +149,52 @@ def create_empty_application_session(
     return application_id
 
 
+def insert_application_session_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    resume_filename: str,
+    report: dict[str, Any],
+    session_name: str = "",
+    created_at: str,
+) -> int:
+    """Insert one populated session without committing the caller's transaction."""
+    if not isinstance(report, dict) or not report:
+        raise ValueError("A populated application report is required.")
+    jd_profile = report.get("jd_profile") or {}
+    meta = report.get("meta") or {}
+    job_title = str(jd_profile.get("job_title") or "Unknown Role")
+    company = str(jd_profile.get("company") or "Unknown Company")
+    resolved_name = str(session_name or "").strip()
+    if not resolved_name:
+        resolved_name = (
+            f"{job_title} @ {company}"
+            if company and company != "Unknown Company"
+            else job_title
+        )
+    cursor = connection.execute(
+        """
+        INSERT INTO applications (
+            session_name, resume_filename, job_title, company, degree,
+            overall_score, summary, report_json, cover_letter,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+        """,
+        (
+            resolved_name,
+            str(resume_filename or ""),
+            job_title,
+            company,
+            str(meta.get("degree") or ""),
+            int(report.get("overall_score") or 0),
+            str(report.get("summary") or ""),
+            json.dumps(report, ensure_ascii=False, default=str),
+            str(created_at),
+            str(created_at),
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
 def save_application(
     *,
     resume_filename: str,

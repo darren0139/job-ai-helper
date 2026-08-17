@@ -39,6 +39,9 @@ from tailoring.phase9f_starting_source_transparency import (
 from tailoring.phase9f_tailoring_intensity_ui import (
     render_phase9f_tailoring_intensity,
 )
+from tailoring.phase9f_application_confirmation_ui import (
+    render_phase9f_application_confirmation,
+)
 
 
 RANKING_RESULT_STATE_KEY = "phase9f_b_ranking_result"
@@ -642,6 +645,7 @@ def _render_candidate_inspection(
 def _render_ranked_result(
     result: dict[str, Any],
     *,
+    exact_jd: dict[str, Any],
     context: dict[str, Any],
     current_base: dict[str, Any] | None,
     current_base_artifact: dict[str, Any] | None,
@@ -801,11 +805,16 @@ def _render_ranked_result(
             key="phase9f_b_download_ranking_json",
         )
 
-    render_phase9f_tailoring_intensity(
+    recommendation = render_phase9f_tailoring_intensity(
         result,
         expected_ranking_input_fingerprint=_clean(
             context.get("ranking_input_fingerprint")
         ),
+    )
+    render_phase9f_application_confirmation(
+        phase9f_a_snapshot=exact_jd,
+        ranking_result=result,
+        phase9f_c_recommendation=recommendation,
     )
 
 
@@ -879,6 +888,7 @@ def render_phase9f_starting_source_ranking(
             )
         _render_ranked_result(
             result,
+            exact_jd=exact_jd,
             context=context,
             current_base=current_base,
             current_base_artifact=artifact,
@@ -902,6 +912,7 @@ def render_phase9f_starting_source_ranking(
         st.session_state[RANKING_RESULT_STATE_KEY] = result
         _render_ranked_result(
             result,
+            exact_jd=exact_jd,
             context=context,
             current_base=current_base,
             current_base_artifact=artifact,

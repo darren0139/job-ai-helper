@@ -43,6 +43,7 @@ from tailoring.phase9f_starting_source_ranking import (
     rank_prepared_context,
     rank_starting_resume_sources,
     score_normalized_source,
+    validate_ranked_candidate_analysis_snapshot,
 )
 
 
@@ -518,6 +519,30 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
             for key, value in pinned.items()
             if key != "fixture_version"
         })
+
+    def test_complete_candidate_analysis_snapshot_is_retained_and_valid(self):
+        result = self.rank()
+        for candidate in result["ranked_candidates"]:
+            validated = validate_ranked_candidate_analysis_snapshot(candidate)
+            self.assertEqual(
+                validated["candidate_analysis_snapshot_fingerprint"],
+                candidate["candidate_analysis_snapshot_fingerprint"],
+            )
+            snapshot = validated["candidate_analysis_snapshot"]
+            self.assertEqual(
+                snapshot["stable_analysis_snapshot"][
+                    "deterministic_alignment_score"
+                ],
+                candidate["deterministic_alignment_score"],
+            )
+
+    def test_candidate_analysis_snapshot_tampering_fails_closed(self):
+        candidate = copy.deepcopy(self.rank()["recommended_source"])
+        candidate["candidate_analysis_snapshot"]["resume_text_snapshot"] += (
+            " tampered"
+        )
+        with self.assertRaisesRegex(ValueError, "fingerprint"):
+            validate_ranked_candidate_analysis_snapshot(candidate)
 
     def rank(self, *, base=True, blueprints=None, jd=None):
         return rank_starting_resume_sources(

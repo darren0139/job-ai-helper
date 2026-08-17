@@ -363,6 +363,23 @@ def _blueprint_with_availability_with_connection(
     return _row_to_blueprint(row) if row is not None else None
 
 
+def active_global_blueprints_with_connection(
+    connection: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Load the reusable active scope inside a caller transaction."""
+    rows = connection.execute(
+        _BLUEPRINT_WITH_AVAILABILITY_SELECT
+        + """
+        WHERE blueprint.status = 'active'
+          AND COALESCE(availability.availability_status, 'available')
+              = 'available'
+        ORDER BY blueprint.role_family_label ASC,
+                 blueprint.version_number DESC
+        """
+    ).fetchall()
+    return [_row_to_blueprint(row) for row in rows]
+
+
 def _load_candidate(
     connection: sqlite3.Connection,
     candidate_id: str,

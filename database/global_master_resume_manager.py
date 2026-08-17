@@ -197,40 +197,82 @@ def _select_version(
     return _row_to_master(row) if row is not None else None
 
 
+def current_global_master_resume_with_connection(
+    connection: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Load and validate the current pointer inside a caller transaction."""
+    state = connection.execute(
+        """
+        SELECT current_master_version_id, current_master_version_fingerprint
+        FROM global_master_resume_state
+        WHERE singleton_id = 1
+        LIMIT 1
+        """
+    ).fetchone()
+    if state is None:
+        return None
+    master = _select_version(
+        connection, str(state["current_master_version_id"])
+    )
+    if master is None:
+        raise Phase9FMasterResumeError(
+            "The global master-resume current pointer references a missing version."
+        )
+    if str(master["master_version_fingerprint"]) != str(
+        state["current_master_version_fingerprint"]
+    ):
+        raise Phase9FMasterResumeError(
+            "The global master-resume current pointer is inconsistent."
+        )
+    return master
+
+
+def global_master_resume_artifact_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    master_version_id: str,
+    artifact_kind: str = "original",
+) -> dict[str, Any] | None:
+    """Load and hash-validate one artifact inside a caller transaction."""
+    if artifact_kind not in {"original", "preview_pdf"}:
+        raise ValueError("Unknown master-resume artifact kind.")
+    row = connection.execute(
+        """
+        SELECT * FROM global_master_resume_artifacts
+        WHERE master_version_id = ? AND artifact_kind = ?
+        LIMIT 1
+        """,
+        (str(master_version_id), artifact_kind),
+    ).fetchone()
+    if row is None:
+        return None
+    content = bytes(row["artifact_bytes"])
+    if (
+        len(content) != int(row["byte_size"])
+        or sha256_bytes(content) != str(row["sha256"])
+    ):
+        raise Phase9FMasterResumeError(
+            "The stored master-resume artifact failed integrity validation."
+        )
+    return {
+        "artifact_id": str(row["artifact_id"]),
+        "master_version_id": str(row["master_version_id"]),
+        "artifact_kind": str(row["artifact_kind"]),
+        "media_type": str(row["media_type"]),
+        "filename": str(row["filename"]),
+        "sha256": str(row["sha256"]),
+        "byte_size": int(row["byte_size"]),
+        "authoritative": bool(row["authoritative"]),
+        "artifact_bytes": content,
+        "created_at": str(row["created_at"]),
+    }
+
+
 def get_current_global_master_resume() -> dict[str, Any] | None:
     """Return the authoritative current version without creating persistence."""
     connection = _connect()
     try:
-        state = connection.execute(
-            """
-            SELECT current_master_version_id, current_master_version_fingerprint
-            FROM global_master_resume_state
-            WHERE singleton_id = 1
-            LIMIT 1
-            """
-        ).fetchone()
-        if state is None:
-            return None
-        row = connection.execute(
-            """
-            SELECT * FROM global_master_resume_versions
-            WHERE master_version_id = ?
-            LIMIT 1
-            """,
-            (str(state["current_master_version_id"]),),
-        ).fetchone()
-        if row is None:
-            raise Phase9FMasterResumeError(
-                "The global master-resume current pointer references a missing version."
-            )
-        master = _row_to_master(row)
-        if str(master["master_version_fingerprint"]) != str(
-            state["current_master_version_fingerprint"]
-        ):
-            raise Phase9FMasterResumeError(
-                "The global master-resume current pointer is inconsistent."
-            )
-        return master
+        return current_global_master_resume_with_connection(connection)
     finally:
         connection.close()
 
@@ -303,37 +345,11 @@ def get_global_master_resume_artifact(
         raise ValueError("Unknown master-resume artifact kind.")
     connection = _connect()
     try:
-        row = connection.execute(
-            """
-            SELECT * FROM global_master_resume_artifacts
-            WHERE master_version_id = ? AND artifact_kind = ?
-            LIMIT 1
-            """,
-            (str(master_version_id), artifact_kind),
-        ).fetchone()
-        if row is None:
-            return None
-        content = bytes(row["artifact_bytes"])
-        if len(content) != int(row["byte_size"]):
-            raise Phase9FMasterResumeError(
-                "The stored master-resume artifact size is inconsistent."
-            )
-        if sha256_bytes(content) != str(row["sha256"]):
-            raise Phase9FMasterResumeError(
-                "The stored master-resume artifact failed SHA-256 validation."
-            )
-        return {
-            "artifact_id": str(row["artifact_id"]),
-            "master_version_id": str(row["master_version_id"]),
-            "artifact_kind": str(row["artifact_kind"]),
-            "media_type": str(row["media_type"]),
-            "filename": str(row["filename"]),
-            "sha256": str(row["sha256"]),
-            "byte_size": int(row["byte_size"]),
-            "authoritative": bool(row["authoritative"]),
-            "artifact_bytes": content,
-            "created_at": str(row["created_at"]),
-        }
+        return global_master_resume_artifact_with_connection(
+            connection,
+            master_version_id=master_version_id,
+            artifact_kind=artifact_kind,
+        )
     finally:
         connection.close()
 

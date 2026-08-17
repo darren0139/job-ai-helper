@@ -79,6 +79,9 @@ QUICK_TEST_MODULES = (
     "tests.test_phase9f_starting_source_ranking_streamlit",
     "tests.test_phase9f_tailoring_intensity",
     "tests.test_phase9f_tailoring_intensity_streamlit",
+    "tests.test_phase9f_application_confirmation",
+    "tests.test_phase9f_application_confirmation_streamlit",
+    "tests.test_phase9f_d_ui_compatibility",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -97,6 +100,7 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9f_master_resume",
     "scripts.check_phase9f_starting_source_ranking",
     "scripts.check_phase9f_tailoring_intensity",
+    "scripts.check_phase9f_application_confirmation",
 )
 
 

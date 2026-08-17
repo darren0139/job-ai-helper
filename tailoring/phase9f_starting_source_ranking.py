@@ -30,6 +30,9 @@ PHASE9F_B_SOURCE_POLICY_VERSION = "phase9f-immutable-starting-source-v1"
 PHASE9F_B_SCORING_POLICY_VERSION = "phase9f-phase9c-fresh-target-scoring-v1"
 PHASE9F_B_EVIDENCE_POLICY_VERSION = "phase9f-phase9c-fresh-target-evidence-v1"
 PHASE9F_B_RANKING_POLICY_VERSION = "phase9f-starting-source-ranking-policy-v1"
+PHASE9F_B_CANDIDATE_ANALYSIS_SNAPSHOT_VERSION = (
+    "phase9f-b-candidate-current-jd-analysis-v1"
+)
 
 BASE_RESUME_FORMAT_VERSION = "phase9f-global-master-resume-v1"
 BASE_RESUME_CONTENT_POLICY_VERSION = (
@@ -965,6 +968,22 @@ def score_normalized_source(
         ),
         important_gaps=important_gaps,
     )
+    candidate_analysis_snapshot = {
+        "snapshot_version": PHASE9F_B_CANDIDATE_ANALYSIS_SNAPSHOT_VERSION,
+        "source_identity": deepcopy(source["semantic_identity"]),
+        "exact_jd_identity": deepcopy(exact_jd["semantic_identity"]),
+        "resume_profile_snapshot": deepcopy(
+            source["resume_profile_snapshot"]
+        ),
+        "resume_text_snapshot": str(source["resume_text_snapshot"]),
+        "jd_profile_snapshot": deepcopy(exact_jd["jd_profile"]),
+        "raw_jd_text_snapshot": str(exact_jd["raw_text"]),
+        "keyword_match_snapshot": deepcopy(keyword_match),
+        "stable_analysis_snapshot": deepcopy(analysis),
+    }
+    candidate_analysis_snapshot_fingerprint = fingerprint_value(
+        candidate_analysis_snapshot
+    )
     jd_role = exact_jd["semantic_identity"]["role_family"]
     if source["source_type"] == "base_resume":
         relationship = "neutral_base_resume"
@@ -1024,6 +1043,13 @@ def score_normalized_source(
             analysis.get("input_fingerprint")
         ),
         "comparison_result_fingerprint": fingerprint_value(semantic_result),
+        # Captured from this existing scoring pass. These fields deliberately
+        # remain outside RANKING_RESULT_IDENTITY_FIELDS, so adding the complete
+        # snapshot cannot change Phase 9F-B ranking semantics or fingerprints.
+        "candidate_analysis_snapshot": candidate_analysis_snapshot,
+        "candidate_analysis_snapshot_fingerprint": (
+            candidate_analysis_snapshot_fingerprint
+        ),
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
@@ -1203,6 +1229,156 @@ def validate_ranked_candidate_comparison_contract(
     return {
         "comparison_identity": identity,
         "comparison_result_fingerprint": expected,
+    }
+
+
+def validate_ranked_candidate_analysis_snapshot(
+    candidate: Any,
+) -> dict[str, Any]:
+    """Validate a complete retained candidate analysis without rescoring."""
+    validated_comparison = validate_ranked_candidate_comparison_contract(
+        candidate
+    )
+    snapshot = candidate.get("candidate_analysis_snapshot")
+    if not isinstance(snapshot, dict):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate analysis snapshot is missing.",
+            code="candidate_analysis_snapshot_missing",
+        )
+    if _clean(snapshot.get("snapshot_version")) != (
+        PHASE9F_B_CANDIDATE_ANALYSIS_SNAPSHOT_VERSION
+    ):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate analysis snapshot version is unsupported.",
+            code="candidate_analysis_snapshot_version_unsupported",
+        )
+    expected_fingerprint = fingerprint_value(snapshot)
+    if _clean(candidate.get("candidate_analysis_snapshot_fingerprint")) != (
+        expected_fingerprint
+    ):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate analysis snapshot fingerprint is inconsistent.",
+            code="candidate_analysis_snapshot_fingerprint_mismatch",
+        )
+
+    source_identity = snapshot.get("source_identity")
+    exact_jd_identity = snapshot.get("exact_jd_identity")
+    profile = snapshot.get("resume_profile_snapshot")
+    resume_text = snapshot.get("resume_text_snapshot")
+    jd_profile = snapshot.get("jd_profile_snapshot")
+    raw_jd_text = snapshot.get("raw_jd_text_snapshot")
+    keyword_match = snapshot.get("keyword_match_snapshot")
+    analysis = snapshot.get("stable_analysis_snapshot")
+    if not all(
+        isinstance(value, dict)
+        for value in (
+            source_identity,
+            exact_jd_identity,
+            profile,
+            jd_profile,
+            keyword_match,
+            analysis,
+        )
+    ) or not isinstance(resume_text, str) or not isinstance(raw_jd_text, str):
+        raise Phase9FBRankingError(
+            "The Phase 9F-B candidate analysis snapshot is incomplete.",
+            code="candidate_analysis_snapshot_incomplete",
+        )
+
+    source_fields = {
+        "source_type": candidate.get("source_type"),
+        "source_id": candidate.get("source_id"),
+        "source_version": candidate.get("source_version"),
+        "source_version_fingerprint": candidate.get("source_fingerprint"),
+        "source_content_fingerprint": candidate.get(
+            "source_content_fingerprint"
+        ),
+    }
+    if any(source_identity.get(key) != value for key, value in source_fields.items()):
+        raise Phase9FBRankingError(
+            "The retained analysis belongs to a different immutable source.",
+            code="candidate_analysis_source_identity_mismatch",
+        )
+    if fingerprint_value(source_identity) != _clean(
+        candidate.get("normalized_source_fingerprint")
+    ):
+        raise Phase9FBRankingError(
+            "The retained analysis normalized-source identity is inconsistent.",
+            code="candidate_analysis_normalized_source_mismatch",
+        )
+    if fingerprint_value(profile) != _clean(
+        source_identity.get("resume_profile_fingerprint")
+    ) or _sha256_text(resume_text) != _clean(
+        source_identity.get("resume_text_sha256")
+    ):
+        raise Phase9FBRankingError(
+            "The retained analysis resume profile or text is inconsistent.",
+            code="candidate_analysis_resume_content_mismatch",
+        )
+
+    analysis_rows = [
+        row
+        for row in analysis.get("canonical_requirements", []) or []
+        if isinstance(row, dict)
+    ]
+    compact_rows = [
+        {
+            "requirement_id": _clean(row.get("requirement_id")),
+            "importance": _clean(row.get("importance")),
+            "match_label": _clean(row.get("match_label")),
+            "evidence_strength": int(row.get("evidence_strength") or 0),
+        }
+        for row in analysis_rows
+    ]
+    if compact_rows != validated_comparison["comparison_identity"][
+        "canonical_requirement_results"
+    ]:
+        raise Phase9FBRankingError(
+            "The retained analysis canonical outcomes differ from the ranked comparison.",
+            code="candidate_analysis_outcome_mismatch",
+        )
+    metric_fields = (
+        "deterministic_alignment_score",
+        "required_core_coverage_score",
+        "preferred_coverage_score",
+        "evidence_strength_score",
+    )
+    if any(
+        int(analysis.get(field) or 0) != int(candidate.get(field) or 0)
+        for field in metric_fields
+    ):
+        raise Phase9FBRankingError(
+            "The retained analysis metrics differ from the ranked comparison.",
+            code="candidate_analysis_metric_mismatch",
+        )
+    if _clean(analysis.get("input_fingerprint")) != _clean(
+        candidate.get("stable_analysis_input_fingerprint")
+    ):
+        raise Phase9FBRankingError(
+            "The retained stable-analysis input fingerprint is inconsistent.",
+            code="candidate_analysis_input_fingerprint_mismatch",
+        )
+    if canonical_requirement_scope_fingerprint(analysis_rows) != _clean(
+        candidate.get("canonical_requirement_scope_fingerprint")
+    ) or _clean(exact_jd_identity.get("canonical_requirement_fingerprint")) != _clean(
+        candidate.get("canonical_requirement_scope_fingerprint")
+    ):
+        raise Phase9FBRankingError(
+            "The retained analysis canonical requirement scope is inconsistent.",
+            code="candidate_analysis_requirement_scope_mismatch",
+        )
+    if _sha256_text(raw_jd_text) != _clean(
+        exact_jd_identity.get("raw_jd_sha256")
+    ) or fingerprint_value(jd_profile) != _clean(
+        exact_jd_identity.get("structured_profile_fingerprint")
+    ):
+        raise Phase9FBRankingError(
+            "The retained analysis exact-JD content is inconsistent.",
+            code="candidate_analysis_exact_jd_mismatch",
+        )
+    return {
+        "candidate_analysis_snapshot": deepcopy(snapshot),
+        "candidate_analysis_snapshot_fingerprint": expected_fingerprint,
     }
 
 

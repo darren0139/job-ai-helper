@@ -724,6 +724,66 @@ def save_or_update_job_description_for_application(**kwargs: Any) -> int:
     return int(result["job_description_id"])
 
 
+def link_exact_job_description_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    application_id: int,
+    persisted_exact_jd: dict[str, Any],
+    linked_at: str,
+) -> None:
+    """Validate and link one already-persisted exact JD without committing."""
+    if not isinstance(persisted_exact_jd, dict):
+        raise ValueError("The persisted exact JD snapshot is required.")
+    job_id = int(persisted_exact_jd.get("library_jd_id") or 0)
+    version_id = str(
+        persisted_exact_jd.get("source_version_id") or ""
+    ).strip()
+    row = connection.execute(
+        """
+        SELECT
+            jd.canonical_jd_id,
+            version.raw_text,
+            version.jd_profile_json
+        FROM job_descriptions AS jd
+        JOIN job_description_versions AS version
+          ON version.job_description_id = jd.id
+        WHERE jd.id = ? AND version.source_version_id = ?
+        LIMIT 1
+        """,
+        (job_id, version_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("The exact persisted JD version no longer exists.")
+    raw_text = str(row["raw_text"] or "")
+    profile = _safe_json_loads(row["jd_profile_json"])
+    if (
+        str(row["canonical_jd_id"] or "")
+        != str(persisted_exact_jd.get("canonical_jd_id") or "")
+        or raw_text != str(persisted_exact_jd.get("raw_text") or "")
+        or profile != (persisted_exact_jd.get("jd_profile") or {})
+        or hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+        != str(persisted_exact_jd.get("raw_jd_sha256") or "")
+    ):
+        raise ValueError(
+            "The exact persisted JD changed after Phase 9F-A preparation."
+        )
+    connection.execute(
+        """
+        INSERT INTO application_job_links (
+            application_id, job_description_id, source_version_id,
+            linked_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            int(application_id),
+            job_id,
+            version_id,
+            str(linked_at),
+            str(linked_at),
+        ),
+    )
+
+
 def get_recent_job_descriptions(limit: int = 20) -> list[tuple]:
     """Return unique canonical JDs, not one row per application session."""
     connection = _connect()
