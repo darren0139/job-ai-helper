@@ -248,6 +248,7 @@ def tailor_skills_section(
     stable_analysis: dict[str, Any] | None = None,
     selected_projects_result: dict[str, Any] | None = None,
     max_items: int = 20,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Generate a tailored Skills section recommendation."""
     if not resume_profile:
@@ -288,6 +289,7 @@ Create a concise tailored Skills section for this target job.
         user_prompt,
         temperature=0.0,
         max_tokens=2200,
+        model=model,
     )
 
     normalised_result = _normalise_skills_result(

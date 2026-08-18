@@ -142,6 +142,14 @@ from database.phase9f_application_execution_manager import (
     delete_phase9f_application_execution,
     init_phase9f_application_execution_schema,
 )
+from database.phase9f_tailoring_execution_manager import (
+    delete_phase9f_tailoring_execution,
+    get_phase9f_tailoring_execution,
+    run_phase9f_normal_fit,
+    run_phase9f_normal_generation,
+    run_phase9f_tailoring_fit,
+    run_phase9f_tailoring_projects_skills,
+)
 from database.global_blueprint_manager import init_global_blueprint_registry
 from database.application_resume_result_manager import (
     delete_application_resume_results,
@@ -206,6 +214,14 @@ from tailoring.phase9f_application_confirmation import (
 )
 from tailoring.phase9f_application_execution_ui import (
     render_phase9f_reuse_execution,
+)
+from tailoring.phase9f_tailoring_execution_ui import (
+    render_phase9f_tailoring_execution,
+)
+from tailoring.phase9f_tailoring_execution import (
+    build_execution_debug_summary,
+    generation_controls_are_locked,
+    has_durable_generation_settings_binding,
 )
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
@@ -1165,6 +1181,7 @@ def create_full_debug_bundle(
     chat_model = get_active_model("chat")
 
     workspace_provenance_debug: dict[str, Any] = {}
+    phase9f_execution_debug: dict[str, Any] = {}
     if application_id is not None:
         try:
             ws = get_resume_workspace_context(int(application_id))
@@ -1253,6 +1270,12 @@ def create_full_debug_bundle(
             }
         except Exception as exc:
             workspace_provenance_debug = {"error": str(exc)}
+        try:
+            execution = get_phase9f_tailoring_execution(int(application_id))
+            if isinstance(execution, dict):
+                phase9f_execution_debug = build_execution_debug_summary(execution)
+        except Exception as exc:
+            phase9f_execution_debug = {"error": str(exc)}
 
     debug_bundle = {
         "debug_meta": {
@@ -1277,6 +1300,7 @@ def create_full_debug_bundle(
         },
         "analysis_report": report or {},
         "workspace_provenance_debug": workspace_provenance_debug,
+        "phase9f_tailoring_execution_debug": phase9f_execution_debug,
         "api_cost_summary": get_api_usage_summary(
             application_id,
             report,
@@ -2366,6 +2390,7 @@ with st.sidebar:
                             delete_application_tailoring_generations(
                                 app_id
                             )
+                            delete_phase9f_tailoring_execution(app_id)
                             delete_phase9f_application_execution(app_id)
                             delete_phase9f_application_confirmation(app_id)
                             delete_application_blueprint_decisions(
@@ -2921,6 +2946,16 @@ elif page == "Application Sessions":
                     phase9e_context=phase9e_context,
                 )
                 st.stop()
+            if (
+                phase9e_context.get("status")
+                == PHASE9F_D_EXECUTION_NOT_STARTED_STATUS
+                and phase9e_context.get("confirmed_intensity") in {"minor", "full"}
+            ):
+                render_phase9f_tailoring_execution(
+                    application_id=int(current_application_id),
+                    phase9e_context=phase9e_context,
+                )
+                st.stop()
             try:
                 current_application_result = (
                     get_current_application_resume_result(
@@ -2956,8 +2991,23 @@ elif page == "Application Sessions":
                     application_id=int(current_application_id),
                     baseline_report=persisted_application_report,
                     raw_jd_text=phase9a_raw_jd_text,
-                    evidence_items=get_evidence_items(limit=100),
+                    evidence_items=(
+                        []
+                        if isinstance(
+                            phase9e_context.get("phase9f_f_execution"),
+                            dict,
+                        )
+                        else get_evidence_items(limit=100)
+                    ),
                     collapsed=True,
+                    frozen_phase9f_scope=(
+                        phase9e_context.get("phase9f_f_execution")
+                        if isinstance(
+                            phase9e_context.get("phase9f_f_execution"),
+                            dict,
+                        )
+                        else None
+                    ),
                 )
                 with st.expander(
                     "Match, scores, reports, and API usage",
@@ -3019,7 +3069,14 @@ elif page == "Application Sessions":
                 application_id=int(current_application_id),
                 baseline_report=persisted_application_report,
                 raw_jd_text=phase9a_raw_jd_text,
-                evidence_items=get_evidence_items(limit=100),
+                evidence_items=(
+                    []
+                    if isinstance(
+                        phase9e_context.get("phase9f_f_execution"),
+                        dict,
+                    )
+                    else get_evidence_items(limit=100)
+                ),
                 collapsed=(
                     (phase9a_has_working_draft or (phase9a_decision in {
                         "reuse_approved_source",
@@ -3031,6 +3088,14 @@ elif page == "Application Sessions":
                         "phase9d",
                         "phase9e",
                     }))
+                ),
+                frozen_phase9f_scope=(
+                    phase9e_context.get("phase9f_f_execution")
+                    if isinstance(
+                        phase9e_context.get("phase9f_f_execution"),
+                        dict,
+                    )
+                    else None
                 ),
             )
 
@@ -3048,6 +3113,75 @@ elif page == "Application Sessions":
         phase9f_d_execution_waiting = (
             phase9e_context.get("status")
             == PHASE9F_D_EXECUTION_NOT_STARTED_STATUS
+        )
+        phase9f_f_execution = (
+            deepcopy(phase9e_context.get("phase9f_f_execution"))
+            if isinstance(phase9e_context.get("phase9f_f_execution"), dict)
+            else None
+        )
+        phase9f_f_active = bool(
+            isinstance(phase9f_f_execution, dict)
+            and str(
+                phase9f_f_execution.get("confirmed_intensity") or ""
+            ).lower() in {"minor", "full"}
+        )
+        phase9f_f_blocked = bool(
+            phase9f_f_active
+            and str(phase9f_f_execution.get("status") or "") == "blocked"
+        )
+        phase9f_f_section_scope = (
+            deepcopy(phase9f_f_execution.get("section_scope") or {})
+            if phase9f_f_active
+            else {}
+        )
+        phase9f_f_stage_outputs = (
+            deepcopy(phase9f_f_execution.get("stage_outputs") or {})
+            if phase9f_f_active
+            else {}
+        )
+        phase9f_f_legacy_private_execution = bool(
+            phase9f_f_active
+            and (
+                any(
+                    key in phase9f_f_stage_outputs
+                    for key in (
+                        "generation_settings",
+                        "projects",
+                        "skills",
+                        "fitting",
+                        "fitting_attempts",
+                    )
+                )
+                or (
+                    phase9f_f_stage_outputs.get(
+                        "normal_lifecycle_adapter_version"
+                    ) != "phase9f-f-normal-generation-lifecycle-v1"
+                    and str(
+                        phase9f_f_execution.get("generation_id") or ""
+                    ).strip()
+                )
+            )
+        )
+        phase9f_f_normal_lifecycle = bool(
+            phase9f_f_active and not phase9f_f_legacy_private_execution
+        )
+        phase9f_f_generation_snapshot = (
+            deepcopy(phase9f_f_stage_outputs.get("generation_settings") or {})
+            if phase9f_f_legacy_private_execution
+            else {}
+        )
+        phase9f_f_generation_settings_locked = bool(
+            phase9f_f_legacy_private_execution
+            and has_durable_generation_settings_binding(phase9f_f_execution)
+        )
+        phase9f_f_fit_stage = (
+            deepcopy(phase9f_f_stage_outputs.get("fitting") or {})
+            if phase9f_f_legacy_private_execution
+            else {}
+        )
+        phase9f_f_fit_settings_locked = bool(
+            phase9f_f_legacy_private_execution
+            and phase9f_f_fit_stage.get("status") == "completed"
         )
         phase9f_d_intensity_label = str(
             phase9e_context.get("confirmed_intensity_label") or ""
@@ -3171,7 +3305,21 @@ elif page == "Application Sessions":
         if current_application_id is None:
             st.info("Save or load an application session before tailoring the resume.")
         else:
-            if phase9f_d_execution_waiting:
+            if phase9f_f_active:
+                lock_projects = not bool(
+                    phase9f_f_section_scope.get("projects_addressable")
+                )
+                lock_skills = not bool(
+                    phase9f_f_section_scope.get("skills_addressable")
+                )
+                update_scope_dirty = False
+                st.write("#### Frozen tailoring scope")
+                st.caption(
+                    f"Projects: {'Will tailor' if not lock_projects else 'Skipped'} · "
+                    f"Skills: {'Will tailor' if not lock_skills else 'Skipped'} · "
+                    f"Intensity: {str(phase9f_f_execution.get('confirmed_intensity') or '').title()}"
+                )
+            elif phase9f_d_execution_waiting:
                 st.success("Exact starting source is bound.")
                 st.info(
                     f"{phase9f_d_intensity_label or 'Confirmed'} tailoring "
@@ -3211,12 +3359,73 @@ elif page == "Application Sessions":
                 f"tailored_generation_id_{current_application_id}"
             )
 
+            # Durable F outputs are restored into the ordinary Application
+            # Session widgets after a restart.  This touches Streamlit session
+            # state only; it never recomputes, writes, or substitutes the
+            # frozen execution inputs.
+            if phase9f_f_active:
+                phase9f_stage_outputs = (
+                    phase9f_f_execution.get("stage_outputs") or {}
+                )
+                phase9f_projects_stage = phase9f_stage_outputs.get("projects") or {}
+                phase9f_skills_stage = phase9f_stage_outputs.get("skills") or {}
+                if isinstance(phase9f_projects_stage.get("result"), dict):
+                    st.session_state[tailored_projects_key] = deepcopy(
+                        phase9f_projects_stage["result"]
+                    )
+                if isinstance(phase9f_skills_stage.get("result"), dict):
+                    st.session_state[tailored_skills_key] = deepcopy(
+                        phase9f_skills_stage["result"]
+                    )
+                phase9f_generation_id = str(
+                    phase9f_f_execution.get("generation_id") or ""
+                )
+                if phase9f_generation_id:
+                    phase9f_generation = get_tailoring_generation(
+                        current_application_id,
+                        phase9f_generation_id,
+                    )
+                    if isinstance(phase9f_generation, dict):
+                        restore_generation_to_session(
+                            current_application_id,
+                            phase9f_generation,
+                        )
+
             restored_settings = st.session_state.get(
                 f"restored_tailoring_settings_{current_application_id}",
                 {},
             )
             if not isinstance(restored_settings, dict):
                 restored_settings = {}
+            phase9f_generation_defaults = (
+                phase9f_f_generation_snapshot.get("settings")
+                if phase9f_f_generation_settings_locked
+                else {}
+            )
+            if not isinstance(phase9f_generation_defaults, dict):
+                phase9f_generation_defaults = {}
+            generation_control_defaults = {
+                **restored_settings,
+                **phase9f_generation_defaults,
+            }
+            phase9f_fit_defaults: dict[str, Any] = {}
+            if phase9f_f_active:
+                phase9f_fit_snapshot = (
+                    phase9f_f_fit_stage.get("fit_settings") or {}
+                )
+                if not isinstance(phase9f_fit_snapshot, dict):
+                    phase9f_fit_snapshot = {}
+                if not phase9f_fit_snapshot:
+                    fit_attempts = phase9f_f_stage_outputs.get("fitting_attempts") or []
+                    if isinstance(fit_attempts, list) and fit_attempts:
+                        phase9f_fit_snapshot = (
+                            fit_attempts[-1].get("fit_settings") or {}
+                            if isinstance(fit_attempts[-1], dict)
+                            else {}
+                        )
+                if isinstance(phase9f_fit_snapshot.get("settings"), dict):
+                    phase9f_fit_defaults = phase9f_fit_snapshot["settings"]
+            fit_control_defaults = {**restored_settings, **phase9f_fit_defaults}
 
             phase7_control = get_application_generation_control(
                 current_application_id
@@ -3243,6 +3452,10 @@ elif page == "Application Sessions":
                     "supported section scope when the confirmed tailoring "
                     "path begins. No editable working copy exists yet."
                 )
+            elif phase9f_f_active:
+                # The F-owned scope summary above is authoritative.  Do not
+                # render the legacy editable/disabled duplicate scope widget.
+                update_scope_dirty = False
             else:
                 (
                     lock_projects,
@@ -3260,24 +3473,28 @@ elif page == "Application Sessions":
                         or not phase9e_ready
                     ),
                 )
-            project_controls_disabled = (
-                workspace_edit_required
-                or lock_projects
-                or phase9e_projects_locked
-                or update_scope_dirty
+            project_controls_disabled = generation_controls_are_locked(
+                phase9f_execution_active=phase9f_f_active,
+                workspace_edit_required=workspace_edit_required,
+                projects_addressable=not lock_projects,
+                phase9e_projects_locked=phase9e_projects_locked,
+                update_scope_dirty=update_scope_dirty,
+                generation_settings_durably_bound=(
+                    phase9f_f_generation_settings_locked
+                ),
             )
 
             max_projects = st.slider(
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
-                value=int(restored_settings.get("max_projects", 3)),
+                value=int(generation_control_defaults.get("max_projects", 3)),
                 key=f"max_projects_{current_application_id}",
                 disabled=project_controls_disabled,
             )
 
             saved_bullet_allocation_mode = str(
-                restored_settings.get(
+                    generation_control_defaults.get(
                     "bullet_allocation_mode",
                     "prefer_available_evidence",
                 )
@@ -3338,7 +3555,7 @@ elif page == "Application Sessions":
                 "Bullet limit per project",
                 min_value=1,
                 max_value=4,
-                value=int(restored_settings.get("max_bullets", 3)),
+                value=int(generation_control_defaults.get("max_bullets", 3)),
                 key=f"max_bullets_{current_application_id}",
                 disabled=(
                     project_controls_disabled
@@ -3360,6 +3577,12 @@ elif page == "Application Sessions":
                     "Bullet limit is disabled in this mode. All available "
                     "truthful canonical bullets enter fitting; the fitter then "
                     "compacts or removes lower-value evidence only when needed."
+                )
+            if phase9f_f_active and phase9f_f_generation_settings_locked:
+                st.caption(
+                    "Generation settings are frozen from the first paid "
+                    "Projects/Skills request for safe reuse or recovery: "
+                    f"{phase9f_f_generation_snapshot.get('settings_fingerprint', '')[:12]}."
                 )
 
             generation_plan = build_generation_action_plan(
@@ -3386,6 +3609,33 @@ elif page == "Application Sessions":
                         "application workflow."
                     ),
                 }
+            elif phase9f_f_active:
+                generation_plan = {
+                    "mode": (
+                        "phase9f_f_normal_projects_skills"
+                        if phase9f_f_normal_lifecycle
+                        else "phase9f_f_projects_skills"
+                    ),
+                    "button_label": "Generate Projects + Skills",
+                    "requires_project_ai": bool(
+                        phase9f_f_section_scope.get("projects_addressable")
+                    ),
+                    "requires_skills_ai": bool(
+                        phase9f_f_section_scope.get("skills_addressable")
+                    ),
+                    "creates_draft": phase9f_f_normal_lifecycle,
+                    "note": (
+                        "The immutable Phase 9F context supplies the exact "
+                        "source, JD, and frozen evidence. This action creates "
+                        "a normal Application Session generation; Build and Fit "
+                        "remains a separate next step."
+                        if phase9f_f_normal_lifecycle
+                        else "The durable Phase 9F scope controls this normal "
+                        "Projects & Skills stage. Paid model work occurs only "
+                        "after the explicit action below; Build and Fit remains "
+                        "a separate next step."
+                    ),
+                }
             elif phase9e_projects_locked and phase9e_skills_locked:
                 generation_plan = {
                     "mode": "load_phase9e_starting_snapshot",
@@ -3401,6 +3651,42 @@ elif page == "Application Sessions":
                 }
             st.caption(generation_plan["note"])
 
+            phase9f_f_uncertain_retry = bool(
+                phase9f_f_active
+                and str(
+                    phase9f_f_execution.get("recovery_state") or ""
+                ) == "model_attempt_uncertain"
+            )
+            phase9f_f_paid_acknowledgement = False
+            if phase9f_f_active and not phase9f_f_blocked:
+                st.warning(
+                    "Projects & Skills may make paid model calls only for the "
+                    "enabled frozen sections. No fitting or approval occurs "
+                    "from this action."
+                )
+                if phase9f_f_uncertain_retry:
+                    st.error(
+                        "A prior paid model response was not proven durable. "
+                        "Acknowledge the retry before another paid request."
+                    )
+                    phase9f_f_paid_acknowledgement = st.checkbox(
+                        "I understand this may repeat an uncertain paid model request.",
+                        value=False,
+                        key=(
+                            "phase9f_f_uncertain_retry_acknowledgement_"
+                            f"{current_application_id}"
+                        ),
+                    )
+                else:
+                    phase9f_f_paid_acknowledgement = st.checkbox(
+                        "I understand this starts paid Projects/Skills generation for the enabled sections.",
+                        value=False,
+                        key=(
+                            "phase9f_f_paid_generation_acknowledgement_"
+                            f"{current_application_id}"
+                        ),
+                    )
+
             if st.button(
                 generation_plan["button_label"],
                 type="primary",
@@ -3410,9 +3696,115 @@ elif page == "Application Sessions":
                     not phase9e_ready
                     or workspace_edit_required
                     or update_scope_dirty
+                    or phase9f_f_blocked
+                    or (
+                        phase9f_f_active
+                        and not phase9f_f_paid_acknowledgement
+                    )
                 ),
             ):
                 try:
+                    if phase9f_f_active:
+                        if phase9f_f_normal_lifecycle:
+                            with st.spinner(
+                                "Generating Projects and Skills from the frozen application context..."
+                            ):
+                                normal_generation = run_phase9f_normal_generation(
+                                    application_id=int(current_application_id),
+                                    acknowledge_uncertain_model_retry=(
+                                        phase9f_f_paid_acknowledgement
+                                    ),
+                                    generation_settings={
+                                        "max_projects": max_projects,
+                                        "max_bullets": max_bullets,
+                                        "bullet_allocation_mode": bullet_allocation_mode,
+                                    },
+                                    generation_model=get_active_model("analysis"),
+                                )
+                            generation = normal_generation["generation"]
+                            st.session_state[tailored_projects_key] = deepcopy(
+                                normal_generation.get("projects") or {}
+                            )
+                            st.session_state[tailored_skills_key] = deepcopy(
+                                normal_generation.get("skills") or {}
+                            )
+                            st.session_state[tailored_fit_key] = deepcopy(
+                                generation.get("fit_estimate") or {}
+                            )
+                            st.session_state.pop(tailored_docx_key, None)
+                            st.session_state.pop(tailored_fit_result_key, None)
+                            st.session_state[tailored_generation_id_key] = str(
+                                generation.get("generation_id") or ""
+                            )
+                            st.session_state[f"phase7_flash_{current_application_id}"] = (
+                                "Created or restored the exact normal Application "
+                                "Session generation. Generation controls remain "
+                                "available for a new settings/model combination."
+                            )
+                            st.rerun()
+                        phase9f_sections = run_phase9f_tailoring_projects_skills(
+                            application_id=int(current_application_id),
+                            acknowledge_uncertain_model_retry=(
+                                phase9f_f_paid_acknowledgement
+                                if phase9f_f_uncertain_retry
+                                else False
+                            ),
+                            generation_settings={
+                                "max_projects": max_projects,
+                                "max_bullets": max_bullets,
+                                "bullet_allocation_mode": bullet_allocation_mode,
+                            },
+                            generation_model=get_active_model("analysis"),
+                        )
+                        phase9f_updated = phase9f_sections.get("execution") or {}
+                        if phase9f_updated.get("status") == "blocked":
+                            st.warning(
+                                "The frozen scope has no semantic content change. "
+                                "No fit or draft was created."
+                            )
+                            st.stop()
+                        projects_stage = (
+                            phase9f_updated.get("stage_outputs") or {}
+                        ).get("projects") or {}
+                        skills_stage = (
+                            phase9f_updated.get("stage_outputs") or {}
+                        ).get("skills") or {}
+                        st.session_state[tailored_projects_key] = deepcopy(
+                            phase9f_sections.get("projects")
+                            or projects_stage.get("result")
+                            or {}
+                        )
+                        st.session_state[tailored_skills_key] = deepcopy(
+                            phase9f_sections.get("skills")
+                            or skills_stage.get("result")
+                            or {}
+                        )
+                        st.session_state[tailored_fit_key] = estimate_project_section_length(
+                            st.session_state[tailored_projects_key],
+                            max_projects=max(1, len(
+                                st.session_state[tailored_projects_key].get(
+                                    "recommended_projects", []
+                                ) or []
+                            )),
+                            max_total_bullets=max(1, sum(
+                                len(project.get("draft_bullets", []) or [])
+                                for project in (
+                                    st.session_state[tailored_projects_key].get(
+                                        "recommended_projects", []
+                                    ) or []
+                                )
+                            )),
+                        )
+                        st.session_state.pop(tailored_docx_key, None)
+                        st.session_state.pop(tailored_fit_result_key, None)
+                        st.session_state[tailored_generation_id_key] = str(
+                            phase9f_updated.get("execution_id") or ""
+                        )
+                        st.session_state[f"phase7_flash_{current_application_id}"] = (
+                            "Projects and Skills are ready in the durable Phase 9F "
+                            "execution. Continue to Build and Fit."
+                        )
+                        st.rerun()
                     evidence_items = get_evidence_items(limit=100)
                     generation_settings = {
                         "max_projects": max_projects,
@@ -3807,6 +4199,12 @@ elif page == "Application Sessions":
                 "Advanced: Generate sections separately",
                 expanded=False,
             ):
+                if phase9f_f_active:
+                    st.caption(
+                        "The Phase 9F frozen scope uses the combined normal "
+                        "Projects & Skills action above so durable retry and "
+                        "evidence rules cannot be bypassed."
+                    )
                 col_project, col_skills = st.columns(2)
 
                 with col_project:
@@ -3821,6 +4219,7 @@ elif page == "Application Sessions":
                             or not phase9e_ready
                             or workspace_edit_required
                             or update_scope_dirty
+                            or phase9f_f_active
                         ),
                     ):
                         try:
@@ -3959,6 +4358,7 @@ elif page == "Application Sessions":
                             or not phase9e_ready
                             or workspace_edit_required
                             or update_scope_dirty
+                            or phase9f_f_active
                         ),
                     ):
                         try:
@@ -4230,6 +4630,7 @@ elif page == "Application Sessions":
             if (
                 not saved_resume_docx_path
                 and not isinstance(previous_scope_message_approved, dict)
+                and not phase9f_f_active
             ):
                 if phase9f_d_execution_waiting:
                     st.info(
@@ -4267,13 +4668,28 @@ elif page == "Application Sessions":
 
                 if saved_resume_docx_path:
                     st.success(f"Saved DOCX loaded for this session: {Path(saved_resume_docx_path).name}")
+                elif phase9f_f_active:
+                    st.caption(
+                        "Build and Fit will revalidate and materialize the exact "
+                        "immutable DOCX source recorded by the Phase 9F ledger."
+                    )
                 st.caption(f"Will update: {', '.join(selected_sections)}")
 
                 with st.expander("Fitting strategy", expanded=True):
+                    if phase9f_f_active and phase9f_f_fit_settings_locked:
+                        st.caption(
+                            "The successful Phase 9F fitting attempt is frozen "
+                            "with the materialized draft."
+                        )
+                    elif phase9f_f_active:
+                        st.caption(
+                            "These normal fitting controls will be captured by the "
+                            "next explicit Build and Fit attempt."
+                        )
                     use_compact_before_delete = st.checkbox(
                         "Compact project wording before deleting content",
                         value=bool(
-                            restored_settings.get(
+                            fit_control_defaults.get(
                                 "use_compact_before_delete",
                                 True,
                             )
@@ -4282,6 +4698,7 @@ elif page == "Application Sessions":
                             "use_compact_before_delete_"
                             f"{current_application_id}"
                         ),
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "Only used when the full résumé exceeds one page. "
                             "The fitter tests truthful compact project bullets "
@@ -4292,7 +4709,7 @@ elif page == "Application Sessions":
                     prefer_balanced_bullets = st.checkbox(
                         "Balance project bullets during deletion",
                         value=bool(
-                            restored_settings.get(
+                            fit_control_defaults.get(
                                 "prefer_balanced_bullets",
                                 False,
                             )
@@ -4301,6 +4718,7 @@ elif page == "Application Sessions":
                             "prefer_balanced_bullets_"
                             f"{current_application_id}"
                         ),
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "Only affects complete-bullet deletion. Projects with "
                             "more bullets are reduced first, then relevance is used "
@@ -4311,7 +4729,7 @@ elif page == "Application Sessions":
                     allow_skills_compaction = st.checkbox(
                         "Allow removal of low-priority Skills",
                         value=bool(
-                            restored_settings.get(
+                            fit_control_defaults.get(
                                 "allow_skills_compaction",
                                 False,
                             )
@@ -4320,6 +4738,7 @@ elif page == "Application Sessions":
                             "allow_skills_compaction_"
                             f"{current_application_id}"
                         ),
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "The fitter may temporarily remove supported but "
                             "low-priority Skills when their rendered space saving "
@@ -4333,7 +4752,7 @@ elif page == "Application Sessions":
                         "Maximize relevant content",
                     ]
                     saved_page_density = str(
-                        restored_settings.get(
+                        fit_control_defaults.get(
                             "page_density_mode",
                             "balanced",
                         )
@@ -4353,6 +4772,7 @@ elif page == "Application Sessions":
                         ),
                         horizontal=True,
                         key=f"page_density_mode_{current_application_id}",
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "Fit only reaches one page and then stops; it does not restore "
                             "content just to fill spare space. Balanced restores the "
@@ -4373,7 +4793,7 @@ elif page == "Application Sessions":
                     allow_margin_compaction = st.checkbox(
                         "Allow safe margin compaction before deleting content",
                         value=bool(
-                            restored_settings.get(
+                            fit_control_defaults.get(
                                 "allow_margin_compaction",
                                 False,
                             )
@@ -4382,6 +4802,7 @@ elif page == "Application Sessions":
                             "allow_margin_compaction_"
                             f"{current_application_id}"
                         ),
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "If the full résumé exceeds one page, the fitter may "
                             "reduce larger source margins in conservative steps before "
@@ -4401,7 +4822,7 @@ elif page == "Application Sessions":
                         "Blank line",
                     ]
                     saved_spacing_mode = str(
-                        restored_settings.get(
+                        fit_control_defaults.get(
                             "spacing_mode",
                             "paragraph_spacing",
                         )
@@ -4420,6 +4841,7 @@ elif page == "Application Sessions":
                         ),
                         horizontal=True,
                         key=f"spacing_mode_{current_application_id}",
+                        disabled=phase9f_f_fit_settings_locked,
                         help=(
                             "Paragraph spacing uses Word spacing values. "
                             "Blank line inserts real empty paragraphs, similar to pressing Enter."
@@ -4435,12 +4857,13 @@ elif page == "Application Sessions":
                     add_spacing_before_first_project = st.checkbox(
                         "Add spacing before the first project too",
                         value=bool(
-                            restored_settings.get(
+                            fit_control_defaults.get(
                                 "add_spacing_before_first_project",
                                 False,
                             )
                         ),
                         key=f"spacing_before_first_project_{current_application_id}",
+                        disabled=phase9f_f_fit_settings_locked,
                     )
 
                     if spacing_mode == "paragraph_spacing":
@@ -4449,12 +4872,13 @@ elif page == "Application Sessions":
                             min_value=0,
                             max_value=20,
                             value=int(
-                                restored_settings.get(
+                                fit_control_defaults.get(
                                     "project_spacing_pt",
                                     10,
                                 )
                             ),
                             key=f"project_spacing_pt_{current_application_id}",
+                            disabled=phase9f_f_fit_settings_locked,
                         )
 
                         after_projects_spacing_pt = st.slider(
@@ -4462,12 +4886,13 @@ elif page == "Application Sessions":
                             min_value=0,
                             max_value=20,
                             value=int(
-                                restored_settings.get(
+                                fit_control_defaults.get(
                                     "after_projects_spacing_pt",
                                     10,
                                 )
                             ),
                             key=f"after_projects_spacing_pt_{current_application_id}",
+                            disabled=phase9f_f_fit_settings_locked,
                         )
 
                         blank_lines_between_projects = 0
@@ -4479,13 +4904,14 @@ elif page == "Application Sessions":
                             min_value=0,
                             max_value=3,
                             value=int(
-                                restored_settings.get(
+                                fit_control_defaults.get(
                                     "blank_lines_between_projects",
                                     1,
                                 )
                             ),
                             step=1,
                             key=f"blank_lines_between_projects_{current_application_id}",
+                            disabled=phase9f_f_fit_settings_locked,
                         )
 
                         blank_lines_after_projects = st.number_input(
@@ -4493,13 +4919,14 @@ elif page == "Application Sessions":
                             min_value=0,
                             max_value=3,
                             value=int(
-                                restored_settings.get(
+                                fit_control_defaults.get(
                                     "blank_lines_after_projects",
                                     1,
                                 )
                             ),
                             step=1,
                             key=f"blank_lines_after_projects_{current_application_id}",
+                            disabled=phase9f_f_fit_settings_locked,
                         )
 
                         project_spacing_pt = 0
@@ -4519,9 +4946,103 @@ elif page == "Application Sessions":
                         not phase9e_ready
                         or workspace_edit_required
                         or update_scope_dirty
+                        or phase9f_f_blocked
+                        or phase9f_f_fit_settings_locked
                     ),
                 ):
                     try:
+                        if phase9f_f_active:
+                            if phase9f_f_normal_lifecycle:
+                                current_generation_id = str(
+                                    st.session_state.get(
+                                        tailored_generation_id_key
+                                    )
+                                    or ""
+                                )
+                                if not current_generation_id:
+                                    raise ValueError(
+                                        "Load a completed normal generation before "
+                                        "running Build and Fit."
+                                    )
+                                normal_fit = run_phase9f_normal_fit(
+                                    application_id=int(current_application_id),
+                                    generation_id=current_generation_id,
+                                    fit_settings={
+                                        "use_compact_before_delete": use_compact_before_delete,
+                                        "prefer_balanced_bullets": prefer_balanced_bullets,
+                                        "allow_skills_compaction": allow_skills_compaction,
+                                        "page_density_mode": page_density_mode,
+                                        "allow_margin_compaction": allow_margin_compaction,
+                                        "spacing_mode": spacing_mode,
+                                        "add_spacing_before_first_project": add_spacing_before_first_project,
+                                        "project_spacing_pt": project_spacing_pt,
+                                        "after_projects_spacing_pt": after_projects_spacing_pt,
+                                        "blank_lines_between_projects": blank_lines_between_projects,
+                                        "blank_lines_after_projects": blank_lines_after_projects,
+                                    },
+                                )
+                                generation = normal_fit["generation"]
+                                restore_generation_to_session(
+                                    current_application_id,
+                                    generation,
+                                )
+                                st.session_state[f"phase7_flash_{current_application_id}"] = (
+                                    "Built or restored the exact deterministic fit "
+                                    "for the selected normal generation. Changed fit "
+                                    "settings create a separate fitted draft."
+                                )
+                                st.rerun()
+                            phase9f_fit = run_phase9f_tailoring_fit(
+                                application_id=int(current_application_id),
+                                fit_settings={
+                                    "use_compact_before_delete": use_compact_before_delete,
+                                    "prefer_balanced_bullets": prefer_balanced_bullets,
+                                    "allow_skills_compaction": allow_skills_compaction,
+                                    "page_density_mode": page_density_mode,
+                                    "allow_margin_compaction": allow_margin_compaction,
+                                    "spacing_mode": spacing_mode,
+                                    "add_spacing_before_first_project": add_spacing_before_first_project,
+                                    "project_spacing_pt": project_spacing_pt,
+                                    "after_projects_spacing_pt": after_projects_spacing_pt,
+                                    "blank_lines_between_projects": blank_lines_between_projects,
+                                    "blank_lines_after_projects": blank_lines_after_projects,
+                                },
+                            )
+                            phase9f_updated = phase9f_fit.get("execution") or {}
+                            if phase9f_updated.get("status") == "blocked":
+                                st.warning(
+                                    "The frozen scope did not create a semantic "
+                                    "content change. No draft was created."
+                                )
+                                st.stop()
+                            generation_id = str(
+                                phase9f_updated.get("generation_id") or ""
+                            )
+                            if not generation_id:
+                                raise ValueError(
+                                    "Build and Fit did not materialize the exact "
+                                    "Phase 9F application draft."
+                                )
+                            generation = get_tailoring_generation(
+                                current_application_id,
+                                generation_id,
+                            )
+                            if not isinstance(generation, dict):
+                                raise ValueError(
+                                    "The fitted Phase 9F application draft could "
+                                    "not be restored into the normal preview and "
+                                    "approval workflow."
+                                )
+                            restore_generation_to_session(
+                                current_application_id,
+                                generation,
+                            )
+                            st.session_state[f"phase7_flash_{current_application_id}"] = (
+                                "Built the deterministic fitted draft. Preview and "
+                                "approval remain in the normal Application Session "
+                                "workflow."
+                            )
+                            st.rerun()
                         phase7_control = get_application_generation_control(
                             current_application_id
                         )
@@ -4936,6 +5457,9 @@ elif page == "Application Sessions":
                             else None
                         ),
                         workspace_managed=True,
+                        phase9f_execution=(
+                            phase9f_f_execution if phase9f_f_active else None
+                        ),
                     )
                 else:
                     st.info(
@@ -5059,12 +5583,22 @@ elif page == "Application Sessions":
                                 application_id=current_application_id,
                                 baseline_report=report,
                                 raw_jd_text=phase8_raw_jd_text,
+                                phase9f_execution=(
+                                    phase9f_f_execution
+                                    if phase9f_f_active
+                                    else None
+                                ),
                             )
                     else:
                         render_phase8_verification(
                             application_id=current_application_id,
                             baseline_report=report,
                             raw_jd_text=phase8_raw_jd_text,
+                            phase9f_execution=(
+                                phase9f_f_execution
+                                if phase9f_f_active
+                                else None
+                            ),
                         )
                 elif isinstance(
                     active_previous_scope_approved,

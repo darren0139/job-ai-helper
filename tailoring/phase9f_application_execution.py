@@ -168,14 +168,23 @@ def _source_identity(decision: dict[str, Any]) -> dict[str, Any]:
     return required
 
 
-def validate_reuse_execution_scope(
+def validate_phase9f_d_execution_scope(
     *,
     application_id: int,
     confirmation: dict[str, Any],
     decision: dict[str, Any],
     exact_jd: dict[str, Any],
+    allowed_intensities: set[str],
+    intensity_error_code: str,
+    intensity_error_message: str,
 ) -> dict[str, Any]:
-    """Validate the complete frozen D/Phase 9E/JD Reuse scope."""
+    """Validate one frozen D/Phase 9E/source/JD execution scope.
+
+    The public helper intentionally contains only facts shared by the
+    Phase 9F-E Reuse and Phase 9F-F changed-content orchestrators.  Callers
+    provide their own supported intensity set so the frozen Reuse wrapper can
+    preserve its established error and result contract.
+    """
     if int(application_id) <= 0:
         raise Phase9FEExecutionError(
             "A positive Application Session ID is required.",
@@ -242,12 +251,15 @@ def validate_reuse_execution_scope(
             "confirmed_intensity"
         )
     ).lower()
-    if {confirmed_intensity, decision_intensity, execution_intensity} != {
-        "reuse"
-    }:
+    if (
+        not confirmed_intensity
+        or confirmed_intensity != decision_intensity
+        or confirmed_intensity != execution_intensity
+        or confirmed_intensity not in set(allowed_intensities)
+    ):
         raise Phase9FEExecutionError(
-            "Phase 9F-E Reuse cannot execute a Minor or Full confirmation.",
-            code="confirmed_intensity_not_reuse",
+            intensity_error_message,
+            code=intensity_error_code,
         )
 
     current_jd = exact_jd_identity(exact_jd)
@@ -283,11 +295,40 @@ def validate_reuse_execution_scope(
         "phase9e_decision_fingerprint": _clean(
             decision.get("decision_fingerprint")
         ),
-        "confirmed_intensity": "reuse",
+        "confirmed_intensity": confirmed_intensity,
         "source": source,
         "exact_jd": current_jd,
         "starting_snapshot_fingerprint": starting_fingerprint,
         "frozen_content": content_identity,
+    }
+
+
+def validate_reuse_execution_scope(
+    *,
+    application_id: int,
+    confirmation: dict[str, Any],
+    decision: dict[str, Any],
+    exact_jd: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate the complete frozen D/Phase 9E/JD Reuse scope.
+
+    This wrapper is deliberately kept as the frozen Phase 9F-E-facing API.
+    Its validation order, error code, and successful output remain unchanged.
+    """
+    validated = validate_phase9f_d_execution_scope(
+        application_id=application_id,
+        confirmation=confirmation,
+        decision=decision,
+        exact_jd=exact_jd,
+        allowed_intensities={"reuse"},
+        intensity_error_code="confirmed_intensity_not_reuse",
+        intensity_error_message=(
+            "Phase 9F-E Reuse cannot execute a Minor or Full confirmation."
+        ),
+    )
+    return {
+        **validated,
+        "confirmed_intensity": "reuse",
     }
 
 

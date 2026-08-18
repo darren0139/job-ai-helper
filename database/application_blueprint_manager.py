@@ -1337,6 +1337,64 @@ def resolve_current_phase9e_generation_context(
         }
     phase9f_d_state = phase9f_d_execution_state(decision)
     if phase9f_d_state is not None:
+        # A confirmed Minor/Full path becomes generation-ready only after the
+        # durable F ledger has performed its explicit deterministic setup.
+        # Reuse remains exclusively owned by the frozen Phase 9F-E path.
+        phase9f_f_execution = None
+        if phase9f_d_state.get("confirmed_intensity") in {"minor", "full"}:
+            try:
+                from database.phase9f_tailoring_execution_manager import (
+                    get_phase9f_tailoring_execution,
+                )
+
+                phase9f_f_execution = get_phase9f_tailoring_execution(
+                    application_id
+                )
+            except (ValueError, RuntimeError):
+                phase9f_f_execution = None
+        if isinstance(phase9f_f_execution, dict):
+            starting = decision.get("starting_snapshot") or {}
+            report = _application_report(application_id)
+            effective_report = build_effective_tailoring_report(report, decision)
+            effective_report.setdefault("meta", {}).setdefault(
+                "phase9e_starting_context", {}
+            )["workflow_action"] = "phase9f_f_minor_full_execution"
+            return {
+                "status": "current",
+                "can_generate": True,
+                "phase9e_enforced": True,
+                "decision": decision,
+                "effective_report": effective_report,
+                "binding_identity": {
+                    "phase9e_version": decision["phase9e_version"],
+                    "decision_id": decision["decision_id"],
+                    "decision_fingerprint": decision["decision_fingerprint"],
+                    "selected_source": (decision.get("selection") or {}).get(
+                        "selected_source"
+                    ),
+                    "selected_blueprint": deepcopy(
+                        (decision.get("selection") or {}).get(
+                            "selected_blueprint"
+                        )
+                        or {}
+                    ),
+                    "starting_snapshot_fingerprint": starting.get(
+                        "starting_snapshot_fingerprint"
+                    ),
+                    "confirmed_intensity": phase9f_d_state[
+                        "confirmed_intensity"
+                    ],
+                    "execution_status": phase9f_f_execution.get("status"),
+                },
+                "starting_sections": materialise_phase9e_starting_sections(
+                    decision
+                ),
+                "section_lock_scope": deepcopy(
+                    decision.get("section_lock_scope") or {}
+                ),
+                "phase9f_f_execution": phase9f_f_execution,
+                "reasons": [],
+            }
         starting = decision.get("starting_snapshot") or {}
         return {
             **phase9f_d_state,

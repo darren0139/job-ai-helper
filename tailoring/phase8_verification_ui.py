@@ -9,6 +9,7 @@ import streamlit as st
 
 from database.tailoring_generation_control import (
     get_application_generation_control,
+    is_phase9f_normal_generation_approvable,
     list_tailoring_generations,
 )
 from database.tailoring_verification_manager import (
@@ -26,6 +27,32 @@ def _label(state: dict[str, Any]) -> str:
     short_id = str(state.get("generation_id") or "")[:8]
     pages = (state.get("fit_result") or {}).get("page_count", "—")
     return f"{status} · {short_id} · {pages} page(s)"
+
+
+def _phase9f_execution_uses_legacy_private_stages(
+    execution: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(execution, dict):
+        return False
+    outputs = execution.get("stage_outputs") or {}
+    if any(
+        key in outputs
+        for key in (
+            "generation_settings",
+            "projects",
+            "skills",
+            "fitting",
+            "fitting_attempts",
+        )
+    ):
+        return True
+    if outputs.get("normal_lifecycle_adapter_version") == (
+        "phase9f-f-normal-generation-lifecycle-v1"
+    ):
+        return False
+    return bool(
+        str(execution.get("generation_id") or "").strip()
+    )
 
 
 def _render_result(result: dict[str, Any]) -> None:
@@ -218,6 +245,7 @@ def render_phase8_verification(
     application_id: int,
     baseline_report: dict[str, Any],
     raw_jd_text: str,
+    phase9f_execution: dict[str, Any] | None = None,
 ) -> None:
     st.divider()
     st.subheader("Phase 8 — Final Tailored Résumé Verification")
@@ -231,7 +259,30 @@ def render_phase8_verification(
         state
         for state in versions
         if isinstance(state.get("fit_result"), dict)
+        and is_phase9f_normal_generation_approvable(state)
     ]
+    phase9f_generation_id = str(
+        (phase9f_execution or {}).get("generation_id") or ""
+    ).strip()
+    phase9f_legacy_private = _phase9f_execution_uses_legacy_private_stages(
+        phase9f_execution
+    )
+    # A normal F lifecycle generation becomes eligible for Phase 8 only
+    # after the ordinary Application Session approval has selected it.  The
+    # F ledger validates that approval's immutable context; it does not add a
+    # parallel approval path.
+    if phase9f_execution and not phase9f_legacy_private:
+        eligible = [
+            state
+            for state in eligible
+            if str(state.get("status") or "") == "approved"
+        ]
+    if phase9f_generation_id and phase9f_legacy_private:
+        eligible = [
+            state
+            for state in eligible
+            if str(state.get("generation_id") or "") == phase9f_generation_id
+        ]
     if not eligible:
         st.info(
             "Generate and fit a tailored résumé DOCX before running Phase 8."
@@ -293,16 +344,45 @@ def render_phase8_verification(
             with st.spinner(
                 "Revalidating the final fitted evidence deterministically..."
             ):
-                result = build_phase8_verification(
-                    baseline_report=baseline_report,
-                    generation_state=selected,
-                    raw_jd_text=raw_jd_text,
-                )
-                saved = save_tailoring_verification(
-                    application_id=application_id,
-                    generation_id=selected_id,
-                    result=result,
-                )
+                if phase9f_generation_id and phase9f_legacy_private:
+                    # Use the existing Phase 8 presentation, while the F
+                    # ledger supplies its exact frozen baseline and revalidates
+                    # the D-bound JD/generation provenance before accepting it.
+                    from database.phase9f_tailoring_execution_manager import (
+                        run_or_reuse_phase9f_tailoring_phase8,
+                    )
+
+                    phase9f_result = run_or_reuse_phase9f_tailoring_phase8(
+                        application_id=application_id
+                    )
+                    saved = {
+                        "cache_status": phase9f_result.get("cache_status"),
+                    }
+                elif phase9f_execution:
+                    from database.phase9f_tailoring_execution_manager import (
+                        run_or_reuse_phase9f_normal_generation_phase8,
+                    )
+
+                    phase9f_result = (
+                        run_or_reuse_phase9f_normal_generation_phase8(
+                            application_id=application_id,
+                            generation_id=selected_id,
+                        )
+                    )
+                    saved = {
+                        "cache_status": phase9f_result.get("cache_status"),
+                    }
+                else:
+                    result = build_phase8_verification(
+                        baseline_report=baseline_report,
+                        generation_state=selected,
+                        raw_jd_text=raw_jd_text,
+                    )
+                    saved = save_tailoring_verification(
+                        application_id=application_id,
+                        generation_id=selected_id,
+                        result=result,
+                    )
             cache_status = str(
                 saved.get("cache_status") or ""
             )
@@ -341,9 +421,10 @@ def render_phase8_verification(
         selected_id,
     )
     if isinstance(latest, dict):
-        refreshed_latest = refresh_phase8_readiness(
-            latest,
-            selected,
+        refreshed_latest = (
+            latest
+            if phase9f_generation_id
+            else refresh_phase8_readiness(latest, selected)
         )
         mutable_fields = (
             "generation_status",
@@ -356,7 +437,7 @@ def render_phase8_verification(
             latest.get(field) != refreshed_latest.get(field)
             for field in mutable_fields
         )
-        if readiness_changed:
+        if readiness_changed and not phase9f_generation_id:
             refreshed_latest = save_tailoring_verification(
                 application_id=application_id,
                 generation_id=selected_id,

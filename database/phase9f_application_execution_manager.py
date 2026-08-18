@@ -825,6 +825,23 @@ def _resolve_exact_source(
     )
 
 
+def resolve_exact_phase9f_d_source(
+    *,
+    decision: dict[str, Any],
+    confirmation: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve the immutable D-bound source for a compatible executor.
+
+    Phase 9F-F uses this public adapter rather than reaching into the private
+    Reuse implementation.  The underlying resolution and hash checks remain
+    the established Phase 9F-E behavior.
+    """
+    return _resolve_exact_source(
+        decision=decision,
+        confirmation=confirmation,
+    )
+
+
 def _final_artifact_rows(
     *,
     prepared_result: dict[str, Any],

@@ -28,6 +28,9 @@ from database.jd_library_manager import get_exact_job_description_for_applicatio
 from database.phase9f_application_execution_manager import (
     get_phase9f_application_execution,
 )
+from database.phase9f_tailoring_execution_manager import (
+    get_phase9f_tailoring_execution,
+)
 from tailoring.phase9e_blueprint_selection import (
     DECISION_LABELS,
     Phase9EDecisionError,
@@ -208,7 +211,15 @@ def _show_active_binding(
 
     phase9f_d_state = phase9f_d_execution_state(current)
     if phase9f_d_state is not None:
-        execution = get_phase9f_application_execution(application_id)
+        confirmed_intensity = _clean(
+            phase9f_d_state.get("confirmed_intensity")
+        ).lower()
+        is_reuse = confirmed_intensity == "reuse"
+        execution = (
+            get_phase9f_application_execution(application_id)
+            if is_reuse
+            else get_phase9f_tailoring_execution(application_id)
+        )
         execution_status = _clean((execution or {}).get("status")) or "not_started"
         execution_stage = _clean((execution or {}).get("current_stage"))
 
@@ -232,28 +243,42 @@ def _show_active_binding(
         elif execution_status in {"preparing", "running"}:
             stage_suffix = f" at `{execution_stage}`" if execution_stage else ""
             st.info(
-                f"Reuse execution is {execution_status}{stage_suffix}. "
+                f"{'Reuse' if is_reuse else 'Tailoring'} execution is "
+                f"{execution_status}{stage_suffix}. "
                 "The exact Phase 9F-D Tailoring Base remains bound."
             )
         elif execution_status == "failed":
             message = _clean((execution or {}).get("last_error_message"))
             st.warning(
-                "Reuse execution failed safely"
+                ("Reuse" if is_reuse else "Tailoring")
+                + " execution failed safely"
                 + (f" at `{execution_stage}`" if execution_stage else "")
                 + (f": {message}" if message else ".")
-                + " Retry from Phase 9F-E; the exact Phase 9F-D binding "
+                + (
+                    " Retry from Phase 9F-E;"
+                    if is_reuse
+                    else " Retry from Phase 9F-F;"
+                )
+                + " the exact Phase 9F-D binding "
                 "remains intact."
             )
         elif execution_status == "completed":
             st.info(
-                "Reuse execution is complete. Review the immutable résumé "
-                "result, current-JD Phase 8 verification, downloads, and "
-                "source lineage below."
+                (
+                    "Reuse execution is complete. Review the immutable résumé "
+                    "result, current-JD Phase 8 verification, downloads, and "
+                    "source lineage below."
+                    if is_reuse
+                    else "Tailoring execution is complete. Review the changed "
+                    "approved résumé, Phase 8 verification, and source lineage below."
+                )
             )
         else:
             st.info(
-                "A durable Phase 9F-E execution record exists with status "
-                f"`{execution_status}`. Review Phase 9F-E below."
+                "A durable Phase 9F-"
+                + ("E" if is_reuse else "F")
+                + " execution record exists with status "
+                f"`{execution_status}`. Review the matching execution below."
             )
 
         with st.expander(

@@ -226,9 +226,70 @@ def render_evidence_opportunity_analysis(
     raw_jd_text: str,
     evidence_items: list[dict[str, Any]],
     collapsed: bool = False,
+    frozen_phase9f_scope: dict[str, Any] | None = None,
 ) -> None:
-    """Render Phase 9A after source selection with optional disclosure."""
+    """Render Phase 9A after source selection with optional disclosure.
+
+    Phase 9F-F has already frozen its positive-gain evidence and section
+    scope during an explicit preparation action.  In that workflow, this
+    established Phase 9A presentation is deliberately read-only: rebuilding
+    an opportunity forecast from mutable library evidence would misrepresent
+    the durable scope that the later paid stages must use.
+    """
     st.divider()
+    if isinstance(frozen_phase9f_scope, dict):
+        section_scope = frozen_phase9f_scope.get("section_scope") or {}
+        selected = section_scope.get("selected_evidence") or []
+        projects_addressable = bool(section_scope.get("projects_addressable"))
+        skills_addressable = bool(section_scope.get("skills_addressable"))
+        status = str(frozen_phase9f_scope.get("status") or "").strip()
+        stage = str(frozen_phase9f_scope.get("current_stage") or "").strip()
+
+        def _render_frozen_scope() -> None:
+            st.caption(
+                "This application uses the exact Phase 9F frozen opportunity "
+                "scope. It is shown here for inspection and is not recomputed "
+                "from mutable Evidence Library data."
+            )
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Confirmed intensity", str(
+                frozen_phase9f_scope.get("confirmed_intensity") or "—"
+            ).title())
+            col2.metric("Projects addressable", "Yes" if projects_addressable else "No")
+            col3.metric("Skills addressable", "Yes" if skills_addressable else "No")
+            col4.metric("Selected positive-gain evidence", len(selected))
+            if status == "blocked":
+                st.warning(
+                    "No truthful Projects or Skills change is addressable. "
+                    "No model call, fit, or draft can be started from this scope."
+                )
+            elif stage:
+                st.caption(f"Application workflow stage: {stage.replace('_', ' ')}")
+            if selected:
+                with st.expander("Frozen selected evidence", expanded=False):
+                    st.dataframe(
+                        [
+                            {
+                                "Evidence": row.get("title", ""),
+                                "Category": row.get("category", ""),
+                                "Period": row.get("period", ""),
+                                "Requirements improved": len(
+                                    row.get("matched_requirements", []) or []
+                                ),
+                            }
+                            for row in selected
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                    )
+
+        if collapsed:
+            with st.expander("Phase 9A — Tailoring Opportunities", expanded=False):
+                _render_frozen_scope()
+        else:
+            st.subheader("Phase 9A — Tailoring Opportunities")
+            _render_frozen_scope()
+        return
     if collapsed:
         with st.expander(
             "Phase 9A — Evidence Opportunity Analysis",

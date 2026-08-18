@@ -40,7 +40,7 @@ from tailoring.phase9e1_resume_workspace_ui import (
 from tailoring.phase9e_blueprint_selection import DECISION_LABELS
 
 
-PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v4"
+PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v5"
 
 
 def _clean(value: Any) -> str:
@@ -121,6 +121,7 @@ def build_application_workflow_overview(
     legacy_verification: dict[str, Any] | None = None,
     phase9f_d_confirmation: dict[str, Any] | None = None,
     phase9f_e_execution: dict[str, Any] | None = None,
+    phase9f_f_execution: dict[str, Any] | None = None,
     load_error: str = "",
 ) -> dict[str, Any]:
     """Build a read-only, state-aware application workflow summary."""
@@ -133,6 +134,7 @@ def build_application_workflow_overview(
     verification = legacy_verification or {}
     phase9f_d = phase9f_d_confirmation or {}
     phase9f_e = phase9f_e_execution or {}
+    phase9f_f = phase9f_f_execution or {}
     phase9f_d_content = (
         (phase9f_d.get("semantic_identity") or {}).get(
             "confirmation_content_identity"
@@ -200,7 +202,28 @@ def build_application_workflow_overview(
         source_label = "Not selected"
         source_detail = "Choose a starting résumé"
 
-    if (
+    if phase9f_f:
+        intensity = _clean(phase9f_f.get("confirmed_intensity")).title()
+        execution_status = _clean(phase9f_f.get("status")).replace("_", " ")
+        stage = _clean(phase9f_f.get("current_stage")).replace("_", " ")
+        workflow_mode = f"Tailored Application Session · {intensity}"
+        result_label = f"Tailoring {execution_status or 'not started'}"
+        phase9e_status = "Active · exact Phase 9F-D binding"
+        next_action = {
+            "blocked": "Return through Phase 9F confirmation to choose another source or intensity.",
+            "preparing": "Tailoring is initialized. Review Tailoring Opportunities, then continue to Projects & Skills.",
+            "running": {
+                "projects": "Run the normal Projects & Skills stage; paid work starts only from that action.",
+                "skills": "Run the normal Projects & Skills stage; durable completed work will be reused.",
+                "build fit pending": "Projects & Skills are ready. Continue to the normal Build and Fit stage.",
+                "fitting": "Build and Fit is running deterministically from the durable section outputs.",
+            }.get(stage, f"Continue at {stage or 'the current Application Session stage'}"),
+            "waiting_for_approval": "Preview and approve the fitted draft using the existing Application Session approval control.",
+            "waiting_for_phase8": "Run the existing Final Résumé Verification control for the approved draft.",
+            "completed": "Review the approved changed output and its authoritative Phase 8 result.",
+            "failed": "Retry only the affected Application Session stage; durable earlier work remains available.",
+        }.get(_clean(phase9f_f.get("status")), "Review the current Application Session stage.")
+    elif (
         initial_status == PHASE9F_E_RESULT_STATUS
         and _clean(phase9f_e.get("status")) == "completed"
     ):
@@ -424,6 +447,9 @@ def build_application_workflow_overview(
         "phase9f_e_phase8_mode": _clean(
             phase9f_e.get("phase8_mode")
         ),
+        "phase9f_f_execution_id": _clean(phase9f_f.get("execution_id")),
+        "phase9f_f_execution_status": _clean(phase9f_f.get("status")),
+        "phase9f_f_execution_stage": _clean(phase9f_f.get("current_stage")),
         "previous_scope_approved": previous_scope_approved,
         "has_legacy_approved_result": has_legacy_approved,
         "load_error": _clean(load_error),
@@ -499,6 +525,15 @@ def render_application_workflow_overview(
     except (ValueError, RuntimeError) as exc:
         phase9f_e_execution = None
         errors.append(str(exc))
+    try:
+        from database.phase9f_tailoring_execution_manager import (
+            get_phase9f_tailoring_execution,
+        )
+
+        phase9f_f_execution = get_phase9f_tailoring_execution(application_id)
+    except (ValueError, RuntimeError) as exc:
+        phase9f_f_execution = None
+        errors.append(str(exc))
     from tailoring.phase9e1_resume_workspace_ui import (
         get_resume_workspace_context,
     )
@@ -517,6 +552,7 @@ def render_application_workflow_overview(
         legacy_verification=verification,
         phase9f_d_confirmation=phase9f_d_confirmation,
         phase9f_e_execution=phase9f_e_execution,
+        phase9f_f_execution=phase9f_f_execution,
         load_error=" ".join(errors),
     )
 
