@@ -25,6 +25,9 @@ from database.application_resume_result_manager import (
 from tailoring.generation_controls_ui import restore_generation_to_session
 from database.global_blueprint_manager import list_global_blueprints
 from database.jd_library_manager import get_exact_job_description_for_application
+from database.phase9f_application_execution_manager import (
+    get_phase9f_application_execution,
+)
 from tailoring.phase9e_blueprint_selection import (
     DECISION_LABELS,
     Phase9EDecisionError,
@@ -202,8 +205,13 @@ def _show_active_binding(
     else:
         source_label = "Persisted original résumé"
         source_details = "Original résumé snapshot persisted for this application"
+
     phase9f_d_state = phase9f_d_execution_state(current)
     if phase9f_d_state is not None:
+        execution = get_phase9f_application_execution(application_id)
+        execution_status = _clean((execution or {}).get("status")) or "not_started"
+        execution_stage = _clean((execution or {}).get("current_stage"))
+
         st.success("Exact Phase 9F-D Tailoring Base is bound.")
         st.write(f"**Active tailoring base:** {source_label}")
         st.caption(source_details)
@@ -211,17 +219,50 @@ def _show_active_binding(
             "**Confirmed tailoring intensity:** "
             f"{phase9f_d_state['confirmed_intensity_label']}"
         )
-        st.caption("Execution status: not started")
-        st.info(
-            "Tailoring execution has not started yet. "
-            f"Next action: {phase9f_d_state['next_action']}."
+        st.caption(
+            "Execution status: "
+            f"{execution_status.replace('_', ' ')}"
         )
+
+        if execution_status == "not_started":
+            st.info(
+                "Tailoring execution has not started yet. "
+                f"Next action: {phase9f_d_state['next_action']}."
+            )
+        elif execution_status in {"preparing", "running"}:
+            stage_suffix = f" at `{execution_stage}`" if execution_stage else ""
+            st.info(
+                f"Reuse execution is {execution_status}{stage_suffix}. "
+                "The exact Phase 9F-D Tailoring Base remains bound."
+            )
+        elif execution_status == "failed":
+            message = _clean((execution or {}).get("last_error_message"))
+            st.warning(
+                "Reuse execution failed safely"
+                + (f" at `{execution_stage}`" if execution_stage else "")
+                + (f": {message}" if message else ".")
+                + " Retry from Phase 9F-E; the exact Phase 9F-D binding "
+                "remains intact."
+            )
+        elif execution_status == "completed":
+            st.info(
+                "Reuse execution is complete. Review the immutable résumé "
+                "result, current-JD Phase 8 verification, downloads, and "
+                "source lineage below."
+            )
+        else:
+            st.info(
+                "A durable Phase 9F-E execution record exists with status "
+                f"`{execution_status}`. Review Phase 9F-E below."
+            )
+
         with st.expander(
             "View current Phase 9E decision diagnostics",
             expanded=False,
         ):
             _show_decision(current, heading="Current bound decision")
         return
+
     workflow = generation_context.get("workflow_action") or {}
     workflow_state = _clean(workflow.get("workflow_action")) or "not selected"
 
@@ -256,6 +297,7 @@ def _show_active_binding(
         decision=current,
         actor_label=actor_label,
     )
+
 
 
 

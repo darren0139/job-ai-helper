@@ -20,6 +20,9 @@ from database.jd_library_manager import (
 from database.phase9f_application_confirmation_manager import (
     get_phase9f_application_confirmation,
 )
+from database.phase9f_application_execution_manager import (
+    get_phase9f_application_execution,
+)
 from database.tailoring_generation_control import (
     get_application_generation_control,
 )
@@ -30,6 +33,7 @@ from tailoring.phase9e_application_result import (
     STATUS_REUSED_APPROVED,
     STATUS_REUSED_UNCHANGED_PENDING,
 )
+from tailoring.phase9f_application_execution import PHASE9F_E_RESULT_STATUS
 from tailoring.phase9e1_resume_workspace_ui import (
     render_resume_workspace,
 )
@@ -116,6 +120,7 @@ def build_application_workflow_overview(
     legacy_approved_generation: dict[str, Any] | None = None,
     legacy_verification: dict[str, Any] | None = None,
     phase9f_d_confirmation: dict[str, Any] | None = None,
+    phase9f_e_execution: dict[str, Any] | None = None,
     load_error: str = "",
 ) -> dict[str, Any]:
     """Build a read-only, state-aware application workflow summary."""
@@ -127,6 +132,7 @@ def build_application_workflow_overview(
     legacy_generation = legacy_approved_generation or {}
     verification = legacy_verification or {}
     phase9f_d = phase9f_d_confirmation or {}
+    phase9f_e = phase9f_e_execution or {}
     phase9f_d_content = (
         (phase9f_d.get("semantic_identity") or {}).get(
             "confirmation_content_identity"
@@ -155,6 +161,7 @@ def build_application_workflow_overview(
     has_immutable_result = initial_status in {
         STATUS_REUSED_APPROVED,
         STATUS_REUSED_UNCHANGED_PENDING,
+        PHASE9F_E_RESULT_STATUS,
     }
     has_legacy_approved = bool(
         legacy_generation
@@ -193,7 +200,18 @@ def build_application_workflow_overview(
         source_label = "Not selected"
         source_detail = "Choose a starting résumé"
 
-    if initial_status == STATUS_REUSED_APPROVED:
+    if (
+        initial_status == PHASE9F_E_RESULT_STATUS
+        and _clean(phase9f_e.get("status")) == "completed"
+    ):
+        workflow_mode = "Phase 9F-E immutable Reuse"
+        result_label = "Reuse completed · 1 page · Phase 8 verified"
+        phase9e_status = "Active · exact Phase 9F-D binding"
+        next_action = (
+            "Review, preview, or download the immutable Reuse result. "
+            "No second content approval is required."
+        )
+    elif initial_status == STATUS_REUSED_APPROVED:
         workflow_mode = "Phase 9E immutable reuse"
         result_label = "Reused approved blueprint"
         phase9e_status = "Active"
@@ -394,6 +412,18 @@ def build_application_workflow_overview(
         "phase9f_d_override_classification": _clean(
             phase9f_d_confirmed.get("override_classification")
         ),
+        "phase9f_e_execution_id": _clean(
+            phase9f_e.get("execution_id")
+        ),
+        "phase9f_e_execution_status": _clean(
+            phase9f_e.get("status")
+        ),
+        "phase9f_e_execution_stage": _clean(
+            phase9f_e.get("current_stage")
+        ),
+        "phase9f_e_phase8_mode": _clean(
+            phase9f_e.get("phase8_mode")
+        ),
         "previous_scope_approved": previous_scope_approved,
         "has_legacy_approved_result": has_legacy_approved,
         "load_error": _clean(load_error),
@@ -462,6 +492,13 @@ def render_application_workflow_overview(
     except (ValueError, RuntimeError) as exc:
         phase9f_d_confirmation = None
         errors.append(str(exc))
+    try:
+        phase9f_e_execution = get_phase9f_application_execution(
+            application_id
+        )
+    except (ValueError, RuntimeError) as exc:
+        phase9f_e_execution = None
+        errors.append(str(exc))
     from tailoring.phase9e1_resume_workspace_ui import (
         get_resume_workspace_context,
     )
@@ -479,6 +516,7 @@ def render_application_workflow_overview(
         legacy_approved_generation=approved,
         legacy_verification=verification,
         phase9f_d_confirmation=phase9f_d_confirmation,
+        phase9f_e_execution=phase9f_e_execution,
         load_error=" ".join(errors),
     )
 

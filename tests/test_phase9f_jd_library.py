@@ -79,6 +79,42 @@ class Phase9FJDLibraryTests(unittest.TestCase):
         self.assertFalse(second["created_new_version"])
         self.assertFalse(second["needs_chroma_index"])
 
+    def test_repeated_legacy_backfill_preserves_an_authoritative_exact_link(self):
+        """The legacy display projection must never rewrite the link authority."""
+        saved = manager.save_or_link_job_description_for_application(
+            application_id=91,
+            raw_text=(
+                "Junior Software Engineer. Build Python REST APIs and test "
+                "reliable services with a collaborative engineering team."
+            ),
+            jd_profile=profile("Junior Software Engineer", "Company A"),
+        )
+        connection = manager._connect()
+        try:
+            connection.execute(
+                "UPDATE job_descriptions SET updated_at=? WHERE id=?",
+                ("2000-01-01T00:00:00", saved["job_description_id"]),
+            )
+            connection.execute(
+                "UPDATE application_job_links SET updated_at=? WHERE application_id=?",
+                ("2026-08-18T00:00:00", 91),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        manager.init_jd_library()
+        exact = manager.get_exact_job_description_for_application(91)
+        self.assertIsNotNone(exact)
+        self.assertEqual(
+            exact["source_application_link"]["updated_at"],
+            "2026-08-18T00:00:00",
+        )
+        self.assertEqual(
+            exact["source_application_link"]["source_version_id"],
+            saved["source_version_id"],
+        )
+
     def test_exact_saved_version_rebuilds_without_model_provenance(self):
         saved = manager.save_job_description_to_library(
             raw_text=(

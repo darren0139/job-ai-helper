@@ -286,10 +286,7 @@ def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
                     updated_at
                 )
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(application_id) DO UPDATE SET
-                    job_description_id = excluded.job_description_id,
-                    source_version_id = excluded.source_version_id,
-                    updated_at = excluded.updated_at
+                ON CONFLICT(application_id) DO NOTHING
                 """,
                 (int(application_id), target_id, source_id, created_at, updated_at),
             )

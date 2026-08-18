@@ -138,6 +138,10 @@ from database.phase9f_application_confirmation_manager import (
     delete_phase9f_application_confirmation,
     init_phase9f_application_confirmation_schema,
 )
+from database.phase9f_application_execution_manager import (
+    delete_phase9f_application_execution,
+    init_phase9f_application_execution_schema,
+)
 from database.global_blueprint_manager import init_global_blueprint_registry
 from database.application_resume_result_manager import (
     delete_application_resume_results,
@@ -199,6 +203,9 @@ from tailoring.phase9f_orchestrator_ui import render_phase9f_jd_intake
 from tailoring.phase9f_master_resume_ui import render_phase9f_master_resume
 from tailoring.phase9f_application_confirmation import (
     PHASE9F_D_EXECUTION_NOT_STARTED_STATUS,
+)
+from tailoring.phase9f_application_execution_ui import (
+    render_phase9f_reuse_execution,
 )
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
@@ -2055,6 +2062,7 @@ init_application_resume_results()
 init_application_cover_letters()
 init_global_master_resume_registry()
 init_phase9f_application_confirmation_schema()
+init_phase9f_application_execution_schema()
 
 init_jd_library()
 init_chat_history()
@@ -2358,6 +2366,7 @@ with st.sidebar:
                             delete_application_tailoring_generations(
                                 app_id
                             )
+                            delete_phase9f_application_execution(app_id)
                             delete_phase9f_application_confirmation(app_id)
                             delete_application_blueprint_decisions(
                                 app_id
@@ -2902,6 +2911,16 @@ elif page == "Application Sessions":
                     application_id=int(current_application_id),
                     baseline_report=persisted_application_report,
                 )
+            if (
+                phase9e_context.get("status")
+                == PHASE9F_D_EXECUTION_NOT_STARTED_STATUS
+                and phase9e_context.get("confirmed_intensity") == "reuse"
+            ):
+                render_phase9f_reuse_execution(
+                    application_id=int(current_application_id),
+                    phase9e_context=phase9e_context,
+                )
+                st.stop()
             try:
                 current_application_result = (
                     get_current_application_resume_result(
