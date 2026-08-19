@@ -26,7 +26,7 @@ PHASE9F_F_IDENTITY_POLICY_VERSION = "phase9f-tailoring-execution-identity-v3"
 PHASE9F_F_EVENT_VERSION = "phase9f-tailoring-execution-event-v1"
 PHASE9F_F_STAGE_OUTPUT_POLICY_VERSION = "phase9f-f-stage-output-v2"
 PHASE9F_F_SECTION_SCOPE_POLICY_VERSION = (
-    "phase9f-f-addressable-section-scope-v1"
+    "phase9f-f-addressable-section-scope-v2"
 )
 PHASE9F_F_EVIDENCE_SNAPSHOT_POLICY_VERSION = (
     "phase9f-f-frozen-evidence-snapshot-v2"
@@ -156,6 +156,53 @@ def _skills_fingerprint(profile: dict[str, Any]) -> str:
     return fingerprint_value({"skills": deepcopy(profile.get("skills") or {})})
 
 
+def _profile_has_projects(profile: dict[str, Any]) -> bool:
+    return any(
+        isinstance(project, dict)
+        and (
+            _clean(project.get("title"))
+            or bool(project.get("bullets"))
+        )
+        for project in (profile.get("projects") or [])
+    )
+
+
+def _profile_has_skills(profile: dict[str, Any]) -> bool:
+    skills = profile.get("skills") or {}
+    if isinstance(skills, dict):
+        return any(
+            _normalise_list(values)
+            for values in skills.values()
+            if isinstance(values, (list, tuple, set, str))
+        )
+    if isinstance(skills, (list, tuple, set, str)):
+        return bool(_normalise_list(skills))
+    return False
+
+
+def _frozen_rows_have_project_evidence(rows: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(row, dict)
+        and _clean(row.get("category")).lower() == "project"
+        and (
+            _clean(row.get("title"))
+            or _clean(row.get("description"))
+        )
+        for row in rows
+    )
+
+
+def _frozen_rows_have_skill_evidence(rows: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(row, dict)
+        and (
+            bool(_normalise_list(row.get("skills")))
+            or bool(_normalise_list(row.get("tools")))
+        )
+        for row in rows
+    )
+
+
 def build_section_scope(
     *,
     application_id: int,
@@ -183,9 +230,10 @@ def build_section_scope(
             code="baseline_jd_text_missing",
         )
 
-    # Minor preserves the existing bounded Phase 9A behavior. Full uses the
-    # same selection algorithm with capacity for every frozen row, still
-    # stopping at zero incremental canonical gain.
+    # Phase 9A still computes the positive-gain subset for diagnostics and for
+    # Minor's conservative scope. Full may inspect the complete frozen evidence
+    # snapshot later and is not blocked merely because this discrete forecast
+    # stops at zero incremental canonical gain.
     max_projects = 3 if intensity == "minor" else max(1, len(rows))
     opportunity = build_evidence_opportunity_analysis(
         application_id=int(application_id),
@@ -211,10 +259,32 @@ def build_section_scope(
 
     source_profile = baseline_report["resume_profile"]
     potential_profile = opportunity.get("opportunity_resume_profile") or {}
-    skills_addressable = (
+
+    # Phase 9A predicts incremental requirement-label gain.  That is a useful
+    # conservative gate for Minor, but it is not the same thing as whether Full
+    # can truthfully retarget already-visible Projects/Skills.  Full may re-rank,
+    # select, or rephrase existing truthful content even when the discrete scorer
+    # predicts no label increase.
+    positive_gain_projects_addressable = bool(selected_rows)
+    positive_gain_skills_addressable = (
         _skills_fingerprint(source_profile) != _skills_fingerprint(potential_profile)
     )
-    projects_addressable = bool(selected_rows)
+
+    if intensity == "full":
+        projects_addressable = (
+            _profile_has_projects(source_profile)
+            or _frozen_rows_have_project_evidence(rows)
+        )
+        skills_addressable = (
+            _profile_has_skills(source_profile)
+            or _frozen_rows_have_skill_evidence(rows)
+        )
+        addressability_mode = "full_truthful_retargeting"
+    else:
+        projects_addressable = positive_gain_projects_addressable
+        skills_addressable = positive_gain_skills_addressable
+        addressability_mode = "minor_positive_gain_only"
+
     scope = {
         "policy_version": PHASE9F_F_SECTION_SCOPE_POLICY_VERSION,
         "phase9a_version": PHASE9A_VERSION,
@@ -224,6 +294,13 @@ def build_section_scope(
         "selected_evidence_fingerprint": fingerprint_value(selected_rows),
         "projects_addressable": projects_addressable,
         "skills_addressable": skills_addressable,
+        "addressability_mode": addressability_mode,
+        "positive_gain_projects_addressable": (
+            positive_gain_projects_addressable
+        ),
+        "positive_gain_skills_addressable": (
+            positive_gain_skills_addressable
+        ),
         "enabled_sections": [
             section
             for section, enabled in (

@@ -406,8 +406,176 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         self.assertTrue(minor["projects_addressable"])
         self.assertTrue(full["skills_addressable"])
 
+    def test_phase9f_f_source_resolution_does_not_require_reuse_page_proof(self) -> None:
+        artifact_bytes = b"exact-phase9f-f-docx"
+        source_bundle = {
+            "artifacts": [
+                {
+                    "artifact_type": "docx",
+                    "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+                    "byte_size": len(artifact_bytes),
+                    "artifact_bytes": artifact_bytes,
+                    "source_path": "immutable-base.docx",
+                }
+            ]
+        }
+        with patch.object(
+            execution_manager,
+            "resolve_exact_phase9f_d_source",
+            return_value=source_bundle,
+        ) as resolver:
+            resolved = execution_manager._resolve_prepared_source_artifact(
+                decision={"decision_id": "decision"},
+                confirmation={"confirmation_id": "confirmation"},
+            )
+
+        resolver.assert_called_once_with(
+            decision={"decision_id": "decision"},
+            confirmation={"confirmation_id": "confirmation"},
+            require_reuse_page_proof=False,
+        )
+        self.assertEqual(resolved["artifact_type"], "docx")
+        self.assertEqual(
+            resolved["sha256"],
+            hashlib.sha256(artifact_bytes).hexdigest(),
+        )
+
+    def test_full_zero_gain_still_retargets_existing_truthful_sections(self) -> None:
+        baseline_profile = {
+            "projects": [
+                {
+                    "title": "Existing Project",
+                    "date": "2026",
+                    "bullets": [
+                        "Built and tested an existing truthful application."
+                    ],
+                }
+            ],
+            "skills": {
+                "Programming": ["Python"],
+            },
+        }
+        baseline = {
+            "resume_profile": copy.deepcopy(baseline_profile),
+            "raw_resume_text": "Existing Project\nPython",
+            "jd_profile": {"job_title": "Target Role"},
+            "raw_jd_text": "A valid target role description.",
+            "keyword_match": {"present": [], "missing": []},
+            "stable_analysis": {"canonical_requirements": []},
+            "bullets": {},
+            "structure": {},
+        }
+        snapshot = build_frozen_evidence_snapshot(
+            [
+                {
+                    "id": 1,
+                    "category": "Project",
+                    "title": "Existing Project",
+                    "description": (
+                        "Built and tested an existing truthful application."
+                    ),
+                    "period": "2026",
+                    "skills": ["Python"],
+                    "tools": [],
+                    "impact": "Verified test evidence.",
+                    "source_type": "manual",
+                    "created_at": "2026-08-19T00:00:00",
+                    "updated_at": "2026-08-19T00:00:00",
+                }
+            ]
+        )
+        zero_gain_opportunity = {
+            "selected_evidence": [],
+            "opportunity_resume_profile": copy.deepcopy(baseline_profile),
+            "opportunity_fingerprint": "zero-gain-opportunity",
+        }
+
+        with patch(
+            "tailoring.phase9f_tailoring_execution."
+            "build_evidence_opportunity_analysis",
+            return_value=zero_gain_opportunity,
+        ):
+            minor = build_section_scope(
+                application_id=1,
+                baseline_report=baseline,
+                evidence_snapshot=snapshot,
+                confirmed_intensity="minor",
+            )
+            full = build_section_scope(
+                application_id=1,
+                baseline_report=baseline,
+                evidence_snapshot=snapshot,
+                confirmed_intensity="full",
+            )
+
+        self.assertEqual(minor["selected_evidence"], [])
+        self.assertFalse(minor["projects_addressable"])
+        self.assertFalse(minor["skills_addressable"])
+        self.assertEqual(
+            minor["addressability_mode"],
+            "minor_positive_gain_only",
+        )
+
+        self.assertEqual(full["selected_evidence"], [])
+        self.assertTrue(full["projects_addressable"])
+        self.assertTrue(full["skills_addressable"])
+        self.assertEqual(
+            full["enabled_sections"],
+            ["projects", "skills"],
+        )
+        self.assertEqual(
+            full["addressability_mode"],
+            "full_truthful_retargeting",
+        )
+        self.assertFalse(
+            full["positive_gain_projects_addressable"]
+        )
+        self.assertFalse(
+            full["positive_gain_skills_addressable"]
+        )
+
+    def test_full_without_any_truthful_projects_or_skills_still_blocks(self) -> None:
+        empty_profile = {
+            "projects": [],
+            "skills": {},
+        }
+        baseline = {
+            "resume_profile": copy.deepcopy(empty_profile),
+            "raw_resume_text": "Education only",
+            "jd_profile": {"job_title": "Target Role"},
+            "raw_jd_text": "A valid target role description.",
+            "keyword_match": {"present": [], "missing": []},
+            "stable_analysis": {"canonical_requirements": []},
+            "bullets": {},
+            "structure": {},
+        }
+        snapshot = build_frozen_evidence_snapshot([])
+        zero_gain_opportunity = {
+            "selected_evidence": [],
+            "opportunity_resume_profile": copy.deepcopy(empty_profile),
+            "opportunity_fingerprint": "empty-zero-gain-opportunity",
+        }
+        with patch(
+            "tailoring.phase9f_tailoring_execution."
+            "build_evidence_opportunity_analysis",
+            return_value=zero_gain_opportunity,
+        ):
+            full = build_section_scope(
+                application_id=1,
+                baseline_report=baseline,
+                evidence_snapshot=snapshot,
+                confirmed_intensity="full",
+            )
+
+        self.assertFalse(full["projects_addressable"])
+        self.assertFalse(full["skills_addressable"])
+        self.assertEqual(full["enabled_sections"], [])
+
     def test_no_addressable_scope_is_durable_block_before_any_model_or_draft(self) -> None:
-        state = self._session("full")
+        # Minor intentionally keeps the positive-gain-only addressability gate.
+        # Full with truthful existing Projects/Skills is covered separately by
+        # test_full_zero_gain_still_retargets_existing_truthful_sections.
+        state = self._session("minor")
         app_id = state["application_id"]
         execution = execution_manager.prepare_or_reuse_phase9f_tailoring_execution(
             application_id=app_id
@@ -872,12 +1040,40 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
 
     def _assert_base_f_ledger(self, intensity: str) -> None:
         state = self._session(intensity, source_type="base_resume")
-        execution = execution_manager.prepare_or_reuse_phase9f_tailoring_execution(
-            application_id=state["application_id"]
-        )["execution"]
+
+        # create_d_reuse_session intentionally uses a PDF-only Base Resume
+        # fixture because it was originally built for Phase 9F-E Reuse tests.
+        # Changed-content Phase 9F-F needs an exact DOCX starting artifact.
+        # This test is about F-vs-E ledger routing, not PDF editability, so Full
+        # receives the deterministic exact-DOCX fixture used elsewhere here.
+        if intensity == "full":
+            resolver = patch.object(
+                execution_manager,
+                "resolve_exact_phase9f_d_source",
+                return_value=self._source_bundle(),
+            )
+        else:
+            resolver = patch.object(
+                execution_manager,
+                "resolve_exact_phase9f_d_source",
+                side_effect=AssertionError(
+                    "Minor zero-gain scope must block before source resolution"
+                ),
+            )
+
+        with resolver:
+            execution = (
+                execution_manager.prepare_or_reuse_phase9f_tailoring_execution(
+                    application_id=state["application_id"]
+                )["execution"]
+            )
+
         self.assertEqual(execution["source_type"], "base_resume")
         self.assertEqual(execution["confirmed_intensity"], intensity)
-        self.assertEqual(execution["status"], "blocked")
+        self.assertEqual(
+            execution["status"],
+            "preparing" if intensity == "full" else "blocked",
+        )
 
     def test_base_minor_remains_in_the_f_ledger_not_reuse(self) -> None:
         self._assert_base_f_ledger("minor")
@@ -898,7 +1094,11 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             application_id=state["application_id"]
         )["execution"]
         self.assertEqual(execution["source_type"], "global_blueprint")
-        self.assertEqual(execution["status"], "blocked")
+        # The source is historically frozen by Phase 9F-D. Removing it from
+        # future Reuse eligibility must not invalidate that bound historical
+        # source. Under the new Full policy, zero predicted incremental gain no
+        # longer forces a block when truthful Projects/Skills already exist.
+        self.assertEqual(execution["status"], "preparing")
 
     def test_missing_exact_docx_fails_before_any_paid_stage(self) -> None:
         state = self._session("minor")
