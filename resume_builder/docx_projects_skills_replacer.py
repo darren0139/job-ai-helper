@@ -51,6 +51,7 @@ from resume_builder.project_header_format import (
     format_project_metadata,
     normalise_project_header_layout,
     normalise_project_metadata_style,
+    split_legacy_project_title,
 )
 from resume_builder.skills_section_compactor import (
     compact_skills_one_step,
@@ -285,6 +286,191 @@ def _find_templates_in_section(
             break
 
     return normal_template, bullet_template
+
+
+def _normalise_source_project_key(value: Any) -> str:
+    text = str(value or "").casefold().strip()
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"[-–—].*$", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _split_source_project_title(value: Any) -> dict[str, Any]:
+    """Parse source-DOCX project title semantics without inventing metadata."""
+    raw = str(value or "").replace("\u00a0", " ").strip()
+    title_part = raw.split("\t", 1)[0].strip()
+    legacy = split_legacy_project_title(title_part)
+    semantic = " ".join(str(legacy.get("title") or "").split()).strip()
+    title = semantic
+    subtitle = ""
+    for separator in (" — ", " – "):
+        if separator in semantic:
+            left, right = semantic.split(separator, 1)
+            if left.strip() and right.strip():
+                title = left.strip()
+                subtitle = right.strip()
+                break
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "resume_header_tools": list(legacy.get("resume_header_tools") or []),
+        "resume_header_context": list(legacy.get("resume_header_context") or []),
+    }
+
+
+def _extract_source_project_display_metadata(
+    document: DocumentObject,
+) -> dict[str, dict[str, Any]]:
+    """Read display-only project metadata from the exact source DOCX."""
+    try:
+        start_index, end_index = _find_section_range(document, {"PROJECTS"})
+    except ValueError:
+        return {}
+
+    paragraphs = document.paragraphs
+    section_end = end_index if end_index is not None else len(paragraphs)
+    result: dict[str, dict[str, Any]] = {}
+    current_key = ""
+
+    for paragraph in paragraphs[start_index + 1 : section_end]:
+        raw_text = str(paragraph.text or "").strip()
+        if not raw_text:
+            continue
+        if _is_bullet_paragraph(paragraph):
+            continue
+
+        if "\t" in paragraph.text:
+            parsed = _split_source_project_title(paragraph.text)
+            key = _normalise_source_project_key(parsed.get("title"))
+            if not key:
+                current_key = ""
+                continue
+            current_key = key
+            result[current_key] = {
+                "title": str(parsed.get("title") or "").strip(),
+                "subtitle": str(parsed.get("subtitle") or "").strip(),
+                "resume_header_tools": list(
+                    parsed.get("resume_header_tools") or []
+                ),
+                "resume_header_context": list(
+                    parsed.get("resume_header_context") or []
+                ),
+                "metadata_seen": False,
+            }
+            continue
+
+        if not current_key or current_key not in result:
+            continue
+        current = result[current_key]
+        if current.get("metadata_seen"):
+            continue
+
+        groups = [
+            " ".join(part.replace("\u00a0", " ").split()).strip()
+            for part in raw_text.split("|")
+        ]
+        groups = [group for group in groups if group]
+        if not groups:
+            continue
+
+        tools = [
+            " ".join(part.split()).strip()
+            for part in groups[0].split(",")
+            if " ".join(part.split()).strip()
+        ]
+        if tools:
+            current["resume_header_tools"] = tools
+        if len(groups) > 1:
+            current["resume_header_context"] = groups[1:]
+        current["metadata_seen"] = True
+
+    for value in result.values():
+        value.pop("metadata_seen", None)
+    return result
+
+
+def apply_source_project_display_fallbacks(
+    saved_resume_docx_path: str | Path,
+    tailored_projects: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill missing display-only fields from the exact source resume.
+
+    Explicit structured fields already present in the tailored project always
+    win. The source fallback preserves Base Resume presentation without
+    mutating canonical Evidence Library facts.
+    """
+    enriched = deepcopy(tailored_projects)
+    try:
+        source_document = Document(str(saved_resume_docx_path))
+    except Exception:
+        return enriched
+
+    source_by_key = _extract_source_project_display_metadata(source_document)
+    for project in enriched.get("recommended_projects", []) or []:
+        if not isinstance(project, dict):
+            continue
+        key = _normalise_source_project_key(
+            project.get("title")
+            or project.get("display_title")
+        )
+        source = source_by_key.get(key)
+        if not source:
+            continue
+
+        if not str(project.get("subtitle") or "").strip():
+            project["subtitle"] = str(source.get("subtitle") or "").strip()
+        if not project.get("resume_header_tools"):
+            project["resume_header_tools"] = list(
+                source.get("resume_header_tools") or []
+            )
+        if not project.get("resume_header_context"):
+            project["resume_header_context"] = list(
+                source.get("resume_header_context") or []
+            )
+        project["display_title"] = build_project_title(project)
+
+    return enriched
+
+
+def _find_project_templates_in_section(
+    document: DocumentObject,
+) -> tuple[Paragraph | None, Paragraph | None, Paragraph | None]:
+    """Find source title, stacked-metadata, and bullet paragraph templates."""
+    start_index, end_index = _find_section_range(document, {"PROJECTS"})
+    paragraphs = document.paragraphs
+    section_end = end_index if end_index is not None else len(paragraphs)
+
+    title_template: Paragraph | None = None
+    metadata_template: Paragraph | None = None
+    bullet_template: Paragraph | None = None
+
+    for paragraph in paragraphs[start_index + 1 : section_end]:
+        raw_text = str(paragraph.text or "").strip()
+        if not raw_text:
+            continue
+        if _is_bullet_paragraph(paragraph):
+            if bullet_template is None:
+                bullet_template = paragraph
+            if title_template is not None and metadata_template is not None:
+                break
+            continue
+
+        if title_template is None:
+            title_template = paragraph
+            continue
+
+        if metadata_template is None and "\t" not in paragraph.text:
+            metadata_template = paragraph
+
+        if (
+            title_template is not None
+            and metadata_template is not None
+            and bullet_template is not None
+        ):
+            break
+
+    return title_template, metadata_template, bullet_template
 
 
 # ---------------------------------------------------------------------------
@@ -1972,21 +2158,25 @@ def _add_project_metadata_after(
     metadata: str,
     template: Paragraph | None = None,
 ) -> Paragraph:
-    """Add the stacked project metadata line without changing evidence content."""
+    """Add stacked metadata using the source metadata-line presentation."""
     new_paragraph = _insert_paragraph_after(anchor)
     if template is not None:
         _copy_paragraph_format(template, new_paragraph)
+    else:
+        try:
+            new_paragraph.paragraph_format.space_before = Pt(0)
+            new_paragraph.paragraph_format.space_after = Pt(0)
+        except Exception:
+            pass
     try:
         new_paragraph.paragraph_format.keep_with_next = True
-        new_paragraph.paragraph_format.space_before = Pt(0)
-        new_paragraph.paragraph_format.space_after = Pt(0)
     except Exception:
         pass
     source_run = _get_first_run_template(template)
     run = new_paragraph.add_run(metadata)
     _copy_run_format(source_run, run)
-    run.bold = False
-    run.italic = True
+    if source_run is None:
+        run.bold = False
     return new_paragraph
 
 def _paragraph_has_native_numbering(
@@ -2074,7 +2264,11 @@ def replace_projects_section(
     """
     Replace PROJECTS section content while preserving original formatting.
     """
-    project_title_template, project_bullet_template = _find_templates_in_section(document, {"PROJECTS"})
+    (
+        project_title_template,
+        project_metadata_template,
+        project_bullet_template,
+    ) = _find_project_templates_in_section(document)
 
     section = document.sections[0]
     right_tab_position = section.page_width - section.left_margin - section.right_margin
@@ -2118,7 +2312,9 @@ def replace_projects_section(
         )
         if metadata and resolved_layout == "stacked":
             anchor = _add_project_metadata_after(
-                anchor, metadata=metadata, template=project_title_template
+                anchor,
+                metadata=metadata,
+                template=(project_metadata_template or project_title_template),
             )
 
         for bullet in bullets:
@@ -2249,9 +2445,13 @@ def generate_tailored_resume_copy(
         replace_skills_section(document, tailored_skills)
 
     if tailored_projects:
+        rendered_projects = apply_source_project_display_fallbacks(
+            saved_resume_docx_path,
+            tailored_projects,
+        )
         replace_projects_section(
             document,
-            tailored_projects,
+            rendered_projects,
             max_projects=max_projects,
             max_bullets_per_project=max_bullets_per_project,
             spacing_mode=spacing_mode,
@@ -2890,7 +3090,14 @@ def generate_tailored_resume_copy_fit_one_page(
     # Preserve completed historical outputs. Temporary candidates are still
     # deleted explicitly by the fitting loop.
     attempt_logs: list[dict[str, Any]] = []
-    working_projects = deepcopy(tailored_projects) if tailored_projects else None
+    working_projects = (
+        apply_source_project_display_fallbacks(
+            saved_resume_docx_path,
+            tailored_projects,
+        )
+        if tailored_projects
+        else None
+    )
     working_skills = deepcopy(tailored_skills) if tailored_skills else None
 
     if working_projects and not lock_policy["lock_projects"]:

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 
-PHASE6C1_OPTIMIZATION_VERSION = "phase6c1-exact-safe-render-v1"
+PHASE6C1_OPTIMIZATION_VERSION = "phase6c1-exact-safe-render-v2-format-metadata"
 
 
 def _clean_text(value: Any) -> str:
@@ -94,10 +94,27 @@ def _render_projects_payload(
             continue
         payload.append(
             {
-                "title": _clean_text(
+                "title": _clean_text(project.get("title")),
+                "display_title": _clean_text(
                     project.get("display_title")
                     or project.get("title")
                 ),
+                "subtitle": _clean_text(project.get("subtitle")),
+                "resume_header_tools": [
+                    _clean_text(item)
+                    for item in project.get("resume_header_tools", []) or []
+                    if _clean_text(item)
+                ],
+                "resume_header_context": [
+                    _clean_text(item)
+                    for item in project.get("resume_header_context", []) or []
+                    if _clean_text(item)
+                ],
+                "canonical_tools": [
+                    _clean_text(item)
+                    for item in project.get("canonical_tools", []) or []
+                    if _clean_text(item)
+                ],
                 "period": _clean_text(project.get("period")),
                 "bullets": [
                     _clean_text(bullet)

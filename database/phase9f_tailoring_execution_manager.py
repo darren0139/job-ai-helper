@@ -111,6 +111,9 @@ PHASE9F_F_NORMAL_FIT_KIND = "phase9f_f_normal_fit"
 PHASE9F_F_NORMAL_EVIDENCE_POOL_POLICY_VERSION = (
     "phase9f-f-normal-evidence-pool-v1"
 )
+PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION = (
+    "phase9f-f-normal-fit-render-v2-format-fidelity"
+)
 
 
 def _now() -> str:
@@ -2522,6 +2525,7 @@ def run_phase9f_normal_fit(
             "projects_fingerprint": fingerprint_value(projects),
             "skills_fingerprint": fingerprint_value(skills),
             "fit_settings": canonical_fit,
+            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
             "source_artifact": (execution.get("source_artifact") or {}),
             "section_scope_fingerprint": execution.get("section_scope_fingerprint"),
         }
@@ -2530,6 +2534,8 @@ def run_phase9f_normal_fit(
     if (
         prior_fit.get("status") == "completed"
         and prior_fit.get("input_fingerprint") == fit_input_fingerprint
+        and prior_fit.get("render_policy_version")
+        == PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
         and isinstance(generation.get("fit_result"), dict)
     ):
         return {
@@ -2556,6 +2562,7 @@ def run_phase9f_normal_fit(
     lifecycle["fit"] = {
         "status": "requested",
         "input_fingerprint": fit_input_fingerprint,
+        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
         "settings": deepcopy(canonical_fit),
     }
     target_settings["phase9f_f_normal_lifecycle"] = lifecycle
@@ -2636,6 +2643,7 @@ def run_phase9f_normal_fit(
         lifecycle["fit"] = {
             "status": "failed",
             "input_fingerprint": fit_input_fingerprint,
+            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
             "settings": deepcopy(canonical_fit),
         }
         target_settings["phase9f_f_normal_lifecycle"] = lifecycle
@@ -2659,6 +2667,7 @@ def run_phase9f_normal_fit(
     lifecycle["fit"] = {
         "status": "completed",
         "input_fingerprint": fit_input_fingerprint,
+        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
         "settings": deepcopy(canonical_fit),
         "result_fingerprint": fingerprint_value(fit_result),
     }

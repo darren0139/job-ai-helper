@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -165,6 +166,34 @@ class FittingRenderOptimizerTests(unittest.TestCase):
 
         self.assertNotEqual(first, second)
 
+    def test_fingerprint_changes_for_project_header_metadata(self):
+        base = {
+            "recommended_projects": [
+                {
+                    "title": "CyberSphere",
+                    "display_title": "CyberSphere — Shooter Game",
+                    "subtitle": "Shooter Game",
+                    "resume_header_tools": ["C#", "Unity Engine"],
+                    "resume_header_context": ["Published on Google Play", "Team of 2"],
+                    "canonical_tools": ["C#", "Unity Engine"],
+                    "period": "2018",
+                    "draft_bullets": ["Built gameplay features."],
+                }
+            ]
+        }
+        changed = copy.deepcopy(base)
+        changed["recommended_projects"][0]["resume_header_context"] = ["Team of 2"]
+
+        first = build_render_state_fingerprint(
+            source_signature="source", projects_state=base,
+            skills_state=None, layout_options={"project_header_layout": "stacked"},
+        )
+        second = build_render_state_fingerprint(
+            source_signature="source", projects_state=changed,
+            skills_state=None, layout_options={"project_header_layout": "stacked"},
+        )
+        self.assertNotEqual(first, second)
+
     def test_source_signature_is_content_based(self):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first.docx"
@@ -186,7 +215,7 @@ class FittingRenderOptimizerTests(unittest.TestCase):
     def test_version_is_explicit(self):
         self.assertEqual(
             PHASE6C1_OPTIMIZATION_VERSION,
-            "phase6c1-exact-safe-render-v1",
+            "phase6c1-exact-safe-render-v2-format-metadata",
         )
 
 

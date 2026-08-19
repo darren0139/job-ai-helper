@@ -4,6 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from docx import Document
+from docx.shared import Pt
+
 from database import user_profile_manager as profile_manager
 from resume_builder.project_header_format import (
     build_project_title,
@@ -13,7 +16,14 @@ from resume_builder.project_header_format import (
     normalise_project_metadata_style,
     split_legacy_project_title,
 )
-from tailoring.project_section_tailor import _evidence_item_to_candidate
+from resume_builder.docx_projects_skills_replacer import (
+    apply_source_project_display_fallbacks,
+    replace_projects_section,
+)
+from tailoring.project_section_tailor import (
+    _evidence_item_to_candidate,
+    build_project_candidate_pool,
+)
 
 
 class ResumeFormatStylePolicyTests(unittest.TestCase):
@@ -93,6 +103,221 @@ class ResumeFormatStylePolicyTests(unittest.TestCase):
         assert candidate is not None
         self.assertEqual(candidate["title"], "CyberSphere")
         self.assertEqual(candidate["resume_header_tools"], ["Unity Engine", "C#"])
+
+    def test_resume_subtitle_survives_empty_evidence_display_fields(self):
+        pool = build_project_candidate_pool(
+            resume_profile={
+                "projects": [
+                    {
+                        "title": (
+                            "Job AI Helper — AI-Powered Resume Tailoring System"
+                        ),
+                        "date": "May 2026 - Aug 2026",
+                        "bullets": ["Built the application."],
+                    }
+                ]
+            },
+            evidence_items=[
+                {
+                    "category": "Project",
+                    "title": "Job AI Helper",
+                    "description": "Built the application.",
+                    "period": "May 2026 - Aug 2026",
+                    "tools": ["Python", "Streamlit", "OpenAI API"],
+                    "resume_header_tools": [],
+                    "resume_header_context": [],
+                }
+            ],
+        )
+        self.assertEqual(len(pool), 1)
+        project = pool[0]
+        self.assertEqual(project["title"], "Job AI Helper")
+        self.assertEqual(
+            project["subtitle"],
+            "AI-Powered Resume Tailoring System",
+        )
+        self.assertEqual(
+            project["display_title"],
+            "Job AI Helper — AI-Powered Resume Tailoring System",
+        )
+        self.assertEqual(
+            project["canonical_tools"],
+            ["Python", "Streamlit", "OpenAI API"],
+        )
+
+    def test_source_docx_fallback_preserves_stacked_groups_and_metadata_style(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path = Path(temporary) / "base.docx"
+            document = Document()
+
+            document.add_paragraph("WORK EXPERIENCE")
+            experience_title = document.add_paragraph()
+            experience_title.add_run("Example Company — Software Engineer")
+            experience_title.add_run("\tMay 2025 - Apr 2026")
+            document.add_paragraph(
+                "Project Context | Python, Docker | Team of 2"
+            )
+            document.add_paragraph("• Preserved work-experience bullet.")
+
+            document.add_paragraph("PROJECTS")
+            title_paragraph = document.add_paragraph()
+            title_run = title_paragraph.add_run(
+                "Job AI Helper — AI-Powered Resume Tailoring System"
+            )
+            title_run.bold = True
+            title_paragraph.add_run("\tMay 2026 - Aug 2026")
+
+            metadata_paragraph = document.add_paragraph()
+            metadata_paragraph.paragraph_format.space_before = Pt(2)
+            metadata_paragraph.paragraph_format.space_after = Pt(1)
+            metadata_run = metadata_paragraph.add_run(
+                "Python, Streamlit, OpenAI, SQLite, ChromaDB"
+                " | GitHub Actions | Individual Project"
+            )
+            metadata_run.italic = False
+
+            document.add_paragraph("• Original project bullet.")
+            document.add_paragraph("SKILLS")
+            document.add_paragraph("Programming: Python")
+            document.save(source_path)
+
+            tailored = {
+                "recommended_projects": [
+                    {
+                        "title": "Job AI Helper",
+                        "subtitle": "",
+                        "display_title": "Job AI Helper",
+                        "resume_header_tools": [],
+                        "resume_header_context": [],
+                        "canonical_tools": [
+                            "Python",
+                            "Streamlit",
+                            "OpenAI API",
+                            "SQLite",
+                            "ChromaDB",
+                            "LiteLLM",
+                            "pypdf",
+                            "python-docx",
+                            "GitHub",
+                            "GitHub Actions (CI)",
+                        ],
+                        "period": "May 2026 - Aug 2026",
+                        "draft_bullets": ["Tailored project bullet."],
+                    }
+                ]
+            }
+
+            enriched = apply_source_project_display_fallbacks(
+                source_path,
+                tailored,
+            )
+            project = enriched["recommended_projects"][0]
+            self.assertEqual(
+                project["subtitle"],
+                "AI-Powered Resume Tailoring System",
+            )
+            self.assertEqual(
+                project["resume_header_tools"],
+                ["Python", "Streamlit", "OpenAI", "SQLite", "ChromaDB"],
+            )
+            self.assertEqual(
+                project["resume_header_context"],
+                ["GitHub Actions", "Individual Project"],
+            )
+
+            rendered = Document(source_path)
+            before_texts = [paragraph.text for paragraph in rendered.paragraphs]
+            work_heading_index = before_texts.index("WORK EXPERIENCE")
+            projects_heading_index = before_texts.index("PROJECTS")
+            work_before = before_texts[
+                work_heading_index + 1 : projects_heading_index
+            ]
+
+            replace_projects_section(
+                rendered,
+                enriched,
+                max_projects=1,
+                max_bullets_per_project=1,
+                project_header_layout="stacked",
+                project_metadata_style="pipes",
+            )
+
+            texts = [paragraph.text for paragraph in rendered.paragraphs]
+            self.assertIn(
+                "Job AI Helper — AI-Powered Resume Tailoring System"
+                "\tMay 2026 - Aug 2026",
+                texts,
+            )
+            expected_metadata = (
+                "Python, Streamlit, OpenAI, SQLite, ChromaDB"
+                " | GitHub Actions | Individual Project"
+            )
+            self.assertIn(expected_metadata, texts)
+            self.assertNotIn(
+                "Python, Streamlit, OpenAI API, SQLite, ChromaDB, "
+                "LiteLLM, pypdf, python-docx, GitHub, GitHub Actions (CI)",
+                texts,
+            )
+
+            metadata = next(
+                paragraph
+                for paragraph in rendered.paragraphs
+                if paragraph.text == expected_metadata
+            )
+            self.assertEqual(metadata.paragraph_format.space_before, Pt(2))
+            self.assertEqual(metadata.paragraph_format.space_after, Pt(1))
+            self.assertFalse(bool(metadata.runs[0].italic))
+
+            work_heading_index = texts.index("WORK EXPERIENCE")
+            projects_heading_index = texts.index("PROJECTS")
+            work_after = texts[
+                work_heading_index + 1 : projects_heading_index
+            ]
+            self.assertEqual(work_after, work_before)
+
+    def test_explicit_structured_metadata_wins_over_source_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source_path = Path(temporary) / "base.docx"
+            document = Document()
+            document.add_paragraph("PROJECTS")
+            title = document.add_paragraph()
+            title.add_run("CyberSphere — Shooter Game")
+            title.add_run("\tJan 2018 - Feb 2018")
+            document.add_paragraph(
+                "C#, Unity Engine | Published on Google Play | Team of 2"
+            )
+            document.add_paragraph("• Original bullet.")
+            document.add_paragraph("SKILLS")
+            document.add_paragraph("Game & Engine: C#")
+            document.save(source_path)
+
+            tailored = {
+                "recommended_projects": [
+                    {
+                        "title": "CyberSphere",
+                        "subtitle": "Updated Subtitle",
+                        "resume_header_tools": ["Unity Engine"],
+                        "resume_header_context": ["Individual Project"],
+                        "canonical_tools": ["Unity Engine", "C#"],
+                        "period": "Jan 2018 - Feb 2018",
+                        "draft_bullets": ["Tailored bullet."],
+                    }
+                ]
+            }
+            enriched = apply_source_project_display_fallbacks(
+                source_path,
+                tailored,
+            )
+            project = enriched["recommended_projects"][0]
+            self.assertEqual(project["subtitle"], "Updated Subtitle")
+            self.assertEqual(
+                project["resume_header_tools"],
+                ["Unity Engine"],
+            )
+            self.assertEqual(
+                project["resume_header_context"],
+                ["Individual Project"],
+            )
 
     def test_database_migration_preserves_id_and_canonical_tools(self):
         original_db = profile_manager.DB_PATH

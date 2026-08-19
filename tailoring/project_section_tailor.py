@@ -605,6 +605,27 @@ def _normalise_metadata_list(value: Any) -> list[str]:
     return _clean_string_list(list(value or []))
 
 
+def _split_resume_project_title(value: Any) -> dict[str, Any]:
+    """Split frozen resume title/subtitle without treating metadata as semantics."""
+    legacy = split_legacy_project_title(value)
+    semantic = " ".join(str(legacy.get("title") or "").split()).strip()
+    title = semantic
+    subtitle = ""
+    for separator in (" — ", " – "):
+        if separator in semantic:
+            left, right = semantic.split(separator, 1)
+            if left.strip() and right.strip():
+                title = left.strip()
+                subtitle = right.strip()
+                break
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "resume_header_tools": list(legacy.get("resume_header_tools") or []),
+        "resume_header_context": list(legacy.get("resume_header_context") or []),
+    }
+
+
 def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | None:
     raw_title = (
         project.get("title")
@@ -613,19 +634,23 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
         or project.get("display_title")
         or ""
     )
-    legacy = split_legacy_project_title(raw_title)
-    title = str(legacy.get("title") or "").strip()
+    parsed_title = _split_resume_project_title(raw_title)
+    title = str(parsed_title.get("title") or "").strip()
     if not title:
         return None
-    subtitle = str(project.get("subtitle") or "").strip()
+    subtitle = str(
+        project.get("subtitle")
+        or parsed_title.get("subtitle")
+        or ""
+    ).strip()
     header_tools = _normalise_metadata_list(
         project.get("resume_header_tools")
-        or legacy.get("resume_header_tools")
+        or parsed_title.get("resume_header_tools")
         or []
     )
     header_context = _normalise_metadata_list(
         project.get("resume_header_context")
-        or legacy.get("resume_header_context")
+        or parsed_title.get("resume_header_context")
         or []
     )
     canonical_tools = _normalise_metadata_list(
@@ -757,15 +782,23 @@ def build_project_candidate_pool(
                 "evidence_library_evidence"
             ]
 
-            # The resume snapshot remains frozen provenance, but the
-            # user-maintained Evidence Library is the current canonical source
-            # for project display metadata used by new tailoring generations.
+            # The Evidence Library remains canonical for factual tools and
+            # any explicitly maintained display metadata. Empty display-only
+            # fields must not erase useful structure already present in the
+            # frozen source resume.
             existing["title"] = candidate["title"]
-            existing["subtitle"] = candidate.get("subtitle", "")
-            existing["display_title"] = candidate.get("display_title") or candidate["title"]
-            existing["resume_header_tools"] = list(candidate.get("resume_header_tools") or [])
-            existing["resume_header_context"] = list(candidate.get("resume_header_context") or [])
+            if str(candidate.get("subtitle") or "").strip():
+                existing["subtitle"] = candidate["subtitle"]
+            if candidate.get("resume_header_tools"):
+                existing["resume_header_tools"] = list(
+                    candidate.get("resume_header_tools") or []
+                )
+            if candidate.get("resume_header_context"):
+                existing["resume_header_context"] = list(
+                    candidate.get("resume_header_context") or []
+                )
             existing["canonical_tools"] = list(candidate.get("canonical_tools") or [])
+            existing["display_title"] = build_project_title(existing)
 
             if candidate.get("period"):
                 existing["period"] = candidate["period"]

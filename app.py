@@ -228,6 +228,9 @@ from tailoring.phase9f_tailoring_execution import (
     generation_controls_are_locked,
     has_durable_generation_settings_binding,
 )
+from tailoring.phase9f_preview_state import (
+    resolve_phase9f_preview_generation,
+)
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
 )
@@ -3385,16 +3388,25 @@ elif page == "Application Sessions":
                 phase9f_generation_id = str(
                     phase9f_f_execution.get("generation_id") or ""
                 )
-                if phase9f_generation_id:
-                    phase9f_generation = get_tailoring_generation(
-                        current_application_id,
-                        phase9f_generation_id,
-                    )
-                    if isinstance(phase9f_generation, dict):
-                        restore_generation_to_session(
+                selected_generation_id = str(
+                    st.session_state.get(tailored_generation_id_key) or ""
+                )
+                preview_resolution = resolve_phase9f_preview_generation(
+                    session_generation_id=selected_generation_id,
+                    durable_generation_id=phase9f_generation_id,
+                    generation_loader=lambda generation_id: (
+                        get_tailoring_generation(
                             current_application_id,
-                            phase9f_generation,
+                            generation_id,
                         )
+                    ),
+                )
+                preview_generation = preview_resolution.get("generation")
+                if isinstance(preview_generation, dict):
+                    restore_generation_to_session(
+                        current_application_id,
+                        preview_generation,
+                    )
 
             restored_settings = st.session_state.get(
                 f"restored_tailoring_settings_{current_application_id}",
@@ -4684,6 +4696,17 @@ elif page == "Application Sessions":
                         "immutable DOCX source recorded by the Phase 9F ledger."
                     )
                 st.caption(f"Will update: {', '.join(selected_sections)}")
+
+                if (
+                    phase9f_f_normal_lifecycle
+                    and st.session_state.get(tailored_generation_id_key)
+                    and not st.session_state.get(tailored_docx_key)
+                ):
+                    st.info(
+                        "Projects/Skills content is generated and selected. "
+                        "The final DOCX/text document preview will appear after "
+                        "the explicit Build and Fit step."
+                    )
 
                 with st.expander("Fitting strategy", expanded=True):
                     if phase9f_f_active and phase9f_f_fit_settings_locked:
