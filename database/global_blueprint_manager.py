@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
 import uuid
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
@@ -19,6 +22,136 @@ from tailoring.phase9d_global_blueprint import (
     fingerprint_value,
     prepare_global_blueprint_approval,
 )
+from database.phase9f_exact_verified_reuse_manager import (
+    BLUEPRINT_ARTIFACT_ROOT,
+)
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+)
+
+
+PHASE9D_AVAILABILITY_POLICY_VERSION = (
+    "phase9d-global-blueprint-availability-v1"
+)
+PHASE9D_AVAILABILITY_EVENT_VERSION = (
+    "phase9d-global-blueprint-availability-event-v1"
+)
+BLUEPRINT_AVAILABLE = "available"
+BLUEPRINT_REMOVED = "removed"
+
+
+def _sha256_path(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _prepare_blueprint_artifact_provenance(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Read the exact approved source bytes before freezing a new Blueprint."""
+    fit = candidate.get("fit_result") or {}
+    if (
+        fit.get("fit_one_page") is not True
+        or int(fit.get("page_count") or 0) != 1
+    ):
+        raise Phase9DApprovalError(
+            "New Blueprint approval requires an approved one-page source fit."
+        )
+    artifacts: list[dict[str, Any]] = []
+    storage: list[dict[str, Any]] = []
+    for kind, field, media_type in (
+        (
+            "docx",
+            "docx_path",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        ("pdf", "pdf_path", "application/pdf"),
+    ):
+        source = Path(str(fit.get(field) or "")).resolve()
+        if not source.is_file() or source.stat().st_size <= 0:
+            raise Phase9DApprovalError(
+                f"New Blueprint approval requires the approved {kind.upper()} artifact."
+            )
+        digest = _sha256_path(source)
+        size = source.stat().st_size
+        artifacts.append(
+            {
+                "artifact_kind": kind,
+                "media_type": media_type,
+                "sha256": digest,
+                "byte_size": size,
+            }
+        )
+        storage.append(
+            {
+                "artifact_kind": kind,
+                "storage_relative_path": f"{digest}.{kind}",
+                "source_path": str(source),
+            }
+        )
+    return {
+        "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+        "artifacts": artifacts,
+        "storage": storage,
+    }
+
+
+def _materialize_blueprint_artifacts(provenance: dict[str, Any]) -> None:
+    """Create content-addressed Blueprint-owned files without overwriting bytes."""
+    root = BLUEPRINT_ARTIFACT_ROOT.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    storage = {
+        str(row.get("artifact_kind") or ""): row
+        for row in provenance.get("storage") or []
+        if isinstance(row, dict)
+    }
+    for artifact in provenance.get("artifacts") or []:
+        kind = str(artifact.get("artifact_kind") or "")
+        location = storage.get(kind) or {}
+        source = Path(str(location.get("source_path") or "")).resolve()
+        target = (root / str(location.get("storage_relative_path") or "")).resolve()
+        if root not in target.parents:
+            raise Phase9DApprovalError("Blueprint artifact storage path is unsafe.")
+        expected_hash = str(artifact.get("sha256") or "")
+        expected_size = int(artifact.get("byte_size") or 0)
+        if target.is_file():
+            if _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+                raise Phase9DApprovalError(
+                    "A content-addressed Blueprint artifact already exists with different bytes."
+                )
+            continue
+        if not source.is_file() or _sha256_path(source) != expected_hash or source.stat().st_size != expected_size:
+            raise Phase9DApprovalError(
+                "The approved source artifact changed before Blueprint freezing."
+            )
+        handle = tempfile.NamedTemporaryFile(dir=root, delete=False)
+        temporary = Path(handle.name)
+        try:
+            with source.open("rb") as source_handle:
+                for block in iter(lambda: source_handle.read(1024 * 1024), b""):
+                    handle.write(block)
+            handle.flush()
+            os.fsync(handle.fileno())
+            handle.close()
+            if _sha256_path(temporary) != expected_hash or temporary.stat().st_size != expected_size:
+                raise Phase9DApprovalError("Blueprint artifact copy verification failed.")
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                if _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+                    raise Phase9DApprovalError(
+                        "A concurrent Blueprint artifact write has different bytes."
+                    )
+        finally:
+            if not handle.closed:
+                handle.close()
+            if temporary.exists():
+                temporary.unlink()
+        if not target.is_file() or _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+            raise Phase9DApprovalError("Blueprint artifact copy was not durably verified.")
 
 
 def _connect() -> sqlite3.Connection:
@@ -117,6 +250,36 @@ def init_global_blueprint_registry() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS global_blueprint_availability (
+                blueprint_id TEXT PRIMARY KEY,
+                availability_status TEXT NOT NULL
+                    CHECK (availability_status IN ('available', 'removed')),
+                availability_policy_version TEXT NOT NULL,
+                transition_number INTEGER NOT NULL CHECK (transition_number >= 1),
+                last_event_id TEXT NOT NULL,
+                removed_at TEXT,
+                removed_by TEXT,
+                removal_reason TEXT NOT NULL,
+                restored_at TEXT,
+                restored_by TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (blueprint_id)
+                    REFERENCES global_blueprint_versions (blueprint_id)
+                    ON DELETE RESTRICT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_global_blueprint_availability_status
+            ON global_blueprint_availability (
+                availability_status,
+                updated_at DESC
+            )
+            """
+        )
         connection.commit()
     finally:
         connection.close()
@@ -131,6 +294,61 @@ def _safe_json(value: Any) -> dict[str, Any]:
 
 
 def _row_to_blueprint(row: sqlite3.Row) -> dict[str, Any]:
+    keys = set(row.keys())
+    availability_status = (
+        str(row["availability_status"] or BLUEPRINT_AVAILABLE)
+        if "availability_status" in keys
+        else BLUEPRINT_AVAILABLE
+    )
+    availability = {
+        "availability_status": availability_status,
+        "availability_policy_version": (
+            str(row["availability_policy_version"] or "")
+            if "availability_policy_version" in keys
+            else ""
+        ),
+        "transition_number": (
+            int(row["availability_transition_number"] or 0)
+            if "availability_transition_number" in keys
+            else 0
+        ),
+        "last_event_id": (
+            str(row["availability_last_event_id"] or "")
+            if "availability_last_event_id" in keys
+            else ""
+        ),
+        "removed_at": (
+            str(row["availability_removed_at"] or "")
+            if "availability_removed_at" in keys
+            else ""
+        ),
+        "removed_by": (
+            str(row["availability_removed_by"] or "")
+            if "availability_removed_by" in keys
+            else ""
+        ),
+        "removal_reason": (
+            str(row["availability_removal_reason"] or "")
+            if "availability_removal_reason" in keys
+            else ""
+        ),
+        "restored_at": (
+            str(row["availability_restored_at"] or "")
+            if "availability_restored_at" in keys
+            else ""
+        ),
+        "restored_by": (
+            str(row["availability_restored_by"] or "")
+            if "availability_restored_by" in keys
+            else ""
+        ),
+        "updated_at": (
+            str(row["availability_updated_at"] or "")
+            if "availability_updated_at" in keys
+            else ""
+        ),
+    }
+    lifecycle_status = str(row["status"])
     return {
         "blueprint_id": str(row["blueprint_id"]),
         "blueprint_fingerprint": str(row["blueprint_fingerprint"]),
@@ -141,7 +359,14 @@ def _row_to_blueprint(row: sqlite3.Row) -> dict[str, Any]:
         "role_family_id": str(row["role_family_id"]),
         "role_family_label": str(row["role_family_label"]),
         "version_number": int(row["version_number"]),
-        "status": str(row["status"]),
+        "status": lifecycle_status,
+        "lifecycle_status": lifecycle_status,
+        "availability_status": availability_status,
+        "availability": availability,
+        "is_reusable": (
+            lifecycle_status == "active"
+            and availability_status == BLUEPRINT_AVAILABLE
+        ),
         "candidate_id": str(row["candidate_id"]),
         "candidate_fingerprint": str(row["candidate_fingerprint"]),
         "evaluation_id": str(row["evaluation_id"]),
@@ -165,6 +390,117 @@ def _row_to_audit_event(row: sqlite3.Row) -> dict[str, Any]:
     event.setdefault("event_id", str(row["event_id"]))
     event.setdefault("event_fingerprint", str(row["event_fingerprint"]))
     return event
+
+
+_BLUEPRINT_WITH_AVAILABILITY_SELECT = """
+    SELECT
+        blueprint.*,
+        COALESCE(availability.availability_status, 'available')
+            AS availability_status,
+        COALESCE(availability.availability_policy_version, '')
+            AS availability_policy_version,
+        COALESCE(availability.transition_number, 0)
+            AS availability_transition_number,
+        COALESCE(availability.last_event_id, '')
+            AS availability_last_event_id,
+        COALESCE(availability.removed_at, '')
+            AS availability_removed_at,
+        COALESCE(availability.removed_by, '')
+            AS availability_removed_by,
+        COALESCE(availability.removal_reason, '')
+            AS availability_removal_reason,
+        COALESCE(availability.restored_at, '')
+            AS availability_restored_at,
+        COALESCE(availability.restored_by, '')
+            AS availability_restored_by,
+        COALESCE(availability.updated_at, '')
+            AS availability_updated_at
+    FROM global_blueprint_versions AS blueprint
+    LEFT JOIN global_blueprint_availability AS availability
+      ON availability.blueprint_id = blueprint.blueprint_id
+"""
+
+
+def _availability_table_exists(connection: sqlite3.Connection) -> bool:
+    return connection.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'global_blueprint_availability'
+        LIMIT 1
+        """
+    ).fetchone() is not None
+
+
+def _availability_state_with_connection(
+    connection: sqlite3.Connection,
+    blueprint_id: str,
+) -> dict[str, Any]:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM global_blueprint_availability
+        WHERE blueprint_id = ?
+        LIMIT 1
+        """,
+        (str(blueprint_id),),
+    ).fetchone()
+    if row is None:
+        return {
+            "availability_status": BLUEPRINT_AVAILABLE,
+            "availability_policy_version": "",
+            "transition_number": 0,
+            "last_event_id": "",
+            "removed_at": "",
+            "removed_by": "",
+            "removal_reason": "",
+            "restored_at": "",
+            "restored_by": "",
+            "updated_at": "",
+        }
+    return {
+        "availability_status": str(row["availability_status"]),
+        "availability_policy_version": str(
+            row["availability_policy_version"] or ""
+        ),
+        "transition_number": int(row["transition_number"]),
+        "last_event_id": str(row["last_event_id"] or ""),
+        "removed_at": str(row["removed_at"] or ""),
+        "removed_by": str(row["removed_by"] or ""),
+        "removal_reason": str(row["removal_reason"] or ""),
+        "restored_at": str(row["restored_at"] or ""),
+        "restored_by": str(row["restored_by"] or ""),
+        "updated_at": str(row["updated_at"] or ""),
+    }
+
+
+def _blueprint_with_availability_with_connection(
+    connection: sqlite3.Connection,
+    blueprint_id: str,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        _BLUEPRINT_WITH_AVAILABILITY_SELECT
+        + " WHERE blueprint.blueprint_id = ? LIMIT 1",
+        (str(blueprint_id),),
+    ).fetchone()
+    return _row_to_blueprint(row) if row is not None else None
+
+
+def active_global_blueprints_with_connection(
+    connection: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Load the reusable active scope inside a caller transaction."""
+    rows = connection.execute(
+        _BLUEPRINT_WITH_AVAILABILITY_SELECT
+        + """
+        WHERE blueprint.status = 'active'
+          AND COALESCE(availability.availability_status, 'available')
+              = 'available'
+        ORDER BY blueprint.role_family_label ASC,
+                 blueprint.version_number DESC
+        """
+    ).fetchall()
+    return [_row_to_blueprint(row) for row in rows]
 
 
 def _load_candidate(
@@ -316,6 +652,8 @@ def _insert_audit_event(
     metadata_change: dict[str, Any] | None,
     actor_label: str,
     created_at: str,
+    event_version: str = PHASE9D_AUDIT_EVENT_VERSION,
+    lifecycle_change: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     identity = blueprint.get("semantic_identity") or {}
     candidate = identity.get("candidate") or {}
@@ -323,7 +661,7 @@ def _insert_audit_event(
     event_id = uuid.uuid4().hex
     event = {
         "event_id": event_id,
-        "event_version": PHASE9D_AUDIT_EVENT_VERSION,
+        "event_version": event_version,
         "event_type": event_type,
         "role_family_id": blueprint["role_family_id"],
         "blueprint_id": blueprint["blueprint_id"],
@@ -344,6 +682,8 @@ def _insert_audit_event(
         "actor_label": str(actor_label or "Local user"),
         "created_at": created_at,
     }
+    if lifecycle_change is not None:
+        event["lifecycle_change"] = deepcopy(lifecycle_change)
     event_fingerprint = fingerprint_value(event)
     event["event_fingerprint"] = event_fingerprint
     connection.execute(
@@ -371,7 +711,7 @@ def _insert_audit_event(
         (
             event_id,
             event_fingerprint,
-            PHASE9D_AUDIT_EVENT_VERSION,
+            event_version,
             event_type,
             blueprint["role_family_id"],
             blueprint["blueprint_id"],
@@ -428,6 +768,7 @@ def approve_persisted_phase9c_evaluation(
             raise Phase9DApprovalError(
                 "The persisted candidate fingerprint is mismatched."
             )
+        artifact_provenance = _prepare_blueprint_artifact_provenance(candidate)
         all_saved_jds = _load_current_jds(connection)
         scope = (evaluation.get("semantic_identity") or {}).get(
             "selected_jd_scope"
@@ -448,6 +789,7 @@ def approve_persisted_phase9c_evaluation(
             provisional_override=provisional_override,
             actor_label=actor_label,
             accepted_at=approved_at,
+            artifact_provenance=artifact_provenance,
         )
         identity = prepared["semantic_identity"]
         identity_json = canonical_json(identity)
@@ -464,6 +806,20 @@ def approve_persisted_phase9c_evaluation(
             raise RuntimeError(
                 "Phase 9D fingerprint collision: semantic identities differ."
             )
+        if existing is not None:
+            existing_availability = _availability_state_with_connection(
+                connection,
+                str(existing["blueprint_id"]),
+            )
+            if (
+                existing_availability["availability_status"]
+                == BLUEPRINT_REMOVED
+            ):
+                raise Phase9DApprovalError(
+                    "This exact immutable Blueprint was removed from reuse. "
+                    "Use the explicit Restore Blueprint lifecycle action; "
+                    "approval cannot silently restore or reactivate it."
+                )
 
         active = connection.execute(
             """
@@ -477,6 +833,7 @@ def approve_persisted_phase9c_evaluation(
         previous_active_id = str(active["blueprint_id"]) if active else ""
 
         if existing is None:
+            _materialize_blueprint_artifacts(artifact_provenance)
             next_version = int(
                 connection.execute(
                     """
@@ -576,6 +933,7 @@ def approve_persisted_phase9c_evaluation(
                 (prepared["blueprint_id"],),
             ).fetchone()
         else:
+            _materialize_blueprint_artifacts(artifact_provenance)
             existing_id = str(existing["blueprint_id"])
             if str(existing["status"]) == "active":
                 event_type = "exact_reuse"
@@ -637,15 +995,310 @@ def approve_persisted_phase9c_evaluation(
         connection.close()
 
 
+def remove_global_blueprint_from_reuse(
+    *,
+    blueprint_id: str,
+    blueprint_fingerprint: str,
+    acknowledged: bool,
+    actor_label: str = "Local user",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Remove one exact lifecycle-active Blueprint from future reuse."""
+    blueprint_id = str(blueprint_id or "").strip()
+    blueprint_fingerprint = str(blueprint_fingerprint or "").strip()
+    if not blueprint_id or not blueprint_fingerprint:
+        raise Phase9DApprovalError(
+            "Both Blueprint ID and fingerprint are required for removal."
+        )
+    if acknowledged is not True:
+        raise Phase9DApprovalError(
+            "Explicit acknowledgement is required before removing a Blueprint."
+        )
+    init_global_blueprint_registry()
+    connection = _connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM global_blueprint_versions WHERE blueprint_id = ?",
+            (blueprint_id,),
+        ).fetchone()
+        if row is None:
+            raise Phase9DApprovalError("The exact Blueprint was not found.")
+        if str(row["blueprint_fingerprint"]) != blueprint_fingerprint:
+            raise Phase9DApprovalError(
+                "The Blueprint changed since it was displayed. Refresh and try again."
+            )
+        state = _availability_state_with_connection(connection, blueprint_id)
+        if state["availability_status"] == BLUEPRINT_REMOVED:
+            connection.rollback()
+            current = _blueprint_with_availability_with_connection(
+                connection, blueprint_id
+            )
+            return {
+                "cache_status": "hit_removed",
+                "blueprint": current,
+                "audit_event": None,
+            }
+        if str(row["status"]) != "active":
+            raise Phase9DApprovalError(
+                "Only a lifecycle-active Blueprint can be removed from reuse. "
+                "Superseded versions already remain in version history."
+            )
+        active = connection.execute(
+            """
+            SELECT blueprint_id
+            FROM global_blueprint_versions
+            WHERE role_family_id = ? AND status = 'active'
+            LIMIT 1
+            """,
+            (str(row["role_family_id"]),),
+        ).fetchone()
+        if active is None or str(active["blueprint_id"]) != blueprint_id:
+            raise Phase9DApprovalError(
+                "The role-family activation state changed. Removal failed closed."
+            )
+
+        changed_at = _now()
+        transition_number = int(state["transition_number"]) + 1
+        blueprint = _row_to_blueprint(row)
+        lifecycle_change = {
+            "availability_policy_version": (
+                PHASE9D_AVAILABILITY_POLICY_VERSION
+            ),
+            "transition_number": transition_number,
+            "before": {
+                "lifecycle_status": "active",
+                "availability_status": BLUEPRINT_AVAILABLE,
+            },
+            "after": {
+                "lifecycle_status": "active",
+                "availability_status": BLUEPRINT_REMOVED,
+            },
+            "acknowledged": True,
+            "reason": str(reason or "").strip(),
+        }
+        event = _insert_audit_event(
+            connection,
+            event_type="removed_from_reuse",
+            blueprint=blueprint,
+            previous_active_blueprint_id=blueprint_id,
+            provisional_override={},
+            validation={
+                "exact_blueprint_identity": True,
+                "lifecycle_active": True,
+                "same_family_active_blueprint_id": blueprint_id,
+                "availability_before": BLUEPRINT_AVAILABLE,
+            },
+            metadata_change=None,
+            actor_label=str(actor_label or "Local user"),
+            created_at=changed_at,
+            event_version=PHASE9D_AVAILABILITY_EVENT_VERSION,
+            lifecycle_change=lifecycle_change,
+        )
+        connection.execute(
+            """
+            INSERT INTO global_blueprint_availability (
+                blueprint_id,
+                availability_status,
+                availability_policy_version,
+                transition_number,
+                last_event_id,
+                removed_at,
+                removed_by,
+                removal_reason,
+                restored_at,
+                restored_by,
+                updated_at
+            ) VALUES (?, 'removed', ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+            ON CONFLICT(blueprint_id) DO UPDATE SET
+                availability_status = excluded.availability_status,
+                availability_policy_version = excluded.availability_policy_version,
+                transition_number = excluded.transition_number,
+                last_event_id = excluded.last_event_id,
+                removed_at = excluded.removed_at,
+                removed_by = excluded.removed_by,
+                removal_reason = excluded.removal_reason,
+                restored_at = NULL,
+                restored_by = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (
+                blueprint_id,
+                PHASE9D_AVAILABILITY_POLICY_VERSION,
+                transition_number,
+                event["event_id"],
+                changed_at,
+                str(actor_label or "Local user"),
+                str(reason or "").strip(),
+                changed_at,
+            ),
+        )
+        connection.commit()
+        stored = _blueprint_with_availability_with_connection(
+            connection, blueprint_id
+        )
+        if stored is None:
+            raise RuntimeError("The removed Blueprint could not be reloaded.")
+        return {
+            "cache_status": "removed",
+            "blueprint": stored,
+            "audit_event": event,
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def restore_global_blueprint_to_reuse(
+    *,
+    blueprint_id: str,
+    blueprint_fingerprint: str,
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Restore availability only when the exact underlying version is active."""
+    blueprint_id = str(blueprint_id or "").strip()
+    blueprint_fingerprint = str(blueprint_fingerprint or "").strip()
+    if not blueprint_id or not blueprint_fingerprint:
+        raise Phase9DApprovalError(
+            "Both Blueprint ID and fingerprint are required for restoration."
+        )
+    init_global_blueprint_registry()
+    connection = _connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM global_blueprint_versions WHERE blueprint_id = ?",
+            (blueprint_id,),
+        ).fetchone()
+        if row is None:
+            raise Phase9DApprovalError("The exact Blueprint was not found.")
+        if str(row["blueprint_fingerprint"]) != blueprint_fingerprint:
+            raise Phase9DApprovalError(
+                "The Blueprint changed since it was displayed. Refresh and try again."
+            )
+        state = _availability_state_with_connection(connection, blueprint_id)
+        if state["availability_status"] == BLUEPRINT_AVAILABLE:
+            if str(row["status"]) != "active":
+                raise Phase9DApprovalError(
+                    "This version is superseded, not removed. It cannot be restored "
+                    "through the availability lifecycle."
+                )
+            connection.rollback()
+            current = _blueprint_with_availability_with_connection(
+                connection, blueprint_id
+            )
+            return {
+                "cache_status": "hit_available",
+                "blueprint": current,
+                "audit_event": None,
+            }
+        if str(row["status"]) != "active":
+            replacement = str(row["superseded_by_blueprint_id"] or "")
+            suffix = f" by Blueprint {replacement}" if replacement else ""
+            raise Phase9DApprovalError(
+                "This removed Blueprint has since been superseded"
+                f"{suffix}. Restore cannot reactivate or supersede versions."
+            )
+        active = connection.execute(
+            """
+            SELECT blueprint_id
+            FROM global_blueprint_versions
+            WHERE role_family_id = ? AND status = 'active'
+            LIMIT 1
+            """,
+            (str(row["role_family_id"]),),
+        ).fetchone()
+        if active is None or str(active["blueprint_id"]) != blueprint_id:
+            active_id = str(active["blueprint_id"]) if active else "none"
+            raise Phase9DApprovalError(
+                "Restore conflicts with the role family's current active "
+                f"Blueprint ({active_id}). No activation was changed."
+            )
+
+        changed_at = _now()
+        transition_number = int(state["transition_number"]) + 1
+        blueprint = _row_to_blueprint(row)
+        lifecycle_change = {
+            "availability_policy_version": (
+                PHASE9D_AVAILABILITY_POLICY_VERSION
+            ),
+            "transition_number": transition_number,
+            "before": {
+                "lifecycle_status": "active",
+                "availability_status": BLUEPRINT_REMOVED,
+            },
+            "after": {
+                "lifecycle_status": "active",
+                "availability_status": BLUEPRINT_AVAILABLE,
+            },
+        }
+        event = _insert_audit_event(
+            connection,
+            event_type="restored_to_reuse",
+            blueprint=blueprint,
+            previous_active_blueprint_id=blueprint_id,
+            provisional_override={},
+            validation={
+                "exact_blueprint_identity": True,
+                "lifecycle_active": True,
+                "same_family_active_blueprint_id": blueprint_id,
+                "availability_before": BLUEPRINT_REMOVED,
+            },
+            metadata_change=None,
+            actor_label=str(actor_label or "Local user"),
+            created_at=changed_at,
+            event_version=PHASE9D_AVAILABILITY_EVENT_VERSION,
+            lifecycle_change=lifecycle_change,
+        )
+        connection.execute(
+            """
+            UPDATE global_blueprint_availability
+            SET availability_status = 'available',
+                availability_policy_version = ?,
+                transition_number = ?,
+                last_event_id = ?,
+                restored_at = ?,
+                restored_by = ?,
+                updated_at = ?
+            WHERE blueprint_id = ? AND availability_status = 'removed'
+            """,
+            (
+                PHASE9D_AVAILABILITY_POLICY_VERSION,
+                transition_number,
+                event["event_id"],
+                changed_at,
+                str(actor_label or "Local user"),
+                changed_at,
+                blueprint_id,
+            ),
+        )
+        connection.commit()
+        stored = _blueprint_with_availability_with_connection(
+            connection, blueprint_id
+        )
+        if stored is None:
+            raise RuntimeError("The restored Blueprint could not be reloaded.")
+        return {
+            "cache_status": "restored",
+            "blueprint": stored,
+            "audit_event": event,
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def get_global_blueprint(blueprint_id: str) -> dict[str, Any] | None:
     init_global_blueprint_registry()
     connection = _connect()
     try:
         row = connection.execute(
-            """
-            SELECT * FROM global_blueprint_versions
-            WHERE blueprint_id = ? LIMIT 1
-            """,
+            _BLUEPRINT_WITH_AVAILABILITY_SELECT
+            + " WHERE blueprint.blueprint_id = ? LIMIT 1",
             (str(blueprint_id),),
         ).fetchone()
         return _row_to_blueprint(row) if row is not None else None
@@ -660,10 +1313,8 @@ def get_global_blueprint_by_fingerprint(
     connection = _connect()
     try:
         row = connection.execute(
-            """
-            SELECT * FROM global_blueprint_versions
-            WHERE blueprint_fingerprint = ? LIMIT 1
-            """,
+            _BLUEPRINT_WITH_AVAILABILITY_SELECT
+            + " WHERE blueprint.blueprint_fingerprint = ? LIMIT 1",
             (str(blueprint_fingerprint),),
         ).fetchone()
         return _row_to_blueprint(row) if row is not None else None
@@ -678,9 +1329,14 @@ def get_active_global_blueprint(
     connection = _connect()
     try:
         row = connection.execute(
-            """
-            SELECT * FROM global_blueprint_versions
-            WHERE role_family_id = ? AND status = 'active'
+            _BLUEPRINT_WITH_AVAILABILITY_SELECT
+            + """
+            WHERE blueprint.role_family_id = ?
+              AND blueprint.status = 'active'
+              AND COALESCE(
+                    availability.availability_status,
+                    'available'
+                  ) = 'available'
             LIMIT 1
             """,
             (str(role_family_id),),
@@ -694,6 +1350,7 @@ def list_global_blueprints(
     *,
     role_family_id: str | None = None,
     include_superseded: bool = True,
+    include_removed: bool = True,
 ) -> list[dict[str, Any]]:
     init_global_blueprint_registry()
     connection = _connect()
@@ -701,19 +1358,83 @@ def list_global_blueprints(
         clauses: list[str] = []
         values: list[Any] = []
         if role_family_id:
-            clauses.append("role_family_id = ?")
+            clauses.append("blueprint.role_family_id = ?")
             values.append(str(role_family_id))
         if not include_superseded:
-            clauses.append("status = 'active'")
+            clauses.append("blueprint.status = 'active'")
+        if not include_removed:
+            clauses.append(
+                "COALESCE(availability.availability_status, 'available') "
+                "= 'available'"
+            )
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
         rows = connection.execute(
-            f"""
-            SELECT * FROM global_blueprint_versions
+            _BLUEPRINT_WITH_AVAILABILITY_SELECT
+            + f"""
             {where}
-            ORDER BY role_family_label ASC, version_number DESC
+            ORDER BY blueprint.role_family_label ASC,
+                     blueprint.version_number DESC
             """,
             values,
         ).fetchall()
+        return [_row_to_blueprint(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def list_reusable_global_blueprints(
+    *,
+    role_family_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return list_global_blueprints(
+        role_family_id=role_family_id,
+        include_superseded=False,
+        include_removed=False,
+    )
+
+
+def list_removed_global_blueprints() -> list[dict[str, Any]]:
+    init_global_blueprint_registry()
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            _BLUEPRINT_WITH_AVAILABILITY_SELECT
+            + """
+            WHERE availability.availability_status = 'removed'
+            ORDER BY blueprint.role_family_label ASC,
+                     blueprint.version_number DESC
+            """
+        ).fetchall()
+        return [_row_to_blueprint(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def list_active_global_blueprints_read_only() -> list[dict[str, Any]]:
+    """Return reusable Phase 9D scope without schema or lifecycle writes."""
+    connection = _connect()
+    try:
+        if _availability_table_exists(connection):
+            rows = connection.execute(
+                _BLUEPRINT_WITH_AVAILABILITY_SELECT
+                + """
+                WHERE blueprint.status = 'active'
+                  AND COALESCE(
+                        availability.availability_status,
+                        'available'
+                      ) = 'available'
+                ORDER BY blueprint.role_family_label ASC,
+                         blueprint.version_number DESC
+                """
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT * FROM global_blueprint_versions
+                WHERE status = 'active'
+                ORDER BY role_family_label ASC, version_number DESC
+                """
+            ).fetchall()
         return [_row_to_blueprint(row) for row in rows]
     finally:
         connection.close()

@@ -23,6 +23,9 @@ from tailoring.final_scoring_seed import (
     FINAL_SCORING_SEED_VERSION,
     fingerprint_final_scoring_seed,
 )
+from tailoring.fresh_target_evidence_scoring import (
+    build_fresh_target_analysis,
+)
 from tailoring.phase9b_blueprint_candidate import PHASE9B_VERSION
 from tailoring.phase9b_role_family import (
     canonical_role_family_id,
@@ -32,7 +35,7 @@ from tailoring.phase9b_role_family import (
 
 PHASE9C_VERSION = "phase9c-cross-jd-evaluation-v1"
 PHASE9C_POLICY_VERSION = "phase9c-same-family-explicit-scope-v3"
-PHASE9C_EVIDENCE_LINK_VERSION = "phase9c-full-snapshot-evidence-v2"
+PHASE9C_EVIDENCE_LINK_VERSION = "phase9c-full-snapshot-evidence-v3"
 PORTABILITY_PASS_THRESHOLD = 65
 MINIMUM_NON_PROVISIONAL_JDS = 2
 IMPORTANT = {"deal_breaker", "required", "core"}
@@ -648,7 +651,7 @@ def _target_analysis(
         resume_profile=deepcopy(candidate["resume_profile_snapshot"]),
         raw_resume_text=str(candidate["resume_text_snapshot"]),
     )
-    return build_stable_analysis(
+    return build_fresh_target_analysis(
         jd_profile=deepcopy(jd.get("jd_profile") or {}),
         keyword_match=keyword_match,
         raw_jd_text=str(jd.get("raw_text") or ""),

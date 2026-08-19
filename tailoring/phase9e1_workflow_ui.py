@@ -17,6 +17,12 @@ from database.db_manager import get_application_by_id
 from database.jd_library_manager import (
     get_exact_job_description_for_application,
 )
+from database.phase9f_application_confirmation_manager import (
+    get_phase9f_application_confirmation,
+)
+from database.phase9f_application_execution_manager import (
+    get_phase9f_application_execution,
+)
 from database.tailoring_generation_control import (
     get_application_generation_control,
 )
@@ -27,13 +33,14 @@ from tailoring.phase9e_application_result import (
     STATUS_REUSED_APPROVED,
     STATUS_REUSED_UNCHANGED_PENDING,
 )
+from tailoring.phase9f_application_execution import PHASE9F_E_RESULT_STATUS
 from tailoring.phase9e1_resume_workspace_ui import (
     render_resume_workspace,
 )
 from tailoring.phase9e_blueprint_selection import DECISION_LABELS
 
 
-PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v4"
+PHASE9E1_WORKFLOW_UI_VERSION = "phase9e1-application-workflow-ui-v5"
 
 
 def _clean(value: Any) -> str:
@@ -90,6 +97,15 @@ def _decision_source_label(
         )
         return "Original résumé", detail
 
+    if selected_source == "base_resume":
+        source = (decision.get("starting_snapshot") or {}).get(
+            "source_identity"
+        ) or {}
+        return (
+            _first(source.get("source_display_name"), fallback="Base Resume"),
+            f"Immutable Base Resume v{int(source.get('source_version') or 0)}",
+        )
+
     return "Not selected", "Choose a starting résumé"
 
 
@@ -103,6 +119,9 @@ def build_application_workflow_overview(
     current_result: dict[str, Any] | None,
     legacy_approved_generation: dict[str, Any] | None = None,
     legacy_verification: dict[str, Any] | None = None,
+    phase9f_d_confirmation: dict[str, Any] | None = None,
+    phase9f_e_execution: dict[str, Any] | None = None,
+    phase9f_f_execution: dict[str, Any] | None = None,
     load_error: str = "",
 ) -> dict[str, Any]:
     """Build a read-only, state-aware application workflow summary."""
@@ -113,6 +132,17 @@ def build_application_workflow_overview(
     result = current_result or {}
     legacy_generation = legacy_approved_generation or {}
     verification = legacy_verification or {}
+    phase9f_d = phase9f_d_confirmation or {}
+    phase9f_e = phase9f_e_execution or {}
+    phase9f_f = phase9f_f_execution or {}
+    phase9f_d_content = (
+        (phase9f_d.get("semantic_identity") or {}).get(
+            "confirmation_content_identity"
+        )
+        or {}
+    )
+    phase9f_d_recommendation = phase9f_d_content.get("recommendation") or {}
+    phase9f_d_confirmed = phase9f_d_content.get("confirmation") or {}
 
     selection = decision.get("selection") or {}
     blueprint = selection.get("selected_blueprint") or {}
@@ -133,6 +163,7 @@ def build_application_workflow_overview(
     has_immutable_result = initial_status in {
         STATUS_REUSED_APPROVED,
         STATUS_REUSED_UNCHANGED_PENDING,
+        PHASE9F_E_RESULT_STATUS,
     }
     has_legacy_approved = bool(
         legacy_generation
@@ -171,7 +202,39 @@ def build_application_workflow_overview(
         source_label = "Not selected"
         source_detail = "Choose a starting résumé"
 
-    if initial_status == STATUS_REUSED_APPROVED:
+    if phase9f_f:
+        intensity = _clean(phase9f_f.get("confirmed_intensity")).title()
+        execution_status = _clean(phase9f_f.get("status")).replace("_", " ")
+        stage = _clean(phase9f_f.get("current_stage")).replace("_", " ")
+        workflow_mode = f"Tailored Application Session · {intensity}"
+        result_label = f"Tailoring {execution_status or 'not started'}"
+        phase9e_status = "Active · exact Phase 9F-D binding"
+        next_action = {
+            "blocked": "Return through Phase 9F confirmation to choose another source or intensity.",
+            "preparing": "Tailoring is initialized. Review Tailoring Opportunities, then continue to Projects & Skills.",
+            "running": {
+                "projects": "Run the normal Projects & Skills stage; paid work starts only from that action.",
+                "skills": "Run the normal Projects & Skills stage; durable completed work will be reused.",
+                "build fit pending": "Projects & Skills are ready. Continue to the normal Build and Fit stage.",
+                "fitting": "Build and Fit is running deterministically from the durable section outputs.",
+            }.get(stage, f"Continue at {stage or 'the current Application Session stage'}"),
+            "waiting_for_approval": "Preview and approve the fitted draft using the existing Application Session approval control.",
+            "waiting_for_phase8": "Run the existing Final Résumé Verification control for the approved draft.",
+            "completed": "Review the approved changed output and its authoritative Phase 8 result.",
+            "failed": "Retry only the affected Application Session stage; durable earlier work remains available.",
+        }.get(_clean(phase9f_f.get("status")), "Review the current Application Session stage.")
+    elif (
+        initial_status == PHASE9F_E_RESULT_STATUS
+        and _clean(phase9f_e.get("status")) == "completed"
+    ):
+        workflow_mode = "Phase 9F-E immutable Reuse"
+        result_label = "Reuse completed · 1 page · Phase 8 verified"
+        phase9e_status = "Active · exact Phase 9F-D binding"
+        next_action = (
+            "Review, preview, or download the immutable Reuse result. "
+            "No second content approval is required."
+        )
+    elif initial_status == STATUS_REUSED_APPROVED:
         workflow_mode = "Phase 9E immutable reuse"
         result_label = "Reused approved blueprint"
         phase9e_status = "Active"
@@ -258,6 +321,18 @@ def build_application_workflow_overview(
         result_label = "No current approved résumé result"
         phase9e_status = "Waiting for confirmation"
         next_action = "Confirm the proposed starting-source change."
+    elif phase9e_active and phase9f_d:
+        workflow_mode = "Phase 9F-D configured Application Session"
+        result_label = "No tailored result yet"
+        phase9e_status = "Active · exact Phase 9F-D binding"
+        confirmed_intensity = _clean(
+            phase9f_d_confirmed.get("confirmed_intensity")
+        )
+        next_action = {
+            "reuse": "Reuse confirmed source",
+            "minor": "Begin Minor tailoring",
+            "full": "Begin Full tailoring",
+        }.get(confirmed_intensity, "Review the confirmed Phase 9F-D setup")
     elif phase9e_active:
         workflow_mode = "Phase 9E source bound"
         result_label = "Starting source bound"
@@ -336,6 +411,45 @@ def build_application_workflow_overview(
             verification.get("verification_id")
         ),
         "has_immutable_result": has_immutable_result,
+        "phase9f_d_confirmation_id": _clean(
+            phase9f_d.get("confirmation_id")
+        ),
+        "phase9f_d_recommended_source": _clean(
+            (
+                phase9f_d_recommendation.get("recommended_source") or {}
+            ).get("source_display_name")
+        ),
+        "phase9f_d_confirmed_source": _clean(
+            (phase9f_d_confirmed.get("confirmed_source") or {}).get(
+                "source_display_name"
+            )
+        ),
+        "phase9f_d_recommended_intensity": _clean(
+            phase9f_d_recommendation.get(
+                "recommended_intensity_for_recommended_source"
+            )
+        ),
+        "phase9f_d_confirmed_intensity": _clean(
+            phase9f_d_confirmed.get("confirmed_intensity")
+        ),
+        "phase9f_d_override_classification": _clean(
+            phase9f_d_confirmed.get("override_classification")
+        ),
+        "phase9f_e_execution_id": _clean(
+            phase9f_e.get("execution_id")
+        ),
+        "phase9f_e_execution_status": _clean(
+            phase9f_e.get("status")
+        ),
+        "phase9f_e_execution_stage": _clean(
+            phase9f_e.get("current_stage")
+        ),
+        "phase9f_e_phase8_mode": _clean(
+            phase9f_e.get("phase8_mode")
+        ),
+        "phase9f_f_execution_id": _clean(phase9f_f.get("execution_id")),
+        "phase9f_f_execution_status": _clean(phase9f_f.get("status")),
+        "phase9f_f_execution_stage": _clean(phase9f_f.get("current_stage")),
         "previous_scope_approved": previous_scope_approved,
         "has_legacy_approved_result": has_legacy_approved,
         "load_error": _clean(load_error),
@@ -397,6 +511,29 @@ def render_application_workflow_overview(
     decision, result, approved, verification, errors = _load_state(
         application_id
     )
+    try:
+        phase9f_d_confirmation = get_phase9f_application_confirmation(
+            application_id
+        )
+    except (ValueError, RuntimeError) as exc:
+        phase9f_d_confirmation = None
+        errors.append(str(exc))
+    try:
+        phase9f_e_execution = get_phase9f_application_execution(
+            application_id
+        )
+    except (ValueError, RuntimeError) as exc:
+        phase9f_e_execution = None
+        errors.append(str(exc))
+    try:
+        from database.phase9f_tailoring_execution_manager import (
+            get_phase9f_tailoring_execution,
+        )
+
+        phase9f_f_execution = get_phase9f_tailoring_execution(application_id)
+    except (ValueError, RuntimeError) as exc:
+        phase9f_f_execution = None
+        errors.append(str(exc))
     from tailoring.phase9e1_resume_workspace_ui import (
         get_resume_workspace_context,
     )
@@ -413,6 +550,9 @@ def render_application_workflow_overview(
         current_result=result,
         legacy_approved_generation=approved,
         legacy_verification=verification,
+        phase9f_d_confirmation=phase9f_d_confirmation,
+        phase9f_e_execution=phase9f_e_execution,
+        phase9f_f_execution=phase9f_f_execution,
         load_error=" ".join(errors),
     )
 
@@ -514,6 +654,23 @@ def render_application_workflow_overview(
                 "**Proposed Phase 9E source:** "
                 f"{overview['proposed_source']} — "
                 f"{overview['proposed_source_detail']}"
+            )
+
+        if overview["phase9f_d_confirmation_id"]:
+            st.write("**Phase 9F-D confirmation**")
+            st.caption(
+                "Recommended source: "
+                f"{overview['phase9f_d_recommended_source'] or 'Unavailable'} "
+                "· recommended tailoring: "
+                f"{overview['phase9f_d_recommended_intensity'].title()}"
+            )
+            st.caption(
+                "Confirmed source: "
+                f"{overview['phase9f_d_confirmed_source'] or 'Unavailable'} "
+                "· confirmed tailoring: "
+                f"{overview['phase9f_d_confirmed_intensity'].title()} "
+                "· "
+                f"{overview['phase9f_d_override_classification'].replace('_', ' ')}"
             )
 
         st.info(

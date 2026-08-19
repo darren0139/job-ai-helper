@@ -13,6 +13,9 @@ from tailoring.phase9d_global_blueprint import (
     Phase9DApprovalError,
     prepare_global_blueprint_approval,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+)
 from tests.phase9d_test_support import load_phase9d_fixture
 
 
@@ -46,9 +49,34 @@ class Phase9DGlobalBlueprintTests(unittest.TestCase):
             },
             "actor_label": "Test approver",
             "accepted_at": "2026-08-04T00:01:00",
+            "artifact_provenance": {
+                "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+                "artifacts": [
+                    {
+                        "artifact_kind": "docx",
+                        "media_type": (
+                            "application/vnd.openxmlformats-officedocument."
+                            "wordprocessingml.document"
+                        ),
+                        "sha256": "synthetic-docx-hash",
+                        "byte_size": 1,
+                    },
+                    {
+                        "artifact_kind": "pdf",
+                        "media_type": "application/pdf",
+                        "sha256": "synthetic-pdf-hash",
+                        "byte_size": 1,
+                    },
+                ],
+                "storage": [],
+            },
         }
         values.update(kwargs)
         return prepare_global_blueprint_approval(**values)
+
+    def test_new_approval_requires_immutable_artifact_identity(self):
+        with self.assertRaisesRegex(Phase9DApprovalError, "artifact provenance"):
+            self.prepare(artifact_provenance=None)
 
     def test_standalone_snapshot_copies_authoritative_candidate_and_evaluation(self):
         result = self.prepare()

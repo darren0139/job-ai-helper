@@ -286,10 +286,7 @@ def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
                     updated_at
                 )
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(application_id) DO UPDATE SET
-                    job_description_id = excluded.job_description_id,
-                    source_version_id = excluded.source_version_id,
-                    updated_at = excluded.updated_at
+                ON CONFLICT(application_id) DO NOTHING
                 """,
                 (int(application_id), target_id, source_id, created_at, updated_at),
             )
@@ -429,11 +426,12 @@ def _find_compatible_canonical_row(
 
 def _delete_orphaned_job(cursor: sqlite3.Cursor, job_description_id: int) -> dict[str, Any]:
     cursor.execute(
-        "SELECT canonical_jd_id FROM job_descriptions WHERE id = ?",
+        "SELECT canonical_jd_id, source_type FROM job_descriptions WHERE id = ?",
         (job_description_id,),
     )
     row = cursor.fetchone()
     canonical_id = str(row["canonical_jd_id"] or "") if row else ""
+    source_type = str(row["source_type"] or "") if row else ""
 
     cursor.execute(
         "SELECT COUNT(*) AS count FROM application_job_links WHERE job_description_id = ?",
@@ -441,7 +439,7 @@ def _delete_orphaned_job(cursor: sqlite3.Cursor, job_description_id: int) -> dic
     )
     remaining_count = int(cursor.fetchone()["count"])
 
-    if remaining_count == 0:
+    if remaining_count == 0 and source_type != "jd_library":
         cursor.execute(
             "DELETE FROM job_description_versions WHERE job_description_id = ?",
             (job_description_id,),
@@ -455,6 +453,19 @@ def _delete_orphaned_job(cursor: sqlite3.Cursor, job_description_id: int) -> dic
             "job_description_id": job_description_id,
             "canonical_jd_id": canonical_id,
             "remaining_link_count": 0,
+        }
+
+    if remaining_count == 0:
+        cursor.execute(
+            "UPDATE job_descriptions SET application_id = NULL WHERE id = ?",
+            (job_description_id,),
+        )
+        return {
+            "deleted": False,
+            "job_description_id": job_description_id,
+            "canonical_jd_id": canonical_id,
+            "remaining_link_count": 0,
+            "retained_as_saved_jd": True,
         }
 
     cursor.execute(
@@ -598,8 +609,15 @@ def save_or_link_job_description_for_application(
                     title = ?,
                     company = ?,
                     location = ?,
-                    source_type = ?,
-                    source_url = ?,
+                    source_type = CASE
+                        WHEN source_type = 'jd_library' THEN source_type
+                        ELSE ?
+                    END,
+                    source_url = CASE
+                        WHEN source_type = 'jd_library' AND source_url <> ''
+                            THEN source_url
+                        ELSE ?
+                    END,
                     last_seen_at = ?,
                     updated_at = ?,
                     application_id = COALESCE(application_id, ?)
@@ -703,6 +721,66 @@ def save_or_update_job_description_for_application(**kwargs: Any) -> int:
     return int(result["job_description_id"])
 
 
+def link_exact_job_description_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    application_id: int,
+    persisted_exact_jd: dict[str, Any],
+    linked_at: str,
+) -> None:
+    """Validate and link one already-persisted exact JD without committing."""
+    if not isinstance(persisted_exact_jd, dict):
+        raise ValueError("The persisted exact JD snapshot is required.")
+    job_id = int(persisted_exact_jd.get("library_jd_id") or 0)
+    version_id = str(
+        persisted_exact_jd.get("source_version_id") or ""
+    ).strip()
+    row = connection.execute(
+        """
+        SELECT
+            jd.canonical_jd_id,
+            version.raw_text,
+            version.jd_profile_json
+        FROM job_descriptions AS jd
+        JOIN job_description_versions AS version
+          ON version.job_description_id = jd.id
+        WHERE jd.id = ? AND version.source_version_id = ?
+        LIMIT 1
+        """,
+        (job_id, version_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("The exact persisted JD version no longer exists.")
+    raw_text = str(row["raw_text"] or "")
+    profile = _safe_json_loads(row["jd_profile_json"])
+    if (
+        str(row["canonical_jd_id"] or "")
+        != str(persisted_exact_jd.get("canonical_jd_id") or "")
+        or raw_text != str(persisted_exact_jd.get("raw_text") or "")
+        or profile != (persisted_exact_jd.get("jd_profile") or {})
+        or hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+        != str(persisted_exact_jd.get("raw_jd_sha256") or "")
+    ):
+        raise ValueError(
+            "The exact persisted JD changed after Phase 9F-A preparation."
+        )
+    connection.execute(
+        """
+        INSERT INTO application_job_links (
+            application_id, job_description_id, source_version_id,
+            linked_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            int(application_id),
+            job_id,
+            version_id,
+            str(linked_at),
+            str(linked_at),
+        ),
+    )
+
+
 def get_recent_job_descriptions(limit: int = 20) -> list[tuple]:
     """Return unique canonical JDs, not one row per application session."""
     connection = _connect()
@@ -773,6 +851,149 @@ def get_job_description_by_id(jd_id: int) -> dict[str, Any] | None:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+    finally:
+        connection.close()
+
+
+def save_job_description_to_library(
+    *,
+    raw_text: str,
+    jd_profile: dict[str, Any],
+    title: str = "",
+    company: str = "",
+    location: str = "",
+    source_url: str = "",
+) -> dict[str, Any]:
+    """Persist/reuse one standalone JD without creating an application link."""
+    cleaned_text = str(raw_text or "").strip()
+    if not cleaned_text:
+        raise ValueError("Job description text cannot be empty.")
+    if not isinstance(jd_profile, dict) or not jd_profile:
+        raise ValueError("A structured job-description profile is required.")
+
+    final_title = str(title or jd_profile.get("job_title") or "").strip()
+    final_company = str(company or jd_profile.get("company") or "").strip()
+    final_location = _extract_location(jd_profile, location)
+    if not final_title or not final_company:
+        raise ValueError(
+            "Saving to the JD Library requires a job title and company. "
+            "Add the missing metadata rather than saving an ambiguous identity."
+        )
+
+    identity = build_job_identity(
+        company=final_company,
+        title=final_title,
+        location=final_location,
+        raw_jd_text=cleaned_text,
+    )
+    profile = dict(jd_profile)
+    profile["job_title"] = final_title
+    profile["company"] = final_company
+    profile["location"] = final_location
+    profile_json = _json_dumps(profile)
+    now = _now()
+
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        canonical_row = _find_compatible_canonical_row(
+            cursor,
+            canonical_jd_id=identity.canonical_jd_id,
+            company_normalized=identity.company_normalized,
+            title_normalized=identity.title_normalized,
+            location_normalized=identity.location_normalized,
+        )
+        created_new_job = canonical_row is None
+        if created_new_job:
+            cursor.execute(
+                """
+                INSERT INTO job_descriptions (
+                    application_id, title, company, location, source_type,
+                    source_url, raw_text, jd_profile_json, canonical_jd_id,
+                    source_version_id, company_normalized, title_normalized,
+                    location_normalized, first_seen_at, last_seen_at,
+                    created_at, updated_at
+                ) VALUES (NULL, ?, ?, ?, 'jd_library', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    final_title,
+                    final_company,
+                    final_location,
+                    str(source_url or "").strip(),
+                    cleaned_text,
+                    profile_json,
+                    identity.canonical_jd_id,
+                    identity.source_version_id,
+                    identity.company_normalized,
+                    identity.title_normalized,
+                    identity.location_normalized,
+                    now,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            job_id = int(cursor.lastrowid)
+        else:
+            job_id = int(canonical_row["id"])
+
+        created_new_version = _upsert_version(
+            cursor,
+            job_description_id=job_id,
+            source_version_id=identity.source_version_id,
+            raw_text=cleaned_text,
+            jd_profile_json=profile_json,
+            created_at=now,
+        )
+        cursor.execute(
+            """
+            UPDATE job_descriptions
+            SET title = ?, company = ?, location = ?, source_type = 'jd_library',
+                source_url = CASE WHEN ? <> '' THEN ? ELSE source_url END,
+                last_seen_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                final_title,
+                final_company,
+                final_location,
+                str(source_url or "").strip(),
+                str(source_url or "").strip(),
+                now,
+                now,
+                job_id,
+            ),
+        )
+        if created_new_job or created_new_version:
+            cursor.execute(
+                """
+                UPDATE job_descriptions
+                SET raw_text = ?, jd_profile_json = ?, source_version_id = ?,
+                    last_seen_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    cleaned_text,
+                    profile_json,
+                    identity.source_version_id,
+                    now,
+                    now,
+                    job_id,
+                ),
+            )
+        connection.commit()
+        return {
+            "job_description_id": job_id,
+            "canonical_jd_id": identity.canonical_jd_id,
+            "source_version_id": identity.source_version_id,
+            "created_new_job": created_new_job,
+            "created_new_version": created_new_version,
+            "created_new_link": False,
+            "needs_chroma_index": created_new_job or created_new_version,
+        }
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -1064,6 +1285,126 @@ def get_job_description_versions(jd_id: int) -> list[dict[str, Any]]:
         ]
     finally:
         connection.close()
+
+
+def get_exact_job_description_version(
+    jd_id: int,
+    source_version_id: str,
+) -> dict[str, Any] | None:
+    """Return and verify one exact authoritative saved JD version."""
+    from analysis_stability.stable_evidence_scoring import (
+        canonicalise_requirements,
+    )
+
+    connection = _connect()
+    try:
+        row = connection.execute(
+            """
+            SELECT
+                jd.id AS job_description_id,
+                jd.canonical_jd_id,
+                jd.source_type,
+                jd.source_url,
+                version.source_version_id,
+                version.raw_text,
+                version.jd_profile_json,
+                version.created_at
+            FROM job_descriptions AS jd
+            JOIN job_description_versions AS version
+              ON version.job_description_id = jd.id
+            WHERE jd.id = ? AND version.source_version_id = ?
+            LIMIT 1
+            """,
+            (int(jd_id), str(source_version_id or "")),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+
+    raw_text = str(row["raw_text"] or "")
+    profile = _safe_json_loads(row["jd_profile_json"])
+    if not raw_text.strip() or not profile:
+        raise ValueError(
+            "The saved JD version is missing its raw text or structured profile."
+        )
+    title = str(profile.get("job_title") or profile.get("title") or "").strip()
+    company = str(
+        profile.get("company") or profile.get("company_name") or ""
+    ).strip()
+    location = _extract_location(profile, "")
+    if not title or not company:
+        raise ValueError(
+            "The saved JD version lacks title/company identity in its profile."
+        )
+    identity = build_job_identity(
+        company=company,
+        title=title,
+        location=location,
+        raw_jd_text=raw_text,
+    )
+    stored_version = str(row["source_version_id"] or "")
+    stored_canonical = str(row["canonical_jd_id"] or "")
+    if identity.source_version_id != stored_version:
+        raise ValueError(
+            "The saved JD source-version identity does not reproduce from its text."
+        )
+    if identity.canonical_jd_id != stored_canonical:
+        raise ValueError(
+            "The saved JD canonical identity does not reproduce from its profile."
+        )
+
+    canonical = canonicalise_requirements(
+        jd_profile=profile,
+        raw_jd_text=raw_text,
+    )
+    requirements = [
+        dict(item)
+        for item in canonical.get("requirements", []) or []
+        if isinstance(item, dict)
+    ]
+    compact = [
+        {
+            "requirement_id": str(item.get("requirement_id") or ""),
+            "text": " ".join(str(item.get("text") or "").split()),
+            "importance": str(item.get("importance") or ""),
+            "atomic_group_id": str(item.get("atomic_group_id") or ""),
+            "group_weight_fraction": item.get("group_weight_fraction"),
+        }
+        for item in requirements
+    ]
+    payload = json.dumps(
+        compact,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return {
+        "id": int(row["job_description_id"]),
+        "library_jd_id": int(row["job_description_id"]),
+        "title": title,
+        "company": company,
+        "location": location,
+        "source_type": str(row["source_type"] or ""),
+        "source_url": str(row["source_url"] or ""),
+        "raw_text": raw_text,
+        "jd_profile": profile,
+        "canonical_jd_id": stored_canonical,
+        "source_version_id": stored_version,
+        "raw_jd_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        "canonical_requirements": requirements,
+        "canonical_requirement_ids": sorted(
+            str(item.get("requirement_id") or "")
+            for item in requirements
+            if str(item.get("requirement_id") or "").strip()
+        ),
+        "canonical_requirement_fingerprint": hashlib.sha256(
+            payload.encode("utf-8")
+        ).hexdigest(),
+        "canonicalisation": canonical,
+        "version_created_at": str(row["created_at"] or ""),
+    }
 
 
 def get_application_job_links() -> list[dict[str, Any]]:

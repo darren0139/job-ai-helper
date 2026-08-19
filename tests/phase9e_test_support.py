@@ -10,6 +10,8 @@ from typing import Any
 from database import db_manager
 from database import jd_library_manager
 from database import tailoring_version_manager
+import database.global_blueprint_manager as global_blueprint_manager_module
+import database.phase9f_exact_verified_reuse_manager as exact_reuse_module
 from database.tailoring_generation_control import (
     approve_tailoring_generation,
     record_generation_metadata,
@@ -38,6 +40,9 @@ def configure_phase9e_test_database(database_path: Path) -> None:
     db_manager.DB_PATH = database_path
     jd_library_manager.DB_PATH = database_path
     tailoring_version_manager.DB_PATH = database_path
+    artifact_root = database_path.parent / "blueprint-artifacts"
+    global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
+    exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
 
 
 def _different_original_profile(

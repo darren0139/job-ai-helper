@@ -21,6 +21,7 @@ from tailoring.capability_taxonomy import (
 from tailoring.phase8_verification import build_resume_text_from_profile
 from tailoring.phase9b_role_family import suggest_role_family
 from tailoring.phase9d_global_blueprint import (
+    PHASE9D_LEGACY_FINGERPRINT_POLICY_VERSION,
     PHASE9D_FINGERPRINT_POLICY_VERSION,
     PHASE9D_VERSION,
 )
@@ -144,10 +145,10 @@ def validate_active_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
         raise Phase9EDecisionError("The selected blueprint is not active.")
     if _clean(blueprint.get("phase9d_version")) != PHASE9D_VERSION:
         raise Phase9EDecisionError("The selected blueprint format is not current.")
-    if (
-        _clean(blueprint.get("fingerprint_policy_version"))
-        != PHASE9D_FINGERPRINT_POLICY_VERSION
-    ):
+    if _clean(blueprint.get("fingerprint_policy_version")) not in {
+        PHASE9D_FINGERPRINT_POLICY_VERSION,
+        PHASE9D_LEGACY_FINGERPRINT_POLICY_VERSION,
+    }:
         raise Phase9EDecisionError(
             "The selected blueprint identity policy is not current."
         )

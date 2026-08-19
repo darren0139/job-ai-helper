@@ -17,6 +17,9 @@ ANALYSIS_CACHE_VERSION = "analysis-cache-v1"
 ANALYSIS_PIPELINE_CONTRACT_VERSION = (
     "analysis-pipeline-v2-title-stability-phase6d6"
 )
+PHASE9F_D_BASELINE_PIPELINE_CONTRACT_VERSION = (
+    "phase9f-d-existing-application-baseline-v1"
+)
 
 
 def _now() -> str:
@@ -260,6 +263,46 @@ def save_analysis_snapshot(
     if row is None:
         raise RuntimeError("Analysis snapshot could not be reloaded.")
     return _row_to_dict(row)
+
+
+def insert_analysis_snapshot_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    application_id: int,
+    input_fingerprint: str,
+    report: dict[str, Any],
+    analysis_model: str,
+    resume_filename: str,
+    analysis_id: str,
+    created_at: str,
+    pipeline_contract_version: str = (
+        PHASE9F_D_BASELINE_PIPELINE_CONTRACT_VERSION
+    ),
+) -> None:
+    """Insert one initial analysis without committing the caller's transaction."""
+    if not str(input_fingerprint or "").strip() or not isinstance(report, dict):
+        raise ValueError("A complete analysis snapshot is required.")
+    connection.execute(
+        """
+        INSERT INTO application_analysis_versions (
+            application_id, analysis_id, input_fingerprint, cache_version,
+            pipeline_contract_version, analysis_model, resume_filename,
+            report_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        """,
+        (
+            int(application_id),
+            str(analysis_id),
+            str(input_fingerprint),
+            ANALYSIS_CACHE_VERSION,
+            str(pipeline_contract_version),
+            str(analysis_model),
+            str(resume_filename or ""),
+            json.dumps(report, ensure_ascii=False, default=str),
+            str(created_at),
+            str(created_at),
+        ),
+    )
 
 
 def activate_analysis_snapshot(

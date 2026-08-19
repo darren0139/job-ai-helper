@@ -37,8 +37,13 @@ Rules:
 - Preserve important technologies and tools that are actually supported.
 - Avoid repeated ideas.
 - Avoid vague claims such as "showcasing ability" or "demonstrating skills" unless tied to concrete work.
-- Usually generate 3-5 bullets.
-- Each bullet should usually be 16-26 words.
+- Preserve every materially distinct supported contribution, feature, responsibility, or project outcome that could be useful on a resume.
+- Do not target an arbitrary small bullet count and do not compress distinct supported evidence merely to reach a preferred count.
+- For a substantial project, 5-12 canonical bullets is common. More than 12 is allowed when the supplied evidence genuinely contains more distinct resume-worthy contributions.
+- Never create filler bullets to reach a count.
+- Merge points only when they genuinely describe the same underlying contribution or would otherwise be materially repetitive.
+- If a supported point is merged or omitted, explain that decision briefly in notes so the user can verify that no meaningful evidence was silently lost.
+- Each bullet should usually be 16-30 words, but factual completeness takes priority over forcing every bullet into the same length.
 - Keep wording suitable for a student or junior applicant.
 
 Output:
@@ -92,13 +97,20 @@ IMPACT / SCOPE:
 
 TASK:
 Suggest improved canonical Evidence Library bullets.
+
+Coverage requirement:
+Before writing, account for all materially distinct supported contributions in
+CURRENT DESCRIPTION / BULLETS, SUPPORTED SKILLS, TOOLS / TECHNOLOGIES, and
+IMPACT / SCOPE. Preserve each distinct contribution as its own canonical bullet
+unless it is genuinely overlapping with another point. Use notes to identify any
+meaningful supplied point that was merged or omitted and why.
 """
 
     return ask_json(
         CANONICAL_BULLET_SUGGESTION_PROMPT,
         user_prompt,
         temperature=0.0,
-        max_tokens=900,
+        max_tokens=2000,
     )
 
 

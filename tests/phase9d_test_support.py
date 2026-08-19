@@ -163,6 +163,22 @@ def seed_phase9d_database(
     fixture = load_phase9d_fixture()
     candidate = copy.deepcopy(fixture["candidate"])
     saved_jds = copy.deepcopy(fixture["saved_jds"])
+    # Phase 9D approvals now require two immutable source artifact identities.
+    # Keep synthetic files beside the temporary SQLite database, never in the
+    # repository artifact store.
+    artifact_root = database_path.parent / "phase9d-source-artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    docx_path = artifact_root / "approved.docx"
+    pdf_path = artifact_root / "approved.pdf"
+    docx_path.write_bytes(b"synthetic approved DOCX provenance bytes")
+    pdf_path.write_bytes(b"%PDF-synthetic approved PDF provenance bytes")
+    candidate["fit_result"] = {
+        "generation_id": candidate["source_generation_id"],
+        "fit_one_page": True,
+        "page_count": 1,
+        "docx_path": str(docx_path),
+        "pdf_path": str(pdf_path),
+    }
     if materialise_jd_text:
         for jd in saved_jds:
             # A non-empty neutral raw source lets Phase 9E exercise exact raw

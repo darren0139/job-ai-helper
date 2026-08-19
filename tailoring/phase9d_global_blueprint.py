@@ -21,11 +21,17 @@ from tailoring.phase9c_blueprint_evaluation import (
     source_requirement_summary_fingerprint,
     validate_candidate,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+)
 
 
 PHASE9D_VERSION = "phase9d-global-blueprint-v1"
-PHASE9D_FINGERPRINT_POLICY_VERSION = (
+PHASE9D_LEGACY_FINGERPRINT_POLICY_VERSION = (
     "phase9d-global-blueprint-identity-v1"
+)
+PHASE9D_FINGERPRINT_POLICY_VERSION = (
+    "phase9d-global-blueprint-identity-v2"
 )
 PHASE9D_AUDIT_EVENT_VERSION = (
     "phase9d-global-blueprint-audit-event-v1"
@@ -307,6 +313,7 @@ def prepare_global_blueprint_approval(
     provisional_override: dict[str, Any] | None = None,
     actor_label: str = "Local user",
     accepted_at: str | None = None,
+    artifact_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and copy persisted Phase 9B/9C records without mutation."""
     candidate_before = canonical_json(candidate)
@@ -346,6 +353,49 @@ def prepare_global_blueprint_approval(
         "resume_text_snapshot": str(candidate["resume_text_snapshot"]),
     }
     stable_provenance = deepcopy(semantic["selected_jd_scope"])
+    supplied = deepcopy(artifact_provenance)
+    artifacts = supplied.get("artifacts") if isinstance(supplied, dict) else None
+    if (
+        not isinstance(artifacts, list)
+        or {str(row.get("artifact_kind") or "") for row in artifacts if isinstance(row, dict)}
+        != {"docx", "pdf"}
+    ):
+        raise Phase9DApprovalError(
+            "New Blueprint approval requires immutable DOCX and PDF artifact provenance."
+        )
+    artifact_identity = {
+        "policy_version": str(supplied.get("policy_version") or ""),
+        "artifacts": [
+            {
+                "artifact_kind": str(row.get("artifact_kind") or ""),
+                "media_type": str(row.get("media_type") or ""),
+                "sha256": str(row.get("sha256") or ""),
+                "byte_size": int(row.get("byte_size") or 0),
+            }
+            for row in artifacts
+            if isinstance(row, dict)
+        ],
+    }
+    if (
+        not artifact_identity["policy_version"]
+        or artifact_identity["policy_version"]
+        != PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION
+        or any(
+            not row["sha256"]
+            or row["byte_size"] <= 0
+            or not row["media_type"]
+            for row in artifact_identity["artifacts"]
+        )
+    ):
+        raise Phase9DApprovalError(
+            "Blueprint artifact provenance is incomplete."
+        )
+    artifact_identity["artifacts"].sort(key=lambda row: row["artifact_kind"])
+    artifact_snapshot = {
+        **artifact_identity,
+        "storage": deepcopy(supplied.get("storage") or []),
+    }
+
     identity = {
         "phase9d_version": PHASE9D_VERSION,
         "fingerprint_policy_version": PHASE9D_FINGERPRINT_POLICY_VERSION,
@@ -410,6 +460,7 @@ def prepare_global_blueprint_approval(
         },
         "stable_input_provenance": stable_provenance,
     }
+    identity["artifact_provenance"] = artifact_identity
     blueprint_fingerprint = fingerprint_value(identity)
     blueprint_id = blueprint_fingerprint[:32]
     snapshot = {
@@ -438,6 +489,7 @@ def prepare_global_blueprint_approval(
             "stable_input_provenance": stable_provenance,
         },
     }
+    snapshot["artifact_provenance"] = artifact_snapshot
 
     if candidate_before != canonical_json(candidate):
         raise AssertionError("Phase 9D mutated the Phase 9B candidate.")

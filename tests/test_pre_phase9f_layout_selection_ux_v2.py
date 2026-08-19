@@ -56,9 +56,10 @@ class PrePhase9FLayoutSelectionUXV2Tests(unittest.TestCase):
         nav_start = app.index("page = st.radio(")
         nav_end = app.index("st.divider()", nav_start)
         nav = app[nav_start:nav_end]
-        self.assertLess(nav.index('"Application Sessions"'), nav.index('"Profile & Evidence"'))
+        self.assertLess(nav.index('"Tailor Resume"'), nav.index('"Application Sessions"'))
+        self.assertLess(nav.index('"Application Sessions"'), nav.index('"Blueprint Library"'))
+        self.assertLess(nav.index('"Blueprint Library"'), nav.index('"Profile & Evidence"'))
         self.assertLess(nav.index('"Profile & Evidence"'), nav.index('"Job Market Insights"'))
-        self.assertLess(nav.index('"Job Market Insights"'), nav.index('"Global Blueprints"'))
         self.assertIn('st.header("Tailoring Base")', phase9e)
         self.assertIn('selection_key = st.selectbox(', phase9e)
         self.assertIn('"Fit only"', app)

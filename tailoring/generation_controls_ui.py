@@ -14,6 +14,7 @@ from database.tailoring_generation_control import (
     clear_tailoring_drafts,
     delete_tailoring_generation,
     get_application_generation_control,
+    is_phase9f_normal_generation_incomplete,
     list_tailoring_generations,
     restore_tailoring_generation_as_draft,
     set_tailoring_section_locks,
@@ -308,11 +309,39 @@ def render_tailoring_section_update_scope(
     return saved_lock_projects, saved_lock_skills, dirty
 
 
+def _phase9f_execution_uses_legacy_private_stages(
+    execution: dict[str, Any] | None,
+) -> bool:
+    """Only old F rows retain their one-generation approval restriction."""
+    if not isinstance(execution, dict):
+        return False
+    outputs = execution.get("stage_outputs") or {}
+    if any(
+        key in outputs
+        for key in (
+            "generation_settings",
+            "projects",
+            "skills",
+            "fitting",
+            "fitting_attempts",
+        )
+    ):
+        return True
+    if outputs.get("normal_lifecycle_adapter_version") == (
+        "phase9f-f-normal-generation-lifecycle-v1"
+    ):
+        return False
+    return bool(
+        str(execution.get("generation_id") or "").strip()
+    )
+
+
 def render_tailoring_generation_controls(
     *,
     application_id: int,
     required_phase9e_binding: dict[str, Any] | None = None,
     workspace_managed: bool = False,
+    phase9f_execution: dict[str, Any] | None = None,
 ) -> None:
     all_versions = list_tailoring_generations(application_id)
     legacy_reuse_drafts = [
@@ -337,6 +366,32 @@ def render_tailoring_generation_controls(
     else:
         versions = all_versions
         incompatible = []
+    incomplete_phase9f_versions = [
+        state for state in versions
+        if is_phase9f_normal_generation_incomplete(state)
+    ]
+    versions = [
+        state for state in versions
+        if state not in incomplete_phase9f_versions
+    ]
+    phase9f_generation_id = str(
+        (phase9f_execution or {}).get("generation_id") or ""
+    ).strip()
+    if phase9f_generation_id and _phase9f_execution_uses_legacy_private_stages(
+        phase9f_execution
+    ):
+        versions = [
+            state
+            for state in versions
+            if str(state.get("generation_id") or "") == phase9f_generation_id
+        ]
+        # The exact F-bound draft is the only approvable working output. Other
+        # current-scope drafts remain history and must not bypass its ledger.
+        incompatible = [
+            state
+            for state in all_versions
+            if str(state.get("generation_id") or "") != phase9f_generation_id
+        ]
     st.divider()
     st.subheader(
         "Approval"
@@ -365,6 +420,14 @@ def render_tailoring_generation_controls(
                 hide_index=True,
                 width="stretch",
             )
+
+    if incomplete_phase9f_versions:
+        st.warning(
+            f"{len(incomplete_phase9f_versions)} incomplete Phase 9F "
+            "generation(s) are preserved for explicit recovery. They cannot "
+            "be fitted, approved, verified, or promoted until both paid "
+            "sections are durably complete."
+        )
 
     if incompatible and not workspace_managed:
         st.info(
@@ -485,6 +548,17 @@ def render_tailoring_generation_controls(
                         application_id,
                         str(loaded.get("generation_id") or ""),
                     )
+                    if phase9f_generation_id:
+                        # Approval remains the established Application Session
+                        # authority.  F merely records that exact user action
+                        # so its later Phase 8 gate can remain fail-closed.
+                        from database.phase9f_tailoring_execution_manager import (
+                            reconcile_phase9f_tailoring_approval,
+                        )
+
+                        reconcile_phase9f_tailoring_approval(
+                            application_id=application_id
+                        )
                     st.session_state[
                         f"phase7_flash_{application_id}"
                     ] = (

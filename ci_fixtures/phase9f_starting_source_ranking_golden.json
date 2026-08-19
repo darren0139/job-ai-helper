@@ -1,0 +1,151 @@
+{
+  "fixture_version": "phase9f-b-near-tie-calibration-v1",
+  "selected_tolerances": {
+    "deal_breaker_gap_count": 0,
+    "required_core_coverage_points": 3,
+    "overall_alignment_points": 3,
+    "evidence_strength_points": 5,
+    "important_gap_count": 0,
+    "preferred_coverage_points": 5
+  },
+  "rationale": [
+    "A two-to-three point coverage or alignment variation is treated as a scorer-boundary near tie, not a material advantage.",
+    "Evidence strength is averaged from discrete zero-to-five row strengths, so the calibrated allowance is five points.",
+    "No deal-breaker or important-gap disadvantage may be overridden by role family.",
+    "The existing Phase 6B five-point project-ranking constant and Phase 9E tailoring thresholds are not reused."
+  ],
+  "cases": [
+    {
+      "name": "same_family_inside_window",
+      "jd_confidence": "high",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 88,
+        "overall": 86,
+        "evidence": 81,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 66
+      },
+      "expected_winner": "same_family",
+      "prior_applied": true
+    },
+    {
+      "name": "material_required_core_advantage",
+      "jd_confidence": "high",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 86,
+        "overall": 86,
+        "evidence": 81,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 66
+      },
+      "expected_winner": "cross_family",
+      "prior_applied": false
+    },
+    {
+      "name": "material_overall_advantage",
+      "jd_confidence": "high",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 88,
+        "overall": 84,
+        "evidence": 81,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 66
+      },
+      "expected_winner": "cross_family",
+      "prior_applied": false
+    },
+    {
+      "name": "important_gap_disadvantage",
+      "jd_confidence": "high",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 89,
+        "overall": 87,
+        "evidence": 84,
+        "important_gaps": 1,
+        "deal_breaker_gaps": 0,
+        "preferred": 69
+      },
+      "expected_winner": "cross_family",
+      "prior_applied": false
+    },
+    {
+      "name": "deal_breaker_disadvantage",
+      "jd_confidence": "high",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 100,
+        "overall": 100,
+        "evidence": 100,
+        "important_gaps": 1,
+        "deal_breaker_gaps": 1,
+        "preferred": 100
+      },
+      "expected_winner": "cross_family",
+      "prior_applied": false
+    },
+    {
+      "name": "low_confidence_disables_prior",
+      "jd_confidence": "low",
+      "cross_family": {
+        "required_core": 90,
+        "overall": 88,
+        "evidence": 85,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 70
+      },
+      "same_family": {
+        "required_core": 88,
+        "overall": 86,
+        "evidence": 81,
+        "important_gaps": 0,
+        "deal_breaker_gaps": 0,
+        "preferred": 66
+      },
+      "expected_winner": "cross_family",
+      "prior_applied": false
+    }
+  ]
+}

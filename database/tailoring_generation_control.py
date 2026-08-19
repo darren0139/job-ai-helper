@@ -13,6 +13,7 @@ from database import tailoring_version_manager as base_manager
 
 PHASE7_PERSISTENCE_VERSION = "phase7-approved-generations-v1"
 VALID_STATUSES = {"draft", "approved", "archived"}
+PHASE9F_F_NORMAL_LIFECYCLE_VERSION = "phase9f-f-normal-generation-lifecycle-v1"
 
 
 def _now() -> str:
@@ -199,6 +200,43 @@ def _generation_from_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def get_phase9f_normal_generation_lifecycle(
+    generation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Read the additive F normal-lifecycle state from a version row."""
+    settings = (generation or {}).get("generation_settings") or {}
+    if not isinstance(settings, dict):
+        return {}
+    lifecycle = settings.get("phase9f_f_normal_lifecycle") or {}
+    return lifecycle if isinstance(lifecycle, dict) else {}
+
+
+def is_phase9f_normal_generation_incomplete(
+    generation: dict[str, Any] | None,
+) -> bool:
+    lifecycle = get_phase9f_normal_generation_lifecycle(generation)
+    return bool(
+        lifecycle.get("lifecycle_version")
+        == PHASE9F_F_NORMAL_LIFECYCLE_VERSION
+        and lifecycle.get("generation_status") != "completed"
+    )
+
+
+def is_phase9f_normal_generation_approvable(
+    generation: dict[str, Any] | None,
+) -> bool:
+    lifecycle = get_phase9f_normal_generation_lifecycle(generation)
+    if lifecycle.get("lifecycle_version") != PHASE9F_F_NORMAL_LIFECYCLE_VERSION:
+        return True
+    fit = lifecycle.get("fit") or {}
+    return bool(
+        lifecycle.get("generation_status") == "completed"
+        and isinstance(fit, dict)
+        and fit.get("status") == "completed"
+        and bool(((generation or {}).get("fit_result") or {}).get("fit_one_page"))
+    )
+
+
 _JOIN_SQL = """
     SELECT
         versions.*,
@@ -368,7 +406,6 @@ def get_tailoring_generation(
         + """
         WHERE versions.application_id = ?
           AND versions.generation_id = ?
-        LIMIT 1
         """,
         (int(application_id), str(generation_id)),
     )
@@ -425,7 +462,6 @@ def find_cached_tailoring_generation(
             END,
             versions.updated_at DESC,
             versions.id DESC
-        LIMIT 1
         """,
         (
             int(application_id),
@@ -433,9 +469,16 @@ def find_cached_tailoring_generation(
             str(generation_kind or "manual"),
         ),
     )
-    row = cursor.fetchone()
+    rows = cursor.fetchall()
     connection.close()
-    return _generation_from_row(row) if row is not None else None
+    for row in rows:
+        generation = _generation_from_row(row)
+        # An F-managed partial paid attempt has normal draft metadata only so
+        # it can be recovered, not because it is a complete cache result.
+        if is_phase9f_normal_generation_incomplete(generation):
+            continue
+        return generation
+    return None
 
 
 def approve_tailoring_generation(
@@ -446,6 +489,11 @@ def approve_tailoring_generation(
     state = get_tailoring_generation(application_id, generation_id)
     if state is None:
         raise ValueError("Tailoring generation was not found.")
+    if not is_phase9f_normal_generation_approvable(state):
+        raise ValueError(
+            "This Phase 9F generation is incomplete or has not produced a "
+            "one-page deterministic fit, so it cannot be approved."
+        )
 
     # Existing pre-Phase-7 generations may not have a metadata row yet.
     record_generation_metadata(

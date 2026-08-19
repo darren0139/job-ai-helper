@@ -68,6 +68,24 @@ QUICK_TEST_MODULES = (
     "tests.test_all_canonical_sequence_regressions_v1",
     "tests.test_pre_phase9f_tailoring_polish_v1",
     "tests.test_shared_resume_pdf_preview_v1",
+    "tests.test_phase9f_jd_intake",
+    "tests.test_phase9f_jd_library",
+    "tests.test_phase9f_streamlit_acceptance",
+    "tests.test_phase9f_master_resume",
+    "tests.test_phase9f_master_streamlit",
+    "tests.test_phase9f_starting_source_ranking",
+    "tests.test_phase9f_starting_source_provenance",
+    "tests.test_phase9f_starting_source_transparency",
+    "tests.test_phase9f_starting_source_ranking_streamlit",
+    "tests.test_phase9f_tailoring_intensity",
+    "tests.test_phase9f_tailoring_intensity_streamlit",
+    "tests.test_phase9f_application_confirmation",
+    "tests.test_phase9f_application_confirmation_streamlit",
+    "tests.test_phase9f_d_ui_compatibility",
+    "tests.test_phase9f_application_execution",
+    "tests.test_phase9f_application_execution_streamlit",
+    "tests.test_phase9f_tailoring_execution",
+    "tests.test_phase9f_tailoring_execution_streamlit",
 )
 
 SAFE_SMOKE_MODULES = (
@@ -80,7 +98,15 @@ SAFE_SMOKE_MODULES = (
     "scripts.check_phase9c_blueprint_evaluation",
     "scripts.check_phase8_phase9c_aggregation_parity",
     "scripts.check_phase9d_global_blueprint",
+    "scripts.check_global_blueprint_availability",
     "scripts.check_phase9e_blueprint_selection",
+    "scripts.check_phase9f_jd_intake",
+    "scripts.check_phase9f_master_resume",
+    "scripts.check_phase9f_starting_source_ranking",
+    "scripts.check_phase9f_tailoring_intensity",
+    "scripts.check_phase9f_application_confirmation",
+    "scripts.check_phase9f_application_execution",
+    "scripts.check_phase9f_tailoring_execution",
 )
 
 

@@ -11,8 +11,12 @@ from typing import Any
 
 from database import db_manager as base_manager
 from database.global_blueprint_manager import (
+    get_global_blueprint,
     init_global_blueprint_registry,
-    list_global_blueprints,
+    list_reusable_global_blueprints,
+)
+from database.global_master_resume_manager import (
+    get_global_master_resume,
 )
 from database.jd_library_manager import (
     get_exact_job_description_for_application,
@@ -33,6 +37,11 @@ from tailoring.phase9e_blueprint_selection import (
     materialise_phase9e_starting_sections,
     resolve_workflow_action,
     verify_decision_integrity,
+)
+from tailoring.phase9f_application_confirmation import (
+    PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION,
+    PHASE9E_PHASE9F_D_EXACT_BINDING_VERSION,
+    phase9f_d_execution_state,
 )
 
 
@@ -240,7 +249,7 @@ def _application_report(application_id: int) -> dict[str, Any]:
 
 
 def _active_blueprints() -> list[dict[str, Any]]:
-    return list_global_blueprints(include_superseded=False)
+    return list_reusable_global_blueprints()
 
 
 def preview_application_blueprint_decision(
@@ -250,6 +259,7 @@ def preview_application_blueprint_decision(
     selected_blueprint_id: str = "",
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
+    historical_bound_blueprint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = _application_report(application_id)
     exact_jd = get_exact_job_description_for_application(application_id)
@@ -257,11 +267,21 @@ def preview_application_blueprint_decision(
         raise Phase9EDecisionError(
             "The application has no exact persisted JD version link."
         )
+    active_blueprints = _active_blueprints()
+    if isinstance(historical_bound_blueprint, dict):
+        historical_id = str(
+            historical_bound_blueprint.get("blueprint_id") or ""
+        )
+        if historical_id and all(
+            str(row.get("blueprint_id") or "") != historical_id
+            for row in active_blueprints
+        ):
+            active_blueprints.append(deepcopy(historical_bound_blueprint))
     return build_phase9e_decision(
         application_id=application_id,
         application_report=report,
         exact_jd=exact_jd,
-        active_blueprints=_active_blueprints(),
+        active_blueprints=active_blueprints,
         selected_source=selected_source,
         selected_blueprint_id=selected_blueprint_id,
         selection_mode=selection_mode,
@@ -305,14 +325,20 @@ def _database_context_signature(
     active = connection.execute(
         """
         SELECT
-            blueprint_id,
-            blueprint_fingerprint,
-            version_number,
-            role_family_id,
-            blueprint_snapshot_json
-        FROM global_blueprint_versions
-        WHERE status = 'active'
-        ORDER BY role_family_id, blueprint_id
+            blueprint.blueprint_id,
+            blueprint.blueprint_fingerprint,
+            blueprint.version_number,
+            blueprint.role_family_id,
+            blueprint.blueprint_snapshot_json
+        FROM global_blueprint_versions AS blueprint
+        LEFT JOIN global_blueprint_availability AS availability
+          ON availability.blueprint_id = blueprint.blueprint_id
+        WHERE blueprint.status = 'active'
+          AND COALESCE(
+                availability.availability_status,
+                'available'
+              ) = 'available'
+        ORDER BY blueprint.role_family_id, blueprint.blueprint_id
         """
     ).fetchall()
     return fingerprint_value(
@@ -454,6 +480,132 @@ def _is_legacy_session_with_connection(
         (int(application_id), PHASE9E_LEGACY_COMPATIBILITY_VERSION),
     ).fetchone()
     return row is not None
+
+
+def persist_exact_phase9f_d_binding_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    decision: dict[str, Any],
+    actor_label: str,
+    created_at: str,
+) -> dict[str, Any]:
+    """Persist one new exact Phase 9F-D binding without committing."""
+    verify_decision_integrity(decision)
+    if str(decision.get("phase9e_version") or "") != (
+        PHASE9E_PHASE9F_D_EXACT_BINDING_VERSION
+    ):
+        raise Phase9EDecisionError(
+            "The exact Phase 9F-D binding version is unsupported."
+        )
+    semantic = decision["semantic_identity"]
+    selection = decision["selection"]
+    selected = selection.get("selected_blueprint") or {}
+    comparison = decision["comparison"]
+    jd = semantic["current_jd"]
+    role = semantic["role_family_classification"]
+    connection.execute(
+        """
+        INSERT INTO application_blueprint_decisions (
+            decision_id, decision_fingerprint, application_id,
+            phase9e_version, identity_policy_version,
+            recommendation_policy_version, decision_policy_version,
+            selected_source, selection_mode, selected_blueprint_id,
+            selected_blueprint_fingerprint, selected_blueprint_version,
+            classified_role_family_id, classified_role_family_label,
+            canonical_jd_id, source_version_id, raw_jd_sha256,
+            stable_input_fingerprint, scoring_version, taxonomy_version,
+            recommended_tailoring, starting_snapshot_fingerprint,
+            semantic_identity_json, starting_snapshot_json,
+            decision_json, created_at
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?
+        )
+        """,
+        (
+            decision["decision_id"],
+            decision["decision_fingerprint"],
+            int(decision["application_id"]),
+            PHASE9E_PHASE9F_D_EXACT_BINDING_VERSION,
+            PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION,
+            PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION,
+            PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION,
+            selection["selected_source"],
+            selection["selection_mode"],
+            str(selected.get("blueprint_id") or "") or None,
+            str(selected.get("blueprint_fingerprint") or "") or None,
+            int(selected.get("version_number") or 0) or None,
+            str(role.get("role_family_id") or ""),
+            str(
+                role.get("role_family_label")
+                or role.get("role_family")
+                or ""
+            ),
+            jd["canonical_jd_id"],
+            jd["source_version_id"],
+            jd["raw_jd_sha256"],
+            jd["stable_input_fingerprint"],
+            comparison["scoring_version"],
+            comparison["capability_taxonomy_version"],
+            decision["recommended_tailoring"],
+            decision["starting_snapshot"][
+                "starting_snapshot_fingerprint"
+            ],
+            canonical_json(semantic),
+            canonical_json(decision["starting_snapshot"]),
+            canonical_json(decision),
+            str(created_at),
+        ),
+    )
+    application_id = int(decision["application_id"])
+    connection.execute(
+        """
+        INSERT INTO application_blueprint_binding_state (
+            application_id, current_decision_id,
+            current_decision_fingerprint, updated_at
+        ) VALUES (?, ?, ?, ?)
+        """,
+        (
+            application_id,
+            decision["decision_id"],
+            decision["decision_fingerprint"],
+            str(created_at),
+        ),
+    )
+    event = _insert_binding_event(
+        connection,
+        event_type="phase9f_d_exact_source_bound",
+        application_id=application_id,
+        decision=decision,
+        previous_decision_id="",
+        actor_label=actor_label,
+        created_at=str(created_at),
+        event_details={
+            "binding_policy_version": (
+                PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION
+            ),
+            "source_substitution_allowed": False,
+            "tailoring_execution_started": False,
+        },
+    )
+    connection.execute(
+        """
+        INSERT INTO application_blueprint_scope_activation_state (
+            application_id, active_decision_id,
+            active_decision_fingerprint, confirmation_event_id,
+            compatibility_policy_version, activated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            application_id,
+            decision["decision_id"],
+            decision["decision_fingerprint"],
+            event["event_id"],
+            PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION,
+            str(created_at),
+        ),
+    )
+    return event
 
 
 def evaluate_and_bind_application_blueprint(
@@ -933,6 +1085,65 @@ def _stale_reasons(
     return reasons or ["The current semantic scope no longer matches this decision."]
 
 
+def _phase9f_d_exact_binding_stale_reasons(
+    application_id: int,
+    decision: dict[str, Any],
+) -> list[str]:
+    """Validate a committed exact source without reapplying Phase 9E v1 policy."""
+    exact_jd = get_exact_job_description_for_application(application_id)
+    if exact_jd is None:
+        return ["The application's exact linked JD version is missing."]
+    stored_jd = (decision.get("semantic_identity") or {}).get(
+        "current_jd"
+    ) or {}
+    for field in (
+        "canonical_jd_id",
+        "source_version_id",
+        "raw_jd_sha256",
+        "canonical_requirement_fingerprint",
+    ):
+        if str(exact_jd.get(field) or "") != str(
+            stored_jd.get(field) or ""
+        ):
+            return ["The application's exact JD changed."]
+    if list(exact_jd.get("canonical_requirement_ids") or []) != list(
+        stored_jd.get("canonical_requirement_ids") or []
+    ):
+        return ["The application's canonical JD scope changed."]
+
+    starting = decision.get("starting_snapshot") or {}
+    source_identity = starting.get("source_identity") or {}
+    source_type = str(starting.get("source_type") or "")
+    source_id = str(source_identity.get("source_id") or "")
+    if source_type == "base_resume":
+        master = get_global_master_resume(source_id)
+        if master is None:
+            return ["The exact bound Base Resume version is missing."]
+        if (
+            str(master.get("master_version_fingerprint") or "")
+            != str(source_identity.get("source_fingerprint") or "")
+            or str(master.get("master_content_fingerprint") or "")
+            != str(source_identity.get("source_content_fingerprint") or "")
+            or master.get("master_snapshot")
+            != starting.get("phase9f_master_resume_snapshot")
+        ):
+            return ["The exact bound Base Resume provenance is inconsistent."]
+    elif source_type == "global_blueprint":
+        blueprint = get_global_blueprint(source_id)
+        if blueprint is None:
+            return ["The exact bound Global Blueprint version is missing."]
+        if (
+            str(blueprint.get("blueprint_fingerprint") or "")
+            != str(source_identity.get("source_fingerprint") or "")
+            or blueprint.get("blueprint_snapshot")
+            != starting.get("phase9d_blueprint_snapshot")
+        ):
+            return ["The exact bound Global Blueprint provenance is inconsistent."]
+    else:
+        return ["The exact Phase 9F-D starting-source type is unsupported."]
+    return []
+
+
 def get_current_application_blueprint_decision(
     application_id: int,
     *,
@@ -969,7 +1180,12 @@ def get_current_application_blueprint_decision(
         and str(activation.get("active_decision_fingerprint") or "")
         == decision["decision_fingerprint"]
         and str(activation.get("compatibility_policy_version") or "")
-        == PHASE9E_LEGACY_COMPATIBILITY_VERSION
+        == (
+            PHASE9E_PHASE9F_D_EXACT_BINDING_POLICY_VERSION
+            if decision.get("phase9e_version")
+            == PHASE9E_PHASE9F_D_EXACT_BINDING_VERSION
+            else PHASE9E_LEGACY_COMPATIBILITY_VERSION
+        )
     )
     decision["scope_activation_status"] = (
         "active" if activation_matches else "pending_confirmation"
@@ -980,10 +1196,41 @@ def get_current_application_blueprint_decision(
         decision["stale_reasons"] = []
         return decision
 
+    if decision.get("phase9e_version") == (
+        PHASE9E_PHASE9F_D_EXACT_BINDING_VERSION
+    ):
+        reasons = _phase9f_d_exact_binding_stale_reasons(
+            application_id, decision
+        )
+        decision["current_scope_status"] = (
+            "stale" if reasons else "current"
+        )
+        decision["stale_reasons"] = reasons
+        return decision
+
     selection = decision.get("selection") or {}
     rebuilt: dict[str, Any] | None = None
     error: Exception | None = None
     try:
+        historical_bound_blueprint = None
+        selected_blueprint = selection.get("selected_blueprint") or {}
+        selected_blueprint_id = str(
+            selected_blueprint.get("blueprint_id") or ""
+        )
+        selected_blueprint_fingerprint = str(
+            selected_blueprint.get("blueprint_fingerprint") or ""
+        )
+        if selected_blueprint_id and selected_blueprint_fingerprint:
+            exact_blueprint = get_global_blueprint(selected_blueprint_id)
+            if (
+                exact_blueprint is not None
+                and str(exact_blueprint.get("blueprint_fingerprint") or "")
+                == selected_blueprint_fingerprint
+                and str(exact_blueprint.get("status") or "") == "active"
+                and str(exact_blueprint.get("availability_status") or "")
+                == "removed"
+            ):
+                historical_bound_blueprint = exact_blueprint
         rebuilt = preview_application_blueprint_decision(
             application_id=application_id,
             selected_source=str(selection.get("selected_source") or ""),
@@ -997,6 +1244,7 @@ def get_current_application_blueprint_decision(
             mismatch_acknowledged=bool(
                 selection.get("mismatch_acknowledged")
             ),
+            historical_bound_blueprint=historical_bound_blueprint,
         )
     except Exception as exc:  # reported as a fail-closed stale reason
         error = exc
@@ -1086,6 +1334,108 @@ def resolve_current_phase9e_generation_context(
             "phase9e_enforced": True,
             "decision": decision,
             "reasons": list(decision.get("stale_reasons") or []),
+        }
+    phase9f_d_state = phase9f_d_execution_state(decision)
+    if phase9f_d_state is not None:
+        # A confirmed Minor/Full path becomes generation-ready only after the
+        # durable F ledger has performed its explicit deterministic setup.
+        # Reuse remains exclusively owned by the frozen Phase 9F-E path.
+        phase9f_f_execution = None
+        if phase9f_d_state.get("confirmed_intensity") in {"minor", "full"}:
+            try:
+                from database.phase9f_tailoring_execution_manager import (
+                    get_phase9f_tailoring_execution,
+                )
+
+                phase9f_f_execution = get_phase9f_tailoring_execution(
+                    application_id
+                )
+            except (ValueError, RuntimeError):
+                phase9f_f_execution = None
+        if isinstance(phase9f_f_execution, dict):
+            starting = decision.get("starting_snapshot") or {}
+            report = _application_report(application_id)
+            effective_report = build_effective_tailoring_report(report, decision)
+            effective_report.setdefault("meta", {}).setdefault(
+                "phase9e_starting_context", {}
+            )["workflow_action"] = "phase9f_f_minor_full_execution"
+            return {
+                "status": "current",
+                "can_generate": True,
+                "phase9e_enforced": True,
+                "decision": decision,
+                "effective_report": effective_report,
+                "binding_identity": {
+                    "phase9e_version": decision["phase9e_version"],
+                    "decision_id": decision["decision_id"],
+                    "decision_fingerprint": decision["decision_fingerprint"],
+                    "selected_source": (decision.get("selection") or {}).get(
+                        "selected_source"
+                    ),
+                    "selected_blueprint": deepcopy(
+                        (decision.get("selection") or {}).get(
+                            "selected_blueprint"
+                        )
+                        or {}
+                    ),
+                    "starting_snapshot_fingerprint": starting.get(
+                        "starting_snapshot_fingerprint"
+                    ),
+                    "confirmed_intensity": phase9f_d_state[
+                        "confirmed_intensity"
+                    ],
+                    "execution_status": phase9f_f_execution.get("status"),
+                },
+                "starting_sections": materialise_phase9e_starting_sections(
+                    decision
+                ),
+                "section_lock_scope": deepcopy(
+                    decision.get("section_lock_scope") or {}
+                ),
+                "phase9f_f_execution": phase9f_f_execution,
+                "reasons": [],
+            }
+        starting = decision.get("starting_snapshot") or {}
+        return {
+            **phase9f_d_state,
+            "can_generate": False,
+            "phase9e_enforced": True,
+            "decision": decision,
+            "binding_identity": {
+                "phase9e_version": decision["phase9e_version"],
+                "decision_id": decision["decision_id"],
+                "decision_fingerprint": decision[
+                    "decision_fingerprint"
+                ],
+                "selected_source": (
+                    decision.get("selection") or {}
+                ).get("selected_source"),
+                "selected_blueprint": deepcopy(
+                    (decision.get("selection") or {}).get(
+                        "selected_blueprint"
+                    )
+                    or {}
+                ),
+                "starting_snapshot_fingerprint": starting.get(
+                    "starting_snapshot_fingerprint"
+                ),
+                "confirmed_intensity": phase9f_d_state[
+                    "confirmed_intensity"
+                ],
+                "execution_status": phase9f_d_state[
+                    "execution_status"
+                ],
+            },
+            "section_lock_scope": deepcopy(
+                decision.get("section_lock_scope") or {}
+            ),
+            "reasons": [
+                "The exact starting source is bound.",
+                (
+                    f"{phase9f_d_state['confirmed_intensity_label']} "
+                    "tailoring execution has not started yet."
+                ),
+            ],
         }
     connection = _connect()
     try:

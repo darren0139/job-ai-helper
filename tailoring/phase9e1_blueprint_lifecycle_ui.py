@@ -499,7 +499,7 @@ def render_state_aware_blueprint_lifecycle(
                 # already instantiated during this Streamlit run. Defer the
                 # state mutation until the beginning of the next run.
                 st.session_state["_pending_navigation_page"] = (
-                    "Global Blueprints"
+                    "Blueprint Library"
                 )
                 st.rerun()
     else:

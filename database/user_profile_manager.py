@@ -327,6 +327,34 @@ def get_evidence_items(
     return items
 
 
+def get_all_evidence_items_for_snapshot() -> list[dict[str, Any]]:
+    """Return the complete mutable Evidence Library for immutable snapshots.
+
+    This deliberately has no UI pagination limit.  Callers that need durable
+    retry semantics must freeze the returned content rather than retain only
+    the mutable row IDs.
+    """
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        exists = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_evidence'"
+        ).fetchone()
+        if exists is None:
+            return []
+        cursor.execute(
+            """
+            SELECT id, category, title, description, period, skills_json, tools_json,
+                   impact, source_type, created_at, updated_at
+            FROM user_evidence
+            ORDER BY id ASC
+            """
+        )
+        return [_row_to_dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 def get_evidence_item_by_id(item_id: int) -> dict[str, Any] | None:
     """Return one evidence item by ID."""
     conn = _connect()

@@ -25,10 +25,19 @@ from database.application_resume_result_manager import (
 from tailoring.generation_controls_ui import restore_generation_to_session
 from database.global_blueprint_manager import list_global_blueprints
 from database.jd_library_manager import get_exact_job_description_for_application
+from database.phase9f_application_execution_manager import (
+    get_phase9f_application_execution,
+)
+from database.phase9f_tailoring_execution_manager import (
+    get_phase9f_tailoring_execution,
+)
 from tailoring.phase9e_blueprint_selection import (
     DECISION_LABELS,
     Phase9EDecisionError,
     recommend_active_blueprint,
+)
+from tailoring.phase9f_application_confirmation import (
+    phase9f_d_execution_state,
 )
 
 
@@ -185,9 +194,100 @@ def _show_active_binding(
             f"v{int(blueprint.get('version_number', 0) or 0)} · "
             f"{_clean(blueprint.get('role_family_label'))}"
         )
+    elif selected_source == "base_resume":
+        source = (current.get("starting_snapshot") or {}).get(
+            "source_identity"
+        ) or {}
+        source_label = (
+            _clean(source.get("source_display_name")) or "Base Resume"
+        )
+        source_details = (
+            "Immutable Base Resume · "
+            f"v{int(source.get('source_version') or 0)}"
+        )
     else:
         source_label = "Persisted original résumé"
         source_details = "Original résumé snapshot persisted for this application"
+
+    phase9f_d_state = phase9f_d_execution_state(current)
+    if phase9f_d_state is not None:
+        confirmed_intensity = _clean(
+            phase9f_d_state.get("confirmed_intensity")
+        ).lower()
+        is_reuse = confirmed_intensity == "reuse"
+        execution = (
+            get_phase9f_application_execution(application_id)
+            if is_reuse
+            else get_phase9f_tailoring_execution(application_id)
+        )
+        execution_status = _clean((execution or {}).get("status")) or "not_started"
+        execution_stage = _clean((execution or {}).get("current_stage"))
+
+        st.success("Exact Phase 9F-D Tailoring Base is bound.")
+        st.write(f"**Active tailoring base:** {source_label}")
+        st.caption(source_details)
+        st.write(
+            "**Confirmed tailoring intensity:** "
+            f"{phase9f_d_state['confirmed_intensity_label']}"
+        )
+        st.caption(
+            "Execution status: "
+            f"{execution_status.replace('_', ' ')}"
+        )
+
+        if execution_status == "not_started":
+            st.info(
+                "Tailoring execution has not started yet. "
+                f"Next action: {phase9f_d_state['next_action']}."
+            )
+        elif execution_status in {"preparing", "running"}:
+            stage_suffix = f" at `{execution_stage}`" if execution_stage else ""
+            st.info(
+                f"{'Reuse' if is_reuse else 'Tailoring'} execution is "
+                f"{execution_status}{stage_suffix}. "
+                "The exact Phase 9F-D Tailoring Base remains bound."
+            )
+        elif execution_status == "failed":
+            message = _clean((execution or {}).get("last_error_message"))
+            st.warning(
+                ("Reuse" if is_reuse else "Tailoring")
+                + " execution failed safely"
+                + (f" at `{execution_stage}`" if execution_stage else "")
+                + (f": {message}" if message else ".")
+                + (
+                    " Retry from Phase 9F-E;"
+                    if is_reuse
+                    else " Retry from Phase 9F-F;"
+                )
+                + " the exact Phase 9F-D binding "
+                "remains intact."
+            )
+        elif execution_status == "completed":
+            st.info(
+                (
+                    "Reuse execution is complete. Review the immutable résumé "
+                    "result, current-JD Phase 8 verification, downloads, and "
+                    "source lineage below."
+                    if is_reuse
+                    else "Tailoring execution is complete. Review the changed "
+                    "approved résumé, Phase 8 verification, and source lineage below."
+                )
+            )
+        else:
+            st.info(
+                "A durable Phase 9F-"
+                + ("E" if is_reuse else "F")
+                + " execution record exists with status "
+                f"`{execution_status}`. Review the matching execution below."
+            )
+
+        with st.expander(
+            "View current Phase 9E decision diagnostics",
+            expanded=False,
+        ):
+            _show_decision(current, heading="Current bound decision")
+        return
+
     workflow = generation_context.get("workflow_action") or {}
     workflow_state = _clean(workflow.get("workflow_action")) or "not selected"
 
@@ -222,6 +322,7 @@ def _show_active_binding(
         decision=current,
         actor_label=actor_label,
     )
+
 
 
 
@@ -613,6 +714,9 @@ def render_phase9e_blueprint_selection(
             generation_context=generation_context,
             actor_label=actor_label,
         )
+        if phase9f_d_execution_state(current) is not None:
+            _render_decision_history(application_id)
+            return generation_context
         if not changing_source:
             if st.button(
                 "Change tailoring base",

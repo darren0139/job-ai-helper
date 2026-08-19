@@ -26,6 +26,7 @@ class Phase9E1BlueprintLifecycleUsabilityTests(unittest.TestCase):
             'st.session_state["navigation_page"] = "Global Blueprints"',
             lifecycle,
         )
+        self.assertIn('"Blueprint Library"', lifecycle)
 
         pending = app.index(
             'pending_navigation_page = st.session_state.pop('
