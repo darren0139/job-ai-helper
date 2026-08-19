@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from parse import read_resume_docx, read_resume_pdf
+from database.phase9f_exact_verified_reuse_manager import (
+    resolve_blueprint_owned_artifacts,
+)
+from tailoring.phase9f_exact_verified_reuse import Phase9FExactVerifiedReuseError
 
 
 class Phase9FBArtifactError(ValueError):
@@ -327,6 +331,34 @@ def resolve_starting_source_artifacts(
             "The ranked ACTIVE Blueprint artifact provenance is missing or ambiguous."
         )
     snapshot = matches[0].get("blueprint_snapshot") or {}
+    declared_owned_manifest = isinstance(
+        (matches[0].get("semantic_identity") or {}).get(
+            "artifact_provenance"
+        ),
+        dict,
+    )
+    try:
+        owned_artifacts = resolve_blueprint_owned_artifacts(matches[0])
+    except Phase9FExactVerifiedReuseError as exc:
+        if declared_owned_manifest:
+            raise Phase9FBArtifactError(
+                "The Blueprint-owned immutable artifact failed verification."
+            ) from exc
+        owned_artifacts = []
+    if owned_artifacts:
+        preview_pdf = next(
+            (row for row in owned_artifacts if row["artifact_type"] == "pdf"),
+            None,
+        )
+        return {
+            "source_type": source_type,
+            "source_id": source_id,
+            "source_content_fingerprint": _clean(
+                normalized_source.get("source_content_fingerprint")
+            ),
+            "preview_pdf": preview_pdf,
+            "artifacts": owned_artifacts,
+        }
     candidate = snapshot.get("phase9b_candidate_semantic_snapshot") or {}
     frozen_snapshot = snapshot.get("frozen_resume_snapshot") or {}
     fit_result = candidate.get("fit_result") or {}

@@ -144,6 +144,10 @@ def _source_identity(candidate: dict[str, Any]) -> dict[str, Any]:
             "stable_input_fingerprint",
             "comparison_result_fingerprint",
             "candidate_analysis_snapshot_fingerprint",
+            "exact_verified_reuse_eligible",
+            "exact_verified_reuse_reason_code",
+            "exact_verified_reuse_proof_fingerprint",
+            "exact_verified_reuse",
         )
     }
 

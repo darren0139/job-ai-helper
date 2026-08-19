@@ -33,6 +33,17 @@ from tailoring.phase9f_application_confirmation import (
 from tailoring.phase9f_application_confirmation_ui import (
     prepare_persisted_exact_jd_for_confirmation,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+    build_exact_verified_reuse_proof,
+)
+from tailoring.phase9f_starting_source_ranking import (
+    build_ranking_result_identity,
+    fingerprint_value,
+)
+from tailoring.phase9f_tailoring_intensity import (
+    recommend_tailoring_intensity,
+)
 from tailoring.phase9e1_workflow_ui import (
     build_application_workflow_overview,
 )
@@ -274,6 +285,74 @@ class Phase9FApplicationConfirmationTests(unittest.TestCase):
         before = self.counts()
         with self.assertRaisesRegex(Phase9FDConfirmationError, "scope changed"):
             self.confirm()
+        self.assertEqual(self.counts(), before)
+
+    def test_d_revalidates_authoritative_exact_reuse_proof_not_ui_annotation(self):
+        stale_ranking = copy.deepcopy(self.ranking)
+        candidate = stale_ranking["ranked_candidates"][0]
+        proof = build_exact_verified_reuse_proof(
+            {
+                "blueprint": {
+                    "id": candidate["source_id"],
+                    "fingerprint": candidate["source_fingerprint"],
+                    "version": candidate["source_version"],
+                },
+                "current_jd": copy.deepcopy(
+                    stale_ranking["semantic_identity"]["exact_jd"]
+                ),
+                "source_jd": {"identity": "synthetic stale UI proof"},
+                "source_generation": {"generation_id": "approved"},
+                "phase8_verification": {"score": 19},
+                "phase9c_source_parity": {"accepted": True},
+                "artifact_identity": {
+                    "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+                    "artifacts": [{"artifact_kind": "docx", "sha256": "x"}],
+                },
+            }
+        )
+        candidate.update(
+            {
+                "exact_verified_reuse_eligible": True,
+                "exact_verified_reuse_reason_code": "exact_verified_reuse",
+                "exact_verified_reuse_proof_fingerprint": proof["proof_fingerprint"],
+                "exact_verified_reuse": proof,
+                "ranking_reason": "exact_verified_reuse_precedence",
+            }
+        )
+        stale_ranking["recommended_source"] = copy.deepcopy(candidate)
+        stale_ranking["semantic_identity"]["exact_verified_reuse_scope"][0][
+            "proof"
+        ] = copy.deepcopy(proof)
+        stale_ranking["ranking_input_fingerprint"] = fingerprint_value(
+            stale_ranking["semantic_identity"]
+        )
+        stale_ranking["ranking_fingerprint"] = fingerprint_value(
+            build_ranking_result_identity(
+                ranking_input_fingerprint=stale_ranking[
+                    "ranking_input_fingerprint"
+                ],
+                ranked_candidates=stale_ranking["ranked_candidates"],
+            )
+        )
+        stale_recommendation = recommend_tailoring_intensity(
+            stale_ranking,
+            expected_ranking_input_fingerprint=stale_ranking[
+                "ranking_input_fingerprint"
+            ],
+        )
+        before = self.counts()
+        with self.assertRaisesRegex(Phase9FDConfirmationError, "scope changed"):
+            confirm_phase9f_application_session(
+                phase9f_a_snapshot=self.original_jd,
+                persisted_exact_jd_snapshot=self.persisted_jd,
+                ranking_result=stale_ranking,
+                phase9f_c_recommendation=stale_recommendation,
+                confirmed_normalized_source_fingerprint=candidate[
+                    "normalized_source_fingerprint"
+                ],
+                confirmed_intensity="reuse",
+                application_intent_id="stale-exact-reuse-ui-proof",
+            )
         self.assertEqual(self.counts(), before)
 
     def test_removed_blueprint_fails_closed_with_zero_d_rows(self):

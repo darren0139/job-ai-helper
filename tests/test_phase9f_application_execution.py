@@ -393,6 +393,31 @@ class Phase9FApplicationExecutionTests(unittest.TestCase):
             "strict_inherited_source_phase8",
         )
 
+    def test_bound_exact_reuse_proof_is_revalidated_before_execution_write(self) -> None:
+        state = self._session("global_blueprint")
+        confirmation = get_phase9f_application_confirmation(state["application_id"])
+        confirmation["confirmation_snapshot"]["selected_candidate"][
+            "exact_verified_reuse"
+        ] = {
+            "eligible": True,
+            "proof_fingerprint": "stale-ui-proof",
+        }
+        before = self._count("phase9f_application_executions")
+        with patch.object(
+            execution_manager,
+            "get_phase9f_application_confirmation",
+            return_value=confirmation,
+        ), patch.object(
+            execution_manager,
+            "prove_exact_verified_reuse",
+            return_value={"eligible": False, "reason_code": "artifact_missing"},
+        ):
+            with self.assertRaisesRegex(Phase9FEExecutionError, "proof is stale"):
+                self._execute(state["application_id"])
+        self.assertEqual(
+            self._count("phase9f_application_executions"), before
+        )
+
     def test_incompatible_inherited_phase8_reruns_existing_phase8(self) -> None:
         state = self._session("global_blueprint")
         blueprint = state["blueprint"]

@@ -14,6 +14,7 @@ from tailoring.phase9f_starting_source_provenance import (
     compact_artifact_resolution,
     load_blueprint_provenance_read_only,
 )
+from tailoring.final_scoring_seed import fingerprint_final_scoring_seed
 from tests.test_phase9f_starting_source_ranking import make_blueprint
 
 
@@ -27,6 +28,11 @@ def _fixture_blueprint() -> tuple[dict, dict]:
     )
     raw_jd = "Synthetic exact source JD for deterministic provenance testing."
     raw_sha256 = hashlib.sha256(raw_jd.encode("utf-8")).hexdigest()
+    final_seed = {
+        "canonical_requirements": [],
+        "aggregate": {"deterministic_alignment_score": 0},
+    }
+    final_seed_fingerprint = fingerprint_final_scoring_seed(final_seed)
     candidate = {
         "phase9b_version": "phase9b-blueprint-candidate-v3",
         "candidate_id": blueprint["candidate_id"],
@@ -49,7 +55,7 @@ def _fixture_blueprint() -> tuple[dict, dict]:
             "pdf_path": "approved.pdf",
         },
         "evaluation_metadata": {
-            "source_final_scoring_seed_fingerprint": "seed-fingerprint"
+            "source_final_scoring_seed_fingerprint": final_seed_fingerprint
         },
     }
     evaluation = {
@@ -101,6 +107,8 @@ def _fixture_blueprint() -> tuple[dict, dict]:
         "candidate": candidate,
         "evaluation": evaluation,
         "raw_jd": raw_jd,
+        "final_seed": final_seed,
+        "final_seed_fingerprint": final_seed_fingerprint,
     }
 
 
@@ -234,9 +242,14 @@ def _create_provenance_database(
         )
         verification = {
             "blueprint_ready": True,
-            "final_scoring_seed_fingerprint": "seed-fingerprint",
+            "final_scoring_seed": fixture["final_seed"],
+            "final_scoring_seed_fingerprint": fixture["final_seed_fingerprint"],
             "after_stable_analysis": {
-                "deterministic_alignment_score": 92,
+                "deterministic_alignment_score": int(
+                    fixture["final_seed"]["aggregate"][
+                        "deterministic_alignment_score"
+                    ]
+                ),
                 "input_fingerprint": "stable-analysis-input",
             },
         }
@@ -314,7 +327,7 @@ class Phase9FStartingSourceProvenanceTests(unittest.TestCase):
     def test_complete_chain_resolves_candidate_evaluation_and_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "provenance.sqlite"
-            blueprint, _ = _create_provenance_database(database)
+            blueprint, fixture = _create_provenance_database(database)
             resolved = load_blueprint_provenance_read_only(
                 blueprint,
                 database_path=database,
@@ -338,8 +351,9 @@ class Phase9FStartingSourceProvenanceTests(unittest.TestCase):
             resolved["phase8_verification"][
                 "final_scoring_seed_fingerprint"
             ],
-            "seed-fingerprint",
+            fixture["final_seed_fingerprint"],
         )
+        self.assertTrue(resolved["phase8_verification"]["final_scoring_seed_valid"])
         self.assertEqual(
             len(
                 resolved["source_resume_result_or_generation"][

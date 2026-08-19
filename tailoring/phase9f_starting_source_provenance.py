@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
+from tailoring.final_scoring_seed import verify_final_scoring_seed
 
 
 PHASE9F_B_PROVENANCE_DEBUG_VERSION = (
@@ -87,6 +88,60 @@ def _source_scope_row(evaluation: dict[str, Any]) -> dict[str, Any]:
         if isinstance(row, dict)
     ]
     return selected[0] if len(selected) == 1 else {}
+
+
+def _phase8_final_seed_is_valid(
+    verification: dict[str, Any],
+) -> bool:
+    """Verify the persisted Phase 8 final-scoring seed fail-closed."""
+    seed = verification.get("final_scoring_seed")
+    fingerprint = _clean(verification.get("final_scoring_seed_fingerprint"))
+    if not isinstance(seed, dict) or not seed or not fingerprint:
+        return False
+    try:
+        verified = verify_final_scoring_seed(seed, fingerprint)
+    except (TypeError, ValueError):
+        return False
+
+    after = verification.get("after_stable_analysis") or {}
+    reproduced_score = int(
+        (verified.get("aggregate") or {}).get(
+            "deterministic_alignment_score", 0
+        )
+        or 0
+    )
+    approved_score = int(
+        after.get("deterministic_alignment_score", 0) or 0
+    )
+    return reproduced_score == approved_score
+
+
+def _persisted_source_jd_parity(
+    evaluation: dict[str, Any],
+    *,
+    expected_final_seed_fingerprint: str,
+) -> tuple[bool, dict[str, Any]]:
+    """Resolve accepted parity from exactly one persisted source-JD row."""
+    rows = [
+        row
+        for row in evaluation.get("per_jd_results", []) or []
+        if isinstance(row, dict) and row.get("is_source_jd") is True
+    ]
+    if len(rows) != 1:
+        return False, {}
+
+    parity = rows[0].get("source_jd_parity")
+    if not isinstance(parity, dict):
+        return False, {}
+
+    expected = _clean(expected_final_seed_fingerprint)
+    actual = _clean(parity.get("final_scoring_seed_fingerprint"))
+    accepted = bool(
+        parity.get("accepted") is True
+        and expected
+        and actual == expected
+    )
+    return accepted, deepcopy(parity)
 
 
 def _compact_artifact_hash_records(
@@ -282,6 +337,10 @@ def load_blueprint_provenance_read_only(
                 "canonical_requirement_fingerprint": _clean(
                     source_scope.get("canonical_requirement_fingerprint")
                 ),
+                "canonical_requirement_ids": sorted(
+                    str(value)
+                    for value in candidate.get("canonical_requirement_ids") or []
+                ),
                 "job_title": _clean(
                     jd_profile.get("job_title") or jd_profile.get("title")
                 ),
@@ -414,6 +473,22 @@ def load_blueprint_provenance_read_only(
             if not blueprint_ready:
                 missing.append("phase8_blueprint_ready")
             after = verification.get("after_stable_analysis") or {}
+            final_seed = verification.get("final_scoring_seed") or {}
+            final_seed_fingerprint = _clean(
+                verification.get("final_scoring_seed_fingerprint")
+                or (candidate.get("evaluation_metadata") or {}).get(
+                    "source_final_scoring_seed_fingerprint"
+                )
+            )
+            final_seed_valid = False
+            if isinstance(final_seed, dict) and final_seed and final_seed_fingerprint:
+                try:
+                    verify_final_scoring_seed(final_seed, final_seed_fingerprint)
+                    final_seed_valid = True
+                except ValueError:
+                    missing.append("phase8_final_scoring_seed")
+            else:
+                missing.append("phase8_final_scoring_seed")
             phase8_verification = {
                 "resolved": True,
                 "blueprint_ready": blueprint_ready,
@@ -423,11 +498,10 @@ def load_blueprint_provenance_read_only(
                 ),
                 "phase8_version": _clean(verification_row["phase8_version"]),
                 "generation_id": _clean(verification_row["generation_id"]),
-                "final_scoring_seed_fingerprint": _clean(
-                    verification.get("final_scoring_seed_fingerprint")
-                    or (candidate.get("evaluation_metadata") or {}).get(
-                        "source_final_scoring_seed_fingerprint"
-                    )
+                "final_scoring_seed_fingerprint": final_seed_fingerprint,
+                "final_scoring_seed_valid": final_seed_valid,
+                "final_scoring_seed_valid": (
+                    _phase8_final_seed_is_valid(verification)
                 ),
                 "stable_analysis_input_fingerprint": _clean(
                     after.get("input_fingerprint")
@@ -529,6 +603,17 @@ def load_blueprint_provenance_read_only(
                 missing.append("phase9c_evaluation_identity_match")
             aggregate = evaluation.get("aggregate_result") or {}
             source_result = _source_scope_row(evaluation)
+            (
+                source_jd_parity_accepted,
+                source_jd_parity,
+            ) = _persisted_source_jd_parity(
+                stored_evaluation,
+                expected_final_seed_fingerprint=_clean(
+                    phase8_verification.get(
+                        "final_scoring_seed_fingerprint"
+                    )
+                ),
+            )
             phase9c_evaluation = {
                 "resolved": True,
                 "identity_match": identity_match,
@@ -542,9 +627,18 @@ def load_blueprint_provenance_read_only(
                     .get("policy", {})
                     .get("policy_version")
                 ),
+                "source_jd_parity_accepted": (
+                    source_jd_parity_accepted
+                ),
+                "source_jd_parity": source_jd_parity,
                 "provisional": aggregate.get("provisional") is True,
                 "historical_source_score": source_result.get(
                     "deterministic_alignment_score"
+                ),
+                "source_jd_parity_accepted": bool(
+                    (source_result.get("source_jd_parity") or {}).get(
+                        "accepted"
+                    )
                 ),
                 "historical_mean_score": aggregate.get("mean_score"),
                 "created_at": _clean(evaluation_row["created_at"]),

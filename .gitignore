@@ -37,3 +37,4 @@ benchmark_results/
 
 # Generated Chroma taxonomy vector index
 data/chroma_capability_taxonomy/
+data/blueprint_artifacts/

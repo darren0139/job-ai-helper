@@ -7,10 +7,15 @@ from pathlib import Path
 
 from tailoring.phase9f_starting_source_ranking import (
     PHASE9F_B_VERSION,
+    PHASE9F_B_RANKING_POLICY_VERSION,
     build_comparison_result_identity,
     build_ranking_result_identity,
     fingerprint_value,
     rank_starting_resume_sources,
+)
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+    build_exact_verified_reuse_proof,
 )
 from tailoring.phase9f_tailoring_intensity import (
     PHASE9F_C_POLICY_VERSION,
@@ -140,6 +145,17 @@ def make_phase9f_b_result(
         "scoring_version": "stable-evidence-v1.3-phase6d7",
         "capability_taxonomy_version": "capability-taxonomy-v1",
         "evidence_policy_version": "phase9f-phase9c-fresh-target-evidence-v1",
+        "exact_verified_reuse_eligible": False,
+        "exact_verified_reuse_reason_code": "exact_verified_reuse_proof_missing",
+        "exact_verified_reuse_proof_fingerprint": "",
+        "exact_verified_reuse": {
+            "proof_version": "phase9f-exact-verified-reuse-proof-v1",
+            "eligible": False,
+            "reason_code": "exact_verified_reuse_proof_missing",
+            "blueprint_id": "",
+            "blueprint_fingerprint": "",
+            "proof_fingerprint": "",
+        },
     }
     exact_jd = {
         "raw_jd_sha256": fingerprint_value({"raw_jd": name}),
@@ -192,8 +208,14 @@ def make_phase9f_b_result(
                 "role_family_id": "synthetic_family",
             }
         ],
+        "exact_verified_reuse_scope": [
+            {
+                "normalized_source_fingerprint": normalized_source_fingerprint,
+                "proof": copy.deepcopy(candidate["exact_verified_reuse"]),
+            }
+        ],
         "ranking_policy": {
-            "policy_version": "phase9f-starting-source-ranking-policy-v1"
+            "policy_version": PHASE9F_B_RANKING_POLICY_VERSION
         },
     }
     ranking_input_fingerprint = fingerprint_value(semantic_identity)
@@ -243,7 +265,102 @@ def result_for_case(case: dict) -> dict:
     )
 
 
+def attach_exact_verified_reuse_to_ranking(ranking: dict) -> dict:
+    """Create a structurally valid B result carrying an authoritative proof."""
+    result = copy.deepcopy(ranking)
+    candidate = result["ranked_candidates"][0]
+    proof = build_exact_verified_reuse_proof(
+        {
+            "blueprint": {
+                "id": candidate["source_id"],
+                "fingerprint": candidate["source_fingerprint"],
+                "version": candidate["source_version"],
+            },
+            "current_jd": {
+                "canonical_jd_id": result["jd_provenance"]["canonical_jd_id"],
+                "source_version_id": result["jd_provenance"]["source_version_id"],
+                "raw_jd_sha256": result["semantic_identity"]["exact_jd"]["raw_jd_sha256"],
+                "canonical_requirement_fingerprint": candidate[
+                    "canonical_requirement_scope_fingerprint"
+                ],
+                "canonical_requirement_ids": result["semantic_identity"]["exact_jd"][
+                    "canonical_requirement_ids"
+                ],
+            },
+            "source_jd": {"source": "same exact immutable JD"},
+            "source_generation": {
+                "application_id": 106,
+                "generation_id": "approved-generation",
+            },
+            "phase8_verification": {
+                "verification_id": "phase8-verification",
+                "verification_fingerprint": "phase8-fingerprint",
+                "score": 19,
+            },
+            "phase9c_source_parity": {"accepted": True},
+            "artifact_identity": {
+                "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+                "artifacts": [{"artifact_kind": "docx", "sha256": "docx"}],
+            },
+        }
+    )
+    candidate.update(
+        {
+            "exact_verified_reuse_eligible": True,
+            "exact_verified_reuse_reason_code": "exact_verified_reuse",
+            "exact_verified_reuse_proof_fingerprint": proof["proof_fingerprint"],
+            "exact_verified_reuse": proof,
+            "ranking_reason": "exact_verified_reuse_precedence",
+        }
+    )
+    result["recommended_source"] = copy.deepcopy(candidate)
+    result["semantic_identity"]["exact_verified_reuse_scope"][0]["proof"] = (
+        copy.deepcopy(proof)
+    )
+    result["ranking_input_fingerprint"] = fingerprint_value(
+        result["semantic_identity"]
+    )
+    identity = build_ranking_result_identity(
+        ranking_input_fingerprint=result["ranking_input_fingerprint"],
+        ranked_candidates=result["ranked_candidates"],
+    )
+    result["ranking_fingerprint"] = fingerprint_value(identity)
+    return result
+
+
 class Phase9FTailoringIntensityTests(unittest.TestCase):
+    def test_exact_verified_reuse_short_circuits_weak_fresh_diagnostics(self):
+        ranking = attach_exact_verified_reuse_to_ranking(
+            make_phase9f_b_result(
+                name="exact-weak-diagnostic",
+                overall=7,
+                required_core=2,
+                preferred=10,
+                evidence=40,
+                important_requirement_count=10,
+                important_gap_count=8,
+                deal_breaker_gap_count=0,
+            )
+        )
+        result = recommend_tailoring_intensity(
+            ranking,
+            expected_ranking_input_fingerprint=ranking[
+                "ranking_input_fingerprint"
+            ],
+        )
+        self.assertEqual(result["status"], "recommended")
+        self.assertEqual(result["recommended_intensity"], "reuse")
+        self.assertEqual(
+            result["decisive_rule"]["code"], "reuse_exact_verified_source"
+        )
+        self.assertEqual(result["metrics"]["current_jd_alignment"], 7)
+        self.assertEqual(
+            result["selected_source_context"]["exact_verified_reuse"][
+                "verified_score"
+            ],
+            19,
+        )
+
     def test_golden_policy_and_boundaries(self):
         fixture = json.loads(GOLDEN.read_text(encoding="utf-8"))
         self.assertEqual(fixture["policy_version"], PHASE9F_C_POLICY_VERSION)

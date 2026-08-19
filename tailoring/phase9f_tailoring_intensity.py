@@ -17,10 +17,14 @@ from tailoring.phase9f_starting_source_ranking import (
     validate_ranked_candidate_comparison_contract,
     validate_ranked_result_contract,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    Phase9FExactVerifiedReuseError,
+    validate_exact_verified_reuse_proof,
+)
 
 
-PHASE9F_C_VERSION = "phase9f-tailoring-intensity-v1"
-PHASE9F_C_POLICY_VERSION = "phase9f-tailoring-intensity-policy-v1"
+PHASE9F_C_VERSION = "phase9f-tailoring-intensity-v2"
+PHASE9F_C_POLICY_VERSION = "phase9f-tailoring-intensity-policy-v2"
 
 FULL_REQUIRED_CORE_BELOW = 50
 FULL_IMPORTANT_GAP_MINIMUM = 3
@@ -70,6 +74,7 @@ def tailoring_intensity_policy_identity() -> dict[str, Any]:
         "precedence": [
             "fail_closed_invalid_phase9f_b",
             "fail_closed_insufficient_important_requirement_scope",
+            "reuse_exact_verified_source",
             "full_deal_breaker_gap",
             "full_required_core_below_partial",
             "full_broad_important_gap_deficiency",
@@ -275,6 +280,23 @@ def _selected_source_identity(candidate: dict[str, Any]) -> dict[str, Any]:
                 "The selected source identity is incomplete.",
                 code="selected_source_identity_incomplete",
             )
+    if any(
+        key in candidate
+        for key in (
+            "exact_verified_reuse_eligible",
+            "exact_verified_reuse_reason_code",
+            "exact_verified_reuse_proof_fingerprint",
+        )
+    ):
+        identity["exact_verified_reuse_eligible"] = bool(
+            candidate.get("exact_verified_reuse_eligible")
+        )
+        identity["exact_verified_reuse_reason_code"] = _clean(
+            candidate.get("exact_verified_reuse_reason_code")
+        )
+        identity["exact_verified_reuse_proof_fingerprint"] = _clean(
+            candidate.get("exact_verified_reuse_proof_fingerprint")
+        )
     return identity
 
 
@@ -349,6 +371,7 @@ def recommend_tailoring_intensity(
     expected_ranking_input_fingerprint: str,
 ) -> dict[str, Any]:
     """Recommend Reuse, Minor, or Full from the exact current 9F-B winner."""
+    exact_proof: dict[str, Any] | None = None
     try:
         validated = validate_ranked_result_contract(
             ranking_result,
@@ -421,6 +444,19 @@ def recommend_tailoring_intensity(
                 "The winner canonical requirement scope is inconsistent.",
                 code="canonical_requirement_fingerprint_mismatch",
             )
+        try:
+            candidate_proof = validate_exact_verified_reuse_proof(
+                winner.get("exact_verified_reuse"),
+                source_type=_clean(winner.get("source_type")),
+                source_id=_clean(winner.get("source_id")),
+                source_fingerprint=_clean(winner.get("source_fingerprint")),
+            )
+        except Phase9FExactVerifiedReuseError as exc:
+            raise Phase9FCTailoringIntensityError(
+                str(exc), code="exact_verified_reuse_proof_invalid"
+            ) from exc
+        if candidate_proof.get("eligible") is True:
+            exact_proof = candidate_proof
     except Phase9FBRankingError as exc:
         diagnostic = getattr(exc, "diagnostic", {}) or {}
         return _failure_result(
@@ -457,6 +493,20 @@ def recommend_tailoring_intensity(
     }
     evaluated_rules = [
         {
+            "code": "reuse_exact_verified_source",
+            "matched": exact_proof is not None,
+            "observed": {
+                "proof_fingerprint": _clean(
+                    (exact_proof or {}).get("proof_fingerprint")
+                ),
+                "verified_score": int(
+                    (exact_proof or {}).get("verified_score") or 0
+                ),
+            },
+            "operator": "authoritative exact immutable JD/artifact proof",
+            "threshold": True,
+        },
+        {
             "code": "full_deal_breaker_gap",
             "matched": deal_breakers >= 1,
             "observed": deal_breakers,
@@ -489,7 +539,15 @@ def recommend_tailoring_intensity(
         },
     ]
 
-    if deal_breakers >= 1:
+    if exact_proof is not None:
+        intensity = "reuse"
+        decisive_code = "reuse_exact_verified_source"
+        explanation = [
+            "This Blueprint is the approved one-page artifact already verified against this exact JD.",
+            f"Verified exact-JD score: {int(exact_proof.get('verified_score') or 0)}.",
+            "Fresh Phase 9F-B metrics remain diagnostic and do not retarget this exact verified artifact.",
+        ]
+    elif deal_breakers >= 1:
         intensity = "full"
         decisive_code = "full_deal_breaker_gap"
         explanation = [
@@ -527,12 +585,12 @@ def recommend_tailoring_intensity(
         ]
 
     matched_full_codes = [
-        row["code"] for row in evaluated_rules[:3] if row["matched"]
+        row["code"] for row in evaluated_rules[1:4] if row["matched"]
     ]
     if intensity == "full":
         reason_codes = matched_full_codes
     elif intensity == "reuse":
-        reason_codes = ["reuse_all_gates_passed"]
+        reason_codes = [decisive_code]
     else:
         reason_codes = _minor_reason_codes(
             overall=overall,
@@ -565,6 +623,7 @@ def recommend_tailoring_intensity(
             "ranking_fingerprint": validated["ranking_fingerprint"],
         },
         "selected_source": source_identity,
+        "exact_verified_reuse": deepcopy(exact_proof or {}),
         "exact_jd": exact_jd_identity,
         "current_jd_winner": {
             "metrics": metrics,
@@ -594,6 +653,7 @@ def recommend_tailoring_intensity(
             "role_family_prior_applied": bool(
                 winner.get("role_family_prior_applied")
             ),
+            "exact_verified_reuse": deepcopy(exact_proof or {}),
         },
         "metrics": metrics,
         "important_gaps": deepcopy(winner.get("important_gaps") or []),

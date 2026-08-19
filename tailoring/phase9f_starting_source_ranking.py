@@ -23,13 +23,18 @@ from tailoring.phase9b_role_family import suggest_role_family
 from tailoring.phase9f_starting_source_transparency import (
     compact_requirement_transparency,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    Phase9FExactVerifiedReuseError,
+    ineligible_exact_verified_reuse,
+    validate_exact_verified_reuse_proof,
+)
 
 
-PHASE9F_B_VERSION = "phase9f-starting-source-ranking-v1"
+PHASE9F_B_VERSION = "phase9f-starting-source-ranking-v2"
 PHASE9F_B_SOURCE_POLICY_VERSION = "phase9f-immutable-starting-source-v1"
 PHASE9F_B_SCORING_POLICY_VERSION = "phase9f-phase9c-fresh-target-scoring-v1"
 PHASE9F_B_EVIDENCE_POLICY_VERSION = "phase9f-phase9c-fresh-target-evidence-v1"
-PHASE9F_B_RANKING_POLICY_VERSION = "phase9f-starting-source-ranking-policy-v1"
+PHASE9F_B_RANKING_POLICY_VERSION = "phase9f-starting-source-ranking-policy-v2"
 PHASE9F_B_CANDIDATE_ANALYSIS_SNAPSHOT_VERSION = (
     "phase9f-b-candidate-current-jd-analysis-v1"
 )
@@ -42,7 +47,8 @@ BASE_RESUME_VERSION_POLICY_VERSION = (
     "phase9f-global-master-resume-version-identity-v1"
 )
 BLUEPRINT_FORMAT_VERSION = "phase9d-global-blueprint-v1"
-BLUEPRINT_IDENTITY_POLICY_VERSION = "phase9d-global-blueprint-identity-v1"
+BLUEPRINT_IDENTITY_POLICY_VERSION = "phase9d-global-blueprint-identity-v2"
+LEGACY_BLUEPRINT_IDENTITY_POLICY_VERSION = "phase9d-global-blueprint-identity-v1"
 
 IMPORTANT_REQUIREMENTS = {"deal_breaker", "required", "core"}
 ROLE_FAMILY_PRIOR_CONFIDENCES = {"medium", "high"}
@@ -80,6 +86,8 @@ RANKING_RESULT_IDENTITY_FIELDS = (
     "deal_breaker_gap_count",
     "stable_input_fingerprint",
     "comparison_result_fingerprint",
+    "exact_verified_reuse_eligible",
+    "exact_verified_reuse_proof_fingerprint",
 )
 
 
@@ -538,7 +546,10 @@ def normalize_active_blueprint_source(
     if (
         _clean(blueprint.get("phase9d_version")) != BLUEPRINT_FORMAT_VERSION
         or _clean(blueprint.get("fingerprint_policy_version"))
-        != BLUEPRINT_IDENTITY_POLICY_VERSION
+        not in {
+            BLUEPRINT_IDENTITY_POLICY_VERSION,
+            LEGACY_BLUEPRINT_IDENTITY_POLICY_VERSION,
+        }
     ):
         raise Phase9FBRankingError(
             "The active Global Blueprint format or identity policy is unsupported.",
@@ -634,6 +645,20 @@ def normalize_active_blueprint_source(
     }
     evaluation = snapshot.get("phase9c_evaluation_snapshot") or {}
     aggregate = evaluation.get("aggregate_result") or {}
+    try:
+        exact_reuse = validate_exact_verified_reuse_proof(
+            blueprint.get("exact_verified_reuse_proof"),
+            source_type=source_type,
+            source_id=source_id,
+            source_fingerprint=blueprint_fingerprint,
+        )
+    except Phase9FExactVerifiedReuseError as exc:
+        raise Phase9FBRankingError(
+            str(exc),
+            code="exact_verified_reuse_proof_invalid",
+            source_type=source_type,
+            source_id=source_id,
+        ) from exc
     return {
         "source_type": source_type,
         "source_id": source_id,
@@ -654,6 +679,7 @@ def normalize_active_blueprint_source(
             "source_evaluation_provisional": aggregate.get("provisional") is True,
             "created_at": _clean(blueprint.get("created_at")),
         },
+        "exact_verified_reuse": exact_reuse,
     }
 
 
@@ -704,6 +730,7 @@ def ranking_policy_identity() -> dict[str, Any]:
     return {
         "policy_version": PHASE9F_B_RANKING_POLICY_VERSION,
         "priority_order": [
+            "exact_verified_reuse_precedence",
             "no_deal_breaker_gap",
             "fewer_deal_breaker_gaps",
             "required_core_coverage",
@@ -721,6 +748,33 @@ def ranking_policy_identity() -> dict[str, Any]:
             ROLE_FAMILY_NEAR_TIE_TOLERANCES
         ),
         "role_family_score_bonus": 0,
+        "exact_verified_reuse": (
+            "Exact current-JD/source artifact identity takes precedence; "
+            "it is not a score or role-family bonus. Multiple valid exact "
+            "proofs use immutable source identity only."
+        ),
+    }
+
+
+def _exact_reuse_semantic_proof(
+    proof: Any,
+) -> dict[str, Any]:
+    # Only exact-reuse state that can change B ordering is semantic.
+    # Ineligible reason codes remain useful diagnostics, but switching from one
+    # fail-closed reason to another cannot make a source more or less reusable
+    # and therefore must not falsely stale B at D revalidation.
+    state = (
+        proof
+        if isinstance(proof, dict)
+        else ineligible_exact_verified_reuse("proof_unavailable")
+    )
+    eligible = state.get("eligible") is True
+    return {
+        "proof_version": _clean(state.get("proof_version")),
+        "eligible": eligible,
+        "proof_fingerprint": (
+            _clean(state.get("proof_fingerprint")) if eligible else ""
+        ),
     }
 
 
@@ -805,6 +859,16 @@ def prepare_ranking_context(
         )
     )
     semantic_sources = [deepcopy(row["semantic_identity"]) for row in sources]
+    exact_reuse_scope = [
+        {
+            "normalized_source_fingerprint": row["normalized_source_fingerprint"],
+            "proof": _exact_reuse_semantic_proof(
+                row.get("exact_verified_reuse")
+                or ineligible_exact_verified_reuse("not_global_blueprint")
+            ),
+        }
+        for row in sources
+    ]
     duplicates = [
         value
         for value in {
@@ -841,6 +905,7 @@ def prepare_ranking_context(
         "exact_jd": deepcopy(jd["semantic_identity"]),
         "scoring": scoring_identity,
         "source_scope": semantic_sources,
+        "exact_verified_reuse_scope": exact_reuse_scope,
         "ranking_policy": ranking_policy_identity(),
     }
     if integrity_issues:
@@ -1053,6 +1118,19 @@ def score_normalized_source(
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
+        "exact_verified_reuse_eligible": bool(
+            (source.get("exact_verified_reuse") or {}).get("eligible")
+        ),
+        "exact_verified_reuse_reason_code": _clean(
+            (source.get("exact_verified_reuse") or {}).get("reason_code")
+        ),
+        "exact_verified_reuse_proof_fingerprint": _clean(
+            (source.get("exact_verified_reuse") or {}).get("proof_fingerprint")
+        ),
+        "exact_verified_reuse": deepcopy(
+            source.get("exact_verified_reuse")
+            or ineligible_exact_verified_reuse("not_global_blueprint")
+        ),
     }
 
 
@@ -1118,8 +1196,31 @@ def order_scored_candidates(
     scored_candidates: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Apply the deterministic comparator and calibrated family prior."""
+    exact = sorted(
+        (
+            deepcopy(row)
+            for row in scored_candidates
+            if row.get("exact_verified_reuse_eligible") is True
+        ),
+        key=lambda row: _clean(row.get("normalized_source_fingerprint")),
+    )
+    ordinary_input = [
+        deepcopy(row)
+        for row in scored_candidates
+        if row.get("exact_verified_reuse_eligible") is not True
+    ]
+    if exact:
+        for row in exact:
+            row["role_family_prior_applied"] = False
+            row["ranking_reason"] = "exact_verified_reuse_precedence"
+        ordinary = order_scored_candidates(ordinary_input) if ordinary_input else []
+        ordered = exact + ordinary
+        for index, row in enumerate(ordered, start=1):
+            row["rank"] = index
+        return ordered
+
     remaining = sorted(
-        (deepcopy(row) for row in scored_candidates),
+        ordinary_input,
         key=_strict_ranking_key,
     )
     ordered: list[dict[str, Any]] = []

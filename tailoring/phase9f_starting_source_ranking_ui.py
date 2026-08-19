@@ -11,6 +11,9 @@ import streamlit as st
 from database.global_blueprint_manager import (
     list_active_global_blueprints_read_only,
 )
+from database.phase9f_exact_verified_reuse_manager import (
+    annotate_blueprints_for_exact_verified_reuse,
+)
 from database.db_manager import get_application_by_id
 from database.global_master_resume_manager import (
     get_current_global_master_resume,
@@ -657,6 +660,17 @@ def _render_ranked_result(
         "Recommended starting source: "
         f"{_clean(winner.get('source_display_name')) or 'Immutable resume source'}"
     )
+    exact_reuse = winner.get("exact_verified_reuse") or {}
+    if exact_reuse.get("eligible") is True:
+        st.info(
+            "Exact verified reuse available. This Blueprint is the approved "
+            "one-page résumé already verified against this exact JD."
+        )
+        st.caption(
+            "Verified exact-JD score: "
+            f"{int(exact_reuse.get('verified_score') or 0)} · Fresh "
+            f"comparison diagnostic: {int(winner.get('deterministic_alignment_score') or 0)}"
+        )
     st.caption(
         f"{_clean(winner.get('source_type'))} | version "
         f"{int(winner.get('source_version') or 0)} | "
@@ -749,6 +763,12 @@ def _render_ranked_result(
                 "Family prior applied": bool(
                     candidate.get("role_family_prior_applied")
                 ),
+                "Exact verified reuse": bool(
+                    candidate.get("exact_verified_reuse_eligible")
+                ),
+                "Exact-reuse reason": _clean(
+                    candidate.get("exact_verified_reuse_reason_code")
+                ),
             }
         )
     st.dataframe(rows, width="stretch", hide_index=True)
@@ -832,6 +852,10 @@ def render_phase9f_starting_source_ranking(
 
     try:
         current_base, artifact, blueprints = _load_immutable_source_scope()
+        blueprints = annotate_blueprints_for_exact_verified_reuse(
+            blueprints,
+            current_exact_jd=exact_jd,
+        )
         context = prepare_ranking_context(
             exact_jd=exact_jd,
             current_base_resume=current_base,

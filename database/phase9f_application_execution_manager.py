@@ -38,6 +38,11 @@ from database.phase9f_application_confirmation_manager import (
     get_phase9f_application_confirmation,
     init_phase9f_application_confirmation_schema,
 )
+from database.phase9f_exact_verified_reuse_manager import (
+    prove_exact_verified_reuse,
+    resolve_blueprint_owned_artifacts,
+)
+from tailoring.phase9f_exact_verified_reuse import Phase9FExactVerifiedReuseError
 from database.tailoring_generation_control import get_tailoring_generation
 from database.tailoring_verification_manager import (
     list_tailoring_verifications,
@@ -636,6 +641,31 @@ def _resolve_blueprint_source(
             "normalized_source_fingerprint"
         ],
     }
+    declared_owned_manifest = isinstance(
+        (blueprint.get("semantic_identity") or {}).get(
+            "artifact_provenance"
+        ),
+        dict,
+    )
+    try:
+        owned_artifacts = resolve_blueprint_owned_artifacts(blueprint)
+    except Phase9FExactVerifiedReuseError as exc:
+        if declared_owned_manifest:
+            raise Phase9FEExecutionError(
+                "The Blueprint-owned immutable artifact failed verification.",
+                code="blueprint_owned_artifact_invalid",
+            ) from exc
+        owned_artifacts = []
+    if owned_artifacts:
+        return {
+            "source_type": "global_blueprint",
+            "source": blueprint,
+            "source_generation": generation,
+            "source_verification": source_verification,
+            "artifacts": owned_artifacts,
+            "page_count": 1,
+            "fit_identity": deepcopy(fit),
+        }
     authoritative_hashes = _artifact_hash_records(
         blueprint=blueprint,
         candidate=candidate,
@@ -823,6 +853,55 @@ def _resolve_exact_source(
         "The exact Phase 9F-D source type is unsupported by Reuse.",
         code="reuse_source_type_unsupported",
     )
+
+
+def _revalidate_bound_exact_verified_reuse(
+    *,
+    scope: dict[str, Any],
+    confirmation: dict[str, Any],
+    exact_jd: dict[str, Any],
+) -> None:
+    """Recheck a D-bound exact proof before Phase 9F-E creates an execution.
+
+    Legacy Reuse confirmations have no exact proof and retain their existing
+    Phase 9F-E validation path. A new exact-proof confirmation must instead
+    still resolve from authoritative Blueprint, JD, Phase 8, and artifact
+    state; a Streamlit/session annotation is never enough.
+    """
+    selected = (
+        (confirmation.get("confirmation_snapshot") or {}).get(
+            "selected_candidate"
+        )
+        or {}
+    )
+    bound_proof = selected.get("exact_verified_reuse") or {}
+    if bound_proof.get("eligible") is not True:
+        return
+    source = scope.get("source") or {}
+    if _clean(source.get("source_type")) != "global_blueprint":
+        raise Phase9FEExecutionError(
+            "The exact-reuse proof is bound to a different starting source.",
+            code="exact_verified_reuse_source_mismatch",
+        )
+    blueprint = get_global_blueprint(_clean(source.get("source_id")))
+    if blueprint is None:
+        raise Phase9FEExecutionError(
+            "The exact-reuse Blueprint is no longer available.",
+            code="exact_verified_reuse_blueprint_missing",
+        )
+    current = prove_exact_verified_reuse(
+        blueprint=blueprint,
+        current_exact_jd=exact_jd,
+    )
+    if (
+        current.get("eligible") is not True
+        or _clean(current.get("proof_fingerprint"))
+        != _clean(bound_proof.get("proof_fingerprint"))
+    ):
+        raise Phase9FEExecutionError(
+            "The exact verified-reuse proof is stale or no longer authoritative.",
+            code="exact_verified_reuse_proof_stale",
+        )
 
 
 def resolve_exact_phase9f_d_source(
@@ -1553,6 +1632,11 @@ def execute_phase9f_reuse(
     init_phase9f_application_execution_schema()
     prepared, scope, confirmation, decision, exact_jd = _validated_scope(
         int(application_id)
+    )
+    _revalidate_bound_exact_verified_reuse(
+        scope=scope,
+        confirmation=confirmation,
+        exact_jd=exact_jd,
     )
     execution = _start_or_resume_execution(
         prepared=prepared,

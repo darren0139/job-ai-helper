@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
 import uuid
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
@@ -19,6 +22,12 @@ from tailoring.phase9d_global_blueprint import (
     fingerprint_value,
     prepare_global_blueprint_approval,
 )
+from database.phase9f_exact_verified_reuse_manager import (
+    BLUEPRINT_ARTIFACT_ROOT,
+)
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+)
 
 
 PHASE9D_AVAILABILITY_POLICY_VERSION = (
@@ -29,6 +38,120 @@ PHASE9D_AVAILABILITY_EVENT_VERSION = (
 )
 BLUEPRINT_AVAILABLE = "available"
 BLUEPRINT_REMOVED = "removed"
+
+
+def _sha256_path(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _prepare_blueprint_artifact_provenance(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Read the exact approved source bytes before freezing a new Blueprint."""
+    fit = candidate.get("fit_result") or {}
+    if (
+        fit.get("fit_one_page") is not True
+        or int(fit.get("page_count") or 0) != 1
+    ):
+        raise Phase9DApprovalError(
+            "New Blueprint approval requires an approved one-page source fit."
+        )
+    artifacts: list[dict[str, Any]] = []
+    storage: list[dict[str, Any]] = []
+    for kind, field, media_type in (
+        (
+            "docx",
+            "docx_path",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        ("pdf", "pdf_path", "application/pdf"),
+    ):
+        source = Path(str(fit.get(field) or "")).resolve()
+        if not source.is_file() or source.stat().st_size <= 0:
+            raise Phase9DApprovalError(
+                f"New Blueprint approval requires the approved {kind.upper()} artifact."
+            )
+        digest = _sha256_path(source)
+        size = source.stat().st_size
+        artifacts.append(
+            {
+                "artifact_kind": kind,
+                "media_type": media_type,
+                "sha256": digest,
+                "byte_size": size,
+            }
+        )
+        storage.append(
+            {
+                "artifact_kind": kind,
+                "storage_relative_path": f"{digest}.{kind}",
+                "source_path": str(source),
+            }
+        )
+    return {
+        "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+        "artifacts": artifacts,
+        "storage": storage,
+    }
+
+
+def _materialize_blueprint_artifacts(provenance: dict[str, Any]) -> None:
+    """Create content-addressed Blueprint-owned files without overwriting bytes."""
+    root = BLUEPRINT_ARTIFACT_ROOT.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    storage = {
+        str(row.get("artifact_kind") or ""): row
+        for row in provenance.get("storage") or []
+        if isinstance(row, dict)
+    }
+    for artifact in provenance.get("artifacts") or []:
+        kind = str(artifact.get("artifact_kind") or "")
+        location = storage.get(kind) or {}
+        source = Path(str(location.get("source_path") or "")).resolve()
+        target = (root / str(location.get("storage_relative_path") or "")).resolve()
+        if root not in target.parents:
+            raise Phase9DApprovalError("Blueprint artifact storage path is unsafe.")
+        expected_hash = str(artifact.get("sha256") or "")
+        expected_size = int(artifact.get("byte_size") or 0)
+        if target.is_file():
+            if _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+                raise Phase9DApprovalError(
+                    "A content-addressed Blueprint artifact already exists with different bytes."
+                )
+            continue
+        if not source.is_file() or _sha256_path(source) != expected_hash or source.stat().st_size != expected_size:
+            raise Phase9DApprovalError(
+                "The approved source artifact changed before Blueprint freezing."
+            )
+        handle = tempfile.NamedTemporaryFile(dir=root, delete=False)
+        temporary = Path(handle.name)
+        try:
+            with source.open("rb") as source_handle:
+                for block in iter(lambda: source_handle.read(1024 * 1024), b""):
+                    handle.write(block)
+            handle.flush()
+            os.fsync(handle.fileno())
+            handle.close()
+            if _sha256_path(temporary) != expected_hash or temporary.stat().st_size != expected_size:
+                raise Phase9DApprovalError("Blueprint artifact copy verification failed.")
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                if _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+                    raise Phase9DApprovalError(
+                        "A concurrent Blueprint artifact write has different bytes."
+                    )
+        finally:
+            if not handle.closed:
+                handle.close()
+            if temporary.exists():
+                temporary.unlink()
+        if not target.is_file() or _sha256_path(target) != expected_hash or target.stat().st_size != expected_size:
+            raise Phase9DApprovalError("Blueprint artifact copy was not durably verified.")
 
 
 def _connect() -> sqlite3.Connection:
@@ -645,6 +768,7 @@ def approve_persisted_phase9c_evaluation(
             raise Phase9DApprovalError(
                 "The persisted candidate fingerprint is mismatched."
             )
+        artifact_provenance = _prepare_blueprint_artifact_provenance(candidate)
         all_saved_jds = _load_current_jds(connection)
         scope = (evaluation.get("semantic_identity") or {}).get(
             "selected_jd_scope"
@@ -665,6 +789,7 @@ def approve_persisted_phase9c_evaluation(
             provisional_override=provisional_override,
             actor_label=actor_label,
             accepted_at=approved_at,
+            artifact_provenance=artifact_provenance,
         )
         identity = prepared["semantic_identity"]
         identity_json = canonical_json(identity)
@@ -708,6 +833,7 @@ def approve_persisted_phase9c_evaluation(
         previous_active_id = str(active["blueprint_id"]) if active else ""
 
         if existing is None:
+            _materialize_blueprint_artifacts(artifact_provenance)
             next_version = int(
                 connection.execute(
                     """
@@ -807,6 +933,7 @@ def approve_persisted_phase9c_evaluation(
                 (prepared["blueprint_id"],),
             ).fetchone()
         else:
+            _materialize_blueprint_artifacts(artifact_provenance)
             existing_id = str(existing["blueprint_id"])
             if str(existing["status"]) == "active":
                 event_type = "exact_reuse"

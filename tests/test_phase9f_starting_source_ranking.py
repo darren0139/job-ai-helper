@@ -26,6 +26,11 @@ from tailoring.phase9f_starting_source_artifacts import (
     Phase9FBArtifactError,
     resolve_starting_source_artifacts,
 )
+from tailoring.phase9f_exact_verified_reuse import (
+    PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+    build_exact_verified_reuse_proof,
+    ineligible_exact_verified_reuse,
+)
 from tailoring.phase9f_starting_source_ranking import (
     BASE_RESUME_CONTENT_POLICY_VERSION,
     BASE_RESUME_FORMAT_VERSION,
@@ -428,6 +433,66 @@ def make_blueprint(
     }
 
 
+def attach_valid_exact_verified_reuse_proof(blueprint: dict) -> dict:
+    """Attach a compact proof fixture; persistence proof resolution is tested separately."""
+    source_id = blueprint["blueprint_id"]
+    source_fingerprint = blueprint["blueprint_fingerprint"]
+    proof = build_exact_verified_reuse_proof(
+        {
+            "blueprint": {
+                "id": source_id,
+                "fingerprint": source_fingerprint,
+                "version": int(blueprint["version_number"]),
+            },
+            "current_jd": {
+                "canonical_jd_id": "exact-jd",
+                "source_version_id": "exact-version",
+                "raw_jd_sha256": "exact-raw",
+                "canonical_requirement_fingerprint": "exact-requirements",
+                "canonical_requirement_ids": ["req-a"],
+            },
+            "source_jd": {
+                "canonical_jd_id": "exact-jd",
+                "source_version_id": "exact-version",
+                "raw_jd_sha256": "exact-raw",
+                "canonical_requirement_fingerprint": "exact-requirements",
+                "canonical_requirement_ids": ["req-a"],
+            },
+            "source_generation": {
+                "application_id": 106,
+                "generation_id": "approved-generation",
+            },
+            "phase8_verification": {
+                "verification_id": "phase8-verification",
+                "verification_fingerprint": "phase8-fingerprint",
+                "score": 19,
+            },
+            "phase9c_source_parity": {
+                "evaluation_id": "phase9c-evaluation",
+                "evaluation_fingerprint": "phase9c-fingerprint",
+                "accepted": True,
+            },
+            "artifact_identity": {
+                "policy_version": PHASE9F_BLUEPRINT_ARTIFACT_POLICY_VERSION,
+                "artifacts": [
+                    {
+                        "artifact_kind": "docx",
+                        "sha256": "docx-hash",
+                        "byte_size": 1,
+                    },
+                    {
+                        "artifact_kind": "pdf",
+                        "sha256": "pdf-hash",
+                        "byte_size": 1,
+                    },
+                ],
+            },
+        }
+    )
+    blueprint["exact_verified_reuse_proof"] = proof
+    return blueprint
+
+
 def metric_candidate(name: str, relationship: str, values: dict, confidence: str) -> dict:
     return {
         "source_type": "global_blueprint",
@@ -514,11 +579,47 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        self.assertEqual(actual, {
-            key: value
-            for key, value in pinned.items()
-            if key != "fixture_version"
-        })
+        # Exact-reuse + Phase 9D identity v2 deliberately changes immutable
+        # Blueprint/source fingerprints. Preserve the fresh scorer outputs,
+        # while allowing those source identities and ranking fingerprints to
+        # move to the new versioned contract.
+        self.assertEqual(
+            [
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key != "normalized_source_fingerprint"
+                }
+                for row in actual["candidate_metrics"]
+            ],
+            [
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key != "normalized_source_fingerprint"
+                }
+                for row in pinned["candidate_metrics"]
+            ],
+        )
+        self.assertEqual(
+            actual["comparison_result_fingerprints"],
+            pinned["comparison_result_fingerprints"],
+        )
+        self.assertEqual(
+            result["recommended_source"]["source_type"],
+            "global_blueprint",
+        )
+        self.assertEqual(
+            [row["source_type"] for row in result["ranked_candidates"]],
+            ["global_blueprint", "base_resume"],
+        )
+        self.assertNotEqual(
+            actual["ranking_input_fingerprint"],
+            pinned["ranking_input_fingerprint"],
+        )
+        self.assertNotEqual(
+            actual["ranking_fingerprint"], pinned["ranking_fingerprint"]
+        )
 
     def test_complete_candidate_analysis_snapshot_is_retained_and_valid(self):
         result = self.rank()
@@ -650,6 +751,114 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
         )
         result = self.rank(base=False, blueprints=[weak_high_history, strong_low_history])
         self.assertEqual(result["recommended_source"]["source_id"], strong_low_history["blueprint_id"])
+
+    def test_exact_verified_blueprint_precedes_higher_fresh_base_without_score_mutation(self):
+        strong_base, strong_artifact = make_base(strong=True)
+        exact_weak = attach_valid_exact_verified_reuse_proof(
+            make_blueprint(
+                strong=False,
+                role_family_id="operations",
+                role_family_label="Operations",
+                marker="Exact weak",
+            )
+        )
+        result = rank_starting_resume_sources(
+            exact_jd=self.jd,
+            current_base_resume=strong_base,
+            current_base_artifact=strong_artifact,
+            global_blueprints=[exact_weak],
+        )
+        self.assertEqual(result["recommended_source"]["source_id"], exact_weak["blueprint_id"])
+        self.assertEqual(
+            result["recommended_source"]["ranking_reason"],
+            "exact_verified_reuse_precedence",
+        )
+        base_candidate = next(
+            row for row in result["ranked_candidates"] if row["source_type"] == "base_resume"
+        )
+        self.assertLess(
+            result["recommended_source"]["deterministic_alignment_score"],
+            base_candidate["deterministic_alignment_score"],
+        )
+        self.assertTrue(result["recommended_source"]["exact_verified_reuse_eligible"])
+
+    def test_multiple_exact_verified_blueprints_use_stable_immutable_identity_tie_break(self):
+        first = attach_valid_exact_verified_reuse_proof(
+            make_blueprint(
+                strong=False,
+                role_family_id="family-one",
+                role_family_label="Family One",
+                marker="Exact A",
+            )
+        )
+        second = attach_valid_exact_verified_reuse_proof(
+            make_blueprint(
+                strong=True,
+                role_family_id="family-two",
+                role_family_label="Family Two",
+                marker="Exact B",
+            )
+        )
+        forward = rank_starting_resume_sources(
+            exact_jd=self.jd,
+            current_base_resume=None,
+            current_base_artifact=None,
+            global_blueprints=[first, second],
+        )
+        reverse = rank_starting_resume_sources(
+            exact_jd=self.jd,
+            current_base_resume=None,
+            current_base_artifact=None,
+            global_blueprints=[second, first],
+        )
+        self.assertEqual(
+            forward["recommended_source"]["source_id"],
+            reverse["recommended_source"]["source_id"],
+        )
+        self.assertEqual(
+            [row["source_id"] for row in forward["ranked_candidates"]],
+            [row["source_id"] for row in reverse["ranked_candidates"]],
+        )
+
+    def test_ineligible_exact_reuse_reason_is_diagnostic_not_ranking_semantic(self):
+        first_blueprint = copy.deepcopy(self.same_family)
+        second_blueprint = copy.deepcopy(self.same_family)
+        first_blueprint["exact_verified_reuse_proof"] = (
+            ineligible_exact_verified_reuse(
+                "exact_verified_reuse_proof_missing",
+                blueprint_id=first_blueprint["blueprint_id"],
+                blueprint_fingerprint=first_blueprint["blueprint_fingerprint"],
+            )
+        )
+        second_blueprint["exact_verified_reuse_proof"] = (
+            ineligible_exact_verified_reuse(
+                "legacy_missing_immutable_artifact_provenance",
+                blueprint_id=second_blueprint["blueprint_id"],
+                blueprint_fingerprint=second_blueprint["blueprint_fingerprint"],
+            )
+        )
+
+        first = self.rank(blueprints=[first_blueprint])
+        second = self.rank(blueprints=[second_blueprint])
+
+        self.assertFalse(
+            first["recommended_source"]["exact_verified_reuse_eligible"]
+        )
+        self.assertFalse(
+            second["recommended_source"]["exact_verified_reuse_eligible"]
+        )
+        self.assertNotEqual(
+            first["recommended_source"]["exact_verified_reuse_reason_code"],
+            second["recommended_source"]["exact_verified_reuse_reason_code"],
+        )
+        self.assertEqual(
+            first["ranking_input_fingerprint"],
+            second["ranking_input_fingerprint"],
+        )
+        self.assertEqual(
+            first["ranking_fingerprint"],
+            second["ranking_fingerprint"],
+        )
 
     def test_fresh_blueprint_score_matches_phase9c_target_semantics(self):
         normalized = normalize_active_blueprint_source(self.same_family)

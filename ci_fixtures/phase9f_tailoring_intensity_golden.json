@@ -1,6 +1,6 @@
 {
-  "fixture_version": "phase9f-c-tailoring-intensity-golden-v1",
-  "policy_version": "phase9f-tailoring-intensity-policy-v1",
+  "fixture_version": "phase9f-c-tailoring-intensity-golden-v2",
+  "policy_version": "phase9f-tailoring-intensity-policy-v2",
   "thresholds": {
     "full_required_core_below": 50,
     "full_important_gap_minimum": 3,

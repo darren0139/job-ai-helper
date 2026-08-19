@@ -21,6 +21,9 @@ from database.global_blueprint_manager import (
     active_global_blueprints_with_connection,
     init_global_blueprint_registry,
 )
+from database.phase9f_exact_verified_reuse_manager import (
+    annotate_blueprints_for_exact_verified_reuse,
+)
 from database.global_master_resume_manager import (
     current_global_master_resume_with_connection,
     global_master_resume_artifact_with_connection,
@@ -221,7 +224,10 @@ def _current_source_scope_with_connection(
             master_version_id=base["master_version_id"],
             artifact_kind="original",
         )
-    blueprints = active_global_blueprints_with_connection(connection)
+    blueprints = annotate_blueprints_for_exact_verified_reuse(
+        active_global_blueprints_with_connection(connection),
+        current_exact_jd=exact_jd,
+    )
     context = prepare_ranking_context(
         exact_jd=deepcopy(exact_jd),
         current_base_resume=deepcopy(base),

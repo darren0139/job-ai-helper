@@ -174,6 +174,17 @@ def render_phase9f_application_confirmation(
             "Recommended tailoring for this source: "
             f"{INTENSITY_LABELS.get(recommended_intensity, recommended_intensity)}"
         )
+        exact_reuse = recommended.get("exact_verified_reuse") or {}
+        if exact_reuse.get("eligible") is True:
+            st.success(
+                "Exact verified reuse available — this Blueprint is the "
+                "approved one-page résumé verified against this exact JD."
+            )
+            st.caption(
+                "Verified exact-JD score: "
+                f"{int(exact_reuse.get('verified_score') or 0)}. Fresh "
+                "comparison metrics remain diagnostic."
+            )
         candidate_by_fingerprint = {
             _clean(row.get("normalized_source_fingerprint")): row
             for row in candidates
@@ -225,6 +236,13 @@ def render_phase9f_application_confirmation(
             key=intensity_key,
         )
         confirmed_intensity = LABEL_TO_INTENSITY.get(selected_label or "", "")
+        if selected_is_winner and exact_reuse.get("eligible") is True and (
+            confirmed_intensity and confirmed_intensity != "reuse"
+        ):
+            st.warning(
+                "You are overriding the exact verified Reuse recommendation. "
+                "This explicit intensity override is retained in confirmation provenance."
+            )
 
         intent_key = f"phase9f_d_intent_{ranking_fingerprint}"
         st.session_state.setdefault(intent_key, uuid.uuid4().hex)

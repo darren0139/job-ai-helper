@@ -8,6 +8,8 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from database import tailoring_version_manager as base_manager
+import database.global_blueprint_manager as global_blueprint_manager_module
+import database.phase9f_exact_verified_reuse_manager as exact_reuse_module
 from database.global_blueprint_manager import (
     list_global_blueprint_audit_events,
     list_global_blueprints,
@@ -30,12 +32,23 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.old_path = base_manager.DB_PATH
         self.old_environment = os.environ.get("PHASE9D_TEST_DATABASE")
+        self.old_artifact_environment = os.environ.get(
+            "PHASE9F_BLUEPRINT_ARTIFACT_ROOT"
+        )
+        self.old_artifact_roots = (
+            global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT,
+            exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT,
+        )
         self.database_path = Path(self.temporary.name) / "streamlit-phase9d.sqlite"
         self.state = seed_phase9d_database(self.database_path)
         self.historical = persist_historical_v2_evaluation(
             self.state["provisional_evaluation"]
         )
         os.environ["PHASE9D_TEST_DATABASE"] = str(self.database_path)
+        artifact_root = Path(self.temporary.name) / "blueprint-artifacts"
+        os.environ["PHASE9F_BLUEPRINT_ARTIFACT_ROOT"] = str(artifact_root)
+        global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
+        exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
 
     def tearDown(self) -> None:
         base_manager.DB_PATH = self.old_path
@@ -43,6 +56,16 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
             os.environ.pop("PHASE9D_TEST_DATABASE", None)
         else:
             os.environ["PHASE9D_TEST_DATABASE"] = self.old_environment
+        if self.old_artifact_environment is None:
+            os.environ.pop("PHASE9F_BLUEPRINT_ARTIFACT_ROOT", None)
+        else:
+            os.environ["PHASE9F_BLUEPRINT_ARTIFACT_ROOT"] = (
+                self.old_artifact_environment
+            )
+        (
+            global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT,
+            exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT,
+        ) = self.old_artifact_roots
         self.temporary.cleanup()
 
     def test_historical_is_disabled_and_provisional_requires_explicit_override(self):

@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from database import tailoring_version_manager as base_manager
+import database.global_blueprint_manager as global_blueprint_manager_module
+import database.phase9f_exact_verified_reuse_manager as exact_reuse_module
 from database.blueprint_evaluation_manager import (
     get_blueprint_evaluation_by_id,
     list_blueprint_evaluations,
@@ -45,11 +47,22 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.old_path = base_manager.DB_PATH
         self.database_path = Path(self.temporary.name) / "phase9d.sqlite"
+        self.old_artifact_roots = (
+            global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT,
+            exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT,
+        )
+        artifact_root = Path(self.temporary.name) / "blueprint-artifacts"
+        global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
+        exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT = artifact_root
         self.state = seed_phase9d_database(self.database_path)
         self.provisional = self.state["provisional_evaluation"]
 
     def tearDown(self) -> None:
         base_manager.DB_PATH = self.old_path
+        (
+            global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT,
+            exact_reuse_module.BLUEPRINT_ARTIFACT_ROOT,
+        ) = self.old_artifact_roots
         self.temporary.cleanup()
 
     def approve_provisional(self):
@@ -103,6 +116,20 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         self.assertTrue(
             all(event["provisional_override"]["accepted"] for event in events)
         )
+        artifact_identity = first["blueprint"]["semantic_identity"][
+            "artifact_provenance"
+        ]
+        self.assertEqual(
+            {row["artifact_kind"] for row in artifact_identity["artifacts"]},
+            {"docx", "pdf"},
+        )
+        for row in artifact_identity["artifacts"]:
+            target = (
+                global_blueprint_manager_module.BLUEPRINT_ARTIFACT_ROOT
+                / f"{row['sha256']}.{row['artifact_kind']}"
+            )
+            self.assertTrue(target.is_file())
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), row["sha256"])
         self.assertEqual(before, self.source_rows())
 
     def test_new_version_supersedes_and_exact_old_version_reactivates(self):

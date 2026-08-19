@@ -68,6 +68,18 @@ def render_phase9f_tailoring_intensity(
         with st.container(border=True):
             st.markdown(f"### Recommended tailoring: {label}")
             st.write(INTENSITY_DEFINITIONS.get(intensity, ""))
+            exact_reuse = source.get("exact_verified_reuse") or {}
+            if exact_reuse.get("eligible") is True:
+                st.success("Exact verified reuse available")
+                st.write(
+                    "This Blueprint is the approved one-page résumé already "
+                    "verified against this exact JD."
+                )
+                st.caption(
+                    "Verified exact-JD score: "
+                    f"{int(exact_reuse.get('verified_score') or 0)} · "
+                    "fresh comparison metrics below are diagnostic only."
+                )
             with st.container(horizontal=True):
                 st.metric(
                     "Current JD alignment",
@@ -109,7 +121,8 @@ def render_phase9f_tailoring_intensity(
             )
             st.caption(
                 "Source type and role-family context do not directly determine "
-                "Reuse, Minor, or Full."
+                "Reuse, Minor, or Full; exact verified source/JD/artifact "
+                "provenance is a separate identity rule."
             )
 
     with st.expander(
@@ -136,4 +149,3 @@ def render_phase9f_tailoring_intensity(
         )
 
     return recommendation
-
