@@ -40,8 +40,20 @@ class AllCanonicalFollowupFixesTests(unittest.TestCase):
         self.assertEqual(len(pool), 1)
         project = pool[0]
         self.assertEqual(
+            project["title"],
+            "Job AI Helper",
+        )
+        self.assertEqual(
             project["display_title"],
-            "Job AI Helper (Python, Streamlit, Solo)",
+            "Job AI Helper",
+        )
+        self.assertEqual(
+            project["resume_header_tools"],
+            ["Python", "Streamlit"],
+        )
+        self.assertEqual(
+            project["resume_header_context"],
+            ["Solo"],
         )
         self.assertEqual(
             project["period"],
