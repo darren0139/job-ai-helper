@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from resume_builder.project_header_format import split_legacy_project_title
+
 
 DB_PATH = Path("data/applications.db")
 
@@ -66,10 +68,13 @@ def init_user_profile_library() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category TEXT NOT NULL,
             title TEXT NOT NULL,
+            subtitle TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL,
             period TEXT,
             skills_json TEXT NOT NULL,
             tools_json TEXT NOT NULL,
+            resume_header_tools_json TEXT NOT NULL DEFAULT '[]',
+            resume_header_context_json TEXT NOT NULL DEFAULT '[]',
             impact TEXT,
             source_type TEXT,
             created_at TEXT NOT NULL,
@@ -84,6 +89,23 @@ def init_user_profile_library() -> None:
 
     if "period" not in columns:
         cursor.execute("ALTER TABLE user_evidence ADD COLUMN period TEXT")
+    if "subtitle" not in columns:
+        cursor.execute("ALTER TABLE user_evidence ADD COLUMN subtitle TEXT NOT NULL DEFAULT ''")
+    if "resume_header_tools_json" not in columns:
+        cursor.execute("ALTER TABLE user_evidence ADD COLUMN resume_header_tools_json TEXT NOT NULL DEFAULT '[]'")
+    if "resume_header_context_json" not in columns:
+        cursor.execute("ALTER TABLE user_evidence ADD COLUMN resume_header_context_json TEXT NOT NULL DEFAULT '[]'")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_resume_format_preferences (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            project_header_layout TEXT NOT NULL DEFAULT 'auto',
+            project_metadata_style TEXT NOT NULL DEFAULT 'pipes',
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -139,6 +161,9 @@ def create_evidence_item(
     skills: list[str] | None = None,
     tools: list[str] | None = None,
     impact: str = "",
+    subtitle: str = "",
+    resume_header_tools: list[str] | None = None,
+    resume_header_context: list[str] | None = None,
     source_type: str = "manual",
 ) -> int:
     """Add one item to the User Profile / Evidence Library."""
@@ -162,24 +187,30 @@ def create_evidence_item(
         INSERT INTO user_evidence (
             category,
             title,
+            subtitle,
             description,
             period,
             skills_json,
             tools_json,
+            resume_header_tools_json,
+            resume_header_context_json,
             impact,
             source_type,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             cleaned_category,
             cleaned_title,
+            subtitle.strip(),
             cleaned_description,
             period.strip(),
             _json_list(skills),
             _json_list(tools),
+            _json_list(resume_header_tools),
+            _json_list(resume_header_context),
             impact.strip(),
             source_type.strip() or "manual",
             now,
@@ -204,6 +235,9 @@ def update_evidence_item(
     skills: list[str] | None = None,
     tools: list[str] | None = None,
     impact: str = "",
+    subtitle: str = "",
+    resume_header_tools: list[str] | None = None,
+    resume_header_context: list[str] | None = None,
     source_type: str = "manual",
 ) -> None:
     """Update one evidence item."""
@@ -222,10 +256,13 @@ def update_evidence_item(
         SET
             category = ?,
             title = ?,
+            subtitle = ?,
             description = ?,
             period = ?,
             skills_json = ?,
             tools_json = ?,
+            resume_header_tools_json = ?,
+            resume_header_context_json = ?,
             impact = ?,
             source_type = ?,
             updated_at = ?
@@ -234,10 +271,13 @@ def update_evidence_item(
         (
             category.strip() or "Project",
             title.strip(),
+            subtitle.strip(),
             description.strip(),
             period.strip(),
             _json_list(skills),
             _json_list(tools),
+            _json_list(resume_header_tools),
+            _json_list(resume_header_context),
             impact.strip(),
             source_type.strip() or "manual",
             datetime.now().isoformat(timespec="seconds"),
@@ -255,14 +295,17 @@ def _row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "id": row[0],
         "category": row[1],
         "title": row[2],
-        "description": row[3],
-        "period": row[4] or "",
-        "skills": json.loads(row[5]) if row[5] else [],
-        "tools": json.loads(row[6]) if row[6] else [],
-        "impact": row[7] or "",
-        "source_type": row[8] or "",
-        "created_at": row[9],
-        "updated_at": row[10],
+        "subtitle": row[3] or "",
+        "description": row[4],
+        "period": row[5] or "",
+        "skills": json.loads(row[6]) if row[6] else [],
+        "tools": json.loads(row[7]) if row[7] else [],
+        "resume_header_tools": json.loads(row[8]) if row[8] else [],
+        "resume_header_context": json.loads(row[9]) if row[9] else [],
+        "impact": row[10] or "",
+        "source_type": row[11] or "",
+        "created_at": row[12],
+        "updated_at": row[13],
     }
 
 
@@ -288,7 +331,8 @@ def get_evidence_items(
     if category and category.strip() and category != "All":
         cursor.execute(
             """
-            SELECT id, category, title, description, period, skills_json, tools_json,
+            SELECT id, category, title, subtitle, description, period, skills_json, tools_json,
+                   resume_header_tools_json, resume_header_context_json,
                    impact, source_type, created_at, updated_at
             FROM user_evidence
             WHERE category = ?
@@ -300,7 +344,8 @@ def get_evidence_items(
     else:
         cursor.execute(
             """
-            SELECT id, category, title, description, period, skills_json, tools_json,
+            SELECT id, category, title, subtitle, description, period, skills_json, tools_json,
+                   resume_header_tools_json, resume_header_context_json,
                    impact, source_type, created_at, updated_at
             FROM user_evidence
             ORDER BY updated_at DESC, id DESC
@@ -344,7 +389,8 @@ def get_all_evidence_items_for_snapshot() -> list[dict[str, Any]]:
             return []
         cursor.execute(
             """
-            SELECT id, category, title, description, period, skills_json, tools_json,
+            SELECT id, category, title, subtitle, description, period, skills_json, tools_json,
+                   resume_header_tools_json, resume_header_context_json,
                    impact, source_type, created_at, updated_at
             FROM user_evidence
             ORDER BY id ASC
@@ -362,7 +408,8 @@ def get_evidence_item_by_id(item_id: int) -> dict[str, Any] | None:
 
     cursor.execute(
         """
-        SELECT id, category, title, description, period, skills_json, tools_json,
+        SELECT id, category, title, subtitle, description, period, skills_json, tools_json,
+               resume_header_tools_json, resume_header_context_json,
                impact, source_type, created_at, updated_at
         FROM user_evidence
         WHERE id = ?
@@ -378,6 +425,121 @@ def get_evidence_item_by_id(item_id: int) -> dict[str, Any] | None:
 
     return _row_to_dict(row)
 
+
+
+RESUME_FORMAT_DEFAULTS = {
+    "project_header_layout": "auto",
+    "project_metadata_style": "pipes",
+}
+_VALID_PROJECT_HEADER_LAYOUTS = {"auto", "stacked", "inline"}
+_VALID_PROJECT_METADATA_STYLES = {"pipes", "parentheses"}
+
+
+def get_resume_format_preferences() -> dict[str, str]:
+    conn = _connect()
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='user_resume_format_preferences'"
+        ).fetchone()
+        if exists is None:
+            return dict(RESUME_FORMAT_DEFAULTS)
+        row = conn.execute(
+            "SELECT project_header_layout, project_metadata_style "
+            "FROM user_resume_format_preferences WHERE id=1"
+        ).fetchone()
+        if row is None:
+            return dict(RESUME_FORMAT_DEFAULTS)
+        layout = str(row[0] or "").strip().lower()
+        style = str(row[1] or "").strip().lower()
+        return {
+            "project_header_layout": layout if layout in _VALID_PROJECT_HEADER_LAYOUTS else "auto",
+            "project_metadata_style": style if style in _VALID_PROJECT_METADATA_STYLES else "pipes",
+        }
+    finally:
+        conn.close()
+
+
+def update_resume_format_preferences(*, project_header_layout: str, project_metadata_style: str) -> None:
+    layout = str(project_header_layout or "").strip().lower()
+    style = str(project_metadata_style or "").strip().lower()
+    if layout not in _VALID_PROJECT_HEADER_LAYOUTS:
+        raise ValueError("Unsupported project header layout.")
+    if style not in _VALID_PROJECT_METADATA_STYLES:
+        raise ValueError("Unsupported project metadata style.")
+    init_user_profile_library()
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_resume_format_preferences (
+                id, project_header_layout, project_metadata_style, updated_at
+            ) VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                project_header_layout=excluded.project_header_layout,
+                project_metadata_style=excluded.project_metadata_style,
+                updated_at=excluded.updated_at
+            """,
+            (layout, style, datetime.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def migrate_legacy_project_titles_to_structured_metadata() -> int:
+    """Move display metadata out of trailing Project-title parentheses only."""
+    init_user_profile_library()
+    conn = _connect()
+    migrated = 0
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, title, subtitle,
+                   resume_header_tools_json, resume_header_context_json
+            FROM user_evidence
+            WHERE lower(trim(category))='project'
+            ORDER BY id
+            """
+        ).fetchall()
+        for row in rows:
+            item_id = int(row[0])
+            title = str(row[1] or "").strip()
+            if str(row[2] or "").strip():
+                continue
+            header_tools = json.loads(row[3]) if row[3] else []
+            header_context = json.loads(row[4]) if row[4] else []
+            if header_tools or header_context:
+                continue
+            parsed = split_legacy_project_title(title)
+            if not parsed.get("legacy_metadata_found"):
+                continue
+            clean_title = str(parsed.get("title") or "").strip()
+            if not clean_title or clean_title == title:
+                continue
+            conn.execute(
+                """
+                UPDATE user_evidence
+                SET title=?, resume_header_tools_json=?,
+                    resume_header_context_json=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    clean_title,
+                    _json_list(parsed.get("resume_header_tools") or []),
+                    _json_list(parsed.get("resume_header_context") or []),
+                    datetime.now().isoformat(timespec="seconds"),
+                    item_id,
+                ),
+            )
+            migrated += 1
+        conn.commit()
+        return migrated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def delete_evidence_item(item_id: int) -> None:
     """Delete one evidence item."""

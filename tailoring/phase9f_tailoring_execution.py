@@ -29,13 +29,13 @@ PHASE9F_F_SECTION_SCOPE_POLICY_VERSION = (
     "phase9f-f-addressable-section-scope-v1"
 )
 PHASE9F_F_EVIDENCE_SNAPSHOT_POLICY_VERSION = (
-    "phase9f-f-frozen-evidence-snapshot-v1"
+    "phase9f-f-frozen-evidence-snapshot-v2"
 )
 PHASE9F_F_FITTING_POLICY_VERSION = "phase9f-f-existing-fit-adapter-v2"
 PHASE9F_F_GENERATION_SETTINGS_POLICY_VERSION = (
     "phase9f-f-generation-settings-stage-v1"
 )
-PHASE9F_F_FIT_SETTINGS_POLICY_VERSION = "phase9f-f-fit-settings-stage-v1"
+PHASE9F_F_FIT_SETTINGS_POLICY_VERSION = "phase9f-f-fit-settings-stage-v2"
 PHASE9F_F_MODEL_BINDING_POLICY_VERSION = "phase9f-f-model-binding-stage-v1"
 PHASE9F_F_SOURCE_ARTIFACT_POLICY_VERSION = (
     "phase9f-f-exact-source-artifact-v1"
@@ -77,10 +77,17 @@ def _evidence_row(item: dict[str, Any]) -> dict[str, Any]:
         "id": int(item.get("id") or 0),
         "category": _clean(item.get("category")),
         "title": _clean(item.get("title")),
+        "subtitle": _clean(item.get("subtitle")),
         "description": str(item.get("description") or "").replace("\r\n", "\n"),
         "period": _clean(item.get("period")),
         "skills": _normalise_list(item.get("skills")),
         "tools": _normalise_list(item.get("tools")),
+        "resume_header_tools": _normalise_list(
+            item.get("resume_header_tools")
+        ),
+        "resume_header_context": _normalise_list(
+            item.get("resume_header_context")
+        ),
         "impact": _clean(item.get("impact")),
         "source_type": _clean(item.get("source_type")),
         "created_at": _clean(item.get("created_at")),

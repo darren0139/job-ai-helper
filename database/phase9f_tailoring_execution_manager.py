@@ -1026,6 +1026,24 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             code="page_density_mode_invalid",
             stage="fitting",
         )
+    project_header_layout = _clean(
+        source.get("project_header_layout") or "auto"
+    ).lower()
+    if project_header_layout not in {"auto", "stacked", "inline"}:
+        raise Phase9FFExecutionError(
+            "The selected project header layout is unsupported.",
+            code="project_header_layout_invalid",
+            stage="fitting",
+        )
+    project_metadata_style = _clean(
+        source.get("project_metadata_style") or "pipes"
+    ).lower()
+    if project_metadata_style not in {"pipes", "parentheses"}:
+        raise Phase9FFExecutionError(
+            "The selected project metadata style is unsupported.",
+            code="project_metadata_style_invalid",
+            stage="fitting",
+        )
     return {
         "policy_version": PHASE9F_F_FIT_SETTINGS_POLICY_VERSION,
         "use_compact_before_delete": bool(source.get("use_compact_before_delete", True)),
@@ -1033,6 +1051,8 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
         "allow_skills_compaction": bool(source.get("allow_skills_compaction", False)),
         "page_density_mode": density,
         "allow_margin_compaction": bool(source.get("allow_margin_compaction", False)),
+        "project_header_layout": project_header_layout,
+        "project_metadata_style": project_metadata_style,
         "spacing_mode": spacing_mode,
         "add_spacing_before_first_project": bool(
             source.get("add_spacing_before_first_project", False)
@@ -2605,6 +2625,8 @@ def run_phase9f_normal_fit(
             lock_skills=not bool((execution.get("section_scope") or {}).get("skills_addressable")),
             page_density_mode=canonical_fit["page_density_mode"],
             allow_margin_compaction=canonical_fit["allow_margin_compaction"],
+            project_header_layout=canonical_fit["project_header_layout"],
+            project_metadata_style=canonical_fit["project_metadata_style"],
             generation_id=str(target["generation_id"]),
         )
     finally:
@@ -3081,6 +3103,12 @@ def execute_phase9f_tailoring(
                 page_density_mode=canonical_fit_settings["page_density_mode"],
                 allow_margin_compaction=canonical_fit_settings[
                     "allow_margin_compaction"
+                ],
+                project_header_layout=canonical_fit_settings[
+                    "project_header_layout"
+                ],
+                project_metadata_style=canonical_fit_settings[
+                    "project_metadata_style"
                 ],
                 generation_id=execution["execution_id"],
             )

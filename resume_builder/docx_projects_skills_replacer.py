@@ -46,6 +46,12 @@ from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from utils.date_sorting import period_sort_value
+from resume_builder.project_header_format import (
+    build_project_title,
+    format_project_metadata,
+    normalise_project_header_layout,
+    normalise_project_metadata_style,
+)
 from resume_builder.skills_section_compactor import (
     compact_skills_one_step,
     count_skill_items,
@@ -1792,37 +1798,16 @@ def replace_skills_section(
 #     return heading
 
 def _format_project_heading(project: dict[str, Any]) -> str:
-    """
-    Build the project heading used in the DOCX.
-
-    Priority:
-    1. display_title from the tailored project JSON
-    2. title
-    3. title + optional role/display_details fallback
-    """
-    display_title = str(project.get("display_title", "")).strip()
-    if display_title:
-        return display_title
-
-    title = str(project.get("title", "Untitled Project")).strip() or "Untitled Project"
-    role = str(project.get("role", "")).strip()
-    details = str(project.get("display_details", "")).strip()
-
-    heading = title
-
-    if role and role.lower() not in heading.lower():
-        heading += f" – {role}"
-
-    if details and details.lower() not in heading.lower():
-        heading += f" ({details})"
-
-    return heading
+    """Return semantic project title/subtitle only; metadata renders separately."""
+    return build_project_title(project)
 
 def _add_project_title_after(
     anchor: Paragraph,
     *,
     title: str,
     period: str = "",
+    inline_metadata: str = "",
+    metadata_style: str = "pipes",
     template: Paragraph | None = None,
     right_tab_position: Any = None,
     add_space_before: bool = False,
@@ -1862,6 +1847,17 @@ def _add_project_title_after(
     title_run = new_paragraph.add_run(title)
     _copy_run_format(source_run, title_run)
     title_run.bold = True
+
+    if inline_metadata:
+        separator = (
+            " "
+            if normalise_project_metadata_style(metadata_style) == "parentheses"
+            else " | "
+        )
+        metadata_run = new_paragraph.add_run(separator + inline_metadata)
+        _copy_run_format(source_run, metadata_run)
+        metadata_run.bold = False
+        metadata_run.italic = True
 
     if period:
         date_run = new_paragraph.add_run(f"\t{period}")
@@ -1969,6 +1965,30 @@ def _add_project_title_after(
 #     return new_paragraph
 
 
+
+def _add_project_metadata_after(
+    anchor: Paragraph,
+    *,
+    metadata: str,
+    template: Paragraph | None = None,
+) -> Paragraph:
+    """Add the stacked project metadata line without changing evidence content."""
+    new_paragraph = _insert_paragraph_after(anchor)
+    if template is not None:
+        _copy_paragraph_format(template, new_paragraph)
+    try:
+        new_paragraph.paragraph_format.keep_with_next = True
+        new_paragraph.paragraph_format.space_before = Pt(0)
+        new_paragraph.paragraph_format.space_after = Pt(0)
+    except Exception:
+        pass
+    source_run = _get_first_run_template(template)
+    run = new_paragraph.add_run(metadata)
+    _copy_run_format(source_run, run)
+    run.bold = False
+    run.italic = True
+    return new_paragraph
+
 def _paragraph_has_native_numbering(
     paragraph: Paragraph | None,
 ) -> bool:
@@ -2048,6 +2068,8 @@ def replace_projects_section(
     blank_lines_between_projects: int = 1,
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
+    project_header_layout: str = "auto",
+    project_metadata_style: str = "pipes",
 ) -> None:
     """
     Replace PROJECTS section content while preserving original formatting.
@@ -2059,6 +2081,10 @@ def replace_projects_section(
 
     anchor = _clear_section_content(document, {"PROJECTS"})
     projects = tailored_projects.get("recommended_projects", [])[:max_projects]
+    resolved_layout = normalise_project_header_layout(project_header_layout)
+    if resolved_layout == "auto":
+        resolved_layout = "stacked"
+    resolved_metadata_style = normalise_project_metadata_style(project_metadata_style)
 
     if not projects:
         _insert_paragraph_after(anchor, "No tailored projects were generated.")
@@ -2066,6 +2092,7 @@ def replace_projects_section(
     
     for project_index, project in enumerate(projects):
         title = _format_project_heading(project)
+        metadata = format_project_metadata(project, style=resolved_metadata_style)
         period = str(project.get("period", "")).strip()
         bullets = project.get("draft_bullets", [])[:max_bullets_per_project]
 
@@ -2079,6 +2106,8 @@ def replace_projects_section(
             anchor,
             title=title,
             period=period,
+            inline_metadata=(metadata if resolved_layout == "inline" else ""),
+            metadata_style=resolved_metadata_style,
             template=project_title_template,
             right_tab_position=right_tab_position,
             add_space_before=(
@@ -2087,6 +2116,10 @@ def replace_projects_section(
             ),
             space_before_pt=project_spacing_pt,
         )
+        if metadata and resolved_layout == "stacked":
+            anchor = _add_project_metadata_after(
+                anchor, metadata=metadata, template=project_title_template
+            )
 
         for bullet in bullets:
             if str(bullet).strip():
@@ -2178,6 +2211,8 @@ def generate_tailored_resume_copy(
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
     margin_profile: str = "source",
+    project_header_layout: str = "auto",
+    project_metadata_style: str = "pipes",
 ) -> Path:
     """
     Generate a new tailored resume DOCX copy.
@@ -2225,6 +2260,8 @@ def generate_tailored_resume_copy(
             blank_lines_between_projects=blank_lines_between_projects,
             blank_lines_after_projects=blank_lines_after_projects,
             add_spacing_before_first_project=add_spacing_before_first_project,
+            project_header_layout=project_header_layout,
+            project_metadata_style=project_metadata_style,
         )
 
     # # Change only these sections.
@@ -2808,6 +2845,8 @@ def generate_tailored_resume_copy_fit_one_page(
     minimum_total_skills: int = 8,
     page_density_mode: str = "balanced",
     allow_margin_compaction: bool = False,
+    project_header_layout: str = "auto",
+    project_metadata_style: str = "pipes",
     generation_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -2824,6 +2863,13 @@ def generate_tailored_resume_copy_fit_one_page(
 
     density_mode = _normalise_page_density_mode(page_density_mode)
     density_max_fill = _PAGE_DENSITY_MAX_FILL[density_mode]
+    requested_project_header_layout = normalise_project_header_layout(project_header_layout)
+    active_project_header_layout = (
+        "stacked" if requested_project_header_layout == "auto"
+        else requested_project_header_layout
+    )
+    active_project_metadata_style = normalise_project_metadata_style(project_metadata_style)
+    project_header_compaction_used = False
     lock_policy = build_fitting_lock_policy(
         lock_projects=lock_projects,
         lock_skills=lock_skills,
@@ -2883,6 +2929,7 @@ def generate_tailored_resume_copy_fit_one_page(
         "add_spacing_before_first_project": (
             add_spacing_before_first_project
         ),
+        "project_metadata_style": active_project_metadata_style,
     }
     render_cache: dict[str, dict[str, Any]] = {}
     active_margin_profile = "source"
@@ -2966,9 +3013,15 @@ def generate_tailored_resume_copy_fit_one_page(
         margin_profile = _normalise_margin_profile(
             specification.get("margin_profile") or active_margin_profile
         )
+        candidate_project_header_layout = normalise_project_header_layout(
+            specification.get("project_header_layout") or active_project_header_layout
+        )
+        if candidate_project_header_layout == "auto":
+            candidate_project_header_layout = "stacked"
         candidate_layout_options = {
             **render_layout_options,
             "margin_profile": margin_profile,
+            "project_header_layout": candidate_project_header_layout,
         }
         fingerprint = build_render_state_fingerprint(
             source_signature=source_signature,
@@ -2996,10 +3049,13 @@ def generate_tailored_resume_copy_fit_one_page(
                 add_spacing_before_first_project
             ),
             margin_profile=margin_profile,
+            project_header_layout=candidate_project_header_layout,
+            project_metadata_style=active_project_metadata_style,
         )
         return {
             **specification,
             "margin_profile": margin_profile,
+            "project_header_layout": candidate_project_header_layout,
             "docx_path": Path(docx_path),
             "render_state_fingerprint": fingerprint,
         }
@@ -3223,6 +3279,7 @@ def generate_tailored_resume_copy_fit_one_page(
         probe_candidate: bool = False,
         quality_loss: int | None = None,
         margin_profile: str | None = None,
+        project_header_layout_override: str | None = None,
     ) -> dict[str, Any]:
         return render_candidates_batch(
             [
@@ -3241,6 +3298,9 @@ def generate_tailored_resume_copy_fit_one_page(
                     "quality_loss": quality_loss,
                     "margin_profile": (
                         margin_profile or active_margin_profile
+                    ),
+                    "project_header_layout": (
+                        project_header_layout_override or active_project_header_layout
                     ),
                 }
             ],
@@ -3307,12 +3367,59 @@ def generate_tailored_resume_copy_fit_one_page(
             "density_target_max": density_max_fill,
             "margin_profile": active_margin_profile,
             "margin_compaction_used": margin_compaction_used,
+            "project_header_layout_requested": requested_project_header_layout,
+            "project_header_layout_used": active_project_header_layout,
+            "project_metadata_style": active_project_metadata_style,
+            "project_header_compaction_used": project_header_compaction_used,
             **optimization_summary(),
             "note": (
                 "Could not check page count because LibreOffice is unavailable "
                 "or DOCX-to-PDF conversion failed. DOCX generation still worked."
             ),
         }
+
+    if (
+        requested_project_header_layout == "auto"
+        and working_projects
+        and int(current_render["page_count"]) > 1
+    ):
+        inline_render = render_candidate(
+            working_projects,
+            working_skills,
+            attempt_type="project_header_inline_compaction",
+            change_applied={
+                "section": "formatting",
+                "change_type": "project_header_layout",
+                "from": "stacked",
+                "to": "inline",
+                "evidence_loss_score": 0,
+            },
+            probe_candidate=True,
+            quality_loss=0,
+            project_header_layout_override="inline",
+        )
+        if inline_render["pdf_path"] is not None:
+            baseline_overflow = _rendered_overflow_value(current_render)
+            inline_overflow = _rendered_overflow_value(inline_render)
+            inline_improved = (
+                int(inline_render.get("page_count") or 99) <= 1
+                or inline_overflow <= baseline_overflow - _LAYOUT_EFFECT_THRESHOLD
+            )
+            inline_render["attempt_entry"]["project_header_auto_probe"] = True
+            inline_render["attempt_entry"]["project_header_auto_accepted"] = inline_improved
+            if inline_improved:
+                _delete_generated_output(
+                    current_render.get("docx_path"), current_render.get("pdf_path")
+                )
+                current_render["attempt_entry"]["superseded_output_deleted"] = True
+                current_render = inline_render
+                active_project_header_layout = "inline"
+                project_header_compaction_used = True
+            else:
+                _delete_generated_output(
+                    inline_render.get("docx_path"), inline_render.get("pdf_path")
+                )
+                inline_render["attempt_entry"]["temporary_output_deleted"] = True
 
     fitting_render: dict[str, Any] | None = None
 
@@ -3737,6 +3844,10 @@ def generate_tailored_resume_copy_fit_one_page(
             "density_target_max": density_max_fill,
             "margin_profile": active_margin_profile,
             "margin_compaction_used": margin_compaction_used,
+            "project_header_layout_requested": requested_project_header_layout,
+            "project_header_layout_used": active_project_header_layout,
+            "project_metadata_style": active_project_metadata_style,
+            "project_header_compaction_used": project_header_compaction_used,
             **optimization_summary(),
             "note": (
                 (
@@ -4050,6 +4161,11 @@ def generate_tailored_resume_copy_fit_one_page(
             "and a restoration pass recovered the strongest content that fit "
             "within the selected density target."
         )
+    elif project_header_compaction_used and not active_changes:
+        note = (
+            "Generated resume fits within one page after Auto switched project "
+            "headers from stacked to inline; no résumé evidence was removed."
+        )
     elif margin_compaction_used and not active_changes:
         note = (
             "Generated resume fits within one page after safe margin compaction; "
@@ -4093,6 +4209,10 @@ def generate_tailored_resume_copy_fit_one_page(
         "density_target_max": density_max_fill,
         "margin_profile": active_margin_profile,
         "margin_compaction_used": margin_compaction_used,
+        "project_header_layout_requested": requested_project_header_layout,
+        "project_header_layout_used": active_project_header_layout,
+        "project_metadata_style": active_project_metadata_style,
+        "project_header_compaction_used": project_header_compaction_used,
         **optimization_summary(),
         "fitting_objective": (
             "Protect unique requirement evidence, then minimise deterministic "

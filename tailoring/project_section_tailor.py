@@ -27,6 +27,10 @@ from typing import Any
 
 from llm import ask_json
 from utils.date_sorting import period_sort_value
+from resume_builder.project_header_format import (
+    build_project_title,
+    split_legacy_project_title,
+)
 
 from tailoring.deterministic_project_rules import (
     apply_deterministic_evidence_floors,
@@ -595,44 +599,67 @@ def _priority_from_ranking_row(
 # ---------------------------------------------------------------------------
 
 
+def _normalise_metadata_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    return _clean_string_list(list(value or []))
+
+
 def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert one resume project dictionary into the shared candidate shape."""
-    title = (
-        project.get("display_title")
-        or project.get("title")
+    raw_title = (
+        project.get("title")
         or project.get("name")
         or project.get("project_name")
+        or project.get("display_title")
         or ""
     )
-
-    if not str(title).strip():
+    legacy = split_legacy_project_title(raw_title)
+    title = str(legacy.get("title") or "").strip()
+    if not title:
         return None
-
+    subtitle = str(project.get("subtitle") or "").strip()
+    header_tools = _normalise_metadata_list(
+        project.get("resume_header_tools")
+        or legacy.get("resume_header_tools")
+        or []
+    )
+    header_context = _normalise_metadata_list(
+        project.get("resume_header_context")
+        or legacy.get("resume_header_context")
+        or []
+    )
+    canonical_tools = _normalise_metadata_list(
+        project.get("tools")
+        or project.get("tech_stack")
+        or project.get("technologies")
+        or []
+    )
     bullets = (
         project.get("bullets")
         or project.get("draft_bullets")
         or project.get("description_bullets")
         or []
     )
-
     if isinstance(bullets, str):
         bullets = _split_description_into_bullets(bullets)
     else:
         bullets = _clean_string_list(bullets)
-
     description = (
         project.get("description")
         or project.get("summary")
         or project.get("details")
         or ""
     )
-
     if not bullets and description:
         bullets = _split_description_into_bullets(description)
-
+    display_project = {"title": title, "subtitle": subtitle}
     return {
-        "title": str(title).strip(),
-        "display_title": str(project.get("display_title") or title).strip(),
+        "title": title,
+        "subtitle": subtitle,
+        "display_title": build_project_title(display_project),
+        "resume_header_tools": header_tools,
+        "resume_header_context": header_context,
+        "canonical_tools": canonical_tools,
         "period": str(project.get("period") or project.get("date") or "").strip(),
         "sources": ["resume"],
         "currently_in_resume": True,
@@ -641,7 +668,7 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
             "description": str(description).strip(),
             "bullets": bullets,
             "skills": project.get("skills") or project.get("technologies") or [],
-            "tools": project.get("tools") or project.get("tech_stack") or [],
+            "tools": canonical_tools,
             "impact": str(project.get("impact") or project.get("scope") or "").strip(),
         },
         "evidence_library_evidence": None,
@@ -649,19 +676,33 @@ def _resume_project_to_candidate(project: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _evidence_item_to_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert one Project Evidence Library item into the shared candidate shape."""
     if str(item.get("category", "")).lower().strip() != "project":
         return None
-
-    title = str(item.get("title", "")).strip()
+    legacy = split_legacy_project_title(item.get("title", ""))
+    title = str(legacy.get("title") or "").strip()
     if not title:
         return None
-
+    subtitle = str(item.get("subtitle") or "").strip()
+    header_tools = _normalise_metadata_list(
+        item.get("resume_header_tools")
+        or legacy.get("resume_header_tools")
+        or []
+    )
+    header_context = _normalise_metadata_list(
+        item.get("resume_header_context")
+        or legacy.get("resume_header_context")
+        or []
+    )
+    canonical_tools = _normalise_metadata_list(item.get("tools") or [])
     description = str(item.get("description", "")).strip()
-
+    display_project = {"title": title, "subtitle": subtitle}
     return {
         "title": title,
-        "display_title": title,
+        "subtitle": subtitle,
+        "display_title": build_project_title(display_project),
+        "resume_header_tools": header_tools,
+        "resume_header_context": header_context,
+        "canonical_tools": canonical_tools,
         "period": str(item.get("period", "")).strip(),
         "sources": ["evidence_library"],
         "currently_in_resume": False,
@@ -671,8 +712,11 @@ def _evidence_item_to_candidate(item: dict[str, Any]) -> dict[str, Any] | None:
             "description": description,
             "bullets": _split_description_into_bullets(description),
             "skills": item.get("skills", []) or [],
-            "tools": item.get("tools", []) or [],
+            "tools": canonical_tools,
             "impact": str(item.get("impact", "")).strip(),
+            "subtitle": subtitle,
+            "resume_header_tools": header_tools,
+            "resume_header_context": header_context,
         },
     }
 
@@ -716,8 +760,12 @@ def build_project_candidate_pool(
             # The resume snapshot remains frozen provenance, but the
             # user-maintained Evidence Library is the current canonical source
             # for project display metadata used by new tailoring generations.
-            if candidate.get("display_title"):
-                existing["display_title"] = candidate["display_title"]
+            existing["title"] = candidate["title"]
+            existing["subtitle"] = candidate.get("subtitle", "")
+            existing["display_title"] = candidate.get("display_title") or candidate["title"]
+            existing["resume_header_tools"] = list(candidate.get("resume_header_tools") or [])
+            existing["resume_header_context"] = list(candidate.get("resume_header_context") or [])
+            existing["canonical_tools"] = list(candidate.get("canonical_tools") or [])
 
             if candidate.get("period"):
                 existing["period"] = candidate["period"]
@@ -766,7 +814,11 @@ def _prepare_selected_candidate_for_writer(
 
     return {
         "title": candidate.get("title", ""),
+        "subtitle": candidate.get("subtitle", ""),
         "display_title": candidate.get("display_title", ""),
+        "resume_header_tools": list(candidate.get("resume_header_tools") or []),
+        "resume_header_context": list(candidate.get("resume_header_context") or []),
+        "canonical_tools": list(candidate.get("canonical_tools") or []),
         "period": candidate.get("period", ""),
         "source": _candidate_source(candidate),
         "currently_in_resume": bool(candidate.get("currently_in_resume")),
@@ -1214,8 +1266,12 @@ def _build_project_from_writer_plan(
 
     return {
         "title": candidate.get("title", ""),
+        "subtitle": candidate.get("subtitle", ""),
         "display_title": candidate.get("display_title")
         or candidate.get("title", ""),
+        "resume_header_tools": list(candidate.get("resume_header_tools") or []),
+        "resume_header_context": list(candidate.get("resume_header_context") or []),
+        "canonical_tools": list(candidate.get("canonical_tools") or []),
         "period": candidate.get("period", ""),
         "source": _candidate_source(candidate),
         "action": _candidate_action(candidate),

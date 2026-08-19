@@ -62,6 +62,8 @@ except Exception:
 
 from tailoring.skills_section_tailor import tailor_skills_section, skill_lines_to_plain_text
 
+from resume_builder.project_header_format import project_evidence_preview
+
 from resume_builder.docx_projects_skills_replacer import (
     save_uploaded_docx_for_editing,
     get_latest_saved_docx_for_application,
@@ -86,6 +88,9 @@ from database.user_profile_manager import (
     delete_evidence_item,
     update_evidence_item,
     clear_evidence_library,
+    get_resume_format_preferences,
+    update_resume_format_preferences,
+    migrate_legacy_project_titles_to_structured_metadata,
 )
 
 from tailoring.project_section_tailor import (
@@ -3425,7 +3430,12 @@ elif page == "Application Sessions":
                         )
                 if isinstance(phase9f_fit_snapshot.get("settings"), dict):
                     phase9f_fit_defaults = phase9f_fit_snapshot["settings"]
-            fit_control_defaults = {**restored_settings, **phase9f_fit_defaults}
+            resume_format_preferences = get_resume_format_preferences()
+            fit_control_defaults = {
+                **resume_format_preferences,
+                **restored_settings,
+                **phase9f_fit_defaults,
+            }
 
             phase7_control = get_application_generation_control(
                 current_application_id
@@ -4686,6 +4696,85 @@ elif page == "Application Sessions":
                             "These normal fitting controls will be captured by the "
                             "next explicit Build and Fit attempt."
                         )
+                    project_header_layout_options = [
+                        "Auto",
+                        "Stacked",
+                        "Inline",
+                    ]
+                    saved_project_header_layout = str(
+                        fit_control_defaults.get(
+                            "project_header_layout",
+                            "auto",
+                        )
+                    ).strip().lower()
+                    project_header_layout_label = (
+                        "Stacked"
+                        if saved_project_header_layout == "stacked"
+                        else "Inline"
+                        if saved_project_header_layout == "inline"
+                        else "Auto"
+                    )
+                    project_header_layout_label = st.radio(
+                        "Project header layout",
+                        project_header_layout_options,
+                        index=project_header_layout_options.index(
+                            project_header_layout_label
+                        ),
+                        horizontal=True,
+                        key=f"project_header_layout_{current_application_id}",
+                        disabled=phase9f_f_fit_settings_locked,
+                        help=(
+                            "Auto starts with clearer stacked metadata. If that "
+                            "causes page overflow, deterministic fitting tries "
+                            "inline headers before removing résumé evidence. "
+                            "Explicit Stacked or Inline is preserved."
+                        ),
+                    )
+                    project_header_layout = (
+                        "stacked"
+                        if project_header_layout_label == "Stacked"
+                        else "inline"
+                        if project_header_layout_label == "Inline"
+                        else "auto"
+                    )
+
+                    project_metadata_style_options = [
+                        "Pipes",
+                        "Parentheses (legacy)",
+                    ]
+                    saved_project_metadata_style = str(
+                        fit_control_defaults.get(
+                            "project_metadata_style",
+                            "pipes",
+                        )
+                    ).strip().lower()
+                    default_project_metadata_style_label = (
+                        "Parentheses (legacy)"
+                        if saved_project_metadata_style == "parentheses"
+                        else "Pipes"
+                    )
+                    project_metadata_style_label = st.radio(
+                        "Project metadata style",
+                        project_metadata_style_options,
+                        index=project_metadata_style_options.index(
+                            default_project_metadata_style_label
+                        ),
+                        horizontal=True,
+                        key=f"project_metadata_style_{current_application_id}",
+                        disabled=phase9f_f_fit_settings_locked,
+                        help=(
+                            "Pipes are the current default. Parentheses preserve "
+                            "the older visual style. This changes rendering only; "
+                            "canonical evidence is unchanged."
+                        ),
+                    )
+                    project_metadata_style = (
+                        "parentheses"
+                        if project_metadata_style_label
+                        == "Parentheses (legacy)"
+                        else "pipes"
+                    )
+
                     use_compact_before_delete = st.checkbox(
                         "Compact project wording before deleting content",
                         value=bool(
@@ -4973,6 +5062,8 @@ elif page == "Application Sessions":
                                         "allow_skills_compaction": allow_skills_compaction,
                                         "page_density_mode": page_density_mode,
                                         "allow_margin_compaction": allow_margin_compaction,
+                                        "project_header_layout": project_header_layout,
+                                        "project_metadata_style": project_metadata_style,
                                         "spacing_mode": spacing_mode,
                                         "add_spacing_before_first_project": add_spacing_before_first_project,
                                         "project_spacing_pt": project_spacing_pt,
@@ -5000,6 +5091,8 @@ elif page == "Application Sessions":
                                     "allow_skills_compaction": allow_skills_compaction,
                                     "page_density_mode": page_density_mode,
                                     "allow_margin_compaction": allow_margin_compaction,
+                                    "project_header_layout": project_header_layout,
+                                    "project_metadata_style": project_metadata_style,
                                     "spacing_mode": spacing_mode,
                                     "add_spacing_before_first_project": add_spacing_before_first_project,
                                     "project_spacing_pt": project_spacing_pt,
@@ -5132,6 +5225,8 @@ elif page == "Application Sessions":
                             lock_skills=fit_lock_skills,
                             page_density_mode=page_density_mode,
                             allow_margin_compaction=allow_margin_compaction,
+                            project_header_layout=project_header_layout,
+                            project_metadata_style=project_metadata_style,
                             generation_id=mutable_generation_id,
                         )
 
@@ -5171,6 +5266,8 @@ elif page == "Application Sessions":
                             "allow_margin_compaction": (
                                 allow_margin_compaction
                             ),
+                            "project_header_layout": project_header_layout,
+                            "project_metadata_style": project_metadata_style,
                             "spacing_mode": spacing_mode,
                             "project_spacing_pt": project_spacing_pt,
                             "after_projects_spacing_pt": (
@@ -6174,6 +6271,76 @@ elif page == "Profile & Evidence":
 
     st.divider()
 
+    profile_format_preferences = get_resume_format_preferences()
+
+    st.subheader("Résumé Format Preferences")
+    st.caption(
+        "These are profile defaults for new renders. Canonical evidence stores "
+        "facts only; Python adds separators and chooses one/two-line layout."
+    )
+    with st.form("resume_format_preferences_form"):
+        profile_layout_labels = ["Auto", "Stacked", "Inline"]
+        saved_profile_layout = str(
+            profile_format_preferences.get("project_header_layout") or "auto"
+        ).strip().lower()
+        default_profile_layout = (
+            "Stacked"
+            if saved_profile_layout == "stacked"
+            else "Inline"
+            if saved_profile_layout == "inline"
+            else "Auto"
+        )
+        profile_layout_label = st.radio(
+            "Default project header layout",
+            profile_layout_labels,
+            index=profile_layout_labels.index(default_profile_layout),
+            horizontal=True,
+            help=(
+                "Auto prefers stacked metadata, then tries inline formatting "
+                "before evidence-removing fit changes if one-page fit needs space."
+            ),
+        )
+
+        profile_style_labels = ["Pipes", "Parentheses (legacy)"]
+        saved_profile_style = str(
+            profile_format_preferences.get("project_metadata_style") or "pipes"
+        ).strip().lower()
+        default_profile_style = (
+            "Parentheses (legacy)"
+            if saved_profile_style == "parentheses"
+            else "Pipes"
+        )
+        profile_style_label = st.radio(
+            "Default project metadata style",
+            profile_style_labels,
+            index=profile_style_labels.index(default_profile_style),
+            horizontal=True,
+        )
+
+        if st.form_submit_button("Save résumé format preferences"):
+            update_resume_format_preferences(
+                project_header_layout=(
+                    "stacked"
+                    if profile_layout_label == "Stacked"
+                    else "inline"
+                    if profile_layout_label == "Inline"
+                    else "auto"
+                ),
+                project_metadata_style=(
+                    "parentheses"
+                    if profile_style_label == "Parentheses (legacy)"
+                    else "pipes"
+                ),
+            )
+            st.success("Résumé format preferences saved.")
+            st.rerun()
+
+    st.caption(
+        "Pipe convention: commas stay within a group; pipes separate groups. "
+        "Example: CyberSphere | Unity Engine, C# | Team of 2 | "
+        "Published on Google Play."
+    )
+
     st.subheader("Add Evidence Item")
     st.caption(
         "For Project evidence, bullet order matters. "
@@ -6187,8 +6354,43 @@ elif page == "Profile & Evidence":
             ["Project", "Internship", "Coursework", "Certification", "Skill", "Achievement", "Other"],
         )
 
-        title = st.text_input("Title", placeholder="Example: Job AI Helper")
-        
+        title = st.text_input(
+            "Title",
+            placeholder="Example: Job AI Helper",
+            help=(
+                "For Projects, enter only the semantic project name here. "
+                "Do not include '(Python, Team of 4)' or pipe metadata."
+            ),
+        )
+        subtitle = ""
+        resume_header_tools_text = ""
+        resume_header_context_text = ""
+        if category == "Project":
+            subtitle = st.text_input(
+                "Project subtitle, optional",
+                placeholder="Example: IT Service Request Tracker",
+            )
+            resume_header_tools_text = st.text_input(
+                "Résumé header technologies, comma-separated, optional",
+                placeholder=(
+                    "Example: React, TypeScript, FastAPI, PostgreSQL, Docker"
+                ),
+                help=(
+                    "This is the compact presentation subset shown in the "
+                    "project header. Leave blank to fall back to canonical "
+                    "Tools/technologies."
+                ),
+            )
+            resume_header_context_text = st.text_area(
+                "Résumé header context groups, one per line, optional",
+                height=90,
+                placeholder="Team of 2\nPublished on Google Play",
+                help=(
+                    "Each non-empty line becomes its own metadata group. "
+                    "Python inserts pipes between groups."
+                ),
+            )
+
         period = st.text_input(
             "Date / Period, optional",
             placeholder="Example: Jun 2024 – Jul 2024",
@@ -6226,10 +6428,21 @@ elif page == "Profile & Evidence":
                 create_evidence_item(
                     category=category,
                     title=title,
+                    subtitle=subtitle,
                     description=description,
                     period=period,
                     skills=skills,
                     tools=tools,
+                    resume_header_tools=[
+                        item.strip()
+                        for item in resume_header_tools_text.split(",")
+                        if item.strip()
+                    ],
+                    resume_header_context=[
+                        line.strip()
+                        for line in resume_header_context_text.splitlines()
+                        if line.strip()
+                    ],
                     impact=impact,
                     source_type="manual",
                 )
@@ -6245,6 +6458,26 @@ elif page == "Profile & Evidence":
 
     st.divider()
     st.subheader("Saved Evidence")
+
+    if st.button(
+        "Migrate legacy project title metadata",
+        key="migrate_legacy_project_title_metadata",
+        help=(
+            "Moves simple trailing parentheses such as "
+            "'CyberSphere (Unity Engine, Team of 2)' into structured header "
+            "fields. Evidence IDs, bullets, canonical tools, and provenance "
+            "are preserved."
+        ),
+    ):
+        migrated_count = migrate_legacy_project_titles_to_structured_metadata()
+        if migrated_count:
+            st.success(
+                f"Migrated {migrated_count} legacy Project title"
+                f"{'s' if migrated_count != 1 else ''}."
+            )
+            st.rerun()
+        else:
+            st.info("No unmigrated legacy Project titles were found.")
 
     evidence_sort_mode = st.selectbox(
     "Evidence display order",
@@ -6276,7 +6509,16 @@ elif page == "Profile & Evidence":
         st.info("No evidence items saved yet.")
     else:
         for item in evidence_items:
-            with st.expander(f"{item['category']}: {item['title']}"):
+            item_label = str(item.get("title") or "")
+            if item.get("category") == "Project":
+                item_label = project_evidence_preview(
+                    item,
+                    style=profile_format_preferences.get(
+                        "project_metadata_style",
+                        "pipes",
+                    ),
+                )
+            with st.expander(f"{item['category']}: {item_label}"):
 
                 description = str(item.get("description", "")).strip()
 
@@ -6299,6 +6541,21 @@ elif page == "Profile & Evidence":
                                     st.markdown(f"- {cleaned_line}")
                     else:
                         st.write(description)
+
+                if item.get("subtitle"):
+                    st.write("**Subtitle:** " + item["subtitle"])
+
+                if item.get("resume_header_tools"):
+                    st.write(
+                        "**Résumé header technologies:** "
+                        + ", ".join(item["resume_header_tools"])
+                    )
+
+                if item.get("resume_header_context"):
+                    st.write(
+                        "**Résumé header context:** "
+                        + " | ".join(item["resume_header_context"])
+                    )
 
                 if item.get("period"):
                     st.write("**Period:** " + item["period"])
@@ -6419,7 +6676,40 @@ elif page == "Profile & Evidence":
                             "Title",
                             value=item.get("title", ""),
                             key=f"edit_title_{item['id']}",
+                            help=(
+                                "For Projects, keep only the semantic project "
+                                "name here; display metadata belongs below."
+                            ),
                         )
+
+                        edited_subtitle = ""
+                        edited_resume_header_tools = ""
+                        edited_resume_header_context = ""
+                        if edited_category == "Project":
+                            edited_subtitle = st.text_input(
+                                "Project subtitle, optional",
+                                value=item.get("subtitle", ""),
+                                key=f"edit_subtitle_{item['id']}",
+                            )
+                            edited_resume_header_tools = st.text_input(
+                                "Résumé header technologies, comma-separated, optional",
+                                value=", ".join(
+                                    item.get("resume_header_tools", [])
+                                ),
+                                key=f"edit_resume_header_tools_{item['id']}",
+                                help=(
+                                    "Leave blank to use canonical Tools/technologies "
+                                    "as the render fallback."
+                                ),
+                            )
+                            edited_resume_header_context = st.text_area(
+                                "Résumé header context groups, one per line, optional",
+                                value="\n".join(
+                                    item.get("resume_header_context", [])
+                                ),
+                                height=90,
+                                key=f"edit_resume_header_context_{item['id']}",
+                            )
 
                         edited_period = st.text_input(
                             "Date / Period, optional",
@@ -6473,6 +6763,7 @@ elif page == "Profile & Evidence":
                                     item["id"],
                                     category=edited_category,
                                     title=edited_title,
+                                    subtitle=edited_subtitle,
                                     description=edited_description,
                                     period=edited_period,
                                     skills=[
@@ -6484,6 +6775,16 @@ elif page == "Profile & Evidence":
                                         tool.strip()
                                         for tool in edited_tools.split(",")
                                         if tool.strip()
+                                    ],
+                                    resume_header_tools=[
+                                        tool.strip()
+                                        for tool in edited_resume_header_tools.split(",")
+                                        if tool.strip()
+                                    ],
+                                    resume_header_context=[
+                                        line.strip()
+                                        for line in edited_resume_header_context.splitlines()
+                                        if line.strip()
                                     ],
                                     impact=edited_impact,
                                     source_type=item.get("source_type", "manual"),
