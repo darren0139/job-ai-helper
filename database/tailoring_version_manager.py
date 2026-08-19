@@ -14,6 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from resume_builder.fitting_provenance import (
+    normalise_fitting_search_algorithm_provenance,
+)
+
 
 DB_PATH = Path("data/applications.db")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
@@ -250,7 +254,9 @@ def get_latest_application_tailoring(
         "fit_estimate": _load(row["fit_estimate_json"]),
         "projects": _load(row["projects_json"]),
         "skills": _load(row["skills_json"]),
-        "fit_result": _load(row["fit_result_json"]),
+        "fit_result": normalise_fitting_search_algorithm_provenance(
+            _load(row["fit_result_json"])
+        ),
         "generation_settings": _load(row["generation_settings_json"]),
         "docx_path": _existing_path(row["docx_path"]),
         "pdf_path": _existing_path(row["pdf_path"]),

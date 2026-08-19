@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from database.phase9f_tailoring_execution_manager import (
 import database.phase9f_tailoring_execution_manager as execution_manager
 from tailoring.phase9f_tailoring_execution import (
     PHASE9F_F_SECTION_SCOPE_POLICY_VERSION,
+    Phase9FFExecutionError,
 )
 from tests.phase9f_d_test_support import configure_database
 from tests.phase9f_e_test_support import create_d_reuse_session
@@ -103,6 +105,12 @@ class Phase9FTailoringExecutionStreamlitTests(unittest.TestCase):
     def _event_count(self) -> int:
         connection = tailoring_version_manager._connect()
         try:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                ("phase9f_tailoring_execution_events",),
+            ).fetchone()
+            if exists is None:
+                return 0
             return int(
                 connection.execute(
                     "SELECT COUNT(*) FROM phase9f_tailoring_execution_events "
@@ -135,12 +143,63 @@ class Phase9FTailoringExecutionStreamlitTests(unittest.TestCase):
             tools=["PostgREST"],
         )
 
+    def _addressable_scope(self, **kwargs) -> dict:
+        return {
+            "policy_version": PHASE9F_F_SECTION_SCOPE_POLICY_VERSION,
+            "phase9a_version": "phase9a-evidence-opportunity-v1",
+            "confirmed_intensity": kwargs["confirmed_intensity"],
+            "opportunity_fingerprint": "status-ui-opportunity",
+            "selected_evidence_ids": [],
+            "selected_evidence_fingerprint": "status-ui-evidence",
+            "projects_addressable": True,
+            "skills_addressable": True,
+            "enabled_sections": ["projects", "skills"],
+            "selected_evidence": [],
+            "opportunity": {},
+            "scope_fingerprint": "status-ui-scope",
+        }
+
+    def _source_bundle(self) -> dict:
+        source_bytes = self.source_docx.read_bytes()
+        return {
+            "artifacts": [
+                {
+                    "artifact_type": "docx",
+                    "source_path": str(self.source_docx),
+                    "artifact_bytes": source_bytes,
+                    "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                    "byte_size": len(source_bytes),
+                }
+            ]
+        }
+
+    def _prepare_addressable_execution(self) -> dict:
+        with (
+            patch.object(execution_manager, "build_section_scope", self._addressable_scope),
+            patch.object(
+                execution_manager,
+                "resolve_exact_phase9f_d_source",
+                lambda **_kwargs: self._source_bundle(),
+            ),
+        ):
+            return execution_manager.prepare_or_reuse_phase9f_tailoring_execution(
+                application_id=self.application_id
+            )["execution"]
+
     def test_passive_render_writes_nothing_then_prepare_creates_one_blocked_execution(self) -> None:
         before = self._counts()
+        events_before = self._event_count()
         with patch.dict(os.environ, self.environment):
             app = AppTest.from_file(str(HARNESS), default_timeout=60).run()
         self.assertEqual(app.exception, [])
         self.assertEqual(self._counts(), before)
+        self.assertEqual(self._event_count(), events_before)
+        self.assertTrue(
+            any(
+                "No Phase 9F-F execution record exists" in str(item.value)
+                for item in app.info
+            )
+        )
         self.assertTrue(any("Begin Minor tailoring" == button.label for button in app.button))
 
         prepare = next(button for button in app.button if button.label == "Begin Minor tailoring")
@@ -222,8 +281,64 @@ class Phase9FTailoringExecutionStreamlitTests(unittest.TestCase):
         self.assertTrue(
             any("prior paid model attempt" in str(item.value).lower() for item in app.error)
         )
+        self.assertEqual(self._widget(app.metric, "Status").value, "running")
+        self.assertEqual(self._widget(app.metric, "Stage").value, "projects")
+        self.assertTrue(
+            any(
+                "Recovery state: model attempt uncertain at projects" in str(item.value)
+                for item in app.warning
+            )
+        )
         execution = get_phase9f_tailoring_execution(self.application_id)
         self.assertEqual(execution["recovery_state"], "model_attempt_uncertain")
+
+    def test_failed_execution_status_is_allowlisted_and_passive(self) -> None:
+        prepared = self._prepare_addressable_execution()
+        execution_manager._update_execution(
+            execution_id=prepared["execution_id"],
+            status="failed",
+            current_stage="fitting",
+            stage_outputs={
+                "evidence_snapshot": {"secret": "never render this"},
+                "source_artifact": {"secret": "never render this"},
+                "semantic_identity": {"secret": "never render this"},
+                "stage_outputs": {"secret": "never render this"},
+            },
+            last_error=Phase9FFExecutionError(
+                "The persisted fitting source was unavailable.",
+                code="source_docx_missing",
+                stage="fitting",
+            ),
+            event_type="focused_status_failure",
+            actor_label="Focused Streamlit test",
+            details={},
+        )
+        before = self._counts()
+        events_before = self._event_count()
+
+        with patch.dict(os.environ, self.environment):
+            app = AppTest.from_file(str(HARNESS), default_timeout=60).run()
+
+        self.assertEqual(app.exception, [])
+        self.assertEqual(self._counts(), before)
+        self.assertEqual(self._event_count(), events_before)
+        self.assertEqual(self._widget(app.metric, "Status").value, "failed")
+        self.assertEqual(self._widget(app.metric, "Stage").value, "fitting")
+        self.assertTrue(
+            any(
+                "source_docx_missing" in str(item.value)
+                and "at fitting" in str(item.value)
+                and "persisted fitting source was unavailable" in str(item.value).lower()
+                for item in app.error
+            )
+        )
+        self.assertEqual(list(app.json), [])
+        visible = " ".join(
+            str(item.value)
+            for collection in (app.markdown, app.caption, app.info, app.warning, app.error)
+            for item in collection
+        )
+        self.assertNotIn("never render this", visible)
 
     def test_fresh_full_uses_normal_generations_without_session_wide_settings_lock(self) -> None:
         full_database = self.root / "phase9f-f-full-settings-ui.db"
