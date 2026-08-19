@@ -530,6 +530,7 @@ def _resolve_prepared_source_artifact(
     source_bundle = resolve_exact_phase9f_d_source(
         decision=decision,
         confirmation=confirmation,
+        require_reuse_page_proof=False,
     )
     return _exact_docx_artifact(
         source_bundle,

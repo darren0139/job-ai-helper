@@ -258,6 +258,20 @@ def render_evidence_opportunity_analysis(
             col2.metric("Projects addressable", "Yes" if projects_addressable else "No")
             col3.metric("Skills addressable", "Yes" if skills_addressable else "No")
             col4.metric("Selected positive-gain evidence", len(selected))
+            confirmed_intensity = str(
+                frozen_phase9f_scope.get("confirmed_intensity") or ""
+            ).strip().lower()
+            if (
+                confirmed_intensity == "full"
+                and not selected
+                and (projects_addressable or skills_addressable)
+            ):
+                st.info(
+                    "Phase 9A predicts no additional requirement-label gain, "
+                    "but Full tailoring remains addressable because it may "
+                    "truthfully re-rank, select, or rephrase existing Projects "
+                    "and Skills. The fresh scorer still verifies the result later."
+                )
             if status == "blocked":
                 st.warning(
                     "No truthful Projects or Skills change is addressable. "

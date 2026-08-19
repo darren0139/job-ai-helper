@@ -743,7 +743,11 @@ def _pdf_page_count(content: bytes) -> int:
         ) from exc
 
 
-def _resolve_base_source(decision: dict[str, Any]) -> dict[str, Any]:
+def _resolve_base_source(
+    decision: dict[str, Any],
+    *,
+    require_one_page_proof: bool = True,
+) -> dict[str, Any]:
     starting = decision["starting_snapshot"]
     source_identity = starting["source_identity"]
     master = get_global_master_resume(source_identity["source_id"])
@@ -803,6 +807,21 @@ def _resolve_base_source(decision: dict[str, Any]) -> dict[str, Any]:
             f"The exact Base Resume artifact failed closed: {exc}",
             code="base_resume_artifact_invalid",
         ) from exc
+    if not require_one_page_proof:
+        return {
+            "source_type": "base_resume",
+            "source": master,
+            "source_generation": {},
+            "source_verification": {},
+            "artifacts": resolution["artifacts"],
+            "page_count": None,
+            "fit_identity": {
+                "fit_one_page": None,
+                "page_count": None,
+                "proof": "not_required_for_changed_content",
+            },
+        }
+
     proof_pdf = (
         original
         if _clean(original.get("media_type")) == "application/pdf"
@@ -838,6 +857,7 @@ def _resolve_exact_source(
     *,
     decision: dict[str, Any],
     confirmation: dict[str, Any],
+    require_one_page_proof: bool = True,
 ) -> dict[str, Any]:
     source_type = _clean(
         (decision.get("starting_snapshot") or {}).get("source_type")
@@ -848,7 +868,10 @@ def _resolve_exact_source(
             confirmation=confirmation,
         )
     if source_type == "base_resume":
-        return _resolve_base_source(decision)
+        return _resolve_base_source(
+            decision,
+            require_one_page_proof=require_one_page_proof,
+        )
     raise Phase9FEExecutionError(
         "The exact Phase 9F-D source type is unsupported by Reuse.",
         code="reuse_source_type_unsupported",
@@ -908,16 +931,20 @@ def resolve_exact_phase9f_d_source(
     *,
     decision: dict[str, Any],
     confirmation: dict[str, Any],
+    require_reuse_page_proof: bool = True,
 ) -> dict[str, Any]:
     """Resolve the immutable D-bound source for a compatible executor.
 
-    Phase 9F-F uses this public adapter rather than reaching into the private
-    Reuse implementation.  The underlying resolution and hash checks remain
-    the established Phase 9F-E behavior.
+    Reuse keeps its fail-closed one-page PDF proof by default. Changed-content
+    Phase 9F-F may explicitly opt out of that Reuse-only page invariant because
+    it consumes the exact immutable DOCX and deterministically fits the newly
+    generated result later. Source identity, bytes, SHA-256, and size validation
+    remain unchanged.
     """
     return _resolve_exact_source(
         decision=decision,
         confirmation=confirmation,
+        require_one_page_proof=bool(require_reuse_page_proof),
     )
 
 
