@@ -1406,6 +1406,12 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             )
             self.assertEqual(failed["execution"]["status"], "failed")
             self.assertEqual(failed["execution"]["current_stage"], "fitting")
+            failed_fit = failed["execution"]["stage_outputs"]["fitting"]
+            self.assertIn("fitting_input_snapshot", failed_fit)
+            self.assertEqual(
+                failed_fit["fitting_input_fingerprint"],
+                failed_fit["fitting_input_snapshot"]["fitting_input_fingerprint"],
+            )
             recovered = execution_manager.execute_phase9f_tailoring(
                 application_id=application_id,
                 projects_writer=self._projects_writer(project_calls),
@@ -1416,6 +1422,98 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         self.assertEqual(len(project_calls), 1)
         self.assertEqual(len(skills_calls), 1)
         self.assertEqual(len(fit_calls), 2)
+
+    def test_private_fit_uses_the_snapshot_persisted_before_execution(self) -> None:
+        state = self._session("minor")
+        application_id = state["application_id"]
+        self._add_evidence(1)
+        project_calls: list[dict] = []
+        observed: dict[str, object] = {}
+
+        def asserting_fit(**kwargs):
+            persisted = execution_manager.get_phase9f_tailoring_execution(
+                application_id
+            )
+            assert persisted is not None
+            stage = persisted["stage_outputs"]["fitting"]
+            shared_snapshot = kwargs["prepared_fitting_input"].fitting_input_snapshot
+            observed["persisted"] = copy.deepcopy(stage["fitting_input_snapshot"])
+            observed["shared"] = copy.deepcopy(shared_snapshot)
+            self.assertEqual(stage["status"], "requested")
+            self.assertEqual(stage["fitting_input_snapshot"], shared_snapshot)
+            return self._fit_writer([])(**kwargs)
+
+        with patch.object(execution_manager, "build_section_scope", self._scope_from_snapshot), patch.object(
+            execution_manager,
+            "resolve_exact_phase9f_d_source",
+            side_effect=lambda **_kwargs: self._source_bundle(),
+        ):
+            result = execution_manager.execute_phase9f_tailoring(
+                application_id=application_id,
+                projects_writer=self._projects_writer(project_calls),
+                skills_writer=self._skills_writer,
+                fit_writer=asserting_fit,
+            )
+
+        self.assertEqual(result["execution"]["status"], "waiting_for_approval")
+        self.assertEqual(observed["persisted"], observed["shared"])
+
+    def test_normal_fit_exception_retains_the_prepared_snapshot(self) -> None:
+        state = self._session("minor")
+        application_id = state["application_id"]
+        self._add_evidence(1)
+        project_calls: list[dict] = []
+        observed: dict[str, object] = {}
+
+        def failing_fit(**kwargs):
+            generation = execution_manager.get_tailoring_generation(
+                application_id,
+                kwargs["generation_id"],
+            )
+            assert generation is not None
+            fit_state = (generation["generation_settings"] or {})[
+                "phase9f_f_normal_lifecycle"
+            ]["fit"]
+            observed["persisted"] = copy.deepcopy(
+                fit_state["fitting_input_snapshot"]
+            )
+            observed["shared"] = copy.deepcopy(
+                kwargs["prepared_fitting_input"].fitting_input_snapshot
+            )
+            raise RuntimeError("synthetic post-snapshot failure")
+
+        with patch.object(execution_manager, "build_section_scope", self._scope_from_snapshot), patch.object(
+            execution_manager,
+            "resolve_exact_phase9f_d_source",
+            side_effect=lambda **_kwargs: self._source_bundle(),
+        ):
+            generated = execution_manager.run_phase9f_normal_generation(
+                application_id=application_id,
+                projects_writer=self._projects_writer(project_calls),
+                skills_writer=self._skills_writer,
+                generation_model="normal-fit-test",
+            )
+            generation_id = generated["generation"]["generation_id"]
+            with self.assertRaisesRegex(RuntimeError, "post-snapshot"):
+                execution_manager.run_phase9f_normal_fit(
+                    application_id=application_id,
+                    generation_id=generation_id,
+                    fit_writer=failing_fit,
+                )
+
+        persisted = execution_manager.get_tailoring_generation(
+            application_id, generation_id
+        )
+        self.assertIsNotNone(persisted)
+        fit_state = (persisted["generation_settings"] or {})[
+            "phase9f_f_normal_lifecycle"
+        ]["fit"]
+        self.assertEqual(fit_state["status"], "failed")
+        self.assertEqual(observed["persisted"], observed["shared"])
+        self.assertEqual(
+            fit_state["fitting_input_fingerprint"],
+            fit_state["fitting_input_snapshot"]["fitting_input_fingerprint"],
+        )
 
     def test_removed_blueprint_executes_from_its_exact_historical_artifact(self) -> None:
         state = self._session("full")

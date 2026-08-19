@@ -45,9 +45,16 @@ from database.tailoring_version_manager import save_application_tailoring_genera
 from database.user_profile_manager import get_all_evidence_items_for_snapshot
 from llm import drain_call_ledger, get_active_model, reset_call_ledger, summarise_call_usage
 from resume_builder.docx_projects_skills_replacer import (
+    DEFAULT_MINIMUM_TOTAL_SKILLS,
     generate_tailored_resume_copy_fit_one_page,
+    prepare_fitting_input_snapshot,
     resolve_effective_fitting_bullet_ceiling,
     resolve_fitting_bullet_allocation_mode,
+)
+from resume_builder.fitting_provenance import (
+    PHASE6C_SEARCH_ALGORITHM_VERSION,
+    normalise_fitting_search_algorithm_provenance,
+    resolve_fitting_search_algorithm_version,
 )
 from tailoring.phase8_verification import build_phase8_verification
 from tailoring.phase8_verification import (
@@ -309,8 +316,32 @@ def _insert_event(
     )
 
 
+def _normalise_fitting_stage_provenance(
+    stage_outputs: dict[str, Any],
+) -> dict[str, Any]:
+    """Add read-side search provenance to historical private F fit results."""
+    outputs = deepcopy(stage_outputs)
+    fitting = outputs.get("fitting")
+    if not isinstance(fitting, dict):
+        return outputs
+    result = normalise_fitting_search_algorithm_provenance(
+        fitting.get("result")
+    )
+    if isinstance(result, dict):
+        fitting["result"] = result
+        fitting.setdefault(
+            "fitting_search_algorithm_version",
+            resolve_fitting_search_algorithm_version(result),
+        )
+    outputs["fitting"] = fitting
+    return outputs
+
+
 def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
     keys = set(row.keys())
+    stage_outputs = _normalise_fitting_stage_provenance(
+        _load(row["stage_outputs_json"], {})
+    )
     return {
         "execution_id": str(row["execution_id"]),
         "execution_fingerprint": str(row["execution_fingerprint"]),
@@ -345,7 +376,7 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         ),
         "evidence_snapshot": _load(row["evidence_snapshot_json"], {}),
         "section_scope": _load(row["section_scope_json"], {}),
-        "stage_outputs": _load(row["stage_outputs_json"], {}),
+        "stage_outputs": stage_outputs,
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
         "completed_at": str(row["completed_at"] or ""),
@@ -1050,9 +1081,18 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
         )
     return {
         "policy_version": PHASE9F_F_FIT_SETTINGS_POLICY_VERSION,
+        "fitting_search_algorithm_version": (
+            PHASE6C_SEARCH_ALGORITHM_VERSION
+        ),
         "use_compact_before_delete": bool(source.get("use_compact_before_delete", True)),
         "prefer_balanced_bullets": bool(source.get("prefer_balanced_bullets", False)),
         "allow_skills_compaction": bool(source.get("allow_skills_compaction", False)),
+        "minimum_total_skills": _integer_setting(
+            source.get("minimum_total_skills", DEFAULT_MINIMUM_TOTAL_SKILLS),
+            name="minimum_total_skills",
+            minimum=0,
+            maximum=100,
+        ),
         "page_density_mode": density,
         "allow_margin_compaction": bool(source.get("allow_margin_compaction", False)),
         "project_header_layout": project_header_layout,
@@ -1085,6 +1125,63 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             minimum=0,
             maximum=3,
         ),
+    }
+
+
+def build_phase9f_normal_fit_input_fingerprint(
+    *,
+    lifecycle: dict[str, Any],
+    projects: dict[str, Any],
+    skills: dict[str, Any],
+    canonical_fit_settings: dict[str, Any],
+    source_artifact: dict[str, Any],
+    section_scope_fingerprint: str,
+    fitting_search_algorithm_version: str = (
+        PHASE6C_SEARCH_ALGORITHM_VERSION
+    ),
+    render_policy_version: str = (
+        PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+    ),
+) -> str:
+    """Build the pre-run normal-fit identity, including render and search policy."""
+    return fingerprint_value(
+        {
+            "lifecycle_version": PHASE9F_F_NORMAL_LIFECYCLE_VERSION,
+            "generation_input_fingerprint": lifecycle.get(
+                "generation_input_fingerprint"
+            ),
+            "projects_fingerprint": fingerprint_value(projects),
+            "skills_fingerprint": fingerprint_value(skills),
+            "fit_settings": canonical_fit_settings,
+            "fitting_search_algorithm_version": (
+                fitting_search_algorithm_version
+            ),
+            "render_policy_version": render_policy_version,
+            "source_artifact": source_artifact,
+            "section_scope_fingerprint": section_scope_fingerprint,
+        }
+    )
+
+
+def build_phase9f_private_fit_input_payload(
+    *,
+    fit_snapshot: dict[str, Any],
+    projects: dict[str, Any],
+    skills: dict[str, Any],
+    source_artifact: dict[str, Any],
+    section_scope_fingerprint: str,
+) -> dict[str, Any]:
+    """Build the versioned pre-run payload for a new private F fit stage."""
+    return {
+        "fit_snapshot": deepcopy(fit_snapshot),
+        "fitting_search_algorithm_version": (
+            PHASE6C_SEARCH_ALGORITHM_VERSION
+        ),
+        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        "projects_fingerprint": fingerprint_value(projects),
+        "skills_fingerprint": fingerprint_value(skills),
+        "source_artifact": deepcopy(source_artifact),
+        "section_scope_fingerprint": section_scope_fingerprint,
     }
 
 
@@ -2518,17 +2615,15 @@ def run_phase9f_normal_fit(
         )
     canonical_fit = _canonical_fit_settings(fit_settings)
     lifecycle = _normal_lifecycle_state(generation)
-    fit_input_fingerprint = fingerprint_value(
-        {
-            "lifecycle_version": PHASE9F_F_NORMAL_LIFECYCLE_VERSION,
-            "generation_input_fingerprint": lifecycle.get("generation_input_fingerprint"),
-            "projects_fingerprint": fingerprint_value(projects),
-            "skills_fingerprint": fingerprint_value(skills),
-            "fit_settings": canonical_fit,
-            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
-            "source_artifact": (execution.get("source_artifact") or {}),
-            "section_scope_fingerprint": execution.get("section_scope_fingerprint"),
-        }
+    fit_input_fingerprint = build_phase9f_normal_fit_input_fingerprint(
+        lifecycle=lifecycle,
+        projects=projects,
+        skills=skills,
+        canonical_fit_settings=canonical_fit,
+        source_artifact=(execution.get("source_artifact") or {}),
+        section_scope_fingerprint=str(
+            execution.get("section_scope_fingerprint") or ""
+        ),
     )
     prior_fit = lifecycle.get("fit") or {}
     if (
@@ -2562,8 +2657,11 @@ def run_phase9f_normal_fit(
     lifecycle["fit"] = {
         "status": "requested",
         "input_fingerprint": fit_input_fingerprint,
-        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
         "settings": deepcopy(canonical_fit),
+        "fitting_search_algorithm_version": (
+            PHASE6C_SEARCH_ALGORITHM_VERSION
+        ),
+        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
     }
     target_settings["phase9f_f_normal_lifecycle"] = lifecycle
     generation_input_fingerprint = str(lifecycle.get("generation_input_fingerprint") or "")
@@ -2613,11 +2711,10 @@ def run_phase9f_normal_fit(
                     if isinstance(project, dict)
                 ],
             )
-        fit_result = fit_writer(
+        prepared_input = prepare_fitting_input_snapshot(
             saved_resume_docx_path=source_path,
             tailored_projects=deepcopy(projects),
             tailored_skills=deepcopy(skills),
-            application_id=int(application_id),
             max_projects=int(generation_values.get("max_projects") or 1),
             max_bullets_per_project=fit_max_bullets,
             spacing_mode=canonical_fit["spacing_mode"],
@@ -2629,22 +2726,140 @@ def run_phase9f_normal_fit(
             use_compact_before_delete=canonical_fit["use_compact_before_delete"],
             prefer_balanced_bullets=canonical_fit["prefer_balanced_bullets"],
             allow_skills_compaction=canonical_fit["allow_skills_compaction"],
+            minimum_total_skills=canonical_fit["minimum_total_skills"],
             lock_projects=not bool((execution.get("section_scope") or {}).get("projects_addressable")),
             lock_skills=not bool((execution.get("section_scope") or {}).get("skills_addressable")),
             page_density_mode=canonical_fit["page_density_mode"],
             allow_margin_compaction=canonical_fit["allow_margin_compaction"],
             project_header_layout=canonical_fit["project_header_layout"],
             project_metadata_style=canonical_fit["project_metadata_style"],
-            generation_id=str(target["generation_id"]),
+            source_artifact_identity=deepcopy(execution.get("source_artifact") or {}),
         )
+        fitting_input_snapshot = deepcopy(
+            prepared_input.fitting_input_snapshot
+        )
+        fitting_input_fingerprint = str(
+            fitting_input_snapshot["fitting_input_fingerprint"]
+        )
+        lifecycle["fit"] = {
+            "status": "requested",
+            "input_fingerprint": fit_input_fingerprint,
+            "fitting_input_fingerprint": fitting_input_fingerprint,
+            "fitting_input_snapshot": fitting_input_snapshot,
+            "settings": deepcopy(canonical_fit),
+            "fitting_search_algorithm_version": (
+                PHASE6C_SEARCH_ALGORITHM_VERSION
+            ),
+            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        }
+        target_settings["phase9f_f_normal_lifecycle"] = lifecycle
+        _save_normal_generation(
+            application_id=application_id,
+            generation_id=str(target["generation_id"]),
+            settings=target_settings,
+            generation_input_fingerprint=generation_input_fingerprint,
+            projects=projects,
+            skills=skills,
+            base_content_fingerprint=str((lifecycle.get("content_identity") or {}).get("base_content_fingerprint") or ""),
+            content_fingerprint=str((lifecycle.get("content_identity") or {}).get("content_fingerprint") or ""),
+            content_changed=True,
+        )
+        _record_normal_generation_event(
+            execution=execution,
+            event_type="normal_fit_input_prepared",
+            actor_label=actor_label,
+            details={
+                "generation_id": str(target["generation_id"]),
+                "fit_input_fingerprint": fit_input_fingerprint,
+                "fitting_input_fingerprint": fitting_input_fingerprint,
+            },
+        )
+        fitter_payload = {
+            "saved_resume_docx_path": source_path,
+            "tailored_projects": deepcopy(projects),
+            "tailored_skills": deepcopy(skills),
+            "application_id": int(application_id),
+            "max_projects": int(generation_values.get("max_projects") or 1),
+            "max_bullets_per_project": fit_max_bullets,
+            "spacing_mode": canonical_fit["spacing_mode"],
+            "project_spacing_pt": canonical_fit["project_spacing_pt"],
+            "after_projects_spacing_pt": canonical_fit["after_projects_spacing_pt"],
+            "blank_lines_between_projects": canonical_fit["blank_lines_between_projects"],
+            "blank_lines_after_projects": canonical_fit["blank_lines_after_projects"],
+            "add_spacing_before_first_project": canonical_fit["add_spacing_before_first_project"],
+            "use_compact_before_delete": canonical_fit["use_compact_before_delete"],
+            "prefer_balanced_bullets": canonical_fit["prefer_balanced_bullets"],
+            "allow_skills_compaction": canonical_fit["allow_skills_compaction"],
+            "minimum_total_skills": canonical_fit["minimum_total_skills"],
+            "lock_projects": not bool((execution.get("section_scope") or {}).get("projects_addressable")),
+            "lock_skills": not bool((execution.get("section_scope") or {}).get("skills_addressable")),
+            "page_density_mode": canonical_fit["page_density_mode"],
+            "allow_margin_compaction": canonical_fit["allow_margin_compaction"],
+            "project_header_layout": canonical_fit["project_header_layout"],
+            "project_metadata_style": canonical_fit["project_metadata_style"],
+            "generation_id": str(target["generation_id"]),
+            "source_artifact_identity": deepcopy(
+                execution.get("source_artifact") or {}
+            ),
+        }
+        try:
+            fit_result = fit_writer(**_fitter_kwargs_with_prepared_input(
+                fit_writer,
+                fitter_payload,
+                prepared_input,
+            ))
+            fit_result = deepcopy(fit_result)
+            fit_result["fitting_input_snapshot"] = deepcopy(
+                fitting_input_snapshot
+            )
+            fit_result["fitting_input_fingerprint"] = fitting_input_fingerprint
+        except Exception:
+            lifecycle["fit"] = {
+                "status": "failed",
+                "input_fingerprint": fit_input_fingerprint,
+                "fitting_input_fingerprint": fitting_input_fingerprint,
+                "fitting_input_snapshot": fitting_input_snapshot,
+                "settings": deepcopy(canonical_fit),
+                "fitting_search_algorithm_version": (
+                    PHASE6C_SEARCH_ALGORITHM_VERSION
+                ),
+                "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+            }
+            target_settings["phase9f_f_normal_lifecycle"] = lifecycle
+            _save_normal_generation(
+                application_id=application_id,
+                generation_id=str(target["generation_id"]),
+                settings=target_settings,
+                generation_input_fingerprint=generation_input_fingerprint,
+                projects=projects,
+                skills=skills,
+                base_content_fingerprint=str((lifecycle.get("content_identity") or {}).get("base_content_fingerprint") or ""),
+                content_fingerprint=str((lifecycle.get("content_identity") or {}).get("content_fingerprint") or ""),
+                content_changed=True,
+            )
+            _record_normal_generation_event(
+                execution=execution,
+                event_type="normal_fit_failed",
+                actor_label=actor_label,
+                details={
+                    "generation_id": str(target["generation_id"]),
+                    "fitting_input_fingerprint": fitting_input_fingerprint,
+                },
+            )
+            raise
     finally:
         temporary.cleanup()
     if not bool(fit_result.get("fit_one_page")):
         lifecycle["fit"] = {
             "status": "failed",
             "input_fingerprint": fit_input_fingerprint,
-            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+            "fitting_input_fingerprint": fitting_input_fingerprint,
+            "fitting_input_snapshot": fitting_input_snapshot,
             "settings": deepcopy(canonical_fit),
+            "fitting_search_algorithm_version": (
+                PHASE6C_SEARCH_ALGORITHM_VERSION
+            ),
+            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
         }
         target_settings["phase9f_f_normal_lifecycle"] = lifecycle
         _save_normal_generation(
@@ -2659,6 +2874,15 @@ def run_phase9f_normal_fit(
             content_fingerprint=str((lifecycle.get("content_identity") or {}).get("content_fingerprint") or ""),
             content_changed=True,
         )
+        _record_normal_generation_event(
+            execution=execution,
+            event_type="normal_fit_failed",
+            actor_label=actor_label,
+            details={
+                "generation_id": str(target["generation_id"]),
+                "fitting_input_fingerprint": fitting_input_fingerprint,
+            },
+        )
         raise Phase9FFExecutionError(
             "The deterministic fitter did not produce a one-page résumé.",
             code="fit_one_page_failed",
@@ -2667,8 +2891,13 @@ def run_phase9f_normal_fit(
     lifecycle["fit"] = {
         "status": "completed",
         "input_fingerprint": fit_input_fingerprint,
-        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        "fitting_input_fingerprint": fitting_input_fingerprint,
         "settings": deepcopy(canonical_fit),
+        "fitting_search_algorithm_version": (
+            PHASE6C_SEARCH_ALGORITHM_VERSION
+        ),
+        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        "fitting_input_snapshot": fitting_input_snapshot,
         "result_fingerprint": fingerprint_value(fit_result),
     }
     target_settings["phase9f_f_normal_lifecycle"] = lifecycle
@@ -2691,6 +2920,7 @@ def run_phase9f_normal_fit(
         details={
             "generation_id": str(target["generation_id"]),
             "fit_input_fingerprint": fit_input_fingerprint,
+            "fitting_input_fingerprint": fitting_input_fingerprint,
             "fit_result_fingerprint": lifecycle["fit"]["result_fingerprint"],
         },
     )
@@ -2719,6 +2949,26 @@ def _writer_kwargs(
         supports_model = True
     if supports_model:
         payload["model"] = model
+    return payload
+
+
+def _fitter_kwargs_with_prepared_input(
+    writer: Callable[..., dict[str, Any]],
+    payload: dict[str, Any],
+    prepared_input: Any,
+) -> dict[str, Any]:
+    """Reuse shared pre-render provenance without breaking legacy test writers."""
+    try:
+        parameters = inspect.signature(writer).parameters.values()
+        supports_prepared_input = any(
+            parameter.name == "prepared_fitting_input"
+            or parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+    except (TypeError, ValueError):
+        supports_prepared_input = True
+    if supports_prepared_input:
+        payload["prepared_fitting_input"] = prepared_input
     return payload
 
 
@@ -3017,6 +3267,12 @@ def execute_phase9f_tailoring(
                 "policy_version": PHASE9F_F_FIT_SETTINGS_POLICY_VERSION,
                 "settings": canonical_fit_settings,
                 "settings_fingerprint": fingerprint_value(canonical_fit_settings),
+                "fitting_search_algorithm_version": (
+                    PHASE6C_SEARCH_ALGORITHM_VERSION
+                ),
+                "render_policy_version": (
+                    PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+                ),
                 "generation_settings_fingerprint": generation_snapshot[
                     "settings_fingerprint"
                 ],
@@ -3025,13 +3281,15 @@ def execute_phase9f_tailoring(
                 "effective_bullet_allocation_mode": fit_allocation_mode,
                 "frozen_reason": "explicit_build_and_fit_action",
             }
-            fit_input = {
-                "fit_snapshot": deepcopy(fit_snapshot),
-                "projects_fingerprint": fingerprint_value(projects),
-                "skills_fingerprint": fingerprint_value(skills),
-                "source_artifact": deepcopy(source_identity),
-                "section_scope_fingerprint": execution["section_scope_fingerprint"],
-            }
+            fit_input = build_phase9f_private_fit_input_payload(
+                fit_snapshot=fit_snapshot,
+                projects=projects,
+                skills=skills,
+                source_artifact=source_identity,
+                section_scope_fingerprint=execution[
+                    "section_scope_fingerprint"
+                ],
+            )
             fit_input_fp = _stage_input_fingerprint(
                 execution=execution,
                 stage="fitting",
@@ -3048,41 +3306,10 @@ def execute_phase9f_tailoring(
             source_path, source_temporary = _materialise_exact_source_docx(
                 fitting_artifact
             )
-            outputs = deepcopy(execution.get("stage_outputs") or {})
-            attempts = list(outputs.get("fitting_attempts") or [])
-            attempt = {
-                "status": "requested",
-                "attempt_number": int(execution["attempt_count"]),
-                "input_fingerprint": fit_input_fp,
-                "fit_settings": deepcopy(fit_snapshot),
-            }
-            attempts.append(attempt)
-            outputs["fitting_attempts"] = attempts
-            outputs["fitting"] = {
-                "status": "requested",
-                "input_fingerprint": fit_input_fp,
-                "fit_settings": deepcopy(fit_snapshot),
-                "attempt_number": int(execution["attempt_count"]),
-            }
-            execution = _update_execution(
-                execution_id=execution["execution_id"],
-                status="running",
-                current_stage="fitting",
-                stage_outputs=outputs,
-                event_type="deterministic_fitting_started",
-                actor_label=actor_label,
-                details={
-                    "input_fingerprint": fit_input_fp,
-                    "fit_settings_fingerprint": fit_snapshot["settings_fingerprint"],
-                    "projects_fingerprint": fit_input["projects_fingerprint"],
-                    "skills_fingerprint": fit_input["skills_fingerprint"],
-                },
-            )
-            fit_result = fit_writer(
+            prepared_input = prepare_fitting_input_snapshot(
                 saved_resume_docx_path=source_path,
                 tailored_projects=deepcopy(projects),
                 tailored_skills=deepcopy(skills),
-                application_id=int(application_id),
                 max_projects=generation_values["max_projects"],
                 max_bullets_per_project=fit_max_bullets,
                 spacing_mode=canonical_fit_settings["spacing_mode"],
@@ -3108,6 +3335,9 @@ def execute_phase9f_tailoring(
                 allow_skills_compaction=canonical_fit_settings[
                     "allow_skills_compaction"
                 ],
+                minimum_total_skills=canonical_fit_settings[
+                    "minimum_total_skills"
+                ],
                 lock_projects=not bool(section_scope.get("projects_addressable")),
                 lock_skills=not bool(section_scope.get("skills_addressable")),
                 page_density_mode=canonical_fit_settings["page_density_mode"],
@@ -3120,9 +3350,157 @@ def execute_phase9f_tailoring(
                 project_metadata_style=canonical_fit_settings[
                     "project_metadata_style"
                 ],
-                generation_id=execution["execution_id"],
+                source_artifact_identity=deepcopy(source_identity),
             )
+            fitting_input_snapshot = deepcopy(
+                prepared_input.fitting_input_snapshot
+            )
+            fitting_input_fingerprint = str(
+                fitting_input_snapshot["fitting_input_fingerprint"]
+            )
+            outputs = deepcopy(execution.get("stage_outputs") or {})
+            attempts = list(outputs.get("fitting_attempts") or [])
+            attempt = {
+                "status": "requested",
+                "attempt_number": int(execution["attempt_count"]),
+                "input_fingerprint": fit_input_fp,
+                "fitting_input_fingerprint": fitting_input_fingerprint,
+                "fitting_input_snapshot": fitting_input_snapshot,
+                "fit_settings": deepcopy(fit_snapshot),
+                "fitting_search_algorithm_version": (
+                    PHASE6C_SEARCH_ALGORITHM_VERSION
+                ),
+                "render_policy_version": (
+                    PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+                ),
+            }
+            attempts.append(attempt)
+            outputs["fitting_attempts"] = attempts
+            outputs["fitting"] = {
+                "status": "requested",
+                "input_fingerprint": fit_input_fp,
+                "fitting_input_fingerprint": fitting_input_fingerprint,
+                "fitting_input_snapshot": fitting_input_snapshot,
+                "fit_settings": deepcopy(fit_snapshot),
+                "fitting_search_algorithm_version": (
+                    PHASE6C_SEARCH_ALGORITHM_VERSION
+                ),
+                "render_policy_version": (
+                    PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+                ),
+                "attempt_number": int(execution["attempt_count"]),
+            }
+            execution = _update_execution(
+                execution_id=execution["execution_id"],
+                status="running",
+                current_stage="fitting",
+                stage_outputs=outputs,
+                event_type="deterministic_fitting_started",
+                actor_label=actor_label,
+                details={
+                    "input_fingerprint": fit_input_fp,
+                    "fitting_input_fingerprint": fitting_input_fingerprint,
+                    "fit_settings_fingerprint": fit_snapshot["settings_fingerprint"],
+                    "projects_fingerprint": fit_input["projects_fingerprint"],
+                    "skills_fingerprint": fit_input["skills_fingerprint"],
+                },
+            )
+            fitter_payload = {
+                "saved_resume_docx_path": source_path,
+                "tailored_projects": deepcopy(projects),
+                "tailored_skills": deepcopy(skills),
+                "application_id": int(application_id),
+                "max_projects": generation_values["max_projects"],
+                "max_bullets_per_project": fit_max_bullets,
+                "spacing_mode": canonical_fit_settings["spacing_mode"],
+                "project_spacing_pt": canonical_fit_settings["project_spacing_pt"],
+                "after_projects_spacing_pt": canonical_fit_settings[
+                    "after_projects_spacing_pt"
+                ],
+                "blank_lines_between_projects": canonical_fit_settings[
+                    "blank_lines_between_projects"
+                ],
+                "blank_lines_after_projects": canonical_fit_settings[
+                    "blank_lines_after_projects"
+                ],
+                "add_spacing_before_first_project": canonical_fit_settings[
+                    "add_spacing_before_first_project"
+                ],
+                "use_compact_before_delete": canonical_fit_settings[
+                    "use_compact_before_delete"
+                ],
+                "prefer_balanced_bullets": canonical_fit_settings[
+                    "prefer_balanced_bullets"
+                ],
+                "allow_skills_compaction": canonical_fit_settings[
+                    "allow_skills_compaction"
+                ],
+                "minimum_total_skills": canonical_fit_settings[
+                    "minimum_total_skills"
+                ],
+                "lock_projects": not bool(section_scope.get("projects_addressable")),
+                "lock_skills": not bool(section_scope.get("skills_addressable")),
+                "page_density_mode": canonical_fit_settings["page_density_mode"],
+                "allow_margin_compaction": canonical_fit_settings[
+                    "allow_margin_compaction"
+                ],
+                "project_header_layout": canonical_fit_settings[
+                    "project_header_layout"
+                ],
+                "project_metadata_style": canonical_fit_settings[
+                    "project_metadata_style"
+                ],
+                "generation_id": execution["execution_id"],
+                "source_artifact_identity": deepcopy(source_identity),
+            }
+            fit_result = fit_writer(**_fitter_kwargs_with_prepared_input(
+                fit_writer,
+                fitter_payload,
+                prepared_input,
+            ))
+            fit_result = deepcopy(fit_result)
+            fit_result["fitting_input_snapshot"] = deepcopy(
+                fitting_input_snapshot
+            )
+            fit_result["fitting_input_fingerprint"] = fitting_input_fingerprint
             if not bool(fit_result.get("fit_one_page")):
+                outputs = deepcopy(execution.get("stage_outputs") or {})
+                outputs["fitting"] = {
+                    "status": "failed",
+                    "input_fingerprint": fit_input_fp,
+                    "fitting_input_fingerprint": fitting_input_fingerprint,
+                    "fitting_input_snapshot": fitting_input_snapshot,
+                    "fit_settings": deepcopy(fit_snapshot),
+                    "fitting_search_algorithm_version": (
+                        PHASE6C_SEARCH_ALGORITHM_VERSION
+                    ),
+                    "render_policy_version": (
+                        PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+                    ),
+                    "result": deepcopy(fit_result),
+                    "result_fingerprint": fingerprint_value(fit_result),
+                    "attempt_number": int(execution["attempt_count"]),
+                }
+                attempts = list(outputs.get("fitting_attempts") or [])
+                if attempts:
+                    attempts[-1] = {
+                        **attempts[-1],
+                        "status": "failed",
+                        "result_fingerprint": outputs["fitting"]["result_fingerprint"],
+                    }
+                    outputs["fitting_attempts"] = attempts
+                execution = _update_execution(
+                    execution_id=execution["execution_id"],
+                    status="running",
+                    current_stage="fitting",
+                    stage_outputs=outputs,
+                    event_type="deterministic_fitting_failed",
+                    actor_label=actor_label,
+                    details={
+                        "input_fingerprint": fit_input_fp,
+                        "fitting_input_fingerprint": fitting_input_fingerprint,
+                    },
+                )
                 raise Phase9FFExecutionError(
                     "The deterministic fitter did not produce a one-page résumé.",
                     code="fit_one_page_failed",
@@ -3132,7 +3510,15 @@ def execute_phase9f_tailoring(
             outputs["fitting"] = {
                 "status": "completed",
                 "input_fingerprint": fit_input_fp,
+                "fitting_input_fingerprint": fitting_input_fingerprint,
                 "fit_settings": deepcopy(fit_snapshot),
+                "fitting_search_algorithm_version": (
+                    PHASE6C_SEARCH_ALGORITHM_VERSION
+                ),
+                "render_policy_version": (
+                    PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+                ),
+                "fitting_input_snapshot": fitting_input_snapshot,
                 "result": deepcopy(fit_result),
                 "result_fingerprint": fingerprint_value(fit_result),
                 "attempt_number": int(execution["attempt_count"]),
@@ -3154,6 +3540,7 @@ def execute_phase9f_tailoring(
                 actor_label=actor_label,
                 details={
                     "input_fingerprint": fit_input_fp,
+                    "fitting_input_fingerprint": fitting_input_fingerprint,
                     "fit_settings_fingerprint": fit_snapshot["settings_fingerprint"],
                     "fit_result_fingerprint": outputs["fitting"]["result_fingerprint"],
                 },

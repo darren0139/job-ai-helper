@@ -65,6 +65,7 @@ from tailoring.skills_section_tailor import tailor_skills_section, skill_lines_t
 from resume_builder.project_header_format import project_evidence_preview
 
 from resume_builder.docx_projects_skills_replacer import (
+    DEFAULT_MINIMUM_TOTAL_SKILLS,
     save_uploaded_docx_for_editing,
     get_latest_saved_docx_for_application,
     generate_tailored_resume_copy_fit_one_page,
@@ -76,6 +77,9 @@ from resume_builder.docx_projects_skills_replacer import (
     pdf_to_preview_html,
     cleanup_old_tailored_outputs_for_application,
     cleanup_application_resume_files,
+)
+from resume_builder.fitting_provenance import (
+    PHASE6C_SEARCH_ALGORITHM_VERSION,
 )
 
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
@@ -5244,6 +5248,7 @@ elif page == "Application Sessions":
                             use_compact_before_delete=use_compact_before_delete,
                             prefer_balanced_bullets=prefer_balanced_bullets,
                             allow_skills_compaction=allow_skills_compaction,
+                            minimum_total_skills=DEFAULT_MINIMUM_TOTAL_SKILLS,
                             lock_projects=fit_lock_projects,
                             lock_skills=fit_lock_skills,
                             page_density_mode=page_density_mode,
@@ -5268,6 +5273,9 @@ elif page == "Application Sessions":
                             tailored_generation_id_key
                         ] = generation_id
                         fit_generation_settings = {
+                            "fitting_search_algorithm_version": (
+                                PHASE6C_SEARCH_ALGORITHM_VERSION
+                            ),
                             "max_projects": max_projects,
                             "max_bullets": max_bullets,
                             "fit_effective_max_bullets": fit_max_bullets_per_project,
@@ -5283,6 +5291,7 @@ elif page == "Application Sessions":
                             "allow_skills_compaction": (
                                 allow_skills_compaction
                             ),
+                            "minimum_total_skills": DEFAULT_MINIMUM_TOTAL_SKILLS,
                             "lock_projects": fit_lock_projects,
                             "lock_skills": fit_lock_skills,
                             "page_density_mode": page_density_mode,

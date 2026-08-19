@@ -194,6 +194,36 @@ class FittingRenderOptimizerTests(unittest.TestCase):
         )
         self.assertNotEqual(first, second)
 
+    def test_fingerprint_ignores_fit_search_provenance(self):
+        base = {
+            "recommended_projects": [
+                {
+                    "display_title": "QueryAI",
+                    "period": "2026",
+                    "draft_bullets": ["Built a secure workflow."],
+                }
+            ]
+        }
+        with_search_provenance = copy.deepcopy(base)
+        with_search_provenance["fitting_search_algorithm_version"] = (
+            "phase6c-bounded-coarse-exact-fitting-v1"
+        )
+
+        self.assertEqual(
+            build_render_state_fingerprint(
+                source_signature="source",
+                projects_state=base,
+                skills_state=None,
+                layout_options={},
+            ),
+            build_render_state_fingerprint(
+                source_signature="source",
+                projects_state=with_search_provenance,
+                skills_state=None,
+                layout_options={},
+            ),
+        )
+
     def test_source_signature_is_content_based(self):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first.docx"
