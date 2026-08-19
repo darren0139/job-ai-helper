@@ -19,6 +19,10 @@ from analysis_stability.stable_evidence_scoring import (
 )
 from rag.jd_identity import source_version_id
 from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.fresh_target_evidence_scoring import (
+    FRESH_TARGET_EVIDENCE_POLICY_VERSION,
+    build_fresh_target_analysis,
+)
 from tailoring.phase9b_role_family import suggest_role_family
 from tailoring.phase9f_starting_source_transparency import (
     compact_requirement_transparency,
@@ -32,8 +36,8 @@ from tailoring.phase9f_exact_verified_reuse import (
 
 PHASE9F_B_VERSION = "phase9f-starting-source-ranking-v2"
 PHASE9F_B_SOURCE_POLICY_VERSION = "phase9f-immutable-starting-source-v1"
-PHASE9F_B_SCORING_POLICY_VERSION = "phase9f-phase9c-fresh-target-scoring-v1"
-PHASE9F_B_EVIDENCE_POLICY_VERSION = "phase9f-phase9c-fresh-target-evidence-v1"
+PHASE9F_B_SCORING_POLICY_VERSION = "phase9f-phase9c-fresh-target-scoring-v2"
+PHASE9F_B_EVIDENCE_POLICY_VERSION = FRESH_TARGET_EVIDENCE_POLICY_VERSION
 PHASE9F_B_RANKING_POLICY_VERSION = "phase9f-starting-source-ranking-policy-v2"
 PHASE9F_B_CANDIDATE_ANALYSIS_SNAPSHOT_VERSION = (
     "phase9f-b-candidate-current-jd-analysis-v1"
@@ -949,7 +953,7 @@ def score_normalized_source(
         resume_profile=deepcopy(source["resume_profile_snapshot"]),
         raw_resume_text=str(source["resume_text_snapshot"]),
     )
-    analysis = build_stable_analysis(
+    analysis = build_fresh_target_analysis(
         jd_profile=deepcopy(exact_jd["jd_profile"]),
         keyword_match=keyword_match,
         raw_jd_text=str(exact_jd["raw_text"]),

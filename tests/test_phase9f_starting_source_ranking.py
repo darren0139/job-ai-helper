@@ -57,7 +57,7 @@ GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
 PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
-    "phase9f_b_ranking_identity_pinned_v1.json"
+    "phase9f_b_ranking_identity_pinned_v2.json"
 )
 
 
@@ -579,31 +579,20 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        # Exact-reuse + Phase 9D identity v2 deliberately changes immutable
-        # Blueprint/source fingerprints. Preserve the fresh scorer outputs,
-        # while allowing those source identities and ranking fingerprints to
-        # move to the new versioned contract.
+        # Fresh evidence rediscovery v2 deliberately changes the numeric
+        # scorer output and the identities derived from it. Pin the complete
+        # new versioned contract instead of preserving the stale v1 scores.
         self.assertEqual(
-            [
-                {
-                    key: value
-                    for key, value in row.items()
-                    if key != "normalized_source_fingerprint"
-                }
-                for row in actual["candidate_metrics"]
-            ],
-            [
-                {
-                    key: value
-                    for key, value in row.items()
-                    if key != "normalized_source_fingerprint"
-                }
-                for row in pinned["candidate_metrics"]
-            ],
+            pinned.get("fixture_version"),
+            "phase9f-b-ranking-identity-pinned-v2",
         )
         self.assertEqual(
-            actual["comparison_result_fingerprints"],
-            pinned["comparison_result_fingerprints"],
+            actual,
+            {
+                key: value
+                for key, value in pinned.items()
+                if key != "fixture_version"
+            },
         )
         self.assertEqual(
             result["recommended_source"]["source_type"],
@@ -612,13 +601,6 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
         self.assertEqual(
             [row["source_type"] for row in result["ranked_candidates"]],
             ["global_blueprint", "base_resume"],
-        )
-        self.assertNotEqual(
-            actual["ranking_input_fingerprint"],
-            pinned["ranking_input_fingerprint"],
-        )
-        self.assertNotEqual(
-            actual["ranking_fingerprint"], pinned["ranking_fingerprint"]
         )
 
     def test_complete_candidate_analysis_snapshot_is_retained_and_valid(self):
