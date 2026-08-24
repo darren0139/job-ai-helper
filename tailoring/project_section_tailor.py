@@ -1649,6 +1649,149 @@ def _validate_project_bullets(
     return warnings
 
 
+
+def _build_project_scoring_user_prompt(
+    *,
+    max_projects: int,
+    raw_jd_text: str,
+    jd_profile: dict[str, Any],
+    stable_analysis: dict[str, Any],
+    project_candidates: list[dict[str, Any]],
+    keyword_match: dict[str, Any] | None,
+    bounded_single_candidate: bool,
+) -> str:
+    """Build the Stage 1 project-scoring prompt for one candidate scope."""
+    if bounded_single_candidate:
+        candidate_instruction = (
+            "- This is a bounded per-project scoring call containing exactly one "
+            "candidate.\n"
+            "- Return exactly one candidate_project_scores row for that supplied "
+            "candidate.\n"
+            "- Return unsupported_jd_skills as an empty list; a project-level "
+            "negative must not be treated as a global unsupported-skill result."
+        )
+    else:
+        candidate_instruction = (
+            "- Include every candidate exactly once in candidate_project_scores."
+        )
+
+    return f"""
+MAXIMUM PROJECTS:
+{max_projects}
+
+RAW TARGET JOB DESCRIPTION:
+{raw_jd_text}
+
+EXTRACTED TARGET JOB DESCRIPTION PROFILE:
+{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
+
+PHASE 6A.1C CANONICAL REQUIREMENTS:
+{json.dumps(stable_analysis.get("canonical_requirements", []), indent=2, ensure_ascii=False)}
+
+COMBINED PROJECT CANDIDATE POOL:
+{json.dumps(project_candidates, indent=2, ensure_ascii=False)}
+
+CURRENT RESUME-JD KEYWORD ANALYSIS (context only):
+{json.dumps(keyword_match or {}, indent=2, ensure_ascii=False)}
+
+IMPORTANT:
+- Evaluate both the raw JD and the extracted JD profile.
+- The raw JD can recover relevant requirements omitted from the profile.
+- The keyword analysis describes the current resume, not necessarily the
+  Evidence Library.
+- Award project points only when the candidate's own evidence supports
+  the requirement.
+{candidate_instruction}
+- Use exact requirement_id values from PHASE 6A.1C CANONICAL REQUIREMENTS.
+- Do not invent requirement IDs.
+- Component scores are diagnostic only; Python owns final scoring and selection.
+"""
+
+
+def _score_project_candidates(
+    *,
+    project_candidates: list[dict[str, Any]],
+    max_projects: int,
+    raw_jd_text: str,
+    jd_profile: dict[str, Any],
+    stable_analysis: dict[str, Any],
+    keyword_match: dict[str, Any] | None,
+    bullet_allocation_mode: str,
+    model: str | None,
+) -> dict[str, Any]:
+    """
+    Run Stage 1 project scoring.
+
+    All-canonical mode uses one bounded request per candidate so a large
+    Evidence Library cannot force every project's evidence through one
+    reasoning-heavy request. Python still owns cross-project ranking and
+    final selection after the rows are combined.
+    """
+    if bullet_allocation_mode != "all_canonical_before_fitting":
+        scoring_user_prompt = _build_project_scoring_user_prompt(
+            max_projects=max_projects,
+            raw_jd_text=raw_jd_text,
+            jd_profile=jd_profile,
+            stable_analysis=stable_analysis,
+            project_candidates=project_candidates,
+            keyword_match=keyword_match,
+            bounded_single_candidate=False,
+        )
+        return ask_json(
+            PROJECT_CANDIDATE_SCORING_PROMPT,
+            scoring_user_prompt,
+            temperature=0.0,
+            max_tokens=4200,
+            model=model,
+        )
+
+    combined_rows: list[dict[str, Any]] = []
+    combined_notes: list[str] = []
+
+    for candidate in project_candidates:
+        scoring_user_prompt = _build_project_scoring_user_prompt(
+            max_projects=max_projects,
+            raw_jd_text=raw_jd_text,
+            jd_profile=jd_profile,
+            stable_analysis=stable_analysis,
+            project_candidates=[candidate],
+            keyword_match=keyword_match,
+            bounded_single_candidate=True,
+        )
+        candidate_result = ask_json(
+            PROJECT_CANDIDATE_SCORING_PROMPT,
+            scoring_user_prompt,
+            temperature=0.0,
+            max_tokens=2200,
+            model=model,
+        )
+
+        rows = candidate_result.get("candidate_project_scores", [])
+        if isinstance(rows, list):
+            combined_rows.extend(
+                row for row in rows if isinstance(row, dict)
+            )
+
+        combined_notes.extend(
+            _clean_string_list(candidate_result.get("notes_for_user", []))
+        )
+
+    return {
+        "candidate_project_scores": combined_rows,
+        "recommended_project_count": min(
+            max_projects,
+            len(project_candidates),
+        ),
+        "project_count_reason": (
+            "Python owns the final project count. Stage 1 scoring used bounded "
+            "per-project requests before deterministic cross-project ranking."
+        ),
+        "unsupported_jd_skills": [],
+        "notes_for_user": _clean_string_list(combined_notes),
+    }
+
+
+
 # ---------------------------------------------------------------------------
 # Public orchestration function
 # ---------------------------------------------------------------------------
@@ -1696,43 +1839,14 @@ def tailor_projects_section(
             "No project candidates were found in the resume profile or Evidence Library."
         )
 
-    scoring_user_prompt = f"""
-MAXIMUM PROJECTS:
-{max_projects}
-
-RAW TARGET JOB DESCRIPTION:
-{raw_jd_text}
-
-EXTRACTED TARGET JOB DESCRIPTION PROFILE:
-{json.dumps(jd_profile, indent=2, ensure_ascii=False)}
-
-PHASE 6A.1C CANONICAL REQUIREMENTS:
-{json.dumps(stable_analysis.get("canonical_requirements", []), indent=2, ensure_ascii=False)}
-
-COMBINED PROJECT CANDIDATE POOL:
-{json.dumps(project_candidates, indent=2, ensure_ascii=False)}
-
-CURRENT RESUME-JD KEYWORD ANALYSIS (context only):
-{json.dumps(keyword_match or {}, indent=2, ensure_ascii=False)}
-
-IMPORTANT:
-- Evaluate both the raw JD and the extracted JD profile.
-- The raw JD can recover relevant requirements omitted from the profile.
-- The keyword analysis describes the current resume, not necessarily the
-  Evidence Library.
-- Award project points only when the candidate's own evidence supports
-  the requirement.
-- Include every candidate exactly once in candidate_project_scores.
-- Use exact requirement_id values from PHASE 6A.1C CANONICAL REQUIREMENTS.
-- Do not invent requirement IDs.
-- Component scores are diagnostic only; Python owns final scoring and selection.
-"""
-
-    scoring_result = ask_json(
-        PROJECT_CANDIDATE_SCORING_PROMPT,
-        scoring_user_prompt,
-        temperature=0.0,
-        max_tokens=4200,
+    scoring_result = _score_project_candidates(
+        project_candidates=project_candidates,
+        max_projects=max_projects,
+        raw_jd_text=raw_jd_text,
+        jd_profile=jd_profile,
+        stable_analysis=stable_analysis,
+        keyword_match=keyword_match,
+        bullet_allocation_mode=bullet_allocation_mode,
         model=model,
     )
 
@@ -1742,6 +1856,59 @@ IMPORTANT:
         scoring_result=scoring_result,
         project_candidates=project_candidates,
     )
+
+    if (
+        missing_candidates
+        and bullet_allocation_mode == "all_canonical_before_fitting"
+    ):
+        retry_result = _score_project_candidates(
+            project_candidates=missing_candidates,
+            max_projects=max_projects,
+            raw_jd_text=raw_jd_text,
+            jd_profile=jd_profile,
+            stable_analysis=stable_analysis,
+            keyword_match=keyword_match,
+            bullet_allocation_mode=bullet_allocation_mode,
+            model=model,
+        )
+        scoring_result.setdefault(
+            "candidate_project_scores",
+            [],
+        ).extend(
+            retry_result.get(
+                "candidate_project_scores",
+                [],
+            )
+            or []
+        )
+        scoring_result.setdefault(
+            "notes_for_user",
+            [],
+        ).extend(
+            retry_result.get(
+                "notes_for_user",
+                [],
+            )
+            or []
+        )
+
+        missing_candidates = _find_missing_scoring_candidates(
+            scoring_result=scoring_result,
+            project_candidates=project_candidates,
+        )
+
+        if missing_candidates:
+            missing_titles = [
+                candidate.get("display_title")
+                or candidate.get("title")
+                or "Untitled Project"
+                for candidate in missing_candidates
+            ]
+            raise RuntimeError(
+                "Project scoring remained incomplete after one bounded "
+                "per-project retry. "
+                f"Missing projects: {missing_titles}"
+            )
 
     # Make one bounded retry for omitted projects only.
     if missing_candidates:
