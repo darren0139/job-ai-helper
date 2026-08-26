@@ -54,6 +54,11 @@ from tailoring.phase8_verification import (
     PHASE8_VERIFICATION_VERSION,
     build_final_resume_profile,
 )
+from tailoring.jd_specific_rephrase_preview import (
+    JD_REPHRASE_PREVIEW_VERSION,
+    evaluate_rephrase_batch_candidate,
+    evaluate_rephrase_candidate,
+)
 from tailoring.phase9e_blueprint_selection import (
     build_effective_tailoring_report,
     fingerprint_value,
@@ -108,6 +113,8 @@ EXECUTION_STATUSES = {
 PHASE9F_F_NORMAL_LIFECYCLE_VERSION = "phase9f-f-normal-generation-lifecycle-v1"
 PHASE9F_F_NORMAL_GENERATION_KIND = "phase9f_f_normal_projects_skills"
 PHASE9F_F_NORMAL_FIT_KIND = "phase9f_f_normal_fit"
+PHASE9F_F_NORMAL_REPHRASE_KIND = "phase9f_f_normal_jd_rephrase"
+APPLICATION_SESSION_REPHRASE_KIND = "application_session_jd_rephrase"
 PHASE9F_F_NORMAL_EVIDENCE_POOL_POLICY_VERSION = (
     "phase9f-f-normal-evidence-pool-v1"
 )
@@ -2473,6 +2480,838 @@ def run_phase9f_normal_generation(
         "cache_status": "normal_generation_completed",
     }
 
+
+def create_phase9f_normal_rephrase_generation(
+    *,
+    application_id: int,
+    source_generation_id: str,
+    project_index: int,
+    bullet_index: int,
+    accepted_bullet: str,
+    suggestion_model: str = "",
+    suggestion_payload: dict[str, Any] | None = None,
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Create an unfitted normal generation containing one accepted bullet wording.
+
+    The parent Projects/Skills generation remains immutable. No model call or fit
+    occurs here. The normal Phase 9F provenance is copied, while the generation
+    input fingerprint is changed so the accepted user variant can never replace
+    the original paid-generation cache identity.
+    """
+    prepared_result = prepare_or_reuse_phase9f_tailoring_execution(
+        application_id=int(application_id),
+        actor_label=actor_label,
+    )
+    execution = prepared_result["execution"]
+    prepared = prepared_result["prepared"]
+
+    if not is_phase9f_normal_lifecycle_execution(execution):
+        raise Phase9FFExecutionError(
+            "JD-specific rephrasing is available only for the normal Minor/Full "
+            "Application Session lifecycle.",
+            code="jd_rephrase_normal_lifecycle_required",
+            stage="jd_rephrase",
+        )
+    if _clean(execution.get("confirmed_intensity")).lower() not in {"minor", "full"}:
+        raise Phase9FFExecutionError(
+            "Exact Reuse bypasses JD-specific rephrasing.",
+            code="jd_rephrase_reuse_bypassed",
+            stage="jd_rephrase",
+        )
+
+    source = get_tailoring_generation(
+        int(application_id),
+        str(source_generation_id),
+    )
+    if (
+        source is None
+        or not _normal_generation_matches_context(
+            execution=execution,
+            generation=source,
+        )
+        or not _normal_generation_is_complete(source)
+    ):
+        raise Phase9FFExecutionError(
+            "The selected normal generation is unavailable or incomplete.",
+            code="jd_rephrase_source_generation_invalid",
+            stage="jd_rephrase",
+        )
+
+    projects = (
+        (source.get("projects") or {}).get("recommended_projects") or []
+    )
+    if not isinstance(projects, list) or not (
+        0 <= int(project_index) < len(projects)
+    ):
+        raise Phase9FFExecutionError(
+            "The selected project is unavailable.",
+            code="jd_rephrase_project_invalid",
+            stage="jd_rephrase",
+        )
+    source_project = projects[int(project_index)]
+    current_bullets = [
+        _clean(value)
+        for value in source_project.get("draft_bullets", []) or []
+        if _clean(value)
+    ]
+    if not (0 <= int(bullet_index) < len(current_bullets)):
+        raise Phase9FFExecutionError(
+            "The selected project bullet is unavailable.",
+            code="jd_rephrase_bullet_invalid",
+            stage="jd_rephrase",
+        )
+
+    accepted = _clean(accepted_bullet)
+    if not accepted:
+        raise Phase9FFExecutionError(
+            "Accepted bullet wording is empty.",
+            code="jd_rephrase_empty",
+            stage="jd_rephrase",
+        )
+    if accepted == current_bullets[int(bullet_index)]:
+        return {
+            "execution": execution,
+            "generation": source,
+            "evaluation": {
+                "safe_to_accept": True,
+                "no_change": True,
+            },
+            "cache_status": "jd_rephrase_no_change",
+        }
+
+    baseline_report = deepcopy(prepared.get("baseline_report") or {})
+    evaluation = evaluate_rephrase_candidate(
+        baseline_report=baseline_report,
+        current_generation=source,
+        project_index=int(project_index),
+        bullet_index=int(bullet_index),
+        accepted_bullet=accepted,
+    )
+    if not evaluation.get("safe_to_accept"):
+        raise Phase9FFExecutionError(
+            "The proposed wording could not be verified against the frozen "
+            "project evidence. Keep the canonical/current wording or request "
+            "another suggestion.",
+            code="jd_rephrase_claim_lineage_failed",
+            stage="jd_rephrase",
+        )
+
+    proposed = evaluation["proposed_generation"]
+    proposed_projects = deepcopy(proposed.get("projects") or {})
+    proposed_skills = deepcopy(proposed.get("skills") or {})
+
+    content_identity = _visible_resume_content_identity(
+        prepared=prepared,
+        projects=proposed_projects,
+        skills=proposed_skills,
+    )
+
+    source_settings = deepcopy(source.get("generation_settings") or {})
+    lifecycle = _normal_lifecycle_state(source)
+    parent_generation_input = _clean(
+        lifecycle.get("generation_input_fingerprint")
+    )
+    acceptance_identity = {
+        "preview_version": JD_REPHRASE_PREVIEW_VERSION,
+        "execution_fingerprint": execution.get("execution_fingerprint"),
+        "parent_generation_id": str(source_generation_id),
+        "parent_generation_input_fingerprint": parent_generation_input,
+        "project_index": int(project_index),
+        "project_id": _clean(source_project.get("project_id")),
+        "project_title": _clean(
+            source_project.get("display_title")
+            or source_project.get("title")
+        ),
+        "bullet_index": int(bullet_index),
+        "accepted_bullet": accepted,
+        "suggestion_model": _clean(suggestion_model),
+    }
+    variant_input_fingerprint = fingerprint_value(acceptance_identity)
+
+    lifecycle["generation_input_fingerprint"] = variant_input_fingerprint
+    lifecycle["generation_status"] = "completed"
+    lifecycle.pop("fit", None)
+    lifecycle["rephrase_variant"] = {
+        **deepcopy(acceptance_identity),
+        "parent_generation_input_fingerprint": parent_generation_input,
+    }
+    source_settings["phase9f_f_normal_lifecycle"] = lifecycle
+    source_settings["jd_rephrase_preview"] = {
+        **deepcopy(acceptance_identity),
+        "suggestion": deepcopy(suggestion_payload or {}),
+        "fresh_score_comparison": deepcopy(
+            evaluation.get("fresh_score_comparison") or {}
+        ),
+        "historical_phase8_used": False,
+    }
+
+    new_generation_id = uuid.uuid4().hex
+    fit_estimate = estimate_project_section_length(
+        proposed_projects,
+        max_projects=max(
+            1,
+            len(proposed_projects.get("recommended_projects") or []),
+        ),
+        max_total_bullets=max(
+            1,
+            sum(
+                len(project.get("draft_bullets") or [])
+                for project in (
+                    proposed_projects.get("recommended_projects") or []
+                )
+                if isinstance(project, dict)
+            ),
+        ),
+    )
+
+    save_application_tailoring_generation(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        candidate_pool=deepcopy(source.get("candidate_pool")),
+        project_inputs=deepcopy(source.get("project_inputs")),
+        fit_estimate=fit_estimate,
+        projects=proposed_projects,
+        skills=proposed_skills,
+        fit_result={},
+        generation_settings=source_settings,
+        docx_path="",
+        pdf_path="",
+    )
+    record_generation_metadata(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        input_fingerprint=variant_input_fingerprint,
+        generation_kind=PHASE9F_F_NORMAL_REPHRASE_KIND,
+        parent_generation_id=str(source_generation_id),
+        base_content_fingerprint=str(
+            content_identity.get("base_content_fingerprint")
+            or source.get("base_content_fingerprint")
+            or ""
+        ),
+        content_fingerprint=str(
+            content_identity.get("content_fingerprint") or ""
+        ),
+        content_changed=bool(content_identity.get("content_changed", True)),
+        phase9e_decision_fingerprint=str(
+            source.get("phase9e_decision_fingerprint")
+            or (source_settings.get("phase9e_binding") or {}).get(
+                "decision_fingerprint"
+            )
+            or ""
+        ),
+    )
+
+    saved = get_tailoring_generation(
+        int(application_id),
+        new_generation_id,
+    )
+    if saved is None:
+        raise Phase9FFExecutionError(
+            "The accepted JD-specific wording could not be persisted.",
+            code="jd_rephrase_persistence_failed",
+            stage="jd_rephrase",
+        )
+
+    _record_normal_generation_event(
+        execution=execution,
+        event_type="normal_jd_rephrase_accepted",
+        actor_label=actor_label,
+        details={
+            "generation_id": new_generation_id,
+            "parent_generation_id": str(source_generation_id),
+            "project_index": int(project_index),
+            "bullet_index": int(bullet_index),
+            "accepted_bullet_fingerprint": fingerprint_value(accepted),
+            "fresh_score_comparison": deepcopy(
+                evaluation.get("fresh_score_comparison") or {}
+            ),
+            "historical_phase8_used": False,
+        },
+    )
+
+    return {
+        "execution": execution,
+        "generation": saved,
+        "evaluation": evaluation,
+        "cache_status": "jd_rephrase_generation_created",
+    }
+
+
+def create_application_jd_rephrase_generation(
+    *,
+    application_id: int,
+    source_generation_id: str,
+    project_index: int,
+    bullet_index: int,
+    accepted_bullet: str,
+    suggestion_model: str = "",
+    suggestion_payload: dict[str, Any] | None = None,
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Create one accepted rephrase as a new unfitted Application Session draft."""
+    source = get_tailoring_generation(
+        int(application_id),
+        str(source_generation_id),
+    )
+    if source is None:
+        raise Phase9FFExecutionError(
+            "The selected Application Session generation is unavailable.",
+            code="jd_rephrase_source_generation_missing",
+            stage="jd_rephrase",
+        )
+
+    lifecycle = _normal_lifecycle_state(source)
+    if (
+        lifecycle.get("lifecycle_version")
+        == PHASE9F_F_NORMAL_LIFECYCLE_VERSION
+    ):
+        return create_phase9f_normal_rephrase_generation(
+            application_id=int(application_id),
+            source_generation_id=str(source_generation_id),
+            project_index=int(project_index),
+            bullet_index=int(bullet_index),
+            accepted_bullet=str(accepted_bullet),
+            suggestion_model=str(suggestion_model or ""),
+            suggestion_payload=deepcopy(suggestion_payload or {}),
+            actor_label=actor_label,
+        )
+
+    if _clean(source.get("status")).lower() != "draft":
+        raise Phase9FFExecutionError(
+            "JD-specific rephrasing requires an editable Draft. Use the "
+            "Résumé Workspace to revise or create an alternative copy first.",
+            code="jd_rephrase_editable_draft_required",
+            stage="jd_rephrase",
+        )
+
+    projects = (
+        (source.get("projects") or {}).get("recommended_projects") or []
+    )
+    if not isinstance(projects, list) or not (
+        0 <= int(project_index) < len(projects)
+    ):
+        raise Phase9FFExecutionError(
+            "The selected project is unavailable.",
+            code="jd_rephrase_project_invalid",
+            stage="jd_rephrase",
+        )
+    source_project = projects[int(project_index)]
+    bullets = [
+        _clean(value)
+        for value in source_project.get("draft_bullets", []) or []
+        if _clean(value)
+    ]
+    if not (0 <= int(bullet_index) < len(bullets)):
+        raise Phase9FFExecutionError(
+            "The selected project bullet is unavailable.",
+            code="jd_rephrase_bullet_invalid",
+            stage="jd_rephrase",
+        )
+
+    accepted = _clean(accepted_bullet)
+    if not accepted:
+        raise Phase9FFExecutionError(
+            "Accepted bullet wording is empty.",
+            code="jd_rephrase_empty",
+            stage="jd_rephrase",
+        )
+    if accepted == bullets[int(bullet_index)]:
+        return {
+            "execution": None,
+            "generation": source,
+            "evaluation": {"safe_to_accept": True, "no_change": True},
+            "cache_status": "jd_rephrase_no_change",
+        }
+
+    application = db_manager.get_application_by_id(int(application_id))
+    baseline_report = (
+        deepcopy(application.get("report") or {})
+        if isinstance(application, dict)
+        else {}
+    )
+    if not isinstance(baseline_report, dict) or not (
+        baseline_report.get("jd_profile")
+        or baseline_report.get("raw_jd_text")
+    ):
+        raise Phase9FFExecutionError(
+            "The Application Session does not contain a current target JD.",
+            code="jd_rephrase_target_jd_missing",
+            stage="jd_rephrase",
+        )
+
+    evaluation = evaluate_rephrase_candidate(
+        baseline_report=baseline_report,
+        current_generation=source,
+        project_index=int(project_index),
+        bullet_index=int(bullet_index),
+        accepted_bullet=accepted,
+    )
+    if not evaluation.get("safe_to_accept"):
+        raise Phase9FFExecutionError(
+            "The proposed wording could not be verified against this "
+            "generation's stored project evidence.",
+            code="jd_rephrase_claim_lineage_failed",
+            stage="jd_rephrase",
+        )
+
+    proposed = evaluation["proposed_generation"]
+    proposed_projects = deepcopy(proposed.get("projects") or {})
+    proposed_skills = deepcopy(proposed.get("skills") or {})
+
+    acceptance_identity = {
+        "preview_version": JD_REPHRASE_PREVIEW_VERSION,
+        "application_id": int(application_id),
+        "parent_generation_id": str(source_generation_id),
+        "parent_input_fingerprint": _clean(source.get("input_fingerprint")),
+        "project_index": int(project_index),
+        "project_id": _clean(source_project.get("project_id")),
+        "project_title": _clean(
+            source_project.get("display_title")
+            or source_project.get("title")
+        ),
+        "bullet_index": int(bullet_index),
+        "accepted_bullet": accepted,
+        "suggestion_model": _clean(suggestion_model),
+    }
+    variant_input_fingerprint = fingerprint_value(acceptance_identity)
+
+    source_settings = deepcopy(source.get("generation_settings") or {})
+    source_settings["jd_rephrase_preview"] = {
+        **deepcopy(acceptance_identity),
+        "source_mode": "stored_application_generation",
+        "suggestion": deepcopy(suggestion_payload or {}),
+        "fresh_score_comparison": deepcopy(
+            evaluation.get("fresh_score_comparison") or {}
+        ),
+        "historical_phase8_used": False,
+        "live_evidence_library_used": False,
+    }
+
+    new_generation_id = uuid.uuid4().hex
+    fit_estimate = estimate_project_section_length(
+        proposed_projects,
+        max_projects=max(
+            1,
+            len(proposed_projects.get("recommended_projects") or []),
+        ),
+        max_total_bullets=max(
+            1,
+            sum(
+                len(project.get("draft_bullets") or [])
+                for project in (
+                    proposed_projects.get("recommended_projects") or []
+                )
+                if isinstance(project, dict)
+            ),
+        ),
+    )
+
+    save_application_tailoring_generation(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        candidate_pool=deepcopy(source.get("candidate_pool")),
+        project_inputs=deepcopy(source.get("project_inputs")),
+        fit_estimate=fit_estimate,
+        projects=proposed_projects,
+        skills=proposed_skills,
+        fit_result={},
+        generation_settings=source_settings,
+        docx_path="",
+        pdf_path="",
+    )
+    record_generation_metadata(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        input_fingerprint=variant_input_fingerprint,
+        generation_kind=APPLICATION_SESSION_REPHRASE_KIND,
+        parent_generation_id=str(source_generation_id),
+        base_content_fingerprint=str(
+            source.get("base_content_fingerprint") or ""
+        ),
+        content_fingerprint=fingerprint_value(
+            {"projects": proposed_projects, "skills": proposed_skills}
+        ),
+        content_changed=True,
+        phase9e_decision_fingerprint=str(
+            source.get("phase9e_decision_fingerprint") or ""
+        ),
+    )
+
+    saved = get_tailoring_generation(
+        int(application_id),
+        new_generation_id,
+    )
+    if saved is None:
+        raise Phase9FFExecutionError(
+            "The accepted JD-specific wording could not be persisted.",
+            code="jd_rephrase_persistence_failed",
+            stage="jd_rephrase",
+        )
+
+    return {
+        "execution": None,
+        "generation": saved,
+        "evaluation": evaluation,
+        "cache_status": "application_jd_rephrase_generation_created",
+    }
+
+
+
+
+def create_application_jd_rephrase_batch_generation(
+    *,
+    application_id: int,
+    source_generation_id: str,
+    accepted_changes: list[dict[str, Any]],
+    suggestion_model: str = "",
+    suggestion_payload: dict[str, Any] | None = None,
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Create one unfitted child Draft containing multiple accepted rephrases.
+
+    Phase 9F normal generations keep their stronger frozen execution/context
+    validation. Ordinary Application Session drafts use only evidence already
+    persisted with that generation. No model or fitting call occurs here.
+    """
+    source = get_tailoring_generation(
+        int(application_id),
+        str(source_generation_id),
+    )
+    if source is None:
+        raise Phase9FFExecutionError(
+            "The selected Application Session generation is unavailable.",
+            code="jd_rephrase_source_generation_missing",
+            stage="jd_rephrase",
+        )
+
+    projects = (
+        (source.get("projects") or {}).get("recommended_projects") or []
+    )
+    if not isinstance(projects, list):
+        raise Phase9FFExecutionError(
+            "The selected generation has no Projects payload.",
+            code="jd_rephrase_project_invalid",
+            stage="jd_rephrase",
+        )
+
+    effective_changes: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+    for raw_change in accepted_changes or []:
+        if not isinstance(raw_change, dict):
+            continue
+        project_index = int(raw_change.get("project_index", -1))
+        bullet_index = int(raw_change.get("bullet_index", -1))
+        accepted = _clean(raw_change.get("accepted_bullet"))
+        key = (project_index, bullet_index)
+        if key in seen:
+            raise Phase9FFExecutionError(
+                "A batch rephrase target was selected more than once.",
+                code="jd_rephrase_duplicate_target",
+                stage="jd_rephrase",
+            )
+        seen.add(key)
+        if not (0 <= project_index < len(projects)):
+            raise Phase9FFExecutionError(
+                "A selected project is unavailable.",
+                code="jd_rephrase_project_invalid",
+                stage="jd_rephrase",
+            )
+        project = projects[project_index]
+        bullets = [
+            _clean(value)
+            for value in project.get("draft_bullets", []) or []
+            if _clean(value)
+        ]
+        if not (0 <= bullet_index < len(bullets)):
+            raise Phase9FFExecutionError(
+                "A selected project bullet is unavailable.",
+                code="jd_rephrase_bullet_invalid",
+                stage="jd_rephrase",
+            )
+        if not accepted:
+            raise Phase9FFExecutionError(
+                "Accepted bullet wording is empty.",
+                code="jd_rephrase_empty",
+                stage="jd_rephrase",
+            )
+        if accepted != bullets[bullet_index]:
+            effective_changes.append(
+                {
+                    "project_index": project_index,
+                    "bullet_index": bullet_index,
+                    "accepted_bullet": accepted,
+                }
+            )
+
+    lifecycle = _normal_lifecycle_state(source)
+    is_phase9f_normal = (
+        lifecycle.get("lifecycle_version")
+        == PHASE9F_F_NORMAL_LIFECYCLE_VERSION
+    )
+    execution = None
+    prepared = None
+
+    if is_phase9f_normal:
+        prepared_result = prepare_or_reuse_phase9f_tailoring_execution(
+            application_id=int(application_id),
+            actor_label=actor_label,
+        )
+        execution = prepared_result["execution"]
+        prepared = prepared_result["prepared"]
+        if not is_phase9f_normal_lifecycle_execution(execution):
+            raise Phase9FFExecutionError(
+                "JD-specific rephrasing is available only for the normal "
+                "Minor/Full Application Session lifecycle.",
+                code="jd_rephrase_normal_lifecycle_required",
+                stage="jd_rephrase",
+            )
+        if _clean(execution.get("confirmed_intensity")).lower() not in {
+            "minor",
+            "full",
+        }:
+            raise Phase9FFExecutionError(
+                "Exact Reuse bypasses JD-specific rephrasing.",
+                code="jd_rephrase_reuse_bypassed",
+                stage="jd_rephrase",
+            )
+        if (
+            not _normal_generation_matches_context(
+                execution=execution,
+                generation=source,
+            )
+            or not _normal_generation_is_complete(source)
+        ):
+            raise Phase9FFExecutionError(
+                "The selected normal generation is unavailable or incomplete.",
+                code="jd_rephrase_source_generation_invalid",
+                stage="jd_rephrase",
+            )
+        baseline_report = deepcopy(prepared.get("baseline_report") or {})
+    else:
+        if _clean(source.get("status")).lower() != "draft":
+            raise Phase9FFExecutionError(
+                "JD-specific rephrasing requires an editable Draft. Use the "
+                "Résumé Workspace to revise or create an alternative copy first.",
+                code="jd_rephrase_editable_draft_required",
+                stage="jd_rephrase",
+            )
+        application = db_manager.get_application_by_id(int(application_id))
+        baseline_report = (
+            deepcopy(application.get("report") or {})
+            if isinstance(application, dict)
+            else {}
+        )
+        if not isinstance(baseline_report, dict) or not (
+            baseline_report.get("jd_profile")
+            or baseline_report.get("raw_jd_text")
+        ):
+            raise Phase9FFExecutionError(
+                "The Application Session does not contain a current target JD.",
+                code="jd_rephrase_target_jd_missing",
+                stage="jd_rephrase",
+            )
+
+    if not effective_changes:
+        return {
+            "execution": execution,
+            "generation": source,
+            "evaluation": {"safe_to_accept": True, "no_change": True},
+            "cache_status": "jd_rephrase_no_change",
+        }
+
+    evaluation = evaluate_rephrase_batch_candidate(
+        baseline_report=baseline_report,
+        current_generation=source,
+        accepted_changes=effective_changes,
+    )
+    if not evaluation.get("safe_to_accept"):
+        raise Phase9FFExecutionError(
+            "One or more selected wording changes could not be verified against "
+            "the generation's stored/frozen project evidence.",
+            code="jd_rephrase_claim_lineage_failed",
+            stage="jd_rephrase",
+        )
+
+    proposed = evaluation["proposed_generation"]
+    proposed_projects = deepcopy(proposed.get("projects") or {})
+    proposed_skills = deepcopy(proposed.get("skills") or {})
+    source_settings = deepcopy(source.get("generation_settings") or {})
+
+    compact_changes = [
+        {
+            "project_index": int(change["project_index"]),
+            "bullet_index": int(change["bullet_index"]),
+            "accepted_bullet": _clean(change["accepted_bullet"]),
+            "accepted_bullet_fingerprint": fingerprint_value(
+                _clean(change["accepted_bullet"])
+            ),
+        }
+        for change in effective_changes
+    ]
+    acceptance_identity = {
+        "preview_version": JD_REPHRASE_PREVIEW_VERSION,
+        "batch": True,
+        "change_count": len(compact_changes),
+        "parent_generation_id": str(source_generation_id),
+        "parent_input_fingerprint": _clean(source.get("input_fingerprint")),
+        "changes": compact_changes,
+        "suggestion_model": _clean(suggestion_model),
+    }
+
+    if is_phase9f_normal:
+        acceptance_identity["execution_fingerprint"] = execution.get(
+            "execution_fingerprint"
+        )
+        parent_generation_input = _clean(
+            lifecycle.get("generation_input_fingerprint")
+        )
+        acceptance_identity[
+            "parent_generation_input_fingerprint"
+        ] = parent_generation_input
+
+    variant_input_fingerprint = fingerprint_value(acceptance_identity)
+    source_settings["jd_rephrase_preview"] = {
+        **deepcopy(acceptance_identity),
+        "source_mode": (
+            "phase9f_frozen_generation"
+            if is_phase9f_normal
+            else "stored_application_generation"
+        ),
+        "suggestion": deepcopy(suggestion_payload or {}),
+        "fresh_score_comparison": deepcopy(
+            evaluation.get("fresh_score_comparison") or {}
+        ),
+        "historical_phase8_used": False,
+        "live_evidence_library_used": False,
+    }
+
+    if is_phase9f_normal:
+        lifecycle["generation_input_fingerprint"] = variant_input_fingerprint
+        lifecycle["generation_status"] = "completed"
+        lifecycle.pop("fit", None)
+        lifecycle["rephrase_variant"] = deepcopy(acceptance_identity)
+        source_settings["phase9f_f_normal_lifecycle"] = lifecycle
+        content_identity = _visible_resume_content_identity(
+            prepared=prepared,
+            projects=proposed_projects,
+            skills=proposed_skills,
+        )
+        generation_kind = PHASE9F_F_NORMAL_REPHRASE_KIND
+        base_content_fingerprint = str(
+            content_identity.get("base_content_fingerprint")
+            or source.get("base_content_fingerprint")
+            or ""
+        )
+        content_fingerprint = str(
+            content_identity.get("content_fingerprint") or ""
+        )
+        content_changed = bool(
+            content_identity.get("content_changed", True)
+        )
+    else:
+        generation_kind = APPLICATION_SESSION_REPHRASE_KIND
+        base_content_fingerprint = str(
+            source.get("base_content_fingerprint") or ""
+        )
+        content_fingerprint = fingerprint_value(
+            {"projects": proposed_projects, "skills": proposed_skills}
+        )
+        content_changed = True
+
+    new_generation_id = uuid.uuid4().hex
+    fit_estimate = estimate_project_section_length(
+        proposed_projects,
+        max_projects=max(
+            1,
+            len(proposed_projects.get("recommended_projects") or []),
+        ),
+        max_total_bullets=max(
+            1,
+            sum(
+                len(project.get("draft_bullets") or [])
+                for project in (
+                    proposed_projects.get("recommended_projects") or []
+                )
+                if isinstance(project, dict)
+            ),
+        ),
+    )
+
+    save_application_tailoring_generation(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        candidate_pool=deepcopy(source.get("candidate_pool")),
+        project_inputs=deepcopy(source.get("project_inputs")),
+        fit_estimate=fit_estimate,
+        projects=proposed_projects,
+        skills=proposed_skills,
+        fit_result={},
+        generation_settings=source_settings,
+        docx_path="",
+        pdf_path="",
+    )
+    record_generation_metadata(
+        application_id=int(application_id),
+        generation_id=new_generation_id,
+        input_fingerprint=variant_input_fingerprint,
+        generation_kind=generation_kind,
+        parent_generation_id=str(source_generation_id),
+        base_content_fingerprint=base_content_fingerprint,
+        content_fingerprint=content_fingerprint,
+        content_changed=content_changed,
+        phase9e_decision_fingerprint=str(
+            source.get("phase9e_decision_fingerprint")
+            or (source_settings.get("phase9e_binding") or {}).get(
+                "decision_fingerprint"
+            )
+            or ""
+        ),
+    )
+
+    saved = get_tailoring_generation(
+        int(application_id),
+        new_generation_id,
+    )
+    if saved is None:
+        raise Phase9FFExecutionError(
+            "The accepted JD-specific wording could not be persisted.",
+            code="jd_rephrase_persistence_failed",
+            stage="jd_rephrase",
+        )
+
+    if is_phase9f_normal:
+        _record_normal_generation_event(
+            execution=execution,
+            event_type="normal_jd_rephrase_batch_accepted",
+            actor_label=actor_label,
+            details={
+                "generation_id": new_generation_id,
+                "parent_generation_id": str(source_generation_id),
+                "change_count": len(compact_changes),
+                "changes": [
+                    {
+                        "project_index": change["project_index"],
+                        "bullet_index": change["bullet_index"],
+                        "accepted_bullet_fingerprint": change[
+                            "accepted_bullet_fingerprint"
+                        ],
+                    }
+                    for change in compact_changes
+                ],
+                "fresh_score_comparison": deepcopy(
+                    evaluation.get("fresh_score_comparison") or {}
+                ),
+                "historical_phase8_used": False,
+            },
+        )
+
+    return {
+        "execution": execution,
+        "generation": saved,
+        "evaluation": evaluation,
+        "cache_status": "application_jd_rephrase_batch_generation_created",
+    }
 
 def run_phase9f_normal_fit(
     *,

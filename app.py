@@ -38,9 +38,12 @@ try:
         "MODEL",
         "ANALYSIS_MODEL",
         "CHAT_MODEL",
+        "LOCAL_LLM_MODEL",
+        "REPHRASE_MODEL",
         "REASONING_EFFORT",
         "ANALYSIS_REASONING_EFFORT",
         "CHAT_REASONING_EFFORT",
+        "REPHRASE_REASONING_EFFORT",
         "LLM_SEED",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
@@ -148,6 +151,8 @@ from database.phase9f_application_execution_manager import (
     init_phase9f_application_execution_schema,
 )
 from database.phase9f_tailoring_execution_manager import (
+    create_application_jd_rephrase_batch_generation,
+    create_application_jd_rephrase_generation,
     delete_phase9f_tailoring_execution,
     get_phase9f_tailoring_execution,
     run_phase9f_normal_fit,
@@ -230,6 +235,16 @@ from tailoring.phase9f_tailoring_execution import (
 )
 from tailoring.phase9f_preview_state import (
     resolve_phase9f_preview_generation,
+)
+from tailoring.jd_specific_rephrase_preview import (
+    build_jd_score_optimization_review,
+    build_rephrase_batch_contexts,
+    build_rephrase_preview_context,
+    build_rephrased_generation_candidate,
+    build_rephrase_fresh_score_comparison,
+    evaluate_rephrase_candidate,
+    suggest_jd_specific_rephrase,
+    suggest_jd_specific_rephrases_batch,
 )
 from tailoring.phase9e_application_result_ui import (
     render_phase9e_application_result,
@@ -317,6 +332,7 @@ from llm import (
 )
 
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
+from tailoring.ollama_performance_settings import is_local_ollama_model as _ollama_perf_is_local_model
 
 
 VALID_DEGREES = ["RTIS", "IMGD", "UXGD", "BFA"]
@@ -415,6 +431,44 @@ def record_zero_cost_action_event(
         "note": str(note or ""),
         "source": "cache_or_local",
     }
+
+
+
+def _arm_jd_score_optimizer_for_generation(
+    *,
+    application_id: int,
+    generation_id: str | None,
+) -> None:
+    """Arm one optimization pass for one explicit combined Generate action."""
+    pending_key = (
+        "jd_score_optimizer_pending_generation_"
+        f"{application_id}"
+    )
+    enabled_key = (
+        "jd_score_optimizer_enabled_"
+        f"{application_id}"
+    )
+    cleaned_generation_id = str(
+        generation_id or ""
+    ).strip()
+
+    if (
+        bool(
+            st.session_state.get(
+                enabled_key,
+                False,
+            )
+        )
+        and cleaned_generation_id
+    ):
+        st.session_state[pending_key] = (
+            cleaned_generation_id
+        )
+    else:
+        st.session_state.pop(
+            pending_key,
+            None,
+        )
 
 
 def append_api_usage(
@@ -1336,6 +1390,83 @@ def create_full_debug_bundle(
         ),
     }
 
+    jd_score_optimizer_reviews = []
+    jd_score_optimizer_debug = {
+        "available": False,
+        "review_count": 0,
+        "pending_generation_id": "",
+        "enabled": False,
+        "model_source": "",
+        "reviews": [],
+    }
+    if application_id is not None:
+        optimizer_prefix = (
+            "jd_score_optimizer_review_"
+            f"{int(application_id)}_"
+        )
+        for optimizer_session_key, optimizer_value in (
+            st.session_state.items()
+        ):
+            if (
+                isinstance(optimizer_session_key, str)
+                and optimizer_session_key.startswith(
+                    optimizer_prefix
+                )
+                and isinstance(optimizer_value, dict)
+            ):
+                jd_score_optimizer_reviews.append(
+                    {
+                        "session_key": (
+                            optimizer_session_key
+                        ),
+                        "review": deepcopy(
+                            optimizer_value
+                        ),
+                    }
+                )
+
+        jd_score_optimizer_reviews.sort(
+            key=lambda row: str(
+                row.get("session_key")
+                or ""
+            )
+        )
+        jd_score_optimizer_debug = {
+            "available": bool(
+                jd_score_optimizer_reviews
+            ),
+            "review_count": len(
+                jd_score_optimizer_reviews
+            ),
+            "pending_generation_id": str(
+                st.session_state.get(
+                    "jd_score_optimizer_pending_generation_"
+                    f"{int(application_id)}",
+                    "",
+                )
+                or ""
+            ),
+            "enabled": bool(
+                st.session_state.get(
+                    "jd_score_optimizer_enabled_"
+                    f"{int(application_id)}",
+                    False,
+                )
+            ),
+            "model_source": str(
+                st.session_state.get(
+                    "jd_score_optimizer_model_source_"
+                    f"{int(application_id)}",
+                    "",
+                )
+                or ""
+            ),
+            "reviews": jd_score_optimizer_reviews,
+        }
+
+    debug_bundle["jd_score_optimizer_debug"] = (
+        jd_score_optimizer_debug
+    )
     json_bytes = json.dumps(
         debug_bundle,
         indent=2,
@@ -2162,58 +2293,52 @@ with st.sidebar:
     model_options = get_model_options()
     model_labels = list(model_options.keys())
 
-    current_analysis_model = get_active_model(
-        "analysis"
-    )
+    current_analysis_model = get_active_model("analysis")
+    current_chat_model = get_active_model("chat")
+    current_rephrase_model = get_active_model("rephrase")
 
-    current_chat_model = get_active_model(
-        "chat"
-    )
-
-    analysis_default_index = next(
-        (
-            index
-            for index, label in enumerate(
-                model_labels
-            )
-            if model_options[label]
-            == current_analysis_model
-        ),
-        0,
-    )
-
-    chat_default_index = next(
-        (
-            index
-            for index, label in enumerate(
-                model_labels
-            )
-            if model_options[label]
-            == current_chat_model
-        ),
-        0,
-    )
+    def _model_default_index(model_id: str) -> int:
+        return next(
+            (
+                index
+                for index, label in enumerate(model_labels)
+                if model_options[label] == model_id
+            ),
+            0,
+        )
 
     analysis_model_label = st.selectbox(
         "Analysis model",
         model_labels,
-        index=analysis_default_index,
+        index=_model_default_index(current_analysis_model),
         key="analysis_model_selector",
         help=(
-            "Used for resume analysis, JD extraction, "
-            "project scoring, bullet writing and "
-            "cover-letter generation."
+            "Used for resume analysis, JD extraction, project scoring, "
+            "bullet writing and cover-letter generation. Local Ollama "
+            "models can also be selected here."
         ),
     )
 
     chat_model_label = st.selectbox(
         "Chatbot model",
         model_labels,
-        index=chat_default_index,
+        index=_model_default_index(current_chat_model),
         key="chat_model_selector",
         help=(
-            "Used for analysis questions and the "
-            "Job Market Insights RAG chatbot."
+            "Used for analysis questions and the Job Market Insights RAG "
+            "chatbot. Local Ollama models can also be selected here."
+        ),
+    )
+
+    rephrase_model_label = st.selectbox(
+        "Rephrase model",
+        model_labels,
+        index=_model_default_index(current_rephrase_model),
+        key="rephrase_model_selector",
+        help=(
+            "Used only to propose JD-specific project-bullet wording. "
+            "Deterministic evidence and claim-lineage checks remain "
+            "authoritative. Defaults to the configured local Ollama model."
         ),
     )
 
@@ -2221,21 +2346,21 @@ with st.sidebar:
         model_options[analysis_model_label],
         route="analysis",
     )
-
     set_runtime_model(
         model_options[chat_model_label],
         route="chat",
     )
+    set_runtime_model(
+        model_options[rephrase_model_label],
+        route="rephrase",
+    )
 
     st.caption("Active analysis model")
-    st.code(
-        get_active_model("analysis")
-    )
-
+    st.code(get_active_model("analysis"))
     st.caption("Active chatbot model")
-    st.code(
-        get_active_model("chat")
-    )
+    st.code(get_active_model("chat"))
+    st.caption("Active rephrase model")
+    st.code(get_active_model("rephrase"))
 
     st.divider()
 
@@ -3681,6 +3806,127 @@ elif page == "Application Sessions":
             )
             phase9f_f_paid_acknowledgement = False
             if phase9f_f_active and not phase9f_f_blocked:
+                score_optimizer_enabled_key = (
+                    f"jd_score_optimizer_enabled_{current_application_id}"
+                )
+                score_optimizer_mode_key = (
+                    f"jd_score_optimizer_mode_{current_application_id}"
+                )
+
+                with st.expander(
+                    "Optional: Optimize generated project bullets for JD score",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Configure this before Generate Projects + Skills. When enabled, "
+                        "the normal Projects/Skills Draft is generated first, then the "
+                        "new Draft automatically enters the separate JD score-optimization "
+                        "pass before Build/Fit."
+                    )
+                    st.caption(
+                        "Only alternatives with a strictly positive fresh deterministic "
+                        "JD score gain, no important regression, a passing preview guard, "
+                        "and passing claim lineage are eligible."
+                    )
+                    st.warning(
+                        "This option may make additional Optimization-model calls after "
+                        "Projects/Skills generation completes."
+                    )
+                    st.checkbox(
+                        "Generate JD score-optimized bullet alternatives",
+                        value=False,
+                        key=score_optimizer_enabled_key,
+                    )
+                    st.radio(
+                        "Replacement mode",
+                        options=[
+                            "Review before replacing",
+                            "Auto-replace safe higher-scoring bullets",
+                            "Suggest only — never replace",
+                        ],
+                        index=0,
+                        key=score_optimizer_mode_key,
+                        disabled=not bool(
+                            st.session_state.get(
+                                score_optimizer_enabled_key,
+                                False,
+                            )
+                        ),
+                    )
+                    score_optimizer_model_source_key = (
+                        f"jd_score_optimizer_model_source_{current_application_id}"
+                    )
+                    score_optimizer_model_sources = [
+                        "__current_analysis__",
+                        "__current_rephrase__",
+                    ]
+                    score_optimizer_catalogue = get_model_options()
+                    score_optimizer_catalogue_ids = list(
+                        dict.fromkeys(score_optimizer_catalogue.values())
+                    )
+                    for candidate_model_id in score_optimizer_catalogue_ids:
+                        if candidate_model_id not in {
+                            get_active_model("analysis"),
+                            get_active_model("rephrase"),
+                        }:
+                            score_optimizer_model_sources.append(
+                                candidate_model_id
+                            )
+
+                    def _score_optimizer_model_label(
+                        source: str,
+                    ) -> str:
+                        if source == "__current_analysis__":
+                            return (
+                                "Use current Analysis model — "
+                                f"{get_active_model('analysis')}"
+                            )
+                        if source == "__current_rephrase__":
+                            return (
+                                "Use current Rephrase model — "
+                                f"{get_active_model('rephrase')}"
+                            )
+                        for label, model_id in score_optimizer_catalogue.items():
+                            if model_id == source:
+                                return label
+                        return source
+
+                    score_optimizer_model_source = st.selectbox(
+                        "Optimization model",
+                        options=score_optimizer_model_sources,
+                        index=0,
+                        key=score_optimizer_model_source_key,
+                        format_func=_score_optimizer_model_label,
+                        disabled=not bool(
+                            st.session_state.get(
+                                score_optimizer_enabled_key,
+                                False,
+                            )
+                        ),
+                        help=(
+                            "Defaults to the current Analysis model because JD score "
+                            "optimization is a reasoning/alignment task. You can switch "
+                            "to the Rephrase model or another configured model."
+                        ),
+                    )
+
+                    if score_optimizer_model_source == "__current_analysis__":
+                        resolved_score_optimizer_model = get_active_model(
+                            "analysis"
+                        )
+                    elif score_optimizer_model_source == "__current_rephrase__":
+                        resolved_score_optimizer_model = get_active_model(
+                            "rephrase"
+                        )
+                    else:
+                        resolved_score_optimizer_model = str(
+                            score_optimizer_model_source
+                        )
+
+                    st.caption(
+                        "Resolved optimization model: "
+                        f"`{resolved_score_optimizer_model}`"
+                    )
                 st.warning(
                     "Projects & Skills may make paid model calls only for the "
                     "enabled frozen sections. No fitting or approval occurs "
@@ -3763,6 +4009,15 @@ elif page == "Application Sessions":
                                 "Session generation. Generation controls remain "
                                 "available for a new settings/model combination."
                             )
+                            # jd_score_optimizer_arm_after_generate_v2_2s
+                            _arm_jd_score_optimizer_for_generation(
+                                application_id=int(
+                                    current_application_id
+                                ),
+                                generation_id=st.session_state.get(
+                                    tailored_generation_id_key
+                                ),
+                            )
                             st.rerun()
                         phase9f_sections = run_phase9f_tailoring_projects_skills(
                             application_id=int(current_application_id),
@@ -3825,6 +4080,15 @@ elif page == "Application Sessions":
                         st.session_state[f"phase7_flash_{current_application_id}"] = (
                             "Projects and Skills are ready in the durable Phase 9F "
                             "execution. Continue to Build and Fit."
+                        )
+                        # jd_score_optimizer_arm_after_generate_v2_2s
+                        _arm_jd_score_optimizer_for_generation(
+                            application_id=int(
+                                current_application_id
+                            ),
+                            generation_id=st.session_state.get(
+                                tailored_generation_id_key
+                            ),
                         )
                         st.rerun()
                     evidence_items = get_evidence_items(limit=100)
@@ -3950,6 +4214,15 @@ elif page == "Application Sessions":
                         ] = (
                             "Loaded immutable Phase 9E Projects and Skills. "
                             "No model call was made."
+                        )
+                        # jd_score_optimizer_arm_after_generate_v2_2s
+                        _arm_jd_score_optimizer_for_generation(
+                            application_id=int(
+                                current_application_id
+                            ),
+                            generation_id=st.session_state.get(
+                                tailored_generation_id_key
+                            ),
                         )
                         st.rerun()
 
@@ -4198,6 +4471,15 @@ elif page == "Application Sessions":
                         "Created a new Draft for the unlocked generated "
                         "section(s). Locked sections came from the approved "
                         "final fitted output."
+                    )
+                    # jd_score_optimizer_arm_after_generate_v2_2s
+                    _arm_jd_score_optimizer_for_generation(
+                        application_id=int(
+                            current_application_id
+                        ),
+                        generation_id=st.session_state.get(
+                            tailored_generation_id_key
+                        ),
                     )
                     st.rerun()
 
@@ -4604,6 +4886,1448 @@ elif page == "Application Sessions":
 
                 with st.expander("Unsupported JD skills"):
                     st.json(skills_result.get("unsupported_jd_skills", []))
+
+            if project_result and not workspace_edit_required:
+                current_rephrase_generation_id = str(
+                    st.session_state.get(tailored_generation_id_key) or ""
+                )
+                current_rephrase_generation = (
+                    get_tailoring_generation(
+                        current_application_id,
+                        current_rephrase_generation_id,
+                    )
+                    if current_rephrase_generation_id
+                    else None
+                )
+                if (
+                    isinstance(current_rephrase_generation, dict)
+                    and str(
+                        current_rephrase_generation.get("status") or "draft"
+                    ).lower() == "draft"
+                ):
+                    rephrase_projects = (
+                        (current_rephrase_generation.get("projects") or {}).get(
+                            "recommended_projects", []
+                        )
+                        or []
+                    )
+                    if rephrase_projects:
+                        # jd_score_optimizer_enabled_guard_v2_2q
+                        if bool(
+                            st.session_state.get(
+                                f"jd_score_optimizer_enabled_{current_application_id}",
+                                False,
+                            )
+                        ):
+                            with st.expander(
+                                "JD score optimization results",
+                                expanded=True,
+                            ):
+                                st.caption(
+                                    "Runs after project generation and before Build/Fit. "
+                                    "The selected Optimization model may propose alternatives, "
+                                    "but only candidates that pass the existing deterministic "
+                                    "preview guard, claim-lineage verification, and produce a "
+                                    "strictly positive fresh JD score gain are shown here."
+                                )
+                                st.caption(
+                                    "The original generated Draft is never overwritten. "
+                                    "Applying alternatives creates one new unfitted child Draft, "
+                                    "so you can keep or return to the original wording."
+                                )
+
+                                score_optimizer_enabled_key = (
+                                    "jd_score_optimizer_enabled_"
+                                    f"{current_application_id}"
+                                )
+                                score_optimizer_mode_key = (
+                                    "jd_score_optimizer_mode_"
+                                    f"{current_application_id}"
+                                )
+                                score_optimizer_enabled = bool(
+                                    st.session_state.get(
+                                        score_optimizer_enabled_key,
+                                        False,
+                                    )
+                                )
+                                score_optimizer_pending_key = (
+                                    "jd_score_optimizer_pending_generation_"
+                                    f"{current_application_id}"
+                                )
+                                score_optimizer_pending_generation_id = str(
+                                    st.session_state.get(
+                                        score_optimizer_pending_key,
+                                        "",
+                                    )
+                                    or ""
+                                ).strip()
+
+                                score_optimizer_generation_triggered = bool(
+                                    score_optimizer_enabled
+                                    and score_optimizer_pending_generation_id
+                                    == current_rephrase_generation_id
+                                )
+
+                                # The checkbox only arms the NEXT explicit Generate Projects + Skills action.
+                                # It must never make an existing Draft run merely because Streamlit rerendered.
+                                if score_optimizer_generation_triggered:
+                                    st.session_state.pop(
+                                        score_optimizer_pending_key,
+                                        None,
+                                    )
+                                elif (
+                                    score_optimizer_pending_generation_id
+                                    and not score_optimizer_enabled
+                                ):
+                                    # Unchecking before the generated Draft reaches this panel cancels the
+                                    # pending one-shot request.
+                                    st.session_state.pop(
+                                        score_optimizer_pending_key,
+                                        None,
+                                    )
+
+                                # Preserve the existing downstream optimizer condition while replacing its
+                                # meaning with the one-shot exact-generation trigger.
+                                score_optimizer_enabled = (
+                                    score_optimizer_generation_triggered
+                                )
+                                score_optimizer_mode = str(
+                                    st.session_state.get(
+                                        score_optimizer_mode_key,
+                                        "Review before replacing",
+                                    )
+                                    or "Review before replacing"
+                                )
+
+                                score_optimizer_model_source_key = (
+                                    "jd_score_optimizer_model_source_"
+                                    f"{current_application_id}"
+                                )
+                                score_optimizer_model_source = str(
+                                    st.session_state.get(
+                                        score_optimizer_model_source_key,
+                                        "__current_analysis__",
+                                    )
+                                    or "__current_analysis__"
+                                )
+                                if score_optimizer_model_source == "__current_analysis__":
+                                    score_optimizer_model_id = get_active_model(
+                                        "analysis"
+                                    )
+                                elif score_optimizer_model_source == "__current_rephrase__":
+                                    score_optimizer_model_id = get_active_model(
+                                        "rephrase"
+                                    )
+                                else:
+                                    score_optimizer_model_id = score_optimizer_model_source
+                                st.caption(
+                                    "Optimization model: "
+                                    f"`{score_optimizer_model_id}`"
+                                )
+
+                                score_optimizer_key = (
+                                    "jd_score_optimizer_review_"
+                                    f"{current_application_id}_"
+                                    f"{current_rephrase_generation_id}_"
+                                    f"{stable_content_fingerprint(score_optimizer_model_id)[:10]}"
+                                )
+                                score_optimizer_review = st.session_state.get(
+                                    score_optimizer_key
+                                )
+                                if not isinstance(
+                                    score_optimizer_review,
+                                    dict,
+                                ):
+                                    score_optimizer_review = None
+
+                                score_optimizer_skip_key = (
+                                    "jd_score_optimizer_skip_fingerprint_"
+                                    f"{current_application_id}"
+                                )
+                                score_optimizer_current_fingerprint = (
+                                    stable_content_fingerprint(
+                                        current_rephrase_generation
+                                    )
+                                )
+                                score_optimizer_skip_fingerprint = (
+                                    st.session_state.get(
+                                        score_optimizer_skip_key
+                                    )
+                                )
+
+                                if (
+                                    score_optimizer_enabled
+                                    and score_optimizer_review is None
+                                    and (
+                                        score_optimizer_skip_fingerprint
+                                        != score_optimizer_current_fingerprint
+                                    )
+                                ):
+                                    reset_call_ledger()
+                                    with st.spinner(
+                                        "Generating alternatives and verifying "
+                                        "fresh deterministic score gains..."
+                                    ):
+                                        score_optimizer_review = (
+                                            build_jd_score_optimization_review(
+                                                generation=(
+                                                    current_rephrase_generation
+                                                ),
+                                                baseline_report=report,
+                                                model=score_optimizer_model_id,
+                                                project_indices=list(
+                                                    range(
+                                                        len(
+                                                            rephrase_projects
+                                                        )
+                                                    )
+                                                ),
+                                                attempt_number=1,
+                                            )
+                                        )
+                                    append_api_usage(
+                                        application_id=current_application_id,
+                                        action="suggest_jd_rephrase",
+                                        report=persisted_application_report,
+                                    )
+
+                                    score_opportunities = list(
+                                        score_optimizer_review.get(
+                                            "opportunities"
+                                        )
+                                        or []
+                                    )
+                                    if (
+                                        score_optimizer_mode
+                                        == "Auto-replace safe higher-scoring bullets"
+                                        and score_opportunities
+                                    ):
+                                        accepted_changes = [
+                                            deepcopy(
+                                                opportunity.get(
+                                                    "accepted_change"
+                                                )
+                                                or {}
+                                            )
+                                            for opportunity in score_opportunities
+                                            if isinstance(
+                                                opportunity,
+                                                dict,
+                                            )
+                                        ]
+                                        accepted_changes = [
+                                            change
+                                            for change in accepted_changes
+                                            if change.get("accepted_bullet")
+                                        ]
+                                        accepted = (
+                                            create_application_jd_rephrase_batch_generation(
+                                                application_id=int(
+                                                    current_application_id
+                                                ),
+                                                source_generation_id=(
+                                                    current_rephrase_generation_id
+                                                ),
+                                                accepted_changes=accepted_changes,
+                                                suggestion_model=(
+                                                    score_optimizer_model_id
+                                                ),
+                                                suggestion_payload={
+                                                    "mode": (
+                                                        "jd_score_optimization"
+                                                    ),
+                                                    "replacement_mode": (
+                                                        score_optimizer_mode
+                                                    ),
+                                                    "optimization_version": (
+                                                        score_optimizer_review.get(
+                                                            "optimization_version"
+                                                        )
+                                                    ),
+                                                    "opportunities": deepcopy(
+                                                        score_opportunities
+                                                    ),
+                                                },
+                                            )
+                                        )
+                                        st.session_state[
+                                            score_optimizer_skip_key
+                                        ] = stable_content_fingerprint(
+                                            accepted["generation"]
+                                        )
+                                        restore_generation_to_session(
+                                            current_application_id,
+                                            accepted["generation"],
+                                        )
+                                        record_zero_cost_action_event(
+                                            application_id=(
+                                                current_application_id
+                                            ),
+                                            action=(
+                                                "accept_jd_score_optimization"
+                                            ),
+                                            note=(
+                                                "Auto-applied "
+                                                f"{len(accepted_changes)} safe "
+                                                "positive-score bullet alternative(s) "
+                                                "into one unfitted child Draft; "
+                                                "acceptance made no model or fitting call."
+                                            ),
+                                        )
+                                        st.session_state[
+                                            f"phase7_flash_{current_application_id}"
+                                        ] = (
+                                            "Created one unfitted child Draft with "
+                                            f"{len(accepted_changes)} verified "
+                                            "positive-score bullet improvement(s)."
+                                        )
+                                        st.rerun()
+
+                                    st.session_state[
+                                        score_optimizer_key
+                                    ] = score_optimizer_review
+                                    st.rerun()
+
+                                if score_optimizer_review:
+                                    opportunities = list(
+                                        score_optimizer_review.get(
+                                            "opportunities"
+                                        )
+                                        or []
+                                    )
+                                    rejected_candidates = [
+                                        dict(candidate)
+                                        for candidate in (
+                                            score_optimizer_review.get(
+                                                "rejected_candidates"
+                                            )
+                                            or []
+                                        )
+                                        if isinstance(candidate, dict)
+                                    ]
+                                    rejected_count = len(rejected_candidates)
+                                    optimizer_diagnostics = (
+                                        score_optimizer_review.get(
+                                            "diagnostics"
+                                        )
+                                        or {}
+                                    )
+                                    if optimizer_diagnostics:
+                                        st.write(
+                                            "#### Optimization diagnostic"
+                                        )
+                                        diagnostic_col1, diagnostic_col2, diagnostic_col3 = (
+                                            st.columns(3)
+                                        )
+                                        diagnostic_col1.metric(
+                                            "Bullets reviewed",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "reviewed_bullet_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+                                        diagnostic_col2.metric(
+                                            "Changed proposals",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "changed_proposal_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+                                        diagnostic_col3.metric(
+                                            "Positive improvements",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "positive_opportunity_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+
+                                        diagnostic_col4, diagnostic_col5, diagnostic_col6 = (
+                                            st.columns(3)
+                                        )
+                                        diagnostic_col4.metric(
+                                            "Unchanged / no-change",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "unchanged_or_no_change_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+                                        diagnostic_col5.metric(
+                                            "Rejected changed proposals",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "rejected_changed_proposal_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+                                        diagnostic_col6.metric(
+                                            "Optimization model calls",
+                                            int(
+                                                optimizer_diagnostics.get(
+                                                    "model_call_count",
+                                                    0,
+                                                )
+                                                or 0
+                                            ),
+                                        )
+                                        st.caption(
+                                            "Suggestion rows returned: "
+                                            f"{int(optimizer_diagnostics.get('normalized_suggestion_row_count', 0) or 0)}"
+                                        )
+
+                                        no_change_details = [
+                                            dict(detail)
+                                            for detail in (
+                                                optimizer_diagnostics.get(
+                                                    "no_change_details"
+                                                )
+                                                or []
+                                            )
+                                            if isinstance(detail, dict)
+                                        ]
+                                        if no_change_details:
+                                            with st.expander(
+                                                "Why bullets were unchanged",
+                                                expanded=False,
+                                            ):
+                                                st.caption(
+                                                    "These are concise model-returned reasons when available. "
+                                                    "They are diagnostic summaries, not hidden chain-of-thought. "
+                                                    "Fallback text is shown when an unchanged/omitted row did "
+                                                    "not contain a model reason."
+                                                )
+                                                for no_change_index, detail in enumerate(
+                                                    no_change_details,
+                                                    start=1,
+                                                ):
+                                                    project_title = str(
+                                                        detail.get("project_title")
+                                                        or (
+                                                            "Project "
+                                                            f"{int(detail.get('project_index', -1)) + 1}"
+                                                        )
+                                                    )
+                                                    bullet_number = (
+                                                        int(detail.get("bullet_index", -1))
+                                                        + 1
+                                                    )
+                                                    reason_source = str(
+                                                        detail.get("reason_source")
+                                                        or "fallback"
+                                                    )
+                                                    reason_label = (
+                                                        "Model-provided concise reason"
+                                                        if reason_source == "model"
+                                                        else "Fallback diagnostic"
+                                                    )
+
+                                                    st.markdown(
+                                                        f"**{no_change_index}. "
+                                                        f"{project_title} — bullet "
+                                                        f"{bullet_number}**"
+                                                    )
+                                                    st.write(
+                                                        str(
+                                                            detail.get("current_bullet")
+                                                            or "(missing bullet text)"
+                                                        )
+                                                    )
+                                                    st.caption(
+                                                        f"{reason_label}: "
+                                                        f"{detail.get('reason') or 'No reason available.'}"
+                                                    )
+
+                                                    jd_terms = [
+                                                        str(value)
+                                                        for value in (
+                                                            detail.get("jd_terms_used")
+                                                            or []
+                                                        )
+                                                        if str(value).strip()
+                                                    ]
+                                                    if jd_terms:
+                                                        st.caption(
+                                                            "JD terms considered/returned: "
+                                                            + ", ".join(jd_terms)
+                                                        )
+
+                                                    if no_change_index < len(
+                                                        no_change_details
+                                                    ):
+                                                        st.divider()
+
+                                        changed_count = int(
+                                            optimizer_diagnostics.get(
+                                                "changed_proposal_count",
+                                                0,
+                                            )
+                                            or 0
+                                        )
+                                        reviewed_count = int(
+                                            optimizer_diagnostics.get(
+                                                "reviewed_bullet_count",
+                                                0,
+                                            )
+                                            or 0
+                                        )
+                                        if (
+                                            reviewed_count > 0
+                                            and changed_count == 0
+                                        ):
+                                            st.info(
+                                                "The optimizer reviewed the generated "
+                                                "bullets but did not produce any "
+                                                "meaningfully changed proposal to send "
+                                                "through score/safety evaluation."
+                                            )
+
+                                    if not opportunities:
+                                        st.success(
+                                            "No safe positive-score bullet alternative "
+                                            "was found. The current generated bullets "
+                                            "remain unchanged."
+                                        )
+                                        if rejected_count:
+                                            st.caption(
+                                                f"{rejected_count} changed candidate(s) were rejected. "
+                                                "Exact deterministic reasons are shown below."
+                                            )
+                                            st.write("#### Rejected optimization candidates")
+
+                                            rejection_reason_labels = {
+                                                "no_positive_score_gain": "No positive JD score gain",
+                                                "preview_guard_failed": "Deterministic preview guard failed",
+                                                "claim_lineage_failed": "Claim-lineage verification failed",
+                                                "fresh_score_unavailable": "Fresh deterministic score unavailable",
+                                                "important_regression": "Important JD coverage regression",
+                                            }
+
+                                            for rejected_index, rejected in enumerate(
+                                                rejected_candidates,
+                                                start=1,
+                                            ):
+                                                project_index = int(
+                                                    rejected.get("project_index", -1)
+                                                )
+                                                bullet_index = int(
+                                                    rejected.get("bullet_index", -1)
+                                                )
+
+                                                project_title = f"Project {project_index + 1}"
+                                                if 0 <= project_index < len(rephrase_projects):
+                                                    rejected_project = (
+                                                        rephrase_projects[project_index] or {}
+                                                    )
+                                                    project_title = str(
+                                                        rejected_project.get("display_title")
+                                                        or rejected_project.get("title")
+                                                        or project_title
+                                                    )
+
+                                                reason_code = str(
+                                                    rejected.get("reason") or "unknown"
+                                                )
+                                                reason_label = rejection_reason_labels.get(
+                                                    reason_code,
+                                                    reason_code.replace("_", " ").title(),
+                                                )
+                                                comparison = (
+                                                    rejected.get("fresh_score_comparison") or {}
+                                                )
+
+                                                with st.container(border=True):
+                                                    st.markdown(
+                                                        f"**{rejected_index}. {project_title} — "
+                                                        f"bullet {bullet_index + 1}**"
+                                                    )
+                                                    st.caption(
+                                                        f"Rejected: **{reason_label}** "
+                                                        f"(`{reason_code}`)"
+                                                    )
+
+                                                    before_col, after_col = st.columns(2)
+                                                    with before_col:
+                                                        st.markdown("**Generated bullet**")
+                                                        st.write(
+                                                            str(
+                                                                rejected.get("before_bullet")
+                                                                or "(missing)"
+                                                            )
+                                                        )
+                                                    with after_col:
+                                                        st.markdown("**Rejected alternative**")
+                                                        st.write(
+                                                            str(
+                                                                rejected.get("after_bullet")
+                                                                or "(missing)"
+                                                            )
+                                                        )
+
+                                                    if comparison:
+                                                        if comparison.get("available"):
+                                                            st.caption(
+                                                                "Fresh deterministic score: "
+                                                                f"{comparison.get('before_score', 0)} "
+                                                                "→ "
+                                                                f"{comparison.get('after_score', 0)} "
+                                                                f"({comparison.get('score_delta', 0):+})."
+                                                            )
+                                                        else:
+                                                            st.caption(
+                                                                "Fresh deterministic score comparison "
+                                                                "was not available."
+                                                            )
+
+                                                    guard_reasons = list(
+                                                        rejected.get("guard_reasons") or []
+                                                    )
+                                                    if guard_reasons:
+                                                        st.write("**Preview guard reasons:**")
+                                                        for guard_reason in guard_reasons:
+                                                            st.write(f"- {guard_reason}")
+
+                                                    lineage_risks = list(
+                                                        rejected.get("claim_lineage_risks") or []
+                                                    )
+                                                    if lineage_risks:
+                                                        st.write("**Claim-lineage risks:**")
+                                                        for lineage_risk in lineage_risks:
+                                                            st.write(f"- {lineage_risk}")
+
+                                                    regressions = list(
+                                                        comparison.get("important_regressions") or []
+                                                    )
+                                                    if regressions:
+                                                        st.write("**Important regressions:**")
+                                                        for regression in regressions:
+                                                            st.write(f"- {regression}")
+                                    else:
+                                        st.write(
+                                            "### Verified score improvements"
+                                        )
+                                        st.caption(
+                                            f"{len(opportunities)} alternative(s) "
+                                            "produced a strict positive fresh score "
+                                            "gain and passed deterministic safety."
+                                        )
+
+                                        selected_score_changes = []
+                                        for opportunity in opportunities:
+                                            if not isinstance(
+                                                opportunity,
+                                                dict,
+                                            ):
+                                                continue
+                                            project_index = int(
+                                                opportunity.get(
+                                                    "project_index",
+                                                    -1,
+                                                )
+                                            )
+                                            bullet_index = int(
+                                                opportunity.get(
+                                                    "bullet_index",
+                                                    -1,
+                                                )
+                                            )
+                                            comparison = (
+                                                opportunity.get(
+                                                    "fresh_score_comparison"
+                                                )
+                                                or {}
+                                            )
+
+                                            st.write(
+                                                "#### "
+                                                + str(
+                                                    opportunity.get(
+                                                        "project_title"
+                                                    )
+                                                    or (
+                                                        f"Project "
+                                                        f"{project_index + 1}"
+                                                    )
+                                                )
+                                            )
+                                            before_col, after_col = st.columns(2)
+                                            with before_col:
+                                                st.markdown(
+                                                    f"**Generated — bullet "
+                                                    f"{bullet_index + 1}**"
+                                                )
+                                                st.write(
+                                                    opportunity.get(
+                                                        "before_bullet"
+                                                    )
+                                                    or ""
+                                                )
+                                            with after_col:
+                                                st.markdown(
+                                                    f"**Score-optimized alternative "
+                                                    f"— bullet {bullet_index + 1}**"
+                                                )
+                                                st.write(
+                                                    opportunity.get(
+                                                        "after_bullet"
+                                                    )
+                                                    or ""
+                                                )
+
+                                            st.caption(
+                                                "Fresh deterministic score: "
+                                                f"{comparison.get('before_score', 0)} "
+                                                "→ "
+                                                f"{comparison.get('after_score', 0)} "
+                                                f"({comparison.get('score_delta', 0):+}). "
+                                                "Preview guard: PASS · "
+                                                "Claim lineage: PASS · "
+                                                "Historical Phase 8 answers used: No."
+                                            )
+
+                                            if (
+                                                score_optimizer_mode
+                                                == "Review before replacing"
+                                            ):
+                                                use_score_change = st.checkbox(
+                                                    "Replace with this "
+                                                    "higher-scoring alternative",
+                                                    value=True,
+                                                    key=(
+                                                        "jd_score_optimizer_use_"
+                                                        f"{current_application_id}_"
+                                                        f"{current_rephrase_generation_id}_"
+                                                        f"{project_index}_"
+                                                        f"{bullet_index}"
+                                                    ),
+                                                )
+                                                if use_score_change:
+                                                    selected_score_changes.append(
+                                                        deepcopy(
+                                                            opportunity.get(
+                                                                "accepted_change"
+                                                            )
+                                                            or {}
+                                                        )
+                                                    )
+                                            elif (
+                                                score_optimizer_mode
+                                                == "Suggest only — never replace"
+                                            ):
+                                                st.info(
+                                                    "Suggest-only mode: this "
+                                                    "alternative will not be written "
+                                                    "into a Draft."
+                                                )
+                                            st.divider()
+
+                                        if (
+                                            score_optimizer_mode
+                                            == "Review before replacing"
+                                        ):
+                                            if st.button(
+                                                "Apply selected score improvements",
+                                                type="primary",
+                                                width="stretch",
+                                                disabled=not (
+                                                    selected_score_changes
+                                                ),
+                                                key=(
+                                                    "jd_score_optimizer_apply_"
+                                                    f"{current_application_id}_"
+                                                    f"{current_rephrase_generation_id}"
+                                                ),
+                                            ):
+                                                accepted = (
+                                                    create_application_jd_rephrase_batch_generation(
+                                                        application_id=int(
+                                                            current_application_id
+                                                        ),
+                                                        source_generation_id=(
+                                                            current_rephrase_generation_id
+                                                        ),
+                                                        accepted_changes=(
+                                                            selected_score_changes
+                                                        ),
+                                                        suggestion_model=(
+                                                            score_optimizer_model_id
+                                                        ),
+                                                        suggestion_payload={
+                                                            "mode": (
+                                                                "jd_score_optimization"
+                                                            ),
+                                                            "replacement_mode": (
+                                                                score_optimizer_mode
+                                                            ),
+                                                            "optimization_version": (
+                                                                score_optimizer_review.get(
+                                                                    "optimization_version"
+                                                                )
+                                                            ),
+                                                            "opportunities": deepcopy(
+                                                                opportunities
+                                                            ),
+                                                        },
+                                                    )
+                                                )
+                                                st.session_state[
+                                                    score_optimizer_skip_key
+                                                ] = stable_content_fingerprint(
+                                                    accepted["generation"]
+                                                )
+                                                restore_generation_to_session(
+                                                    current_application_id,
+                                                    accepted["generation"],
+                                                )
+                                                record_zero_cost_action_event(
+                                                    application_id=(
+                                                        current_application_id
+                                                    ),
+                                                    action=(
+                                                        "accept_jd_score_optimization"
+                                                    ),
+                                                    note=(
+                                                        "Applied "
+                                                        f"{len(selected_score_changes)} "
+                                                        "verified positive-score bullet "
+                                                        "alternative(s) into one "
+                                                        "unfitted child Draft; acceptance "
+                                                        "made no model or fitting call."
+                                                    ),
+                                                )
+                                                st.session_state.pop(
+                                                    score_optimizer_key,
+                                                    None,
+                                                )
+                                                st.session_state[
+                                                    f"phase7_flash_{current_application_id}"
+                                                ] = (
+                                                    "Created one unfitted child Draft "
+                                                    "with selected verified JD score "
+                                                    "improvements."
+                                                )
+                                                st.rerun()
+
+                        with st.expander(
+                            "Optional: JD-aware style polish (score increase not guaranteed)",
+                            expanded=False,
+                        ):
+                            st.caption(
+                                "Review multiple bullets together before fitting. "
+                                "The selected Rephrase model proposes wording in one "
+                                "batch call; every proposed bullet is still checked "
+                                "individually against stored/frozen evidence and claim "
+                                "lineage. Only the changes you keep are written into "
+                                "one new unfitted child Draft."
+                            )
+                            st.caption(
+                                "Active rephrase model: "
+                                f"`{get_active_model('rephrase')}`"
+                            )
+
+                            rephrase_scope = st.radio(
+                                "Review scope",
+                                options=[
+                                    "All recommended projects",
+                                    "Current project",
+                                ],
+                                index=0,
+                                horizontal=True,
+                                key=(
+                                    "jd_rephrase_scope_"
+                                    f"{current_application_id}_"
+                                    f"{current_rephrase_generation_id}"
+                                ),
+                            )
+
+                            selected_rephrase_project_index = 0
+                            if rephrase_scope == "Current project":
+                                selected_rephrase_project_index = st.selectbox(
+                                    "Project",
+                                    options=list(range(len(rephrase_projects))),
+                                    format_func=lambda index: str(
+                                        rephrase_projects[index].get("display_title")
+                                        or rephrase_projects[index].get("title")
+                                        or f"Project {index + 1}"
+                                    ),
+                                    key=(
+                                        "jd_rephrase_project_batch_"
+                                        f"{current_application_id}_"
+                                        f"{current_rephrase_generation_id}"
+                                    ),
+                                )
+                                rephrase_project_indices = [
+                                    int(selected_rephrase_project_index)
+                                ]
+                            else:
+                                rephrase_project_indices = list(
+                                    range(len(rephrase_projects))
+                                )
+
+                            rephrase_contexts = build_rephrase_batch_contexts(
+                                generation=current_rephrase_generation,
+                                baseline_report=report,
+                                project_indices=rephrase_project_indices,
+                            )
+
+                            scope_identity = (
+                                "all"
+                                if rephrase_scope == "All recommended projects"
+                                else f"project_{selected_rephrase_project_index}"
+                            )
+                            rephrase_model_id = get_active_model("rephrase")
+                            suggestion_key = (
+                                "jd_rephrase_batch_"
+                                f"{current_application_id}_"
+                                f"{current_rephrase_generation_id}_"
+                                f"{scope_identity}_"
+                                f"{stable_content_fingerprint(rephrase_model_id)[:10]}"
+                            )
+                            batch_suggestion = st.session_state.get(
+                                suggestion_key
+                            )
+                            if not isinstance(batch_suggestion, dict):
+                                batch_suggestion = None
+
+                            if st.button(
+                                "Generate rephrase suggestions",
+                                type="primary",
+                                key=(
+                                    "jd_rephrase_batch_generate_"
+                                    f"{current_application_id}_"
+                                    f"{current_rephrase_generation_id}_"
+                                    f"{scope_identity}"
+                                ),
+                                disabled=not rephrase_contexts,
+                            ):
+                                reset_call_ledger()
+                                with st.spinner(
+                                    "Generating evidence-preserving wording "
+                                    "suggestions..."
+                                ):
+                                    batch_suggestion = (
+                                        suggest_jd_specific_rephrases_batch(
+                                            contexts=rephrase_contexts,
+                                            model=rephrase_model_id,
+                                            attempt_number=1,
+                                        )
+                                    )
+                                append_api_usage(
+                                    application_id=current_application_id,
+                                    action="suggest_jd_rephrase",
+                                    report=persisted_application_report,
+                                )
+                                st.session_state[suggestion_key] = (
+                                    batch_suggestion
+                                )
+                                st.rerun()
+
+                            if batch_suggestion:
+                                st.write("### Before / After review")
+                                st.caption(
+                                    "Safe changed suggestions start selected. "
+                                    "Uncheck anything you do not want. Suggestions "
+                                    "that fail a deterministic guard or claim-lineage "
+                                    "check cannot be selected."
+                                )
+
+                                context_by_key = {
+                                    (
+                                        int(context.get("project_index", -1)),
+                                        int(context.get("bullet_index", -1)),
+                                    ): context
+                                    for context in rephrase_contexts
+                                    if isinstance(context, dict)
+                                }
+                                selected_changes: list[dict[str, Any]] = []
+                                current_project_heading = None
+
+                                for suggestion in (
+                                    batch_suggestion.get("suggestions") or []
+                                ):
+                                    if not isinstance(suggestion, dict):
+                                        continue
+                                    project_index = int(
+                                        suggestion.get("project_index", -1)
+                                    )
+                                    bullet_index = int(
+                                        suggestion.get("bullet_index", -1)
+                                    )
+                                    context = context_by_key.get(
+                                        (project_index, bullet_index)
+                                    )
+                                    if not isinstance(context, dict):
+                                        continue
+
+                                    project_heading = str(
+                                        context.get("project_title")
+                                        or f"Project {project_index + 1}"
+                                    )
+                                    if project_heading != current_project_heading:
+                                        st.write(f"#### {project_heading}")
+                                        current_project_heading = project_heading
+
+                                    before = str(
+                                        context.get("current_bullet") or ""
+                                    )
+                                    after = str(
+                                        suggestion.get("suggested_bullet") or ""
+                                    )
+                                    changed = bool(
+                                        after.strip()
+                                        and after.strip() != before.strip()
+                                    )
+                                    preview_guard_safe = bool(
+                                        suggestion.get(
+                                            "safe_for_lineage_evaluation",
+                                            False,
+                                        )
+                                    )
+
+                                    evaluation = None
+                                    if changed and preview_guard_safe:
+                                        evaluation = evaluate_rephrase_candidate(
+                                            baseline_report=report,
+                                            current_generation=(
+                                                current_rephrase_generation
+                                            ),
+                                            project_index=project_index,
+                                            bullet_index=bullet_index,
+                                            accepted_bullet=after,
+                                        )
+                                    lineage_safe = bool(
+                                        isinstance(evaluation, dict)
+                                        and evaluation.get("safe_to_accept")
+                                    )
+                                    safe_to_select = bool(
+                                        changed
+                                        and preview_guard_safe
+                                        and lineage_safe
+                                    )
+
+                                    before_col, after_col = st.columns(2)
+                                    with before_col:
+                                        st.markdown(
+                                            f"**Before — bullet {bullet_index + 1}**"
+                                        )
+                                        st.write(before)
+                                    with after_col:
+                                        st.markdown(
+                                            f"**After — bullet {bullet_index + 1}**"
+                                        )
+                                        st.write(after or "(no suggestion returned)")
+
+                                    if suggestion.get("reason"):
+                                        st.caption(
+                                            "Why: "
+                                            + str(suggestion.get("reason") or "")
+                                        )
+
+                                    if not changed:
+                                        st.info(
+                                            "No wording change was proposed for "
+                                            "this bullet."
+                                        )
+                                    elif not preview_guard_safe:
+                                        guard_reasons = ", ".join(
+                                            str(value)
+                                            for value in (
+                                                suggestion.get("guard_reasons")
+                                                or []
+                                            )
+                                        )
+                                        st.warning(
+                                            "Suggestion blocked by preview guard"
+                                            + (
+                                                f": {guard_reasons}"
+                                                if guard_reasons
+                                                else "."
+                                            )
+                                        )
+                                    elif not lineage_safe:
+                                        st.warning(
+                                            "Suggestion blocked by deterministic "
+                                            "claim-lineage verification."
+                                        )
+                                    else:
+                                        comparison = (
+                                            evaluation.get(
+                                                "fresh_score_comparison", {}
+                                            )
+                                            if isinstance(evaluation, dict)
+                                            else {}
+                                        )
+                                        if comparison.get("available"):
+                                            st.caption(
+                                                "Fresh deterministic diagnostic: "
+                                                f"{comparison.get('before_score', 0)} "
+                                                "→ "
+                                                f"{comparison.get('after_score', 0)} "
+                                                f"({comparison.get('score_delta', 0):+}). "
+                                                "Historical Phase 8 answers used: No."
+                                            )
+                                        else:
+                                            st.caption(
+                                                "Claim lineage passed. Fresh score "
+                                                "comparison was unavailable."
+                                            )
+
+                                    use_change = st.checkbox(
+                                        "Use this change",
+                                        value=safe_to_select,
+                                        disabled=not safe_to_select,
+                                        key=(
+                                            "jd_rephrase_batch_use_"
+                                            f"{current_application_id}_"
+                                            f"{current_rephrase_generation_id}_"
+                                            f"{scope_identity}_"
+                                            f"{project_index}_{bullet_index}"
+                                        ),
+                                    )
+                                    if use_change and safe_to_select:
+                                        selected_changes.append(
+                                            {
+                                                "project_index": project_index,
+                                                "bullet_index": bullet_index,
+                                                "accepted_bullet": after,
+                                            }
+                                        )
+                                    st.divider()
+
+                                accept_col, regenerate_col = st.columns(2)
+                                with accept_col:
+                                    if st.button(
+                                        "Accept selected safe changes",
+                                        type="primary",
+                                        width="stretch",
+                                        disabled=not selected_changes,
+                                        key=(
+                                            "jd_rephrase_batch_accept_"
+                                            f"{current_application_id}_"
+                                            f"{current_rephrase_generation_id}_"
+                                            f"{scope_identity}"
+                                        ),
+                                    ):
+                                        accepted = (
+                                            create_application_jd_rephrase_batch_generation(
+                                                application_id=int(
+                                                    current_application_id
+                                                ),
+                                                source_generation_id=(
+                                                    current_rephrase_generation_id
+                                                ),
+                                                accepted_changes=(
+                                                    selected_changes
+                                                ),
+                                                suggestion_model=(
+                                                    rephrase_model_id
+                                                ),
+                                                suggestion_payload={
+                                                    "scope": rephrase_scope,
+                                                    "attempt_number": int(
+                                                        batch_suggestion.get(
+                                                            "attempt_number", 1
+                                                        )
+                                                        or 1
+                                                    ),
+                                                    "suggestions": deepcopy(
+                                                        batch_suggestion.get(
+                                                            "suggestions"
+                                                        )
+                                                        or []
+                                                    ),
+                                                },
+                                            )
+                                        )
+                                        restore_generation_to_session(
+                                            current_application_id,
+                                            accepted["generation"],
+                                        )
+                                        record_zero_cost_action_event(
+                                            application_id=(
+                                                current_application_id
+                                            ),
+                                            action="accept_jd_rephrase",
+                                            note=(
+                                                "Accepted "
+                                                f"{len(selected_changes)} "
+                                                "verified rephrase change(s) "
+                                                "into one unfitted child Draft; "
+                                                "no model or fitting call."
+                                            ),
+                                        )
+                                        st.session_state.pop(
+                                            suggestion_key, None
+                                        )
+                                        st.session_state[
+                                            f"phase7_flash_{current_application_id}"
+                                        ] = (
+                                            "Created one unfitted child Draft with "
+                                            f"{len(selected_changes)} accepted "
+                                            "JD-specific wording change(s)."
+                                        )
+                                        st.rerun()
+
+                                with regenerate_col:
+                                    if st.button(
+                                        "Regenerate all suggestions",
+                                        width="stretch",
+                                        key=(
+                                            "jd_rephrase_batch_regenerate_"
+                                            f"{current_application_id}_"
+                                            f"{current_rephrase_generation_id}_"
+                                            f"{scope_identity}"
+                                        ),
+                                    ):
+                                        reset_call_ledger()
+                                        next_attempt = int(
+                                            batch_suggestion.get(
+                                                "attempt_number", 1
+                                            )
+                                            or 1
+                                        ) + 1
+                                        with st.spinner(
+                                            "Generating another batch of "
+                                            "suggestions..."
+                                        ):
+                                            replacement = (
+                                                suggest_jd_specific_rephrases_batch(
+                                                    contexts=rephrase_contexts,
+                                                    model=rephrase_model_id,
+                                                    previous_suggestions=(
+                                                        batch_suggestion.get(
+                                                            "suggestions"
+                                                        )
+                                                        or []
+                                                    ),
+                                                    attempt_number=next_attempt,
+                                                )
+                                            )
+                                        append_api_usage(
+                                            application_id=(
+                                                current_application_id
+                                            ),
+                                            action="suggest_jd_rephrase",
+                                            report=(
+                                                persisted_application_report
+                                            ),
+                                        )
+                                        st.session_state[
+                                            suggestion_key
+                                        ] = replacement
+                                        st.rerun()
+                        if _ollama_perf_is_local_model(rephrase_model_id):
+                            from tailoring.ollama_performance_settings import (
+                                DEFAULT_REPHRASE_BATCH_MAX_BULLETS as _OLLAMA_BATCH_DEFAULT,
+                                DEFAULT_REPHRASE_EVIDENCE_MAX_CHARS as _OLLAMA_EVIDENCE_CHARS_DEFAULT,
+                                DEFAULT_REPHRASE_EVIDENCE_MAX_ITEMS as _OLLAMA_EVIDENCE_ITEMS_DEFAULT,
+                                DEFAULT_REPHRASE_NUM_CTX as _OLLAMA_NUM_CTX_DEFAULT,
+                                KV_CACHE_TYPES as _OLLAMA_KV_CACHE_TYPES,
+                                apply_rephrase_runtime_settings as _apply_ollama_runtime_settings,
+                                persist_ollama_server_settings_windows as _persist_ollama_server_settings,
+                                read_positive_int_env as _read_ollama_int_env,
+                            )
+                            import os as _ollama_ui_os
+
+                            with st.expander("Ollama performance settings", expanded=False):
+                                st.caption(
+                                    "Per-request settings apply immediately to local rephrase calls. "
+                                    "Flash Attention and KV cache are Ollama server settings and need "
+                                    "an Ollama restart after saving. A laptop restart is not required."
+                                )
+
+                                _ollama_num_ctx = st.selectbox(
+                                    "Rephrase context size",
+                                    options=[2048, 4096, 6144, 8192],
+                                    index=(
+                                        [2048, 4096, 6144, 8192].index(
+                                            _read_ollama_int_env(
+                                                "OLLAMA_REPHRASE_NUM_CTX",
+                                                _OLLAMA_NUM_CTX_DEFAULT,
+                                            )
+                                        )
+                                        if _read_ollama_int_env(
+                                            "OLLAMA_REPHRASE_NUM_CTX",
+                                            _OLLAMA_NUM_CTX_DEFAULT,
+                                        )
+                                        in [2048, 4096, 6144, 8192]
+                                        else 1
+                                    ),
+                                    key="ollama_rephrase_num_ctx_ui",
+                                    help=(
+                                        "4096 is the recommended starting point for a 6 GB GPU. "
+                                        "Larger contexts use more KV-cache memory."
+                                    ),
+                                )
+
+                                _ollama_batch_size = int(
+                                    st.number_input(
+                                        "Bullets per local model call",
+                                        min_value=1,
+                                        max_value=6,
+                                        value=_read_ollama_int_env(
+                                            "OLLAMA_REPHRASE_BATCH_MAX_BULLETS",
+                                            _OLLAMA_BATCH_DEFAULT,
+                                        ),
+                                        step=1,
+                                        key="ollama_rephrase_batch_max_bullets_ui",
+                                        help=(
+                                            "3 is the current reliability default. Smaller chunks "
+                                            "can help very large/offloaded models but increase the "
+                                            "number of calls."
+                                        ),
+                                    )
+                                )
+
+                                _ollama_evidence_items = int(
+                                    st.number_input(
+                                        "Model-facing evidence items",
+                                        min_value=4,
+                                        max_value=24,
+                                        value=min(
+                                            24,
+                                            max(
+                                                4,
+                                                _read_ollama_int_env(
+                                                    "OLLAMA_REPHRASE_PROMPT_EVIDENCE_MAX_ITEMS",
+                                                    _OLLAMA_EVIDENCE_ITEMS_DEFAULT,
+                                                ),
+                                            ),
+                                        ),
+                                        step=1,
+                                        key="ollama_rephrase_evidence_items_ui",
+                                        help=(
+                                            "Only the compact model-facing evidence is reduced. "
+                                            "Full frozen evidence remains available to deterministic "
+                                            "validation."
+                                        ),
+                                    )
+                                )
+
+                                _ollama_evidence_chars = int(
+                                    st.number_input(
+                                        "Model-facing evidence character budget",
+                                        min_value=1000,
+                                        max_value=6000,
+                                        value=min(
+                                            6000,
+                                            max(
+                                                1000,
+                                                _read_ollama_int_env(
+                                                    "OLLAMA_REPHRASE_PROMPT_EVIDENCE_MAX_CHARS",
+                                                    _OLLAMA_EVIDENCE_CHARS_DEFAULT,
+                                                ),
+                                            ),
+                                        ),
+                                        step=500,
+                                        key="ollama_rephrase_evidence_chars_ui",
+                                    )
+                                )
+
+                                _apply_ollama_runtime_settings(
+                                    num_ctx=int(_ollama_num_ctx),
+                                    batch_max_bullets=_ollama_batch_size,
+                                    evidence_max_items=_ollama_evidence_items,
+                                    evidence_max_chars=_ollama_evidence_chars,
+                                )
+
+                                st.caption(
+                                    "Current Streamlit process: "
+                                    f"context={int(_ollama_num_ctx)}, "
+                                    f"batch={_ollama_batch_size}, "
+                                    f"evidence={_ollama_evidence_items}/"
+                                    f"{_ollama_evidence_chars} chars."
+                                )
+
+                                st.divider()
+                                st.markdown("**Ollama server settings**")
+
+                                _flash_default = (
+                                    _ollama_ui_os.getenv(
+                                        "OLLAMA_FLASH_ATTENTION",
+                                        "1",
+                                    ).strip().lower()
+                                    not in {"0", "false", "no", "off"}
+                                )
+                                _ollama_flash_attention = st.checkbox(
+                                    "Flash Attention",
+                                    value=_flash_default,
+                                    key="ollama_flash_attention_ui",
+                                )
+
+                                _kv_current = (
+                                    _ollama_ui_os.getenv(
+                                        "OLLAMA_KV_CACHE_TYPE",
+                                        "q8_0",
+                                    ).strip().lower()
+                                )
+                                if _kv_current not in _OLLAMA_KV_CACHE_TYPES:
+                                    _kv_current = "q8_0"
+
+                                _ollama_kv_cache_type = st.selectbox(
+                                    "KV cache type",
+                                    options=list(_OLLAMA_KV_CACHE_TYPES),
+                                    index=list(_OLLAMA_KV_CACHE_TYPES).index(
+                                        _kv_current
+                                    ),
+                                    key="ollama_kv_cache_type_ui",
+                                    help=(
+                                        "q8_0 reduces KV-cache memory compared with f16. "
+                                        "This setting belongs to the Ollama server."
+                                    ),
+                                )
+
+                                if st.button(
+                                    "Save Ollama server settings",
+                                    key="save_ollama_server_performance_settings",
+                                ):
+                                    _ollama_save_result = (
+                                        _persist_ollama_server_settings(
+                                            flash_attention=bool(
+                                                _ollama_flash_attention
+                                            ),
+                                            kv_cache_type=str(
+                                                _ollama_kv_cache_type
+                                            ),
+                                        )
+                                    )
+
+                                    if _ollama_save_result.get("ok"):
+                                        st.success(
+                                            str(
+                                                _ollama_save_result.get(
+                                                    "message",
+                                                    "Ollama settings saved.",
+                                                )
+                                            )
+                                        )
+                                    else:
+                                        st.error(
+                                            str(
+                                                _ollama_save_result.get(
+                                                    "message",
+                                                    "Could not save Ollama settings.",
+                                                )
+                                            )
+                                        )
+
+                                st.info(
+                                    "Server-setting restart: quit Ollama completely, confirm "
+                                    "`tasklist | findstr /I ollama` returns nothing, then start "
+                                    "Ollama again. You do not need to restart Windows."
+                                )
 
             st.divider()
             st.subheader("Build and Fit Résumé Document")

@@ -52,7 +52,7 @@ from litellm import completion
 
 load_dotenv()
 
-RouteName = Literal["analysis", "chat"]
+RouteName = Literal["analysis", "chat", "rephrase"]
 
 # Let LiteLLM omit provider-specific parameters that are unsupported.
 litellm.drop_params = True
@@ -156,6 +156,82 @@ def _debug(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Provider registry + optional .env-driven model catalogue
+# ---------------------------------------------------------------------------
+
+_PROVIDER_API_KEYS: dict[str, str | None] = {
+    "openai/": "OPENAI_API_KEY",
+    "anthropic/": "ANTHROPIC_API_KEY",
+    "gemini/": "GEMINI_API_KEY",
+    "xai/": "XAI_API_KEY",
+    "groq/": "GROQ_API_KEY",
+    "together_ai/": "TOGETHERAI_API_KEY",
+    "fireworks_ai/": "FIREWORKS_AI_API_KEY",
+    "ollama/": None,
+}
+
+_MODEL_ROUTE_PREFIXES = tuple(_PROVIDER_API_KEYS)
+
+
+def _sync_provider_key_aliases() -> None:
+    # Fireworks commonly documents FIREWORKS_API_KEY. Keep both names in sync
+    # so LiteLLM and Job AI Helper diagnostics can use either convention.
+    fireworks_ai = os.getenv("FIREWORKS_AI_API_KEY", "").strip()
+    fireworks = os.getenv("FIREWORKS_API_KEY", "").strip()
+
+    if fireworks_ai and not fireworks:
+        os.environ["FIREWORKS_API_KEY"] = fireworks_ai
+    elif fireworks and not fireworks_ai:
+        os.environ["FIREWORKS_AI_API_KEY"] = fireworks
+
+
+def _load_extra_model_options() -> dict[str, str]:
+    raw = os.getenv("LLM_EXTRA_MODELS_JSON", "").strip()
+
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _debug(
+            "Ignoring invalid LLM_EXTRA_MODELS_JSON: "
+            f"{exc.msg} at position {exc.pos}."
+        )
+        return {}
+
+    if not isinstance(parsed, dict):
+        _debug(
+            "Ignoring LLM_EXTRA_MODELS_JSON because its top-level "
+            "value is not a JSON object."
+        )
+        return {}
+
+    output: dict[str, str] = {}
+
+    for raw_label, raw_model_id in parsed.items():
+        label = str(raw_label or "").strip()
+        model_id = str(raw_model_id or "").strip()
+
+        if not label or not model_id:
+            continue
+
+        if not model_id.startswith(_MODEL_ROUTE_PREFIXES):
+            _debug(
+                "Ignoring extra model with unsupported provider prefix: "
+                f"{model_id!r}."
+            )
+            continue
+
+        output[label] = model_id
+
+    return output
+
+
+_sync_provider_key_aliases()
+
+
+# ---------------------------------------------------------------------------
 # Model catalogue
 # ---------------------------------------------------------------------------
 
@@ -196,11 +272,33 @@ MODEL_OPTIONS: dict[str, str] = {
     "Google — Gemini 2.5 Flash": (
         "gemini/gemini-2.5-flash"
     ),
+
+    # Local Ollama models. The same catalogue is available to Analysis,
+    # Chatbot, and Rephrase selectors.
+    "Ollama — Qwen3 8B (local)": "ollama/qwen3:8b",
+    "Ollama — Qwen3 14B (local, recommended)": "ollama/qwen3:14b",
+    "Ollama — Qwen3 30B (local, high memory)": "ollama/qwen3:30b",
+    "Ollama — Gemma 4 12B (local)": "ollama/gemma4:12b",
+    "Ollama — Gemma 4 26B (local, high memory)": "ollama/gemma4:26b",
+    "Ollama — Qwen3 4B (local)": "ollama/qwen3:4b",
+    "Ollama Cloud — GLM-5.2": "ollama/glm-5.2:cloud",
+    "Ollama Cloud — MiniMax M3": "ollama/minimax-m3:cloud",
+    
 }
+
+# Add user-configured selector entries after the built-ins. A custom label with
+# the same name intentionally overrides that built-in label.
+MODEL_OPTIONS.update(
+    _load_extra_model_options()
+)
 
 _DEFAULT_MODEL = os.getenv(
     "MODEL",
     "openai/gpt-4o-mini",
+)
+_DEFAULT_LOCAL_MODEL = os.getenv(
+    "LOCAL_LLM_MODEL",
+    "ollama/qwen3:4b",
 )
 
 _RUNTIME_MODELS: dict[str, str] = {
@@ -211,6 +309,10 @@ _RUNTIME_MODELS: dict[str, str] = {
     "chat": os.getenv(
         "CHAT_MODEL",
         _DEFAULT_MODEL,
+    ),
+    "rephrase": os.getenv(
+        "REPHRASE_MODEL",
+        _DEFAULT_LOCAL_MODEL,
     ),
 }
 
@@ -262,20 +364,13 @@ def resolve_model(model_or_label: str) -> str:
     if cleaned in MODEL_OPTIONS:
         return MODEL_OPTIONS[cleaned]
 
-    valid_prefixes = (
-        "openai/",
-        "anthropic/",
-        "gemini/",
-        "ollama/",
-    )
-
-    if cleaned.startswith(valid_prefixes):
+    if cleaned.startswith(_MODEL_ROUTE_PREFIXES):
         return cleaned
 
     raise ValueError(
         "Unsupported model route. Expected a model label or "
-        "a provider-prefixed ID beginning with openai/, "
-        "anthropic/, gemini/, or ollama/."
+        "a provider-prefixed ID beginning with one of: "
+        + ", ".join(_MODEL_ROUTE_PREFIXES)
     )
 
 
@@ -449,9 +544,81 @@ def record_external_usage(
 # Provider and capability helpers
 # ---------------------------------------------------------------------------
 
+def _is_groq_qwen(model: str) -> bool:
+    return str(model or "").strip().startswith(
+        "groq/qwen/"
+    )
+
+
+def _groq_json_validation_error_message(
+    model: str,
+    exc: Exception,
+) -> str:
+    detail = str(exc or "").strip()
+    return (
+        "Groq Qwen could not produce valid JSON for this rephrase "
+        f"request using {model!r}. The request reached Groq, but the "
+        "provider rejected the generated JSON. Retry once; if this "
+        "repeats for a large review scope, reduce "
+        "GROQ_REPHRASE_BATCH_MAX_BULLETS (default 6). "
+        f"Underlying error: {detail or 'json_validate_failed'}"
+    )
+
+
 def _is_ollama(model: str) -> bool:
     return model.startswith(
-        "ollama/"
+        (
+            "ollama/",
+            "ollama_chat/",
+        )
+    )
+
+
+def _ollama_rephrase_think_enabled() -> bool:
+    # This toggles only Ollama's extra thinking stage.
+    # It does not remove any JD or evidence context from the prompt.
+    return _env_flag(
+        "OLLAMA_REPHRASE_THINK",
+        default=False,
+    )
+
+
+def _ollama_connection_error_message(
+    exc: Exception,
+    *,
+    timeout_seconds: float | int | None = None,
+) -> str:
+    # LiteLLM can wrap an Ollama timeout as APIConnectionError.
+    message = str(exc or "").strip()
+    lowered = message.lower()
+    api_base = os.getenv(
+        "OLLAMA_API_BASE",
+        "http://localhost:11434",
+    )
+
+    if "timed out" in lowered or "timeout" in lowered:
+        effective_timeout = (
+            REQUEST_TIMEOUT_SECONDS
+            if timeout_seconds is None
+            else float(timeout_seconds)
+        )
+        seconds = (
+            int(effective_timeout)
+            if float(effective_timeout).is_integer()
+            else effective_timeout
+        )
+        return (
+            f"Ollama request timed out after {seconds} seconds at "
+            f"{api_base}. The server was reached, but the local model "
+            "did not finish in time. For rephrasing, keep "
+            "OLLAMA_REPHRASE_THINK=false, select a smaller local model, "
+            "or reduce the review scope."
+        )
+
+    return (
+        f"Cannot reach Ollama at {api_base}. "
+        "Check that Ollama is running and the API base is correct. "
+        f"Underlying error: {message or 'unknown connection error'}"
     )
 
 
@@ -515,17 +682,9 @@ def _supports_seed(
 def _required_api_key(
     model: str,
 ) -> str | None:
-    if model.startswith("openai/"):
-        return "OPENAI_API_KEY"
-
-    if model.startswith("anthropic/"):
-        return "ANTHROPIC_API_KEY"
-
-    if model.startswith("gemini/"):
-        return "GEMINI_API_KEY"
-
-    if model.startswith("ollama/"):
-        return None
+    for prefix, variable in _PROVIDER_API_KEYS.items():
+        if model.startswith(prefix):
+            return variable
 
     return None
 
@@ -584,11 +743,11 @@ def _route_reasoning_effort(
     if explicit_value:
         return explicit_value.strip() or None
 
-    route_key = (
-        "ANALYSIS_REASONING_EFFORT"
-        if route == "analysis"
-        else "CHAT_REASONING_EFFORT"
-    )
+    route_key = {
+        "analysis": "ANALYSIS_REASONING_EFFORT",
+        "chat": "CHAT_REASONING_EFFORT",
+        "rephrase": "REPHRASE_REASONING_EFFORT",
+    }[route]
 
     configured = (
         os.getenv(route_key)
@@ -655,8 +814,20 @@ def _call_kwargs(
     seed: int | None,
 ) -> dict[str, Any]:
     """Build LiteLLM completion() keyword arguments."""
+    request_model = model
+    if (
+        route == "rephrase"
+        and model.startswith("ollama/")
+    ):
+        # Keep the user-facing/configured ID stable, but use LiteLLM's
+        # dedicated Ollama chat transport for the actual rephrase request.
+        request_model = (
+            "ollama_chat/"
+            + model.removeprefix("ollama/")
+        )
+
     kwargs: dict[str, Any] = {
-        "model": model,
+        "model": request_model,
         "messages": messages,
         "drop_params": True,
         "timeout": REQUEST_TIMEOUT_SECONDS,
@@ -670,6 +841,24 @@ def _call_kwargs(
             "OLLAMA_API_BASE",
             "http://localhost:11434",
         )
+        # The dedicated ollama_chat transport is the path verified against the
+        # local Qwen3 runtime. Disabling thinking does not alter the prompt;
+        # it only suppresses the model's extra reasoning stage.
+        if route == "rephrase":
+            kwargs["timeout"] = _env_positive_float(
+                "OLLAMA_REPHRASE_TIMEOUT_SECONDS",
+                default=240.0,
+            )
+            kwargs["num_ctx"] = _env_positive_int(
+                "OLLAMA_REPHRASE_NUM_CTX",
+                default=4096,
+            )
+            # LiteLLM ollama_chat maps max_tokens to Ollama num_predict.
+            kwargs["max_tokens"] = max(1, int(max_tokens))
+            if expect_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            if not _ollama_rephrase_think_enabled():
+                kwargs["reasoning_effort"] = "none"
     else:
         if _is_openai_reasoning_model(model):
             kwargs["max_completion_tokens"] = (
@@ -684,6 +873,16 @@ def _call_kwargs(
             kwargs["response_format"] = {
                 "type": "json_object",
             }
+
+        if (
+            route == "rephrase"
+            and _is_groq_qwen(model)
+        ):
+            # Groq Qwen 3.6 supports disabling reasoning. Keeping reasoning
+            # hidden/off for structured rephrase output reduces JSON-mode
+            # failures and avoids spending output tokens on reasoning text.
+            kwargs["reasoning_effort"] = "none"
+            kwargs["reasoning_format"] = "hidden"
 
     selected_reasoning = (
         _route_reasoning_effort(
@@ -1095,14 +1294,11 @@ def _run_completion_with_retries(
 
         except litellm.APIConnectionError as exc:
             if _is_ollama(requested_model):
-                api_base = os.getenv(
-                    "OLLAMA_API_BASE",
-                    "http://localhost:11434",
-                )
-
                 raise RuntimeError(
-                    f"Cannot reach Ollama at {api_base}. "
-                    "Is `ollama serve` running?"
+                    _ollama_connection_error_message(
+                        exc,
+                        timeout_seconds=kwargs.get("timeout"),
+                    )
                 ) from exc
 
             raise RuntimeError(
@@ -1111,6 +1307,21 @@ def _run_completion_with_retries(
 
         except Exception as exc:
             message = str(exc).lower()
+
+            if (
+                route == "rephrase"
+                and _is_groq_qwen(requested_model)
+                and (
+                    "json_validate_failed" in message
+                    or "failed to validate json" in message
+                )
+            ):
+                raise RuntimeError(
+                    _groq_json_validation_error_message(
+                        requested_model,
+                        exc,
+                    )
+                ) from exc
 
             if (
                 "model_not_found" in message
