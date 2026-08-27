@@ -488,6 +488,57 @@ class Phase9FApplicationConfirmationTests(unittest.TestCase):
             ]["stable_analysis_snapshot"]["canonical_requirements"],
         )
 
+    def test_tailor_resume_preferred_supplement_is_preserved_locally_on_confirmation(self):
+        original = make_exact_jd(
+            preferred_requirements=[
+                "Experience with Android app development and Kotlin"
+            ]
+        )
+        ranking, recommendation = build_scope(
+            self.database_path,
+            phase9f_a_snapshot=original,
+        )
+        persisted, _receipt = prepare_persisted_exact_jd_for_confirmation(
+            original,
+            index_fn=lambda _job_id: 0,
+        )
+        result = confirm_phase9f_application_session(
+            phase9f_a_snapshot=original,
+            persisted_exact_jd_snapshot=persisted,
+            ranking_result=ranking,
+            phase9f_c_recommendation=recommendation,
+            confirmed_normalized_source_fingerprint=ranking[
+                "recommended_source"
+            ]["normalized_source_fingerprint"],
+            confirmed_intensity=recommendation["recommended_intensity"],
+            application_intent_id="preferred-supplement",
+        )
+        application = db_manager.get_application_by_id(
+            result["confirmation"]["application_id"]
+        )
+        report = application["report"]
+        self.assertEqual(
+            report["meta"]["jd_user_inputs"][
+                "supplemental_preferred_requirements"
+            ],
+            ["Experience with Android app development and Kotlin"],
+        )
+        self.assertTrue(
+            any(
+                row.get("application_requirement_scope") == "application_local"
+                and row.get("importance") == "preferred"
+                for row in report["stable_analysis"]["canonical_requirements"]
+            )
+        )
+        exact = jd_library_manager.get_exact_job_description_version(
+            int(persisted["library_jd_id"]),
+            str(persisted["source_version_id"]),
+        )
+        self.assertNotIn(
+            "Experience with Android app development and Kotlin",
+            exact["jd_profile"].get("preferred_skills", []),
+        )
+
     def test_d_stops_before_execution(self):
         result = self.confirm()
         application_id = result["confirmation"]["application_id"]

@@ -111,6 +111,7 @@ def make_exact_jd(
     *,
     source_type: str = "pasted",
     library_jd_id: int = 0,
+    preferred_requirements: list[str] | None = None,
 ) -> dict:
     return build_transient_exact_jd_snapshot(
         raw_text=JD_TEXT,
@@ -124,6 +125,7 @@ def make_exact_jd(
             source_version_id(JD_TEXT) if source_type == "saved" else ""
         ),
         model_calls=[],
+        preferred_requirements=preferred_requirements,
     )
 
 
@@ -872,6 +874,43 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
         self.assertEqual(
             scored["canonical_requirement_scope_fingerprint"],
             self.jd["canonical_requirement_fingerprint"],
+        )
+
+    def test_tailor_resume_supplement_reaches_fresh_target_scoring_without_shared_jd_mutation(self):
+        requirement = "Experience with Android app development and Kotlin"
+        exact_jd = make_exact_jd(preferred_requirements=[requirement])
+        normalized = normalize_active_blueprint_source(self.same_family)
+        context = prepare_ranking_context(
+            exact_jd=exact_jd,
+            current_base_resume=None,
+            current_base_artifact=None,
+            global_blueprints=[self.same_family],
+        )
+        scored = score_normalized_source(normalized, context["_exact_jd"])
+
+        local_rows = [
+            row
+            for row in scored["candidate_analysis_snapshot"][
+                "stable_analysis_snapshot"
+            ]["canonical_requirements"]
+            if row.get("application_requirement_scope") == "application_local"
+        ]
+        self.assertEqual(len(local_rows), 1)
+        self.assertEqual(local_rows[0]["text"], requirement)
+        self.assertEqual(local_rows[0]["importance"], "preferred")
+        self.assertEqual(local_rows[0]["importance_source"], "user_supplied")
+        self.assertFalse(local_rows[0]["canonical_shared"])
+        self.assertEqual(
+            scored["candidate_analysis_snapshot"]["jd_profile_snapshot"],
+            JD_PROFILE,
+        )
+        self.assertEqual(
+            scored["candidate_analysis_snapshot"]["raw_jd_text_snapshot"],
+            JD_TEXT.strip(),
+        )
+        self.assertEqual(
+            scored["canonical_requirement_scope_fingerprint"],
+            exact_jd["canonical_requirement_fingerprint"],
         )
 
     def test_distinct_visible_evidence_changes_canonical_outcomes(self):

@@ -389,37 +389,16 @@ def _find_compatible_canonical_row(
     title_normalized: str,
     location_normalized: str,
 ) -> sqlite3.Row | None:
+    """Return only the row with the exact canonical identity.
+
+    A source version is later verified by recomputing its canonical identity
+    from its own persisted profile.  Linking a blank-location profile to a
+    same-company/title row with a populated location would therefore create a
+    version that can never satisfy that fail-closed guard.
+    """
     cursor.execute(
         "SELECT * FROM job_descriptions WHERE canonical_jd_id = ?",
         (canonical_jd_id,),
-    )
-    exact = cursor.fetchone()
-    if exact is not None:
-        return exact
-
-    # Conservative fallback: allow a blank location on either side, but require
-    # exact normalized company and title. This avoids duplicates caused only by
-    # one extraction omitting a location.
-    cursor.execute(
-        """
-        SELECT *
-        FROM job_descriptions
-        WHERE company_normalized = ?
-          AND title_normalized = ?
-          AND (
-              location_normalized = ?
-              OR location_normalized = ''
-              OR ? = ''
-          )
-        ORDER BY id ASC
-        LIMIT 1
-        """,
-        (
-            company_normalized,
-            title_normalized,
-            location_normalized,
-            location_normalized,
-        ),
     )
     return cursor.fetchone()
 
@@ -498,7 +477,7 @@ def save_or_link_job_description_for_application(
     company: str = "",
     location: str = "",
     source_type: str = "application_session",
-    source_url: str = "",
+    source_url: str | None = "",
 ) -> dict[str, Any]:
     """
     Save/link a JD without duplicating its canonical row or Chroma version.
@@ -521,6 +500,7 @@ def save_or_link_job_description_for_application(
         raw_jd_text=cleaned_text,
     )
     profile_json = _json_dumps(jd_profile)
+    cleaned_source_url = str(source_url or "").strip()
 
     connection = _connect()
     try:
@@ -572,7 +552,7 @@ def save_or_link_job_description_for_application(
                     final_company,
                     final_location,
                     source_type,
-                    source_url.strip(),
+                    cleaned_source_url,
                     cleaned_text,
                     profile_json,
                     identity.canonical_jd_id,
@@ -616,6 +596,7 @@ def save_or_link_job_description_for_application(
                     source_url = CASE
                         WHEN source_type = 'jd_library' AND source_url <> ''
                             THEN source_url
+                        WHEN ? IS NULL THEN source_url
                         ELSE ?
                     END,
                     last_seen_at = ?,
@@ -628,7 +609,8 @@ def save_or_link_job_description_for_application(
                     final_company,
                     final_location,
                     source_type,
-                    source_url.strip(),
+                    source_url,
+                    cleaned_source_url,
                     now,
                     now,
                     application_id,

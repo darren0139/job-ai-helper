@@ -19,6 +19,7 @@ from tailoring.phase9f_jd_intake import (
     phase9f_analysis_diagnostics_json,
     phase9f_jd_input_fingerprint,
 )
+from tailoring.jd_user_input_overrides import JD_USER_OVERRIDE_POLICY_VERSION
 
 
 RAW_JD = """
@@ -122,6 +123,50 @@ class Phase9FJDIntakeTests(unittest.TestCase):
             extraction_model_id="test-model",
         )
         self.assertEqual(baseline, same)
+
+    def test_preferred_requirement_override_is_local_and_changes_snapshot_identity(self):
+        requirement = "Experience with Android app development and Kotlin"
+        baseline = build_transient_exact_jd_snapshot(
+            raw_text=RAW_JD,
+            jd_profile=profile(),
+            source_type="pasted",
+        )
+        overridden = build_transient_exact_jd_snapshot(
+            raw_text=RAW_JD,
+            jd_profile=profile(),
+            source_type="pasted",
+            preferred_requirements=[requirement],
+        )
+        reordered = build_transient_exact_jd_snapshot(
+            raw_text=RAW_JD,
+            jd_profile=profile(),
+            source_type="pasted",
+            preferred_requirements=[f"  {requirement}  ", requirement],
+        )
+
+        self.assertNotEqual(
+            baseline["snapshot_fingerprint"],
+            overridden["snapshot_fingerprint"],
+        )
+        self.assertEqual(
+            overridden["snapshot_fingerprint"],
+            reordered["snapshot_fingerprint"],
+        )
+        self.assertEqual(overridden["raw_text"], RAW_JD)
+        self.assertEqual(overridden["jd_profile"], profile())
+        inputs = overridden["application_local_jd_user_inputs"]
+        self.assertEqual(inputs["policy_version"], JD_USER_OVERRIDE_POLICY_VERSION)
+        self.assertEqual(inputs["canonical_preferred_matches"], [])
+        self.assertEqual(inputs["supplemental_preferred_requirements"], [requirement])
+        supplemental = [
+            row
+            for row in overridden["canonical_requirements"]
+            if row.get("application_requirement_scope") == "application_local"
+        ]
+        self.assertEqual(len(supplemental), 1)
+        self.assertEqual(supplemental[0]["importance"], "preferred")
+        self.assertEqual(supplemental[0]["importance_source"], "user_supplied")
+        self.assertFalse(supplemental[0]["canonical_shared"])
 
     def test_each_semantic_source_change_invalidates_input(self):
         baseline = phase9f_jd_input_fingerprint(

@@ -13,6 +13,11 @@ from analysis_stability.stable_evidence_scoring import canonicalise_requirements
 from llm import summarise_call_usage
 from parse import _MIN_JD_CHARS, read_resume_docx, read_resume_pdf
 from rag.jd_identity import build_job_identity, source_version_id
+from tailoring.jd_user_input_overrides import (
+    build_effective_application_local_requirement_scope,
+    normalise_requirement_override_lines,
+    preferred_requirement_override_cache_identity,
+)
 from tailoring.phase9b_role_family import suggest_role_family
 
 
@@ -93,10 +98,10 @@ def phase9f_jd_input_fingerprint(
     source_version_id_value: str = "",
     source_artifact_sha256: str = "",
     extraction_model_id: str = "",
+    preferred_requirements: str | list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Identify semantic intake input; display-only source URL is excluded."""
-    return fingerprint_value(
-        {
+    payload = {
             "version": PHASE9F_JD_INTAKE_IDENTITY_POLICY_VERSION,
             "source_type": _clean(source_type),
             "raw_jd_sha256": hashlib.sha256(
@@ -110,8 +115,13 @@ def phase9f_jd_input_fingerprint(
             "source_artifact_sha256": _clean(source_artifact_sha256),
             "extraction_policy_version": JD_EXTRACTION_POLICY_VERSION,
             "extraction_model_id": _clean(extraction_model_id),
-        }
+    }
+    override_identity = preferred_requirement_override_cache_identity(
+        preferred_requirements
     )
+    if override_identity["preferred_requirement_override_keys"]:
+        payload["jd_user_override_identity"] = override_identity
+    return fingerprint_value(payload)
 
 
 def _canonical_scope(
@@ -161,6 +171,7 @@ def build_transient_exact_jd_snapshot(
     extraction_model_id: str = "",
     model_calls: list[dict[str, Any]] | None = None,
     extraction_method_override: str = "",
+    preferred_requirements: str | list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Build one deterministic transient snapshot without persistence."""
     text = validate_jd_text(raw_text)
@@ -193,10 +204,26 @@ def build_transient_exact_jd_snapshot(
     if final_location:
         profile["location"] = final_location
 
-    canonical, requirements, requirement_fingerprint = _canonical_scope(
+    canonical, base_requirements, _base_requirement_fingerprint = _canonical_scope(
         jd_profile=profile,
         raw_text=text,
     )
+    requirements, user_inputs = build_effective_application_local_requirement_scope(
+        base_requirements,
+        preferred_requirements,
+    )
+    canonical["requirements"] = deepcopy(requirements)
+    compact = [
+        {
+            "requirement_id": _clean(row.get("requirement_id")),
+            "text": _clean(row.get("text")),
+            "importance": _clean(row.get("importance")),
+            "atomic_group_id": _clean(row.get("atomic_group_id")),
+            "group_weight_fraction": row.get("group_weight_fraction"),
+        }
+        for row in requirements
+    ]
+    requirement_fingerprint = fingerprint_value(compact)
     raw_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     calculated_source_version = source_version_id(text)
     if saved_source_version_id and (
@@ -259,6 +286,10 @@ def build_transient_exact_jd_snapshot(
             "matched_terms": list(role_family.get("matched_terms") or []),
         },
     }
+    if user_inputs["preferred_requirement_overrides"]:
+        semantic_identity["application_local_jd_user_inputs"] = deepcopy(
+            user_inputs
+        )
     snapshot_fingerprint = fingerprint_value(semantic_identity)
     return {
         "format_version": PHASE9F_JD_INTAKE_VERSION,
@@ -290,6 +321,7 @@ def build_transient_exact_jd_snapshot(
         ],
         "canonical_requirement_fingerprint": requirement_fingerprint,
         "canonicalisation": canonical,
+        "application_local_jd_user_inputs": deepcopy(user_inputs),
         "role_family": role_family,
         "extraction_provenance": {
             "policy_version": JD_EXTRACTION_POLICY_VERSION,
@@ -305,7 +337,11 @@ def build_transient_exact_jd_snapshot(
     }
 
 
-def build_saved_exact_jd_snapshot(saved: dict[str, Any]) -> dict[str, Any]:
+def build_saved_exact_jd_snapshot(
+    saved: dict[str, Any],
+    *,
+    preferred_requirements: str | list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     """Rebuild a transient snapshot from one verified authoritative version."""
     snapshot = build_transient_exact_jd_snapshot(
         raw_text=str(saved.get("raw_text") or ""),
@@ -315,22 +351,29 @@ def build_saved_exact_jd_snapshot(saved: dict[str, Any]) -> dict[str, Any]:
         library_jd_id=int(saved.get("library_jd_id") or 0),
         saved_source_version_id=str(saved.get("source_version_id") or ""),
         model_calls=[],
+        preferred_requirements=preferred_requirements,
     )
     for field in (
         "canonical_jd_id",
         "raw_jd_sha256",
-        "canonical_requirement_fingerprint",
     ):
         if _clean(snapshot.get(field)) != _clean(saved.get(field)):
             raise Phase9FJDIntakeError(
                 f"The saved JD exact-version {field} is internally inconsistent."
             )
-    if snapshot["canonical_requirement_ids"] != sorted(
-        str(value) for value in saved.get("canonical_requirement_ids") or []
-    ):
-        raise Phase9FJDIntakeError(
-            "The saved JD canonical requirement IDs are internally inconsistent."
-        )
+    if not normalise_requirement_override_lines(preferred_requirements):
+        if _clean(snapshot.get("canonical_requirement_fingerprint")) != _clean(
+            saved.get("canonical_requirement_fingerprint")
+        ):
+            raise Phase9FJDIntakeError(
+                "The saved JD canonical requirements are internally inconsistent."
+            )
+        if snapshot["canonical_requirement_ids"] != sorted(
+            str(value) for value in saved.get("canonical_requirement_ids") or []
+        ):
+            raise Phase9FJDIntakeError(
+                "The saved JD canonical requirement IDs are internally inconsistent."
+            )
     return snapshot
 
 
@@ -344,6 +387,7 @@ def build_reused_exact_jd_snapshot(
     source_url: str = "",
     source_filename: str = "",
     source_artifact_sha256: str = "",
+    preferred_requirements: str | list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Reuse one exact saved JD profile for pasted/uploaded intake at zero LLM cost."""
     if source_type not in {"pasted", "uploaded"}:
@@ -370,6 +414,7 @@ def build_reused_exact_jd_snapshot(
         extraction_model_id="",
         model_calls=[],
         extraction_method_override="stored_exact_version_profile_reuse",
+        preferred_requirements=preferred_requirements,
     )
 
     for field in ("source_version_id", "raw_jd_sha256"):

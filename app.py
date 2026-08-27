@@ -118,6 +118,14 @@ from analyzer import (
     compute_overall_score,
 )
 from analysis_stability import build_stable_analysis
+from tailoring.jd_user_input_overrides import (
+    PREFERRED_REQUIREMENTS_HELP,
+    PREFERRED_REQUIREMENTS_LABEL,
+    apply_application_session_jd_user_inputs,
+    canonical_jd_profile_for_application_session,
+    normalise_requirement_override_lines,
+    preferred_requirement_override_cache_identity,
+)
 from database.db_manager import (
     init_db,
     create_empty_application_session,
@@ -2674,6 +2682,45 @@ elif page == "Application Sessions":
             ),
         )
 
+        with st.expander("Optional JD metadata", expanded=False):
+            jd_company_input = st.text_input(
+                "Company",
+                key=f"jd_company_{input_suffix}",
+            )
+            jd_job_title_input = st.text_input(
+                "Job title / Role",
+                key=f"jd_job_title_{input_suffix}",
+            )
+            jd_location_input = st.text_input(
+                "Location",
+                key=f"jd_location_{input_suffix}",
+            )
+            jd_source_url_input = st.text_input(
+                "Source URL",
+                key=f"jd_source_url_{input_suffix}",
+            )
+            st.caption(
+                "These fields help label and save the application. They do not "
+                "create résumé evidence."
+            )
+
+        with st.expander("Optional JD requirement overrides", expanded=False):
+            jd_preferred_requirements_input = st.text_area(
+                PREFERRED_REQUIREMENTS_LABEL,
+                height=120,
+                key=f"jd_preferred_requirements_{input_suffix}",
+                placeholder=(
+                    "Paste one full requirement per line, ideally using the "
+                    "exact wording from the JD."
+                ),
+                help=PREFERRED_REQUIREMENTS_HELP,
+            )
+            st.caption(
+                "Explicit user input has highest importance precedence. Matching "
+                "is deterministic and conservative: no fuzzy requirement "
+                "reclassification."
+            )
+
         analyze_clicked = st.button("Analyze Resume", type="primary", width="stretch")
 
         analysis_cache_mode = st.radio(
@@ -2736,6 +2783,16 @@ elif page == "Application Sessions":
                 st.write(
                     f"Read {len(jd_text)} characters from job description."
                 )
+                preferred_requirement_overrides = (
+                    normalise_requirement_override_lines(
+                        jd_preferred_requirements_input
+                    )
+                )
+                override_cache_identity = (
+                    preferred_requirement_override_cache_identity(
+                        preferred_requirement_overrides
+                    )
+                )
 
                 application_id = st.session_state.get(
                     "current_application_id"
@@ -2767,6 +2824,7 @@ elif page == "Application Sessions":
                             "CAPABILITY_RAG_VECTOR_THRESHOLD",
                             "0.30",
                         ),
+                        "jd_user_override_identity": override_cache_identity,
                     },
                 )
 
@@ -2851,6 +2909,16 @@ elif page == "Application Sessions":
             application_id = int(
                 st.session_state["current_application_id"]
             )
+            report = apply_application_session_jd_user_inputs(
+                report,
+                raw_jd_text=jd_text,
+                raw_resume_text=resume_text,
+                company=jd_company_input,
+                job_title=jd_job_title_input,
+                location=jd_location_input,
+                source_url=jd_source_url_input,
+                preferred_requirements=preferred_requirement_overrides,
+            )
 
             update_application_report(
                 application_id=application_id,
@@ -2897,9 +2965,8 @@ elif page == "Application Sessions":
 
             jd_library_message = ""
             try:
-                jd_profile_for_library = report.get(
-                    "jd_profile",
-                    {},
+                jd_profile_for_library = (
+                    canonical_jd_profile_for_application_session(report)
                 )
                 jd_save_result = (
                     save_or_link_job_description_for_application(
@@ -2919,7 +2986,10 @@ elif page == "Application Sessions":
                             "",
                         ),
                         source_type="application_session",
-                        source_url="",
+                        # Source URL belongs to this report's 2.3a provenance,
+                        # not to a shared canonical JD row reused by another
+                        # application.
+                        source_url=None,
                     )
                 )
                 orphaned_canonical_id = jd_save_result.get(

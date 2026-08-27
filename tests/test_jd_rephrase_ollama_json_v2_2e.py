@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import llm
 import tailoring.jd_specific_rephrase_preview as rephrase
+from tailoring.ollama_performance_settings import DEFAULT_REPHRASE_NUM_CTX
 
 
 class OllamaRephraseJsonModeTests(unittest.TestCase):
@@ -14,6 +15,7 @@ class OllamaRephraseJsonModeTests(unittest.TestCase):
             os.environ,
             {
                 "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+                "OLLAMA_REPHRASE_NUM_CTX": "",
                 "OLLAMA_REPHRASE_THINK": "false",
             },
             clear=False,
@@ -33,7 +35,7 @@ class OllamaRephraseJsonModeTests(unittest.TestCase):
             )
 
         self.assertEqual(kwargs["model"], "ollama_chat/qwen3:4b")
-        self.assertEqual(kwargs["num_ctx"], 8192)
+        self.assertEqual(kwargs["num_ctx"], DEFAULT_REPHRASE_NUM_CTX)
         self.assertEqual(kwargs["max_tokens"], 540)
         self.assertEqual(kwargs["reasoning_effort"], "none")
         self.assertEqual(

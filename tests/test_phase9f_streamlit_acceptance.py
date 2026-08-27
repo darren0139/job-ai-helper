@@ -9,6 +9,11 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from database import jd_library_manager as manager
+from tailoring.jd_user_input_overrides import (
+    JD_USER_OVERRIDE_POLICY_VERSION,
+    PREFERRED_REQUIREMENTS_HELP,
+    PREFERRED_REQUIREMENTS_LABEL,
+)
 from tailoring.phase9f_jd_intake import build_phase9f_analysis_diagnostics
 
 
@@ -163,9 +168,61 @@ class Phase9FStreamlitAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(manager.get_jd_library_stats()["canonical_jobs"], 0)
 
+    def test_preferred_requirement_input_is_zero_cost_until_analysis_and_is_semantic(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        _by_key(app.text_area, "phase9f_pasted_jd_text").set_value(
+            RAW_JD
+        ).run()
+        _by_key(
+            app.text_area, "phase9f_jd_preferred_requirements"
+        ).set_value("Experience with Android app development and Kotlin").run()
+
+        self.assertEqual(list(app.exception), [])
+        self.assertTrue(
+            any(item.label == PREFERRED_REQUIREMENTS_LABEL for item in app.text_area)
+        )
+        self.assertIn("new entries are added only to this application.", PREFERRED_REQUIREMENTS_HELP)
+        self.assertTrue(_contains(app.markdown, "MODEL_CALLS=0"))
+        self.assertTrue(_contains(app.markdown, "EMBEDDING_CALLS=0"))
+        self.assertEqual(
+            manager.get_jd_library_stats(),
+            {"canonical_jobs": 0, "versions": 0, "session_links": 0},
+        )
+        self.assertEqual(sum(self._lifecycle_counts().values()), 0)
+
+        _by_key(app.button, "phase9f_analyse_jd").click().run()
+
+        self.assertEqual(list(app.exception), [])
+        snapshot = app.session_state["phase9f_jd_analysis"]
+        inputs = snapshot["application_local_jd_user_inputs"]
+        self.assertEqual(inputs["policy_version"], JD_USER_OVERRIDE_POLICY_VERSION)
+        self.assertEqual(
+            inputs["supplemental_preferred_requirements"],
+            ["Experience with Android app development and Kotlin"],
+        )
+        supplemental = [
+            row
+            for row in snapshot["canonical_requirements"]
+            if row.get("application_requirement_scope") == "application_local"
+        ]
+        self.assertEqual(len(supplemental), 1)
+        self.assertEqual(supplemental[0]["importance"], "preferred")
+        self.assertEqual(supplemental[0]["importance_source"], "user_supplied")
+        self.assertFalse(supplemental[0]["canonical_shared"])
+        self.assertNotIn(
+            "Experience with Android app development and Kotlin",
+            snapshot["raw_text"],
+        )
+        self.assertNotIn(
+            "Experience with Android app development and Kotlin",
+            snapshot["jd_profile"].get("preferred_skills", []),
+        )
+        self.assertEqual(snapshot["extraction_provenance"]["method"], "existing_jd_extraction_and_review")
+        self.assertTrue(_contains(app.markdown, "EMBEDDING_CALLS=0"))
+        self.assertEqual(manager.get_jd_library_stats()["canonical_jobs"], 0)
+
         _by_key(app.button, "phase9f_analyse_jd").click().run()
         self.assertEqual(list(app.exception), [])
-        self.assertTrue(_contains(app.markdown, "MODEL_CALLS=1"))
         self.assertTrue(_contains(app.subheader, "Job Analysis"))
         snapshot = app.session_state["phase9f_jd_analysis"]
         self.assertTrue(snapshot["canonical_requirements"])
@@ -182,7 +239,6 @@ class Phase9FStreamlitAcceptanceTests(unittest.TestCase):
         self.assertTrue(
             any("historical/stale" in item.value for item in app.warning)
         )
-        self.assertTrue(_contains(app.markdown, "MODEL_CALLS=1"))
         self.assertEqual(manager.get_jd_library_stats()["canonical_jobs"], 0)
 
     def test_passive_diagnostics_are_zero_cost_and_read_only(self):

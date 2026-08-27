@@ -87,7 +87,12 @@ def prepare_persisted_exact_jd_for_confirmation(
             "PRE-D could not resolve the exact persisted JD version.",
             code="pre_d_exact_jd_unavailable",
         )
-    persisted = build_saved_exact_jd_snapshot(exact)
+    persisted = build_saved_exact_jd_snapshot(
+        exact,
+        preferred_requirements=(
+            phase9f_a_snapshot.get("application_local_jd_user_inputs") or {}
+        ).get("preferred_requirement_overrides"),
+    )
     if (
         _clean(persisted.get("raw_jd_sha256"))
         != _clean(phase9f_a_snapshot.get("raw_jd_sha256"))

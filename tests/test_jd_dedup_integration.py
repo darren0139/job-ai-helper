@@ -83,6 +83,38 @@ class JDDedupIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(manager.get_jd_library_stats()["canonical_jobs"], 2)
 
+    def test_blank_location_never_links_to_a_different_canonical_identity(self) -> None:
+        text = "Build Python APIs."
+        located = manager.save_or_link_job_description_for_application(
+            application_id=1,
+            raw_text=text,
+            jd_profile=self.profile(location="Singapore"),
+        )
+        blank_location = manager.save_or_link_job_description_for_application(
+            application_id=2,
+            raw_text=text,
+            jd_profile=self.profile(location=""),
+        )
+
+        self.assertNotEqual(
+            located["job_description_id"], blank_location["job_description_id"]
+        )
+        self.assertNotEqual(
+            located["canonical_jd_id"], blank_location["canonical_jd_id"]
+        )
+        self.assertEqual(
+            manager.get_exact_job_description_for_application(1)[
+                "canonical_jd_id"
+            ],
+            located["canonical_jd_id"],
+        )
+        self.assertEqual(
+            manager.get_exact_job_description_for_application(2)[
+                "canonical_jd_id"
+            ],
+            blank_location["canonical_jd_id"],
+        )
+
     def test_unlink_keeps_shared_jd_until_last_session_is_deleted(self) -> None:
         text = "Build Python APIs."
         manager.save_or_link_job_description_for_application(

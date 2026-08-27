@@ -409,7 +409,7 @@ def build_application_baseline_report(
         )
 
     alignment = int(analysis.get("deterministic_alignment_score") or 0)
-    return {
+    report = {
         "meta": {
             "model": "deterministic-phase9f-b-baseline",
             "degree": "",
@@ -453,6 +453,15 @@ def build_application_baseline_report(
             "analysis. No tailoring has been executed."
         ),
     }
+    user_inputs = deepcopy(
+        (prepared.get("original_exact_jd") or {}).get(
+            "application_local_jd_user_inputs"
+        )
+        or {}
+    )
+    if user_inputs.get("preferred_requirement_overrides"):
+        report["meta"]["jd_user_inputs"] = user_inputs
+    return report
 
 
 def build_exact_phase9e_starting_snapshot(

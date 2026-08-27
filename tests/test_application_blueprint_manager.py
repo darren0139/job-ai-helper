@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 import json
 import sqlite3
 import tempfile
@@ -36,13 +37,40 @@ from database.global_blueprint_manager import (
     remove_global_blueprint_from_reuse,
     update_global_blueprint_display_metadata,
 )
-from database.jd_library_manager import get_exact_job_description_for_application
+from database.jd_library_manager import (
+    get_exact_job_description_for_application,
+    save_or_link_job_description_for_application,
+)
 from rag.jd_identity import build_job_identity
 from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
 )
+from tailoring.jd_user_input_overrides import (
+    apply_application_session_jd_user_inputs,
+)
 from tailoring.phase9e_blueprint_selection import Phase9EDecisionError
 from tests.phase9e_test_support import seed_phase9e_database
+
+
+@contextmanager
+def _forbid_application_analysis_external_calls():
+    """Keep the App 125 production-path regression deterministic and local."""
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("unexpected model, embedding, or Chroma call")
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("llm.completion", unexpected))
+        stack.enter_context(
+            patch("llm._run_completion_with_retries", unexpected)
+        )
+        stack.enter_context(
+            patch("rag.jd_chroma_rag._get_chroma_client", unexpected)
+        )
+        stack.enter_context(
+            patch("rag.jd_chroma_rag.get_chroma_collection", unexpected)
+        )
+        stack.enter_context(patch("rag.jd_chroma_rag.embed_texts", unexpected))
+        yield
 
 
 class ApplicationBlueprintManagerTests(unittest.TestCase):
@@ -373,6 +401,183 @@ class ApplicationBlueprintManagerTests(unittest.TestCase):
         )
         self.assertEqual(
             decision["starting_snapshot"]["source_type"], "global_blueprint"
+        )
+
+    def test_application_session_phase9e_context_keeps_local_preferred_scope(self):
+        """Exercise the same decision/context handoff as the Streamlit page.
+
+        App 125 showed the Application Session report with five correctly
+        persisted supplements, followed by the Phase 9E effective-report
+        handoff silently replacing its 17-row scope with a raw-JD 12-row
+        comparison.  This test uses the public preview/bind/context manager
+        APIs called by the page, rather than emulating a report save/reload.
+        """
+        overrides = [
+            "Experience working with Android app development and Kotlin",
+            "Experience working with OpenGLand/or Vulkan",
+            "Familiarity with Nvidia CUDA",
+            "Good foundation in linear algebra, calculus and geometry",
+            "Understanding and familiarity with 3D Data Structures/Algorithms",
+        ]
+        application_id = db_manager.create_empty_application_session(
+            degree="IMGD",
+            session_name="App 125 effective requirement scope",
+        )
+        base_requirements = [
+            f"Core application requirement {index}" for index in range(1, 13)
+        ]
+        raw_jd = "\n".join(["Job Requirements", *base_requirements])
+        jd_profile = {
+            "company": "Scope Regression Co",
+            "job_title": "Android Graphics Engineer",
+            "location": "Singapore",
+            "required_skills": base_requirements,
+            "preferred_skills": [],
+            "responsibilities": [],
+            "soft_skills": [],
+            "tools_technologies": [],
+            "deal_breakers": [],
+        }
+        resume_text = (
+            "Workout Buddy: Experience working with Android app development "
+            "and Kotlin, including mobile application delivery."
+        )
+        original_report = {
+            "resume_profile": {
+            "education": [],
+            "experience": [],
+            "projects": [
+                {"name": "Workout Buddy", "bullets": [resume_text]}
+            ],
+            "skills": ["Android", "Kotlin"],
+            },
+            "jd_profile": jd_profile,
+            "raw_jd_text": raw_jd,
+            "keyword_match": {"present": [], "missing": []},
+            "stable_analysis": {},
+            "meta": {"degree": "IMGD"},
+        }
+        with _forbid_application_analysis_external_calls():
+            saved = save_or_link_job_description_for_application(
+                application_id=application_id,
+                raw_text=raw_jd,
+                jd_profile=jd_profile,
+                source_url="https://example.test/app-125",
+            )
+            self.assertTrue(saved["created_new_link"])
+            exact_jd = get_exact_job_description_for_application(application_id)
+            self.assertIsNotNone(exact_jd)
+            # First bind the same source without the local inputs. This is the
+            # immutable 12-row pre-2.3a decision represented by App 125.
+            db_manager.update_application_report(
+                application_id=application_id,
+                resume_filename="workout-buddy.docx",
+                report=original_report,
+            )
+            pre_override = evaluate_and_bind_application_blueprint(
+                application_id=application_id,
+                scope_replacement_confirmed=True,
+                selected_source="original_resume",
+                selection_mode="original_resume",
+                actor_label="App 125 pre-override binding",
+            )["decision"]
+            self.assertEqual(
+                pre_override["comparison"]["stable_analysis_snapshot"][
+                    "requirement_count"
+                ],
+                12,
+            )
+            processed = apply_application_session_jd_user_inputs(
+                original_report,
+                raw_jd_text=exact_jd["raw_text"],
+                raw_resume_text=resume_text,
+                preferred_requirements=overrides,
+            )
+            processed.setdefault("meta", {}).setdefault(
+                "analysis_cache", {}
+            ).update(
+                {
+                    "status": "forced_refresh",
+                    "analysis_id": "app-125-forced-refresh",
+                    "input_fingerprint": "app-125-forced-refresh-input",
+                }
+            )
+            db_manager.update_application_report(
+                application_id=application_id,
+                resume_filename="workout-buddy.docx",
+                report=processed,
+            )
+            stale = get_current_application_blueprint_decision(application_id)
+            self.assertEqual(stale["current_scope_status"], "stale")
+            self.assertIn(
+                "local preferred-requirement scope changed",
+                " ".join(stale["stale_reasons"]),
+            )
+            preview = preview_application_blueprint_decision(
+                application_id=application_id,
+                selected_source="original_resume",
+                selection_mode="original_resume",
+            )
+            self.assertEqual(
+                preview["comparison"]["stable_analysis_snapshot"][
+                    "requirement_count"
+                ],
+                17,
+            )
+            bound = evaluate_and_bind_application_blueprint(
+                application_id=application_id,
+                scope_replacement_confirmed=True,
+                selected_source="original_resume",
+                selection_mode="original_resume",
+                actor_label="App 125 production-path regression",
+            )["decision"]
+            context = resolve_current_phase9e_generation_context(application_id)
+        persisted = db_manager.get_application_by_id(application_id)["report"]
+        persisted_stable = persisted["stable_analysis"]
+        self.assertEqual(persisted_stable["preferred_requirement_count"], 5)
+        base_requirement_count = len(exact_jd["canonical_requirements"])
+        self.assertEqual(
+            persisted_stable["requirement_count"],
+            base_requirement_count + 5,
+        )
+
+        self.assertEqual(context["status"], "current")
+        rendered_stable = context["effective_report"]["stable_analysis"]
+        local_rows = [
+            row
+            for row in rendered_stable["canonical_requirements"]
+            if row.get("application_requirement_scope") == "application_local"
+        ]
+        self.assertEqual(rendered_stable["requirement_count"], base_requirement_count + 5)
+        self.assertEqual(rendered_stable["preferred_requirement_count"], 5)
+        self.assertEqual(len(local_rows), 5)
+        self.assertTrue(
+            all(
+                row.get("importance") == "preferred"
+                and row.get("importance_source") == "user_supplied"
+                and row.get("canonical_shared") is False
+                for row in local_rows
+            )
+        )
+        android_kotlin = next(
+            row
+            for row in local_rows
+            if row.get("user_supplied_requirement") == overrides[0]
+        )
+        self.assertNotEqual(android_kotlin["match_label"], "none")
+        self.assertGreater(android_kotlin["evidence_strength"], 0)
+        self.assertEqual(
+            bound["comparison"]["stable_analysis_snapshot"],
+            rendered_stable,
+        )
+        self.assertEqual(
+            bound["semantic_identity"]["application_local_jd_scope"]
+            ["override_identity"]["preferred_requirement_override_keys"],
+            sorted(item.casefold() for item in overrides),
+        )
+        self.assertEqual(
+            get_exact_job_description_for_application(application_id)["canonical_jd_id"],
+            exact_jd["canonical_jd_id"],
         )
 
     def test_superseded_selected_blueprint_makes_decision_stale_and_blocks(self):

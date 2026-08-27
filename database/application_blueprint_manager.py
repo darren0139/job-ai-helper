@@ -1078,6 +1078,10 @@ def _stale_reasons(
             "source_approval",
             "The immutable exact-source approval identity changed.",
         ),
+        (
+            "application_local_jd_scope",
+            "The application's local preferred-requirement scope changed.",
+        ),
         ("decision", "The decision policy or section-lock scope changed."),
     ):
         if old.get(field) != new.get(field):

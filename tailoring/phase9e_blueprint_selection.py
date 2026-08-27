@@ -25,6 +25,15 @@ from tailoring.phase9d_global_blueprint import (
     PHASE9D_FINGERPRINT_POLICY_VERSION,
     PHASE9D_VERSION,
 )
+from tailoring.jd_user_input_overrides import (
+    apply_preferred_requirement_overrides_to_canonical_rows,
+    build_effective_application_local_requirement_scope,
+    effective_stable_input_fingerprint,
+    normalise_requirement_override_lines,
+    preferred_requirement_override_cache_identity,
+    requirement_override_key,
+    tag_application_local_supplemental_requirement_row,
+)
 
 
 PHASE9E_VERSION = "phase9e-application-blueprint-selection-v1"
@@ -100,6 +109,25 @@ class Phase9EDecisionError(ValueError):
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
+
+
+def _application_local_preferred_requirements(
+    application_report: dict[str, Any] | None,
+) -> list[str]:
+    """Read only explicit v2 requirement overrides from this application.
+
+    The shared exact JD remains deliberately unaware of this application-local
+    scope.  Its canonical identity is still used for provenance and source-JD
+    parity; this helper supplies the separately persisted user choice to the
+    Phase 9E comparison that renders and drives the selected starting source.
+    """
+    inputs = (
+        (application_report or {}).get("meta", {}).get("jd_user_inputs")
+        or {}
+    )
+    return normalise_requirement_override_lines(
+        inputs.get("preferred_requirement_overrides")
+    )
 
 
 def canonical_json(value: Any) -> str:
@@ -858,24 +886,39 @@ def _apply_phase9e_preliminary_match_ceilings(
     return analysis
 
 
-def evaluate_starting_snapshot(
+def _build_phase9e_starting_analysis(
+    *,
     starting_snapshot: dict[str, Any],
     jd: dict[str, Any],
-) -> dict[str, Any]:
-    """Evaluate a frozen starting source using the current stable scorer."""
-    validate_exact_jd_snapshot(jd)
+    preferred_requirements: list[str],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Score one frozen resume against base and local effective JD scope.
+
+    The raw JD must remain the source of shared canonical requirements.  A
+    nonmatching application-local input is therefore scored separately from a
+    one-requirement profile, then added to the already-scored Phase 9E result.
+    This mirrors the raw-JD precedence boundary used by Application Sessions
+    and never writes the supplemental requirement to shared JD storage.
+    """
     profile = starting_snapshot.get("resume_profile_snapshot")
     resume_text = starting_snapshot.get("resume_text_snapshot")
     if not isinstance(profile, dict) or not _clean(resume_text):
         raise Phase9EDecisionError("The starting resume snapshot is incomplete.")
 
     canonical = jd.get("canonicalisation") or {}
-    requirements = canonical.get("requirements") or jd.get(
+    base_requirements = canonical.get("requirements") or jd.get(
         "canonical_requirements"
     )
     acronym_map = canonical.get("acronym_map") or {}
+    overrides = normalise_requirement_override_lines(preferred_requirements)
+    effective_requirements, local_scope = (
+        build_effective_application_local_requirement_scope(
+            base_requirements,
+            overrides,
+        )
+    )
     keyword_match = build_phase9e_keyword_match(
-        requirements=deepcopy(requirements),
+        requirements=deepcopy(effective_requirements),
         acronym_map=deepcopy(acronym_map),
         resume_profile=deepcopy(profile),
         raw_resume_text=str(resume_text),
@@ -892,6 +935,120 @@ def evaluate_starting_snapshot(
         analysis,
         keyword_match,
     )
+    if not overrides:
+        return analysis, keyword_match, local_scope
+
+    rows, canonical_matches, matched_rows = (
+        apply_preferred_requirement_overrides_to_canonical_rows(
+            analysis.get("canonical_requirements") or [],
+            overrides,
+        )
+    )
+    canonical_match_keys = {
+        requirement_override_key(item)
+        for item in canonical_matches
+        if requirement_override_key(item)
+    }
+    supplemental_requirements = [
+        item
+        for item in overrides
+        if requirement_override_key(item) not in canonical_match_keys
+    ]
+    supplemental_rows: list[dict[str, Any]] = []
+    for requirement in supplemental_requirements:
+        requirement_key = requirement_override_key(requirement)
+        local_requirement_rows = [
+            deepcopy(row)
+            for row in effective_requirements
+            if requirement_override_key(row.get("user_supplied_requirement"))
+            == requirement_key
+        ]
+        if not local_requirement_rows:
+            raise Phase9EDecisionError(
+                "The application-local preferred requirement is missing from "
+                "the effective JD scope."
+            )
+        supplemental_keyword_match = build_phase9e_keyword_match(
+            requirements=deepcopy(local_requirement_rows),
+            acronym_map=deepcopy(acronym_map),
+            resume_profile=deepcopy(profile),
+            raw_resume_text=str(resume_text),
+        )
+        supplemental_analysis = build_stable_analysis(
+            jd_profile={"preferred_skills": [requirement]},
+            keyword_match=supplemental_keyword_match,
+            raw_jd_text="",
+            raw_resume_text=str(resume_text),
+            resume_profile=deepcopy(profile),
+            retrieval_mode_override="lexical",
+        )
+        supplemental_analysis = _apply_phase9e_preliminary_match_ceilings(
+            supplemental_analysis,
+            supplemental_keyword_match,
+        )
+        supplemental_rows.extend(
+            tag_application_local_supplemental_requirement_row(row, requirement)
+            for row in supplemental_analysis.get("canonical_requirements", [])
+            if isinstance(row, dict)
+        )
+
+    covered_keys = {
+        requirement_override_key(row.get("user_supplied_requirement"))
+        for row in supplemental_rows
+        if row.get("application_requirement_scope") == "application_local"
+    }
+    expected_keys = {
+        requirement_override_key(item)
+        for item in supplemental_requirements
+        if requirement_override_key(item)
+    }
+    if covered_keys != expected_keys:
+        raise Phase9EDecisionError(
+            "Application-local preferred requirements could not be scored in "
+            "the effective Phase 9E JD scope."
+        )
+
+    output = deepcopy(analysis)
+    output["canonical_requirements"] = [*rows, *supplemental_rows]
+    output.setdefault("canonicalisation_debug", {})[
+        "application_local_supplemental_requirements"
+    ] = [
+        {"text": _clean(item), "scope": "application_local"}
+        for item in supplemental_requirements
+    ]
+    output.update(compute_deterministic_alignment(output["canonical_requirements"]))
+    base_fingerprint = _clean(analysis.get("input_fingerprint"))
+    output["base_stable_input_fingerprint"] = base_fingerprint
+    output["input_fingerprint"] = effective_stable_input_fingerprint(
+        base_fingerprint,
+        overrides,
+    )
+    output["jd_user_override_policy_version"] = local_scope["policy_version"]
+    local_scope = {
+        **local_scope,
+        "canonical_preferred_matches": deepcopy(canonical_matches),
+        "matched_canonical_requirement_rows": deepcopy(matched_rows),
+        "supplemental_preferred_requirements": deepcopy(
+            supplemental_requirements
+        ),
+    }
+    return output, keyword_match, local_scope
+
+
+def evaluate_starting_snapshot(
+    starting_snapshot: dict[str, Any],
+    jd: dict[str, Any],
+    *,
+    preferred_requirements: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Evaluate a frozen starting source using the current stable scorer."""
+    validate_exact_jd_snapshot(jd)
+    overrides = normalise_requirement_override_lines(preferred_requirements)
+    analysis, keyword_match, local_scope = _build_phase9e_starting_analysis(
+        starting_snapshot=starting_snapshot,
+        jd=jd,
+        preferred_requirements=overrides,
+    )
     result_rows = [
         deepcopy(row)
         for row in analysis.get("canonical_requirements", [])
@@ -902,9 +1059,22 @@ def evaluate_starting_snapshot(
         for row in result_rows
         if _clean(row.get("requirement_id"))
     )
-    if result_ids != sorted(jd.get("canonical_requirement_ids") or []):
+    expected_rows, _expected_scope = (
+        build_effective_application_local_requirement_scope(
+            (jd.get("canonicalisation") or {}).get("requirements")
+            or jd.get("canonical_requirements")
+            or [],
+            overrides,
+        )
+    )
+    expected_ids = sorted(
+        _clean(row.get("requirement_id"))
+        for row in expected_rows
+        if _clean(row.get("requirement_id"))
+    )
+    if result_ids != expected_ids:
         raise Phase9EDecisionError(
-            "Stable scoring changed the exact JD's canonical requirement scope."
+            "Stable scoring changed the effective application JD scope."
         )
     important_gaps = [
         {
@@ -941,7 +1111,7 @@ def evaluate_starting_snapshot(
         ),
         "important_gaps": important_gaps,
     }
-    return {
+    result = {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_selection_policy_version": (
@@ -978,6 +1148,9 @@ def evaluate_starting_snapshot(
         "stable_analysis_snapshot": deepcopy(analysis),
         "keyword_match_snapshot": deepcopy(keyword_match),
     }
+    if overrides:
+        result["application_local_jd_user_inputs"] = deepcopy(local_scope)
+    return result
 
 
 def decide_tailoring(
@@ -1142,6 +1315,9 @@ def build_phase9e_decision(
     if int(application_id) <= 0:
         raise Phase9EDecisionError("application_id must be positive.")
     exact_jd = validate_exact_jd_snapshot(deepcopy(exact_jd))
+    application_local_preferred_requirements = (
+        _application_local_preferred_requirements(application_report)
+    )
     recommendation = recommend_active_blueprint(exact_jd, active_blueprints)
     classification = recommendation["classification"]
     active = recommendation["active_blueprints"]
@@ -1212,7 +1388,9 @@ def build_phase9e_decision(
         )
 
     comparison = evaluate_starting_snapshot(
-        diagnostic_starting_snapshot, exact_jd
+        diagnostic_starting_snapshot,
+        exact_jd,
+        preferred_requirements=application_local_preferred_requirements,
     )
     exact_source_approved = bool(
         source_approval and source_approval.get("matched")
@@ -1220,7 +1398,9 @@ def build_phase9e_decision(
     original_comparison: dict[str, Any] | None = None
     if selected_source == "global_blueprint" and not exact_source_approved:
         original_comparison = evaluate_starting_snapshot(
-            original_snapshot or {}, exact_jd
+            original_snapshot or {},
+            exact_jd,
+            preferred_requirements=application_local_preferred_requirements,
         )
     outcome = decide_tailoring(
         comparison,
@@ -1283,6 +1463,21 @@ def build_phase9e_decision(
         },
         "stable_input_fingerprint": semantic_stable_input,
     }
+    application_local_jd_scope = {}
+    if application_local_preferred_requirements:
+        application_local_jd_scope = {
+            "policy_version": (
+                preferred_requirement_override_cache_identity(
+                    application_local_preferred_requirements
+                )["policy_version"]
+            ),
+            "override_identity": preferred_requirement_override_cache_identity(
+                application_local_preferred_requirements
+            ),
+            "effective_requirement_fingerprint": _clean(
+                comparison.get("stable_input_fingerprint")
+            ),
+        }
     selected_identity = _blueprint_identity(selected_blueprint)
     semantic_identity = {
         "phase9e_version": PHASE9E_VERSION,
@@ -1331,6 +1526,10 @@ def build_phase9e_decision(
             "section_lock_scope": deepcopy(outcome["section_lock_scope"]),
         },
     }
+    if application_local_jd_scope:
+        semantic_identity["application_local_jd_scope"] = (
+            deepcopy(application_local_jd_scope)
+        )
     if exact_source_approved:
         semantic_identity["source_approval"] = {
             "policy_version": PHASE9E_EXACT_SOURCE_REUSE_POLICY_VERSION,
@@ -1394,7 +1593,19 @@ def build_phase9e_decision(
             ),
         },
         "role_family_classification": deepcopy(classification),
-        "current_jd_snapshot": deepcopy(exact_jd),
+        "current_jd_snapshot": {
+            **deepcopy(exact_jd),
+            **(
+                {
+                    "application_local_jd_user_inputs": deepcopy(
+                        comparison.get("application_local_jd_user_inputs")
+                        or {}
+                    )
+                }
+                if application_local_preferred_requirements
+                else {}
+            ),
+        },
         "starting_snapshot": deepcopy(starting_snapshot),
         "diagnostic_starting_snapshot": deepcopy(
             diagnostic_starting_snapshot

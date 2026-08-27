@@ -17,6 +17,11 @@ from database.jd_library_manager import (
 from llm import drain_call_ledger, get_active_model, reset_call_ledger
 from rag.jd_chroma_rag import index_job_description_to_chroma
 from rag.jd_identity import source_version_id
+from tailoring.jd_user_input_overrides import (
+    PREFERRED_REQUIREMENTS_HELP,
+    PREFERRED_REQUIREMENTS_LABEL,
+    normalise_requirement_override_lines,
+)
 from tailoring.phase9f_jd_intake import (
     build_phase9f_analysis_diagnostics,
     build_reused_exact_jd_snapshot,
@@ -443,6 +448,26 @@ def render_phase9f_jd_intake() -> None:
             location = st.text_input("Location", key="phase9f_jd_location")
             source_url = st.text_input("Source URL", key="phase9f_jd_source_url")
 
+    with st.expander("Optional JD requirement overrides", expanded=False):
+        preferred_requirement_input = st.text_area(
+            PREFERRED_REQUIREMENTS_LABEL,
+            height=120,
+            key="phase9f_jd_preferred_requirements",
+            placeholder=(
+                "Paste one full requirement per line, ideally using the "
+                "exact wording from the JD."
+            ),
+            help=PREFERRED_REQUIREMENTS_HELP,
+        )
+        st.caption(
+            "Explicit user input has highest importance precedence. Matching "
+            "is deterministic and conservative: no fuzzy requirement "
+            "reclassification."
+        )
+    preferred_requirements = normalise_requirement_override_lines(
+        preferred_requirement_input
+    )
+
     exact_saved_match = None
     if source_type in {"pasted", "uploaded"} and _clean(raw_text):
         exact_saved_match = _find_exact_saved_jd_version(raw_text)
@@ -471,6 +496,7 @@ def render_phase9f_jd_intake() -> None:
         # saving a newly analysed JD would immediately make that same analysis
         # stale when the preflight begins finding the newly saved exact version.
         extraction_model_id=active_analysis_model,
+        preferred_requirements=preferred_requirements,
     )
     has_input = bool(_clean(raw_text))
     if has_input and exact_saved_match is not None:
@@ -507,7 +533,10 @@ def render_phase9f_jd_intake() -> None:
                 )
                 if selected_saved is None:
                     raise ValueError("The selected exact saved JD version is missing.")
-                snapshot = build_saved_exact_jd_snapshot(selected_saved)
+                snapshot = build_saved_exact_jd_snapshot(
+                    selected_saved,
+                    preferred_requirements=preferred_requirements,
+                )
             elif exact_saved_match is not None:
                 validated_text = validate_jd_text(raw_text)
                 if (
@@ -527,6 +556,7 @@ def render_phase9f_jd_intake() -> None:
                     source_url=source_url,
                     source_filename=source_filename,
                     source_artifact_sha256=source_artifact_sha256,
+                    preferred_requirements=preferred_requirements,
                 )
             else:
                 validated_text = validate_jd_text(raw_text)
@@ -548,6 +578,7 @@ def render_phase9f_jd_intake() -> None:
                     source_artifact_sha256=source_artifact_sha256,
                     extraction_model_id=analysis_model,
                     model_calls=calls,
+                    preferred_requirements=preferred_requirements,
                 )
             st.session_state["phase9f_jd_analysis"] = snapshot
             st.session_state["phase9f_jd_analysis_input_fingerprint"] = (

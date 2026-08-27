@@ -16,12 +16,22 @@ from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
     build_deterministic_keyword_match,
     build_stable_analysis,
+    canonicalise_requirements,
+    compute_deterministic_alignment,
 )
 from rag.jd_identity import source_version_id
 from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.fresh_target_evidence_scoring import (
     FRESH_TARGET_EVIDENCE_POLICY_VERSION,
     build_fresh_target_analysis,
+)
+from tailoring.jd_user_input_overrides import (
+    apply_preferred_requirement_overrides_to_canonical_rows,
+    build_effective_application_local_requirement_scope,
+    effective_stable_input_fingerprint,
+    normalise_requirement_override_lines,
+    requirement_override_key,
+    tag_application_local_supplemental_requirement_row,
 )
 from tailoring.phase9b_role_family import suggest_role_family
 from tailoring.phase9f_starting_source_transparency import (
@@ -290,6 +300,40 @@ def validate_exact_jd_snapshot(
             code="exact_jd_semantic_requirement_ids_mismatch",
         )
 
+    local_inputs = deepcopy(
+        exact_jd.get("application_local_jd_user_inputs") or {}
+    )
+    local_overrides = normalise_requirement_override_lines(
+        local_inputs.get("preferred_requirement_overrides")
+    )
+    semantic_local_inputs = semantic.get("application_local_jd_user_inputs")
+    if local_overrides:
+        base_rows = canonicalise_requirements(
+            jd_profile=deepcopy(profile),
+            raw_jd_text=raw_text,
+        ).get("requirements", [])
+        expected_rows, expected_inputs = (
+            build_effective_application_local_requirement_scope(
+                base_rows,
+                local_overrides,
+            )
+        )
+        if (
+            local_inputs != expected_inputs
+            or semantic_local_inputs != expected_inputs
+            or canonical_requirement_scope_fingerprint(expected_rows)
+            != requirement_fingerprint
+        ):
+            raise Phase9FBRankingError(
+                "The exact JD application-local preferred requirement scope is stale.",
+                code="exact_jd_application_local_preferred_scope_mismatch",
+            )
+    elif semantic_local_inputs:
+        raise Phase9FBRankingError(
+            "The exact JD has unexpected application-local requirement metadata.",
+            code="exact_jd_application_local_preferred_metadata_unexpected",
+        )
+
     classified = suggest_role_family({"jd_profile": deepcopy(profile)})
     role = exact_jd.get("role_family") or {}
     role_semantic = semantic.get("role_family") or {}
@@ -319,6 +363,7 @@ def validate_exact_jd_snapshot(
         "raw_text": raw_text,
         "jd_profile": deepcopy(profile),
         "canonical_requirements": deepcopy(rows),
+        "application_local_jd_user_inputs": local_inputs,
         "acronym_map": deepcopy(canonicalisation.get("acronym_map") or {}),
         "semantic_identity": {
             "raw_jd_sha256": raw_hash,
@@ -343,6 +388,121 @@ def validate_exact_jd_snapshot(
             ),
         },
     }
+
+
+def _apply_phase9f_jd_user_inputs_to_fresh_analysis(
+    analysis: dict[str, Any],
+    *,
+    exact_jd: dict[str, Any],
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the v2 effective requirement overlay after fresh scoring.
+
+    The global fresh scorer intentionally canonicalises from immutable raw JD
+    text and profile.  Application-local inputs must therefore be appended at
+    this narrow caller boundary; putting them into the profile would either be
+    ignored when raw rows exist or leak them into shared JD persistence.
+    """
+    user_inputs = exact_jd.get("application_local_jd_user_inputs") or {}
+    overrides = normalise_requirement_override_lines(
+        user_inputs.get("preferred_requirement_overrides")
+    )
+    if not overrides:
+        return analysis
+
+    rows, canonical_matches, _matched_rows = (
+        apply_preferred_requirement_overrides_to_canonical_rows(
+            analysis.get("canonical_requirements") or [],
+            overrides,
+        )
+    )
+    canonical_match_keys = {
+        requirement_override_key(item) for item in canonical_matches
+    }
+    supplements = [
+        item
+        for item in overrides
+        if requirement_override_key(item)
+        not in canonical_match_keys
+    ]
+    supplemental_rows: list[dict[str, Any]] = []
+    for requirement in supplements:
+        requirement_key = requirement_override_key(requirement)
+        frozen_rows = [
+            deepcopy(row)
+            for row in exact_jd["canonical_requirements"]
+            if requirement_override_key(
+                row.get("user_supplied_requirement")
+            )
+            == requirement_key
+        ]
+        if not frozen_rows:
+            raise Phase9FBRankingError(
+                "The frozen Phase 9F-A supplemental requirement is missing.",
+                code="application_local_preferred_scope_missing",
+                source_type=source["source_type"],
+                source_id=source["source_id"],
+            )
+        supplemental_keyword_match = build_deterministic_keyword_match(
+            requirements=frozen_rows,
+            acronym_map=deepcopy(exact_jd["acronym_map"]),
+            resume_profile=deepcopy(source["resume_profile_snapshot"]),
+            raw_resume_text=str(source["resume_text_snapshot"]),
+        )
+        supplemental_analysis = build_fresh_target_analysis(
+            jd_profile={"preferred_skills": [requirement]},
+            keyword_match=supplemental_keyword_match,
+            raw_jd_text="",
+            raw_resume_text=str(source["resume_text_snapshot"]),
+            resume_profile=deepcopy(source["resume_profile_snapshot"]),
+            retrieval_mode_override="lexical",
+        )
+        supplemental_rows.extend(
+            tag_application_local_supplemental_requirement_row(row, requirement)
+            for row in supplemental_analysis.get("canonical_requirements", [])
+            or []
+            if isinstance(row, dict)
+        )
+
+    covered = {
+        requirement_override_key(row.get("user_supplied_requirement"))
+        for row in supplemental_rows
+        if row.get("application_requirement_scope") == "application_local"
+    }
+    expected = {
+        requirement_override_key(item)
+        for item in supplements
+    }
+    if covered != expected:
+        raise Phase9FBRankingError(
+            "Application-local preferred requirements could not be scored in "
+            "the effective Phase 9F-B requirement scope.",
+            code="application_local_preferred_scope_incomplete",
+            source_type=source["source_type"],
+            source_id=source["source_id"],
+        )
+
+    output = deepcopy(analysis)
+    output["canonical_requirements"] = [*rows, *supplemental_rows]
+    output.setdefault("canonicalisation_debug", {})[
+        "application_local_supplemental_requirements"
+    ] = [
+        {"text": str(item), "scope": "application_local"}
+        for item in supplements
+    ]
+    output.update(
+        compute_deterministic_alignment(output["canonical_requirements"])
+    )
+    base_fingerprint = str(analysis.get("input_fingerprint") or "")
+    output["base_stable_input_fingerprint"] = base_fingerprint
+    output["input_fingerprint"] = effective_stable_input_fingerprint(
+        base_fingerprint,
+        overrides,
+    )
+    output["jd_user_override_policy_version"] = str(
+        user_inputs.get("policy_version") or ""
+    )
+    return output
 
 
 def normalize_base_resume_source(
@@ -960,6 +1120,11 @@ def score_normalized_source(
         raw_resume_text=str(source["resume_text_snapshot"]),
         resume_profile=deepcopy(source["resume_profile_snapshot"]),
         retrieval_mode_override="lexical",
+    )
+    analysis = _apply_phase9f_jd_user_inputs_to_fresh_analysis(
+        analysis,
+        exact_jd=exact_jd,
+        source=source,
     )
     result_rows = [
         deepcopy(row)
