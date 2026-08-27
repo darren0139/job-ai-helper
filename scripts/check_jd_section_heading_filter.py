@@ -61,6 +61,33 @@ Responsibilities include implementing production monitoring workflows.
         in sentence_texts
     )
 
+    phase_2_3b_result = canonicalise_requirements(
+        {},
+        """
+Requirements and Skills
+• C++
+• Data Structures
+
+Bonus Requirements and Skills
+• Android/Kotlin
+• CUDA
+""",
+    )
+    phase_2_3b_rows = {
+        row["text"]: row
+        for row in phase_2_3b_result["requirements"]
+    }
+    assert set(phase_2_3b_rows) == {
+        "C++",
+        "Data Structures",
+        "Android/Kotlin",
+        "CUDA",
+    }
+    assert phase_2_3b_rows["C++"]["importance"] == "required"
+    assert phase_2_3b_rows["Data Structures"]["importance"] == "required"
+    assert phase_2_3b_rows["Android/Kotlin"]["importance"] == "preferred"
+    assert phase_2_3b_rows["CUDA"]["importance"] == "preferred"
+
     print("JD section-heading filter smoke check passed.")
     print(f"Scoring version: {SCORING_VERSION}")
     print(f"Filtered section markers: {len(filtered)}")

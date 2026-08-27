@@ -392,10 +392,12 @@ _RAW_SECTION_HEADINGS = {
         {
             "job requirements",
             "requirements",
+            "requirements and skills",
             "role requirements",
             "candidate requirements",
             "minimum requirements",
             "required qualifications",
+            "required skills",
             "minimum qualifications",
             "qualifications",
             "skills and experience",
@@ -404,11 +406,18 @@ _RAW_SECTION_HEADINGS = {
             "what were looking for",
         }
     ),
+    "core": frozenset(
+        {
+            "core requirements",
+        }
+    ),
     "preferred": frozenset(
         {
             "preferred qualifications",
             "preferred requirements",
             "preferred skills",
+            "bonus requirements and skills",
+            "optional skills",
             "desired qualifications",
             "desired skills",
             "nice to have",
@@ -884,12 +893,17 @@ def _raw_jd_requirement_rows(raw_jd_text: str) -> list[dict[str, Any]]:
             active_section = "" if section == "stop" else section
             continue
 
-        if not active_section or len(value) < 12:
+        # Inside an explicitly recognised requirement section, short technical
+        # entries such as "C++" are real requirements.  The section marker is
+        # already consumed above, so require a meaningful token rather than a
+        # presentation-length threshold.
+        if not active_section or not _tokenise(value):
             continue
 
         default_importance = {
             "responsibilities": "core",
             "requirements": "required",
+            "core": "core",
             "preferred": "preferred",
         }[active_section]
 
@@ -2152,4 +2166,3 @@ def build_stable_analysis(
         ),
         **score,
     }
-

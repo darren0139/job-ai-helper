@@ -89,12 +89,11 @@ BONUS_REQUIREMENTS = [
 
 
 def _full_raw_jd_with_bonus_requirements() -> str:
-    """Keep the current heading gap visible; 2.3a must override it locally."""
+    """App-127-style JD with natural preferred ownership from its heading."""
     return "\n".join(
         [
-            "Job Requirements",
+            "Requirements and Skills",
             "Build reliable APIs",
-            # Phase 2.3b deliberately does not recognise this heading yet.
             "Bonus Requirements and Skills",
             *(f"- {item}" for item in BONUS_REQUIREMENTS),
         ]
@@ -282,6 +281,25 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
             )
 
         rows = result["stable_analysis"]["canonical_requirements"]
+        heading_texts = {
+            "Requirements and Skills",
+            "Bonus Requirements and Skills",
+        }
+        self.assertFalse(
+            heading_texts
+            & {str(row.get("text") or "") for row in rows}
+        )
+        self.assertFalse(
+            any(
+                str(merge.get("kept_text") or "") in heading_texts
+                or str(merge.get("merged_text") or "") in heading_texts
+                for merge in (
+                    result["stable_analysis"].get("canonicalisation_debug", {})
+                    .get("merged_requirements", [])
+                    or []
+                )
+            )
+        )
         for requirement in BONUS_REQUIREMENTS:
             matching_rows = [
                 row

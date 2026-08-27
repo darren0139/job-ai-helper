@@ -640,6 +640,131 @@ if __name__ == "__main__":
 
 
 class JdSectionHeadingFilterTests(unittest.TestCase):
+    def test_phase_2_3b_required_heading_excludes_marker_and_keeps_short_skill(
+        self,
+    ) -> None:
+        result = canonicalise_requirements(
+            {},
+            """
+Requirements and Skills
+• C++
+• Data Structures
+""",
+        )
+        by_text = {row["text"]: row for row in result["requirements"]}
+
+        self.assertEqual(set(by_text), {"C++", "Data Structures"})
+        self.assertTrue(
+            all(row["importance"] == "required" for row in by_text.values())
+        )
+        self.assertIn(
+            "Requirements and Skills",
+            {row["text"] for row in result["filtered_section_headings"]},
+        )
+
+    def test_phase_2_3b_preferred_heading_propagates_to_stable_analysis(
+        self,
+    ) -> None:
+        raw_jd = """
+Bonus Requirements and Skills
+• Experience working with Android app development and Kotlin
+• Familiarity with Nvidia CUDA
+"""
+        stable = build_stable_analysis(
+            jd_profile={},
+            keyword_match={"present": [], "missing": []},
+            raw_jd_text=raw_jd,
+            raw_resume_text="",
+            resume_profile={},
+        )
+        rows = stable["canonical_requirements"]
+
+        self.assertEqual(stable["requirement_count"], 2)
+        self.assertEqual(stable["preferred_requirement_count"], 2)
+        self.assertEqual(stable["required_core_requirement_count"], 0)
+        self.assertTrue(all(row["importance"] == "preferred" for row in rows))
+        self.assertNotIn(
+            "Bonus Requirements and Skills",
+            {row["text"] for row in rows},
+        )
+
+    def test_phase_2_3b_mixed_sections_have_no_heading_rows_or_merges(self) -> None:
+        raw_jd = """
+Requirements and Skills
+• C++
+• Data Structures
+
+Bonus Requirements and Skills
+• Android/Kotlin
+• CUDA
+"""
+        result = canonicalise_requirements({}, raw_jd)
+        rows = result["requirements"]
+        by_text = {row["text"]: row for row in rows}
+        heading_texts = {
+            "Requirements and Skills",
+            "Bonus Requirements and Skills",
+        }
+
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(by_text["C++"]["importance"], "required")
+        self.assertEqual(by_text["Data Structures"]["importance"], "required")
+        self.assertEqual(by_text["Android/Kotlin"]["importance"], "preferred")
+        self.assertEqual(by_text["CUDA"]["importance"], "preferred")
+        self.assertFalse(heading_texts & set(by_text))
+        self.assertFalse(
+            any(
+                str(merge.get("kept_text") or "") in heading_texts
+                or str(merge.get("merged_text") or "") in heading_texts
+                for merge in result["merge_debug"]
+            )
+        )
+
+    def test_phase_2_3b_heading_aliases_preserve_required_core_and_preferred_context(
+        self,
+    ) -> None:
+        cases = {
+            "Required Skills": "required",
+            "Core Requirements": "core",
+            "Preferred Skills": "preferred",
+            "Optional Skills": "preferred",
+        }
+        for heading, expected_importance in cases.items():
+            with self.subTest(heading=heading):
+                result = canonicalise_requirements(
+                    {},
+                    f"{heading}:\n• Demonstrated deterministic capability",
+                )
+                self.assertEqual(len(result["requirements"]), 1)
+                self.assertEqual(
+                    result["requirements"][0]["importance"],
+                    expected_importance,
+                )
+                self.assertEqual(
+                    result["filtered_section_headings"][0]["text"],
+                    f"{heading}:",
+                )
+
+    def test_phase_2_3b_real_requirement_prose_is_not_a_heading(self) -> None:
+        result = canonicalise_requirements(
+            {},
+            """
+Strong skills in systems design are required.
+Experience with CUDA is preferred.
+""",
+        )
+        by_text = {row["text"]: row for row in result["requirements"]}
+
+        self.assertEqual(
+            by_text["Strong skills in systems design are required"]["importance"],
+            "required",
+        )
+        self.assertEqual(
+            by_text["Experience with CUDA is preferred"]["importance"],
+            "preferred",
+        )
+        self.assertEqual(result["filtered_section_headings"], [])
+
     def test_section_headings_are_excluded_and_preferred_items_stay_preferred(
         self,
     ) -> None:
