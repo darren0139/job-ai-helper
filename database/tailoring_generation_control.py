@@ -101,10 +101,26 @@ def init_tailoring_generation_control() -> None:
             approved_generation_id TEXT,
             lock_projects INTEGER NOT NULL DEFAULT 0,
             lock_skills INTEGER NOT NULL DEFAULT 0,
+            low_confidence_project_selection_override_json TEXT,
             updated_at TEXT NOT NULL
         )
         """
     )
+    preference_columns = {
+        str(row[1])
+        for row in cursor.execute(
+            "PRAGMA table_info(application_tailoring_preferences)"
+        ).fetchall()
+    }
+    if (
+        "low_confidence_project_selection_override_json"
+        not in preference_columns
+    ):
+        cursor.execute(
+            "ALTER TABLE application_tailoring_preferences "
+            "ADD COLUMN "
+            "low_confidence_project_selection_override_json TEXT"
+        )
     connection.commit()
     connection.close()
 
@@ -686,6 +702,141 @@ def get_application_generation_control(
         "lock_skills": bool(row["lock_skills"]) if approved else False,
         "updated_at": str(row["updated_at"] or ""),
     }
+
+
+def get_low_confidence_project_selection_override(
+    application_id: int,
+) -> dict[str, Any]:
+    """Return the durable application-local fallback project choice."""
+    init_tailoring_generation_control()
+    connection = _connect()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT
+            low_confidence_project_selection_override_json,
+            updated_at
+        FROM application_tailoring_preferences
+        WHERE application_id = ?
+        """,
+        (int(application_id),),
+    )
+    row = cursor.fetchone()
+    connection.close()
+
+    payload = (
+        base_manager._load(
+            row[
+                "low_confidence_project_selection_override_json"
+            ]
+        )
+        if row is not None
+        else None
+    )
+    if not isinstance(payload, dict):
+        payload = {}
+
+    project_ids: list[str] = []
+    for value in payload.get("project_ids", []) or []:
+        project_id = str(value or "").strip()
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
+
+    return {
+        "application_id": int(application_id),
+        "project_ids": project_ids,
+        "override_scope": "application_local",
+        "selection_source": (
+            "user_override"
+            if project_ids
+            else "deterministic_default"
+        ),
+        "updated_at": (
+            str(row["updated_at"] or "")
+            if row is not None
+            else ""
+        ),
+    }
+
+
+def set_low_confidence_project_selection_override(
+    *,
+    application_id: int,
+    project_ids: list[str],
+) -> dict[str, Any]:
+    """Persist a project-ID-only fallback choice with no model call."""
+    cleaned_ids: list[str] = []
+    for value in project_ids:
+        project_id = str(value or "").strip()
+        if project_id and project_id not in cleaned_ids:
+            cleaned_ids.append(project_id)
+    if not cleaned_ids:
+        return clear_low_confidence_project_selection_override(
+            application_id
+        )
+
+    init_tailoring_generation_control()
+    now = _now()
+    payload = {
+        "project_ids": cleaned_ids,
+        "override_scope": "application_local",
+        "selection_source": "user_override",
+        "updated_at": now,
+    }
+    connection = _connect()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT INTO application_tailoring_preferences (
+            application_id,
+            approved_generation_id,
+            lock_projects,
+            lock_skills,
+            low_confidence_project_selection_override_json,
+            updated_at
+        )
+        VALUES (?, NULL, 0, 0, ?, ?)
+        ON CONFLICT(application_id) DO UPDATE SET
+            low_confidence_project_selection_override_json = (
+                excluded.low_confidence_project_selection_override_json
+            ),
+            updated_at = excluded.updated_at
+        """,
+        (
+            int(application_id),
+            base_manager._dump(payload),
+            now,
+        ),
+    )
+    connection.commit()
+    connection.close()
+    return get_low_confidence_project_selection_override(
+        application_id
+    )
+
+
+def clear_low_confidence_project_selection_override(
+    application_id: int,
+) -> dict[str, Any]:
+    """Return the application to the deterministic fallback recommendation."""
+    init_tailoring_generation_control()
+    now = _now()
+    connection = _connect()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        UPDATE application_tailoring_preferences
+        SET low_confidence_project_selection_override_json = NULL,
+            updated_at = ?
+        WHERE application_id = ?
+        """,
+        (now, int(application_id)),
+    )
+    connection.commit()
+    connection.close()
+    return get_low_confidence_project_selection_override(
+        application_id
+    )
 
 
 

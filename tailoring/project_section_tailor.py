@@ -36,6 +36,7 @@ from tailoring.deterministic_project_rules import (
     apply_deterministic_evidence_floors,
 )
 from tailoring.stable_tailoring_ranking import (
+    apply_low_confidence_project_override,
     build_bullet_evidence_priorities,
     rank_projects_deterministically,
     select_complementary_projects,
@@ -1665,6 +1666,7 @@ def tailor_projects_section(
     keyword_match: dict[str, Any] | None = None,
     raw_jd_text: str = "",
     stable_analysis: dict[str, Any] | None = None,
+    low_confidence_project_override_ids: list[str] | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -1879,6 +1881,17 @@ IMPORTANT:
             selected_count=selected_count,
         )
     )
+    (
+        ranked_rows,
+        low_confidence_selection,
+    ) = apply_low_confidence_project_override(
+        ranked_rows=ranked_rows,
+        selected_count=selected_count,
+        override_project_ids=(
+            low_confidence_project_override_ids
+            or []
+        ),
+    )
 
     selected_pairs = _select_candidates_from_ranking(
         ranked_rows=ranked_rows,
@@ -2073,6 +2086,10 @@ IMPORTANT:
         "families, canonical requirement IDs, complementary coverage, and stable "
         "near-tie rules."
     )
+    if low_confidence_selection.get("active"):
+        notes.append(
+            str(low_confidence_selection.get("reason") or "")
+        )
     if (
         bullet_allocation.get("allocation_mode")
         == "all_canonical_before_fitting"
@@ -2125,6 +2142,7 @@ IMPORTANT:
         "recommended_projects": recommended_projects,
         "bullet_validation_warnings": bullet_validation_warnings,
         "candidate_project_ranking": ranked_rows,
+        "low_confidence_selection": low_confidence_selection,
         "deterministic_rule_debug": {
             "structural_cleanup": deterministic_rule_debug,
             "phase6b_ranking": phase6b_ranking_debug,
@@ -2157,6 +2175,31 @@ IMPORTANT:
                 "recommended_project_count"
             ),
             "selected_project_count": selected_count,
+            "low_confidence_selection": {
+                "policy_version": low_confidence_selection.get(
+                    "policy_version"
+                ),
+                "active": bool(
+                    low_confidence_selection.get("active")
+                ),
+                "fallback_slot_count": int(
+                    low_confidence_selection.get(
+                        "fallback_slot_count",
+                        0,
+                    )
+                    or 0
+                ),
+                "default_low_confidence_project_ids": list(
+                    low_confidence_selection.get(
+                        "default_low_confidence_project_ids",
+                        [],
+                    )
+                    or []
+                ),
+                "selection_source": low_confidence_selection.get(
+                    "selection_source"
+                ),
+            },
             "selected_titles_by_rank": [
                 ranking_row.get("display_title") or ranking_row.get("title", "")
                 for _, ranking_row in selected_pairs

@@ -101,6 +101,9 @@ from tailoring.project_section_tailor import (
     estimate_project_section_length,
     build_project_candidate_pool,
 )
+from tailoring.stable_tailoring_ranking import (
+    build_project_selection_preview,
+)
 
 
 
@@ -195,14 +198,17 @@ from database.evidence_opportunity_manager import (
     delete_application_evidence_opportunities,
 )
 from database.tailoring_generation_control import (
+    clear_low_confidence_project_selection_override,
     delete_application_generation_control,
     ensure_mutable_tailoring_generation,
     find_cached_tailoring_generation,
     get_application_generation_control,
+    get_low_confidence_project_selection_override,
     get_tailoring_generation,
     list_tailoring_generations,
     init_tailoring_generation_control,
     record_generation_metadata,
+    set_low_confidence_project_selection_override,
 )
 from tailoring.tailoring_generation_fingerprint import (
     build_generation_action_plan,
@@ -1349,6 +1355,37 @@ def create_full_debug_bundle(
         except Exception as exc:
             phase9f_execution_debug = {"error": str(exc)}
 
+    low_confidence_project_selection_debug = {
+        "persisted_application_override": {},
+        "pre_generation_preview": deepcopy(
+            st.session_state.get(
+                f"low_confidence_project_selection_preview_{application_id}",
+                {},
+            )
+            if application_id is not None
+            else {}
+        ),
+        "current_projects_result": deepcopy(
+            (project_result or {}).get(
+                "low_confidence_selection",
+                {},
+            )
+            if isinstance(project_result, dict)
+            else {}
+        ),
+    }
+    if application_id is not None:
+        try:
+            low_confidence_project_selection_debug[
+                "persisted_application_override"
+            ] = get_low_confidence_project_selection_override(
+                int(application_id)
+            )
+        except Exception as exc:
+            low_confidence_project_selection_debug[
+                "persisted_application_override"
+            ] = {"error": str(exc)}
+
     debug_bundle = {
         "debug_meta": {
             "created_at": datetime.now().isoformat(
@@ -1373,6 +1410,9 @@ def create_full_debug_bundle(
         "analysis_report": report or {},
         "workspace_provenance_debug": workspace_provenance_debug,
         "phase9f_tailoring_execution_debug": phase9f_execution_debug,
+        "low_confidence_project_selection_debug": (
+            low_confidence_project_selection_debug
+        ),
         "api_cost_summary": get_api_usage_summary(
             application_id,
             report,
@@ -4084,6 +4124,242 @@ elif page == "Application Sessions":
                             ),
                         )
 
+            low_confidence_project_selection_ready = True
+            if (
+                phase9e_ready
+                and not project_controls_disabled
+                and not lock_projects
+                and not phase9f_f_active
+            ):
+                try:
+                    preview_candidates = build_project_candidate_pool(
+                        resume_profile=report.get("resume_profile", {}),
+                        evidence_items=get_evidence_items(limit=100),
+                    )
+                    project_selection_preview = build_project_selection_preview(
+                        project_candidates=preview_candidates,
+                        stable_analysis=report.get("stable_analysis", {}),
+                        selected_count=max_projects,
+                    )
+                    st.session_state[
+                        f"low_confidence_project_selection_preview_{current_application_id}"
+                    ] = deepcopy(project_selection_preview)
+
+                    preview_low = project_selection_preview.get(
+                        "low_confidence_selection", {}
+                    ) or {}
+                    if preview_low.get("active"):
+                        fallback_slots = int(
+                            preview_low.get("fallback_slot_count", 0) or 0
+                        )
+                        candidates = [
+                            dict(item)
+                            for item in preview_low.get(
+                                "eligible_low_confidence_candidates", []
+                            ) or []
+                            if isinstance(item, dict)
+                            and str(item.get("project_id") or "").strip()
+                        ]
+                        eligible_ids = {
+                            str(item.get("project_id") or "").strip()
+                            for item in candidates
+                        }
+                        system_default_ids = [
+                            str(value).strip()
+                            for value in preview_low.get(
+                                "default_low_confidence_project_ids", []
+                            ) or []
+                            if str(value).strip()
+                        ]
+                        persisted = get_low_confidence_project_selection_override(
+                            current_application_id
+                        )
+                        persisted_ids = [
+                            str(value).strip()
+                            for value in persisted.get("project_ids", []) or []
+                            if str(value).strip()
+                        ]
+                        persisted_valid = bool(
+                            len(persisted_ids) == fallback_slots
+                            and len(set(persisted_ids)) == fallback_slots
+                            and set(persisted_ids).issubset(eligible_ids)
+                        )
+                        effective_saved_ids = (
+                            persisted_ids if persisted_valid else system_default_ids
+                        )
+                        state_token = stable_content_fingerprint(
+                            {
+                                "preview_fingerprint": project_selection_preview.get(
+                                    "preview_fingerprint", ""
+                                ),
+                                "persisted_ids": persisted_ids,
+                                "persisted_updated_at": persisted.get("updated_at", ""),
+                            }
+                        )[:10]
+
+                        with st.expander(
+                            "Project selection before generation — "
+                            f"{fallback_slots} low-confidence slot"
+                            + ("" if fallback_slots == 1 else "s"),
+                            expanded=True,
+                        ):
+                            strong_projects = [
+                                item
+                                for item in project_selection_preview.get(
+                                    "system_selected_projects", []
+                                ) or []
+                                if isinstance(item, dict)
+                                and item.get("has_proven_jd_coverage")
+                            ]
+                            if strong_projects:
+                                st.markdown("**Proven JD-evidence selections**")
+                                for item in strong_projects:
+                                    st.caption(
+                                        "✓ "
+                                        + str(
+                                            item.get("display_title")
+                                            or item.get("title")
+                                            or "Untitled Project"
+                                        )
+                                        + " · "
+                                        + str(
+                                            item.get("best_match_label", "none")
+                                            or "none"
+                                        ).title()
+                                    )
+
+                            st.markdown("**Choose the remaining fallback projects**")
+                            st.caption(
+                                "These candidates have no proven canonical JD coverage. "
+                                "Fallback suitability describes evidence quality and "
+                                "project scope only; it does not change JD relevance. "
+                                "Saving this choice makes zero model calls."
+                            )
+
+                            selected_ids: list[str] = []
+                            for candidate in candidates:
+                                project_id = str(candidate.get("project_id") or "").strip()
+                                display_name = str(
+                                    candidate.get("display_title")
+                                    or candidate.get("title")
+                                    or "Untitled Project"
+                                )
+                                suitability = str(
+                                    candidate.get("fallback_suitability", "low") or "low"
+                                ).title()
+                                checked = st.checkbox(
+                                    f"{display_name} — fallback suitability: {suitability}",
+                                    value=project_id in effective_saved_ids,
+                                    key=(
+                                        "pre_generation_low_confidence_project_choice_"
+                                        f"{current_application_id}_{state_token}_{project_id}"
+                                    ),
+                                )
+                                if checked:
+                                    selected_ids.append(project_id)
+                                caption = ["JD coverage: None"]
+                                if project_id in system_default_ids:
+                                    caption.append("System fallback recommendation")
+                                reasons = [
+                                    str(value)
+                                    for value in candidate.get("fallback_reasons", []) or []
+                                    if str(value).strip()
+                                ]
+                                if reasons:
+                                    caption.append("Evidence: " + "; ".join(reasons))
+                                st.caption(" · ".join(caption))
+
+                            valid = bool(
+                                len(selected_ids) == fallback_slots
+                                and len(set(selected_ids)) == fallback_slots
+                            )
+                            dirty = set(selected_ids) != set(effective_saved_ids)
+                            low_confidence_project_selection_ready = valid and not dirty
+
+                            st.caption(
+                                f"Selected: {len(selected_ids)} / {fallback_slots}"
+                            )
+                            if not valid:
+                                st.warning(
+                                    f"Choose exactly {fallback_slots} project(s)."
+                                )
+                            elif dirty:
+                                st.info(
+                                    "Save this project selection before generating."
+                                )
+
+                            save_col, reset_col = st.columns(2)
+                            with save_col:
+                                if st.button(
+                                    "Save project selection",
+                                    type="primary",
+                                    width="stretch",
+                                    key=(
+                                        "save_pre_generation_project_selection_"
+                                        f"{current_application_id}_{state_token}"
+                                    ),
+                                    disabled=(not valid or not dirty),
+                                ):
+                                    if set(selected_ids) == set(system_default_ids):
+                                        clear_low_confidence_project_selection_override(
+                                            current_application_id
+                                        )
+                                    else:
+                                        set_low_confidence_project_selection_override(
+                                            application_id=current_application_id,
+                                            project_ids=selected_ids,
+                                        )
+                                    record_zero_cost_action_event(
+                                        application_id=current_application_id,
+                                        action="project_selection_override",
+                                        note=(
+                                            "Saved the pre-generation application-local "
+                                            "project selection; no model call was made."
+                                        ),
+                                    )
+                                    st.session_state[
+                                        f"phase7_flash_{current_application_id}"
+                                    ] = (
+                                        "Saved the project selection. Generate will use "
+                                        "this fallback set after deterministic revalidation. "
+                                        "No model call was made."
+                                    )
+                                    st.rerun()
+                            with reset_col:
+                                if st.button(
+                                    "Use recommended fallback",
+                                    width="stretch",
+                                    key=(
+                                        "reset_pre_generation_project_selection_"
+                                        f"{current_application_id}_{state_token}"
+                                    ),
+                                    disabled=not persisted_ids,
+                                ):
+                                    clear_low_confidence_project_selection_override(
+                                        current_application_id
+                                    )
+                                    record_zero_cost_action_event(
+                                        application_id=current_application_id,
+                                        action="project_selection_override",
+                                        note=(
+                                            "Restored the deterministic pre-generation "
+                                            "fallback recommendation; no model call was made."
+                                        ),
+                                    )
+                                    st.session_state[
+                                        f"phase7_flash_{current_application_id}"
+                                    ] = (
+                                        "Restored the deterministic project fallback. "
+                                        "No model call was made."
+                                    )
+                                    st.rerun()
+                except Exception as exc:
+                    st.warning(
+                        "Pre-generation project selection preview is unavailable: "
+                        f"{exc}. Generate will use the saved/default deterministic selection."
+                    )
+                    low_confidence_project_selection_ready = True
+
             if st.button(
                 generation_plan["button_label"],
                 type="primary",
@@ -4094,6 +4370,7 @@ elif page == "Application Sessions":
                     or workspace_edit_required
                     or update_scope_dirty
                     or phase9f_f_blocked
+                    or not low_confidence_project_selection_ready
                     or (
                         phase9f_f_active
                         and not phase9f_f_paid_acknowledgement
@@ -4221,10 +4498,29 @@ elif page == "Application Sessions":
                         )
                         st.rerun()
                     evidence_items = get_evidence_items(limit=100)
+                    low_confidence_override_state = (
+                        get_low_confidence_project_selection_override(
+                            current_application_id
+                        )
+                    )
+                    low_confidence_project_override_ids = [
+                        str(value).strip()
+                        for value in (
+                            low_confidence_override_state.get(
+                                "project_ids",
+                                [],
+                            )
+                            or []
+                        )
+                        if str(value).strip()
+                    ]
                     generation_settings = {
                         "max_projects": max_projects,
                         "max_bullets": max_bullets,
                         "bullet_allocation_mode": bullet_allocation_mode,
+                        "low_confidence_project_override_ids": list(
+                            low_confidence_project_override_ids
+                        ),
                         "phase9e_binding": deepcopy(phase9e_binding),
                         "phase9e_base_content_fingerprint": (
                             phase9e_base_content_fingerprint
@@ -4494,6 +4790,9 @@ elif page == "Application Sessions":
                                     "stable_analysis",
                                     {},
                                 ),
+                                low_confidence_project_override_ids=(
+                                    low_confidence_project_override_ids
+                                ),
                             )
                             append_api_usage(
                                 application_id=current_application_id,
@@ -4665,11 +4964,28 @@ elif page == "Application Sessions":
                             or workspace_edit_required
                             or update_scope_dirty
                             or phase9f_f_active
+                            or not low_confidence_project_selection_ready
                         ),
                     ):
                         try:
                             reset_call_ledger()
                             evidence_items = get_evidence_items(limit=100)
+                            low_confidence_override_state = (
+                                get_low_confidence_project_selection_override(
+                                    current_application_id
+                                )
+                            )
+                            low_confidence_project_override_ids = [
+                                str(value).strip()
+                                for value in (
+                                    low_confidence_override_state.get(
+                                        "project_ids",
+                                        [],
+                                    )
+                                    or []
+                                )
+                                if str(value).strip()
+                            ]
 
                             st.session_state[f"debug_project_tailor_inputs_{current_application_id}"] = {
                                 "resume_projects": report.get("resume_profile", {}).get("projects", []),
@@ -4694,6 +5010,9 @@ elif page == "Application Sessions":
                                     keyword_match=report.get("keyword_match", {}),
                                     raw_jd_text=report.get("raw_jd_text","",),
                                     stable_analysis=report.get("stable_analysis", {}),
+                                    low_confidence_project_override_ids=(
+                                        low_confidence_project_override_ids
+                                    ),
                                 )
 
                                 fit_estimate = estimate_project_section_length(
@@ -4770,6 +5089,9 @@ elif page == "Application Sessions":
                                         "max_projects": max_projects,
                                         "max_bullets": max_bullets,
                                         "bullet_allocation_mode": bullet_allocation_mode,
+                                        "low_confidence_project_override_ids": list(
+                                            low_confidence_project_override_ids
+                                        ),
                                     },
                                     generation_kind="projects",
                                     model_id=get_active_model("analysis"),
@@ -4905,6 +5227,69 @@ elif page == "Application Sessions":
 
             if project_result:
                 st.write("### Recommended Projects Section")
+
+                low_confidence_selection = (
+                    project_result.get(
+                        "low_confidence_selection",
+                        {},
+                    )
+                    if isinstance(project_result, dict)
+                    else {}
+                )
+                if (
+                    isinstance(low_confidence_selection, dict)
+                    and low_confidence_selection.get("active")
+                ):
+                    with st.expander(
+                        "Project selection used for this Draft",
+                        expanded=False,
+                    ):
+                        selection_source = str(
+                            low_confidence_selection.get(
+                                "selection_source", "deterministic_default"
+                            )
+                            or "deterministic_default"
+                        )
+                        if selection_source == "user_override":
+                            st.info(
+                                "This Draft used your application-local "
+                                "pre-generation project selection."
+                            )
+                        else:
+                            st.caption(
+                                "This Draft used the deterministic fallback recommendation."
+                            )
+
+                        system_default = low_confidence_selection.get(
+                            "system_default", {}
+                        ) or {}
+                        final_selection = low_confidence_selection.get(
+                            "final_selection", {}
+                        ) or {}
+                        system_titles = [
+                            str(value)
+                            for value in system_default.get("titles", []) or []
+                            if str(value).strip()
+                        ]
+                        final_titles = [
+                            str(value)
+                            for value in final_selection.get("titles", []) or []
+                            if str(value).strip()
+                        ]
+                        if system_titles:
+                            st.caption("System default: " + " · ".join(system_titles))
+                        if final_titles:
+                            st.caption("Final selection: " + " · ".join(final_titles))
+
+                        for item in low_confidence_selection.get("overrides", []) or []:
+                            if not isinstance(item, dict):
+                                continue
+                            removed = str(item.get("removed_title") or "").strip()
+                            added = str(item.get("added_title") or "").strip()
+                            if removed or added:
+                                st.caption(
+                                    f"User override: {removed or '—'} → {added or '—'}"
+                                )
 
                 if fit_estimate:
                     risk = fit_estimate.get("risk", "unknown")

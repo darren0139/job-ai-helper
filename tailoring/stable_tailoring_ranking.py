@@ -38,6 +38,9 @@ from tailoring.phase6d_ranking_adapter import (
 PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v4"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v4"
 EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
+LOW_CONFIDENCE_SELECTION_VERSION = (
+    "phase6b1-low-confidence-project-selection-v1"
+)
 NEAR_TIE_MARGIN = 5
 
 _MATCH_VALUES = {
@@ -1767,6 +1770,493 @@ def select_complementary_projects(
     ]
 
     return final_order, selection_debug
+
+
+def _fallback_suitability_label(score: int) -> str:
+    """Return a coarse evidence-quality label, not a JD-relevance score."""
+    if score >= 18:
+        return "high"
+    if score >= 10:
+        return "medium"
+    return "low"
+
+
+def _has_proven_project_jd_coverage(row: dict[str, Any]) -> bool:
+    """Return whether deterministic project evidence supports any JD requirement."""
+    coverage = float(
+        row.get("deterministic_coverage_score", 0.0)
+        or 0.0
+    )
+    matches = [
+        match
+        for match in row.get("requirement_matches", []) or []
+        if isinstance(match, dict)
+        and _normalise_match_label(
+            match.get("match_label", "none")
+        )
+        != "none"
+    ]
+    return bool(coverage > 0.0 and matches)
+
+
+def build_low_confidence_project_selection(
+    *,
+    ranked_rows: list[dict[str, Any]],
+    selected_count: int,
+) -> dict[str, Any]:
+    """Describe fallback project slots without manufacturing JD relevance."""
+    bounded_count = max(
+        0,
+        min(int(selected_count or 0), len(ranked_rows)),
+    )
+    selected_rows = list(ranked_rows[:bounded_count])
+    selected_ids = {
+        _clean_text(row.get("project_id"))
+        for row in selected_rows
+        if _clean_text(row.get("project_id"))
+    }
+
+    low_confidence_rows = [
+        row
+        for row in ranked_rows
+        if not _has_proven_project_jd_coverage(row)
+    ]
+    selected_low_confidence_rows = [
+        row
+        for row in selected_rows
+        if not _has_proven_project_jd_coverage(row)
+    ]
+    selected_low_confidence_ids = {
+        _clean_text(row.get("project_id"))
+        for row in selected_low_confidence_rows
+        if _clean_text(row.get("project_id"))
+    }
+
+    eligible: list[dict[str, Any]] = []
+    for row in low_confidence_rows:
+        support_score = int(row.get("support_score", 0) or 0)
+        components = row.get("support_components") or {}
+        if not isinstance(components, dict):
+            components = {}
+
+        evidence_completeness = int(
+            components.get("evidence_completeness", 0)
+            or 0
+        )
+        impact_scope = int(
+            components.get("impact_scope", 0)
+            or 0
+        )
+
+        reasons: list[str] = []
+        if evidence_completeness >= 12:
+            reasons.append("rich concrete project evidence")
+        elif evidence_completeness >= 6:
+            reasons.append("usable concrete project evidence")
+        else:
+            reasons.append("limited concrete project evidence")
+
+        if impact_scope >= 5:
+            reasons.append("demonstrated project scope or impact")
+        elif impact_scope >= 2:
+            reasons.append("some demonstrated project scope")
+
+        if bool(row.get("currently_in_resume")):
+            reasons.append("already supported by the current resume")
+        if bool(row.get("in_evidence_library")):
+            reasons.append("has Evidence Library support")
+
+        project_id = _clean_text(row.get("project_id"))
+        eligible.append(
+            {
+                "project_id": project_id,
+                "title": _clean_text(row.get("title")),
+                "display_title": _clean_text(
+                    row.get("display_title")
+                    or row.get("title")
+                ),
+                "selected_by_default": project_id in selected_ids,
+                "selected_as_low_confidence_fallback": (
+                    project_id in selected_low_confidence_ids
+                ),
+                "selection_rank": (
+                    int(row.get("selection_rank"))
+                    if row.get("selection_rank") is not None
+                    else None
+                ),
+                "jd_coverage": "none",
+                "fallback_suitability": (
+                    _fallback_suitability_label(support_score)
+                ),
+                "fallback_suitability_score": support_score,
+                "support_components": {
+                    "evidence_completeness": evidence_completeness,
+                    "impact_scope": impact_scope,
+                },
+                "fallback_reasons": reasons,
+            }
+        )
+
+    eligible.sort(
+        key=lambda item: (
+            0
+            if item["selected_as_low_confidence_fallback"]
+            else 1,
+            (
+                item["selection_rank"]
+                if item["selection_rank"] is not None
+                else 10**9
+            ),
+            -int(item["fallback_suitability_score"]),
+            _normalise_key(
+                item.get("display_title")
+                or item.get("title")
+            ),
+        )
+    )
+
+    fallback_slot_count = len(selected_low_confidence_rows)
+    active = fallback_slot_count > 0
+
+    if active:
+        reason = (
+            f"{fallback_slot_count} configured project slot(s) could not be "
+            "filled by projects with proven canonical JD coverage. The "
+            "current choices are deterministic fallback recommendations; "
+            "fallback suitability reflects evidence quality only."
+        )
+    else:
+        reason = (
+            "All currently selected project slots have proven deterministic "
+            "canonical JD coverage; no low-confidence fallback choice is needed."
+        )
+
+    return {
+        "policy_version": LOW_CONFIDENCE_SELECTION_VERSION,
+        "active": active,
+        "reason": reason,
+        "selected_project_count": bounded_count,
+        "evidence_grounded_selected_count": (
+            bounded_count - fallback_slot_count
+        ),
+        "fallback_slot_count": fallback_slot_count,
+        "default_selected_project_ids": [
+            _clean_text(row.get("project_id"))
+            for row in selected_rows
+            if _clean_text(row.get("project_id"))
+        ],
+        "default_low_confidence_project_ids": [
+            _clean_text(row.get("project_id"))
+            for row in selected_low_confidence_rows
+            if _clean_text(row.get("project_id"))
+        ],
+        "eligible_low_confidence_candidates": eligible,
+        "selection_source": "deterministic_default",
+        "user_override_project_ids": [],
+    }
+
+
+def apply_low_confidence_project_override(
+    *,
+    ranked_rows: list[dict[str, Any]],
+    selected_count: int,
+    override_project_ids: list[str] | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Apply an application-local fallback choice without changing JD relevance."""
+    rows = [deepcopy(row) for row in ranked_rows]
+    policy = build_low_confidence_project_selection(
+        ranked_rows=rows,
+        selected_count=selected_count,
+    )
+    bounded_count = int(policy.get("selected_project_count", 0) or 0)
+    system_selected = list(rows[:bounded_count])
+    system_default_ids = [
+        _clean_text(row.get("project_id"))
+        for row in system_selected
+        if _clean_text(row.get("project_id"))
+    ]
+    system_default_titles = [
+        _clean_text(row.get("display_title") or row.get("title"))
+        for row in system_selected
+    ]
+    system_low_rows = [
+        row
+        for row in system_selected
+        if not _has_proven_project_jd_coverage(row)
+    ]
+    system_low_ids = [
+        _clean_text(row.get("project_id"))
+        for row in system_low_rows
+        if _clean_text(row.get("project_id"))
+    ]
+
+    requested_ids: list[str] = []
+    for value in override_project_ids or []:
+        project_id = _clean_text(value)
+        if project_id and project_id not in requested_ids:
+            requested_ids.append(project_id)
+
+    eligible_ids = {
+        _clean_text(item.get("project_id"))
+        for item in policy.get("eligible_low_confidence_candidates", []) or []
+        if isinstance(item, dict)
+        and _clean_text(item.get("project_id"))
+    }
+    fallback_slot_count = int(policy.get("fallback_slot_count", 0) or 0)
+
+    override_status = "not_requested"
+    selection_source = "deterministic_default"
+    final_rows = rows
+
+    requested_is_valid = bool(
+        fallback_slot_count > 0
+        and len(requested_ids) == fallback_slot_count
+        and len(set(requested_ids)) == fallback_slot_count
+        and set(requested_ids).issubset(eligible_ids)
+    )
+
+    if requested_ids and not policy.get("active"):
+        override_status = "not_applicable"
+    elif requested_ids and not requested_is_valid:
+        override_status = "ignored_invalid"
+    elif requested_is_valid and set(requested_ids) == set(system_low_ids):
+        override_status = "matches_default"
+    elif requested_is_valid:
+        requested_set = set(requested_ids)
+        chosen_low_rows = [
+            row
+            for row in rows
+            if _clean_text(row.get("project_id")) in requested_set
+            and not _has_proven_project_jd_coverage(row)
+        ]
+        low_slot_indexes = [
+            index
+            for index, row in enumerate(system_selected)
+            if not _has_proven_project_jd_coverage(row)
+        ]
+
+        if (
+            len(chosen_low_rows) == fallback_slot_count
+            and len(low_slot_indexes) == fallback_slot_count
+        ):
+            final_selected = list(system_selected)
+            for slot_index, replacement in zip(
+                low_slot_indexes,
+                chosen_low_rows,
+            ):
+                final_selected[slot_index] = replacement
+
+            final_selected_ids = {
+                _clean_text(row.get("project_id"))
+                for row in final_selected
+                if _clean_text(row.get("project_id"))
+            }
+            final_rows = final_selected + [
+                row
+                for row in rows
+                if _clean_text(row.get("project_id"))
+                not in final_selected_ids
+            ]
+
+            # Preserve the system rank for provenance, then make selection_rank
+            # describe the actual project set that will enter bullet generation.
+            for row in final_rows:
+                if row.get("selection_rank") is not None:
+                    row["system_selection_rank"] = row.get("selection_rank")
+                row.pop("selection_rank", None)
+            for index, row in enumerate(
+                final_rows[:bounded_count],
+                start=1,
+            ):
+                row["selection_rank"] = index
+
+            override_status = "applied"
+            selection_source = "user_override"
+        else:
+            override_status = "ignored_invalid"
+
+    final_selected = list(final_rows[:bounded_count])
+    final_ids = [
+        _clean_text(row.get("project_id"))
+        for row in final_selected
+        if _clean_text(row.get("project_id"))
+    ]
+    final_titles = [
+        _clean_text(row.get("display_title") or row.get("title"))
+        for row in final_selected
+    ]
+    final_low_rows = [
+        row
+        for row in final_selected
+        if not _has_proven_project_jd_coverage(row)
+    ]
+    final_low_ids = [
+        _clean_text(row.get("project_id"))
+        for row in final_low_rows
+        if _clean_text(row.get("project_id"))
+    ]
+
+    title_by_id = {
+        _clean_text(row.get("project_id")): _clean_text(
+            row.get("display_title") or row.get("title")
+        )
+        for row in rows
+        if _clean_text(row.get("project_id"))
+    }
+    removed_ids = [
+        project_id
+        for project_id in system_low_ids
+        if project_id not in set(final_low_ids)
+    ]
+    added_ids = [
+        project_id
+        for project_id in final_low_ids
+        if project_id not in set(system_low_ids)
+    ]
+    overrides = [
+        {
+            "removed_project_id": removed_id,
+            "removed_title": title_by_id.get(removed_id, ""),
+            "added_project_id": added_id,
+            "added_title": title_by_id.get(added_id, ""),
+        }
+        for removed_id, added_id in zip(removed_ids, added_ids)
+    ]
+
+    policy.update(
+        {
+            "system_default": {
+                "project_ids": system_default_ids,
+                "titles": system_default_titles,
+                "low_confidence_project_ids": system_low_ids,
+            },
+            "requested_override_project_ids": requested_ids,
+            "user_override_project_ids": (
+                list(requested_ids)
+                if selection_source == "user_override"
+                else []
+            ),
+            "override_scope": "application_local",
+            "override_status": override_status,
+            "selection_source": selection_source,
+            "selection_timing": "pre_generation",
+            "final_selection": {
+                "project_ids": final_ids,
+                "titles": final_titles,
+                "low_confidence_project_ids": final_low_ids,
+            },
+            "overrides": overrides,
+        }
+    )
+    return final_rows, policy
+
+
+def build_project_selection_preview(
+    *,
+    project_candidates: list[dict[str, Any]],
+    stable_analysis: dict[str, Any],
+    selected_count: int,
+) -> dict[str, Any]:
+    """Build the Python-owned project selection before any model call.
+
+    Phase 6B.1 replaces model-proposed requirement links and numeric project
+    scores with deterministic evidence mapping. Seed neutral factual rows and
+    run the same rank/select functions used by paid generation.
+    """
+    neutral_rows = [
+        {
+            "title": _clean_text(candidate.get("title") or candidate.get("display_title")),
+            "display_title": _clean_text(candidate.get("display_title") or candidate.get("title")),
+            "final_score": 0,
+            "requirement_matches": [],
+            "matched_jd_requirements": [],
+            "transferable_jd_requirements": [],
+        }
+        for candidate in project_candidates
+        if isinstance(candidate, dict)
+        and _clean_text(candidate.get("title") or candidate.get("display_title"))
+    ]
+
+    ranked_rows, ranking_debug = rank_projects_deterministically(
+        ranked_rows=neutral_rows,
+        project_candidates=project_candidates,
+        stable_analysis=stable_analysis,
+    )
+    ranked_rows, complementary_debug = select_complementary_projects(
+        ranked_rows=ranked_rows,
+        selected_count=selected_count,
+    )
+    low_confidence = build_low_confidence_project_selection(
+        ranked_rows=ranked_rows,
+        selected_count=selected_count,
+    )
+
+    bounded_count = int(low_confidence.get("selected_project_count", 0) or 0)
+    selected_projects: list[dict[str, Any]] = []
+    for row in ranked_rows[:bounded_count]:
+        matches = [
+            match
+            for match in row.get("requirement_matches", []) or []
+            if isinstance(match, dict)
+            and _normalise_match_label(match.get("match_label", "none")) != "none"
+        ]
+        best_label = "none"
+        if matches:
+            best_label = max(
+                (_normalise_match_label(match.get("match_label", "none")) for match in matches),
+                key=lambda label: _MATCH_ORDER.get(label, 0),
+            )
+        selected_projects.append(
+            {
+                "project_id": _clean_text(row.get("project_id")),
+                "title": _clean_text(row.get("title")),
+                "display_title": _clean_text(row.get("display_title") or row.get("title")),
+                "has_proven_jd_coverage": _has_proven_project_jd_coverage(row),
+                "best_match_label": best_label,
+                "deterministic_coverage_score": float(row.get("deterministic_coverage_score", 0.0) or 0.0),
+                "final_score": int(row.get("final_score", 0) or 0),
+            }
+        )
+
+    fingerprint_payload = {
+        "ranking_version": PROJECT_RANKING_VERSION,
+        "evidence_mapping_version": EVIDENCE_MAPPING_VERSION,
+        "selected_count": bounded_count,
+        "candidate_profile_fingerprint": (ranking_debug.get("candidate_profile", {}) or {}).get("fingerprint", ""),
+        "ranked_rows": [
+            {
+                "project_id": _clean_text(row.get("project_id")),
+                "final_score": int(row.get("final_score", 0) or 0),
+                "coverage": float(row.get("deterministic_coverage_score", 0.0) or 0.0),
+                "matches": [
+                    {
+                        "requirement_id": _clean_text(match.get("requirement_id")),
+                        "match_label": _normalise_match_label(match.get("match_label", "none")),
+                        "coverage_points": float(match.get("coverage_points", 0.0) or 0.0),
+                    }
+                    for match in row.get("requirement_matches", []) or []
+                    if isinstance(match, dict)
+                ],
+            }
+            for row in ranked_rows
+        ],
+    }
+    preview_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "preview_version": "phase6b1-pre-generation-project-selection-v1",
+        "preview_fingerprint": preview_fingerprint,
+        "selected_count": bounded_count,
+        "system_selected_projects": selected_projects,
+        "low_confidence_selection": low_confidence,
+        "ranking_debug": {
+            "ranking_version": ranking_debug.get("ranking_version"),
+            "evidence_mapping_version": ranking_debug.get("evidence_mapping_version"),
+            "complementary_selection": complementary_debug,
+        },
+    }
 
 
 def _collect_supported_skill_candidates(
