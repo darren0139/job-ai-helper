@@ -3928,7 +3928,12 @@ elif page == "Application Sessions":
                 ) == "model_attempt_uncertain"
             )
             phase9f_f_paid_acknowledgement = False
-            if phase9f_f_active and not phase9f_f_blocked:
+            score_optimizer_controls_available = bool(
+                phase9e_ready
+                and not workspace_edit_required
+                and not phase9f_f_blocked
+            )
+            if score_optimizer_controls_available:
                 score_optimizer_enabled_key = (
                     f"jd_score_optimizer_enabled_{current_application_id}"
                 )
@@ -4050,33 +4055,34 @@ elif page == "Application Sessions":
                         "Resolved optimization model: "
                         f"`{resolved_score_optimizer_model}`"
                     )
-                st.warning(
-                    "Projects & Skills may make paid model calls only for the "
-                    "enabled frozen sections. No fitting or approval occurs "
-                    "from this action."
-                )
-                if phase9f_f_uncertain_retry:
-                    st.error(
-                        "A prior paid model response was not proven durable. "
-                        "Acknowledge the retry before another paid request."
+                if phase9f_f_active:
+                    st.warning(
+                        "Projects & Skills may make paid model calls only for the "
+                        "enabled frozen sections. No fitting or approval occurs "
+                        "from this action."
                     )
-                    phase9f_f_paid_acknowledgement = st.checkbox(
-                        "I understand this may repeat an uncertain paid model request.",
-                        value=False,
-                        key=(
-                            "phase9f_f_uncertain_retry_acknowledgement_"
-                            f"{current_application_id}"
-                        ),
-                    )
-                else:
-                    phase9f_f_paid_acknowledgement = st.checkbox(
-                        "I understand this starts paid Projects/Skills generation for the enabled sections.",
-                        value=False,
-                        key=(
-                            "phase9f_f_paid_generation_acknowledgement_"
-                            f"{current_application_id}"
-                        ),
-                    )
+                    if phase9f_f_uncertain_retry:
+                        st.error(
+                            "A prior paid model response was not proven durable. "
+                            "Acknowledge the retry before another paid request."
+                        )
+                        phase9f_f_paid_acknowledgement = st.checkbox(
+                            "I understand this may repeat an uncertain paid model request.",
+                            value=False,
+                            key=(
+                                "phase9f_f_uncertain_retry_acknowledgement_"
+                                f"{current_application_id}"
+                            ),
+                        )
+                    else:
+                        phase9f_f_paid_acknowledgement = st.checkbox(
+                            "I understand this starts paid Projects/Skills generation for the enabled sections.",
+                            value=False,
+                            key=(
+                                "phase9f_f_paid_generation_acknowledgement_"
+                                f"{current_application_id}"
+                            ),
+                        )
 
             if st.button(
                 generation_plan["button_label"],
@@ -4425,6 +4431,18 @@ elif page == "Application Sessions":
                         ] = (
                             "Reused an exact persistent generation cache hit; "
                             "no Projects or Skills model call was made."
+                        )
+                        # A cache hit is still the successful result of the
+                        # user's explicit Generate Projects + Skills action.
+                        # Preserve the same one-shot optimizer behavior as a
+                        # newly generated Draft, bound to the exact restored ID.
+                        _arm_jd_score_optimizer_for_generation(
+                            application_id=int(
+                                current_application_id
+                            ),
+                            generation_id=st.session_state.get(
+                                tailored_generation_id_key
+                            ),
                         )
                         st.rerun()
 
