@@ -517,9 +517,27 @@ def build_execution_debug_summary(execution: dict[str, Any]) -> dict[str, Any]:
         "fitting": {
             "status": _clean(fitting.get("status")),
             "input_fingerprint": _clean(fitting.get("input_fingerprint")),
+            "fitting_input_fingerprint": _clean(
+                fitting.get("fitting_input_fingerprint")
+            ),
             "fit_settings": deepcopy(fit_snapshot.get("settings") or {}),
             "fit_settings_fingerprint": _clean(
                 fit_snapshot.get("settings_fingerprint")
+            ),
+            "fitting_search_algorithm_version": _clean(
+                fitting.get("fitting_search_algorithm_version")
+                or fit_snapshot.get("fitting_search_algorithm_version")
+            ),
+            "render_policy_version": _clean(
+                fitting.get("render_policy_version")
+                or fit_snapshot.get("render_policy_version")
+            ),
+            "fitting_input_snapshot": deepcopy(
+                fitting.get("fitting_input_snapshot")
+                or (fitting.get("result") or {}).get(
+                    "fitting_input_snapshot"
+                )
+                or {}
             ),
             "successful_fit_settings_fingerprint": (
                 _clean(fit_snapshot.get("settings_fingerprint"))

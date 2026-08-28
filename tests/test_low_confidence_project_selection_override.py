@@ -12,9 +12,20 @@ from database.tailoring_generation_control import (
     get_low_confidence_project_selection_override,
     set_low_confidence_project_selection_override,
 )
+from tailoring.project_section_tailor import (
+    PROJECT_BULLET_WRITING_PROMPT,
+    PROJECT_CANDIDATE_SCORING_PROMPT,
+    build_project_candidate_pool,
+    tailor_projects_section,
+)
 from tailoring.stable_tailoring_ranking import (
     apply_low_confidence_project_override,
+    build_project_selection_preview,
 )
+from tailoring.tailoring_generation_fingerprint import (
+    build_tailoring_input_fingerprint,
+)
+from tailoring.skills_section_tailor import tailor_skills_section
 
 
 def _row(
@@ -313,6 +324,219 @@ class LowConfidenceOverrideIntegrationSourceTests(unittest.TestCase):
             "low_confidence_project_override_ids: "
             "list[str] | None = None",
             source,
+        )
+
+
+class MergedProjectSelectionPipelineTests(unittest.TestCase):
+    """Exercise the master Stage-1 path and TQ-1 selection as one pipeline."""
+
+    def test_bounded_stage1_override_changes_cache_and_reaches_skills(self):
+        resume_profile = {
+            "projects": [
+                {
+                    "title": "Android Anchor",
+                    "bullets": [
+                        "Built an Android application using Kotlin."
+                    ],
+                },
+                {
+                    "title": "Fallback Default",
+                    "bullets": [
+                        "Built a QA dashboard for internal operations."
+                    ],
+                },
+                {
+                    "title": "Fallback Override",
+                    "bullets": [
+                        "Built a planning dashboard for internal operations."
+                    ],
+                },
+            ],
+            "skills": {"languages": ["Kotlin"]},
+        }
+        stable_analysis = {
+            "canonical_requirements": [
+                {
+                    "requirement_id": "req_kotlin",
+                    "text": "Kotlin",
+                    "atomic_focus": "Kotlin",
+                    "importance": "required",
+                    "group_weight_fraction": 1.0,
+                    "explicit_only_requirement": False,
+                }
+            ],
+            "input_fingerprint": "stable-input",
+            "scoring_version": "stable-evidence-test",
+            "capability_taxonomy_version": "taxonomy-test",
+        }
+        project_candidates = build_project_candidate_pool(
+            resume_profile=resume_profile,
+            evidence_items=[],
+        )
+        preview = build_project_selection_preview(
+            project_candidates=project_candidates,
+            stable_analysis=stable_analysis,
+            selected_count=2,
+        )
+        low_confidence = preview["low_confidence_selection"]
+        system_default_ids = low_confidence[
+            "default_selected_project_ids"
+        ]
+        system_fallback_ids = low_confidence[
+            "default_low_confidence_project_ids"
+        ]
+        alternatives = [
+            row["project_id"]
+            for row in low_confidence[
+                "eligible_low_confidence_candidates"
+            ]
+            if row["project_id"] not in system_fallback_ids
+        ]
+
+        self.assertEqual(2, len(system_default_ids))
+        self.assertEqual(1, len(system_fallback_ids))
+        self.assertEqual(1, len(alternatives))
+        override_id = alternatives[0]
+
+        stage1_attempts: dict[str, int] = {}
+        stage1_titles: list[str] = []
+
+        def fake_project_ask_json(
+            system_prompt: str,
+            user_prompt: str,
+            **_kwargs,
+        ) -> dict:
+            if system_prompt == PROJECT_CANDIDATE_SCORING_PROMPT:
+                supplied_titles = [
+                    candidate["title"]
+                    for candidate in project_candidates
+                    if f'"title": "{candidate["title"]}"' in user_prompt
+                ]
+                # The scalable path must present exactly one candidate per call,
+                # including the targeted retry below.
+                self.assertEqual(1, len(supplied_titles))
+                title = supplied_titles[0]
+                stage1_titles.append(title)
+                stage1_attempts[title] = stage1_attempts.get(title, 0) + 1
+
+                if (
+                    title == "Fallback Default"
+                    and stage1_attempts[title] == 1
+                ):
+                    return {"candidate_project_scores": []}
+
+                return {
+                    "candidate_project_scores": [
+                        {
+                            "title": title,
+                            "must_have_match_score": 0,
+                            "responsibility_match_score": 0,
+                            "tool_domain_match_score": 0,
+                            "evidence_strength_score": 0,
+                            "impact_scope_score": 0,
+                            "requirement_matches": [],
+                            "matched_jd_requirements": [],
+                            "transferable_jd_requirements": [],
+                            "reason": "Model diagnostics are not authoritative.",
+                        }
+                    ],
+                    "notes_for_user": [],
+                }
+
+            self.assertEqual(PROJECT_BULLET_WRITING_PROMPT, system_prompt)
+            return {
+                "project_bullet_plans": [],
+                "notes_for_user": [],
+            }
+
+        with patch(
+            "tailoring.project_section_tailor.ask_json",
+            side_effect=fake_project_ask_json,
+        ):
+            project_result = tailor_projects_section(
+                resume_profile=resume_profile,
+                jd_profile={"title": "Kotlin developer"},
+                evidence_items=[],
+                max_projects=2,
+                max_bullets_per_project=1,
+                bullet_allocation_mode="all_canonical_before_fitting",
+                raw_jd_text="Kotlin developer",
+                stable_analysis=stable_analysis,
+                low_confidence_project_override_ids=[override_id],
+                model="unit-test-model",
+            )
+
+        # Three bounded first-pass requests plus one request for the omitted
+        # candidate; the writer prompt is a separate mocked call.
+        self.assertEqual(4, len(stage1_titles))
+        self.assertEqual(2, stage1_attempts["Fallback Default"])
+        self.assertEqual(
+            [system_default_ids[0], override_id],
+            [
+                project["project_id"]
+                for project in project_result["recommended_projects"]
+            ],
+        )
+        selection = project_result["low_confidence_selection"]
+        self.assertEqual("user_override", selection["selection_source"])
+        self.assertEqual("applied", selection["override_status"])
+        self.assertEqual(
+            [system_default_ids[0], override_id],
+            selection["final_selection"]["project_ids"],
+        )
+
+        report = {
+            "stable_analysis": stable_analysis,
+            "resume_profile": resume_profile,
+            "jd_profile": {"title": "Kotlin developer"},
+            "raw_jd_text": "Kotlin developer",
+            "meta": {"analysis_cache": {"input_fingerprint": "analysis"}},
+        }
+        base_settings = {
+            "max_projects": 2,
+            "max_bullets": 1,
+            "bullet_allocation_mode": "all_canonical_before_fitting",
+            "low_confidence_project_override_ids": system_fallback_ids,
+        }
+        override_settings = {
+            **base_settings,
+            "low_confidence_project_override_ids": [override_id],
+        }
+        default_fingerprint = build_tailoring_input_fingerprint(
+            report=report,
+            evidence_items=[],
+            generation_settings=base_settings,
+            generation_kind="projects_skills",
+            model_id="unit-test-model",
+        )
+        override_fingerprint = build_tailoring_input_fingerprint(
+            report=report,
+            evidence_items=[],
+            generation_settings=override_settings,
+            generation_kind="projects_skills",
+            model_id="unit-test-model",
+        )
+        self.assertNotEqual(default_fingerprint, override_fingerprint)
+
+        with patch(
+            "tailoring.skills_section_tailor.ask_json",
+            return_value={},
+        ), patch(
+            "tailoring.skills_section_tailor.build_deterministic_skills_result",
+            return_value={"skill_lines": []},
+        ) as skills_builder:
+            tailor_skills_section(
+                resume_profile=resume_profile,
+                jd_profile={"title": "Kotlin developer"},
+                evidence_items=[],
+                stable_analysis=stable_analysis,
+                selected_projects_result=project_result,
+                model="unit-test-model",
+            )
+
+        self.assertIs(
+            project_result,
+            skills_builder.call_args.kwargs["selected_projects_result"],
         )
 
 

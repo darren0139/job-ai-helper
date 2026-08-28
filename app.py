@@ -68,6 +68,7 @@ from tailoring.skills_section_tailor import tailor_skills_section, skill_lines_t
 from resume_builder.project_header_format import project_evidence_preview
 
 from resume_builder.docx_projects_skills_replacer import (
+    DEFAULT_MINIMUM_TOTAL_SKILLS,
     save_uploaded_docx_for_editing,
     get_latest_saved_docx_for_application,
     generate_tailored_resume_copy_fit_one_page,
@@ -79,6 +80,9 @@ from resume_builder.docx_projects_skills_replacer import (
     pdf_to_preview_html,
     cleanup_old_tailored_outputs_for_application,
     cleanup_application_resume_files,
+)
+from resume_builder.fitting_provenance import (
+    PHASE6C_SEARCH_ALGORITHM_VERSION,
 )
 
 from parse import read_resume_pdf, read_resume_docx, _MIN_JD_CHARS
@@ -243,6 +247,11 @@ from tailoring.phase9f_application_execution_ui import (
 )
 from tailoring.phase9f_tailoring_execution_ui import (
     render_phase9f_tailoring_execution,
+    render_phase9f_tailoring_execution_status,
+)
+from tailoring.tailoring_debug_ui import (
+    render_lazy_fitting_debug,
+    render_lazy_full_debug_bundle,
 )
 from tailoring.phase9f_tailoring_execution import (
     build_execution_debug_summary,
@@ -3252,6 +3261,13 @@ elif page == "Application Sessions":
                     phase9e_context=phase9e_context,
                 )
                 st.stop()
+            if str(phase9e_context.get("confirmed_intensity") or "").lower() in {
+                "minor",
+                "full",
+            }:
+                render_phase9f_tailoring_execution_status(
+                    application_id=int(current_application_id),
+                )
             try:
                 current_application_result = (
                     get_current_application_resume_result(
@@ -7494,6 +7510,7 @@ elif page == "Application Sessions":
                             use_compact_before_delete=use_compact_before_delete,
                             prefer_balanced_bullets=prefer_balanced_bullets,
                             allow_skills_compaction=allow_skills_compaction,
+                            minimum_total_skills=DEFAULT_MINIMUM_TOTAL_SKILLS,
                             lock_projects=fit_lock_projects,
                             lock_skills=fit_lock_skills,
                             page_density_mode=page_density_mode,
@@ -7518,6 +7535,9 @@ elif page == "Application Sessions":
                             tailored_generation_id_key
                         ] = generation_id
                         fit_generation_settings = {
+                            "fitting_search_algorithm_version": (
+                                PHASE6C_SEARCH_ALGORITHM_VERSION
+                            ),
                             "max_projects": max_projects,
                             "max_bullets": max_bullets,
                             "fit_effective_max_bullets": fit_max_bullets_per_project,
@@ -7533,6 +7553,7 @@ elif page == "Application Sessions":
                             "allow_skills_compaction": (
                                 allow_skills_compaction
                             ),
+                            "minimum_total_skills": DEFAULT_MINIMUM_TOTAL_SKILLS,
                             "lock_projects": fit_lock_projects,
                             "lock_skills": fit_lock_skills,
                             "page_density_mode": page_density_mode,
@@ -7616,95 +7637,31 @@ elif page == "Application Sessions":
             )
         )
 
-            if has_debug_content:
-                debug_bytes, debug_filename = (
-                    create_full_debug_bundle(
-                        application_id=current_application_id,
-                        resume_filename=st.session_state.get(
-                            "resume_filename",
-                            "",
-                        ),
-                        report=report,
-                        candidate_pool=candidate_pool,
-                        project_inputs=debug_inputs,
-                        project_result=project_result,
-                        skills_result=skills_result,
-                        fit_estimate=fit_estimate,
-                        fit_result=fit_result,
-                    )
-                )
+            render_lazy_full_debug_bundle(
+                application_id=current_application_id,
+                has_debug_content=has_debug_content,
+                create_full_debug_bundle=create_full_debug_bundle,
+                bundle_kwargs={
+                    "application_id": current_application_id,
+                    "resume_filename": st.session_state.get("resume_filename", ""),
+                    "report": report,
+                    "candidate_pool": candidate_pool,
+                    "project_inputs": debug_inputs,
+                    "project_result": project_result,
+                    "skills_result": skills_result,
+                    "fit_estimate": fit_estimate,
+                    "fit_result": fit_result,
+                },
+            )
+            render_lazy_fitting_debug(
+                application_id=current_application_id,
+                fit_result=fit_result if isinstance(fit_result, dict) else None,
+            )
 
-                st.download_button(
-                    "Download Full Debug Bundle JSON",
-                    data=debug_bytes,
-                    file_name=debug_filename,
-                    mime="application/json",
-                    width="stretch",
-                    key=(
-                        "download_debug_bundle_"
-                        f"{current_application_id}"
-                    ),
-                )
-                
-                if isinstance(fit_result, dict):
-                    with st.expander("One-page fitting attempts"):
-                        st.json(
-                            fit_result.get(
-                                "attempts",
-                                [],
-                            )
-                            or []
-                        )
-
-                    with st.expander(
-                        "Debug: Final projects used in DOCX"
-                    ):
-                        final_projects_used = fit_result.get(
-                            "tailored_projects_used"
-                        )
-
-                        if not isinstance(
-                            final_projects_used,
-                            dict,
-                        ):
-                            final_projects_used = {}
-
-                        recommended_projects = (
-                            final_projects_used.get(
-                                "recommended_projects",
-                                [],
-                            )
-                            or []
-                        )
-
-                        st.json(recommended_projects)
-
-                    with st.expander(
-                        "Debug: Final skills used in DOCX"
-                    ):
-                        final_skills_used = fit_result.get(
-                            "tailored_skills_used"
-                        )
-
-                        if not isinstance(final_skills_used, dict):
-                            final_skills_used = {}
-
-                        st.json(
-                            final_skills_used.get(
-                                "skill_lines",
-                                [],
-                            )
-                            or []
-                        )
-
-                    page_count = fit_result.get(
-                        "page_count"
-                    )
-
-                    if page_count is not None:
-                        st.caption(
-                            f"Detected PDF page count: {page_count}"
-                        )
+            if isinstance(fit_result, dict):
+                page_count = fit_result.get("page_count")
+                if page_count is not None:
+                    st.caption(f"Detected PDF page count: {page_count}")
 
 
 

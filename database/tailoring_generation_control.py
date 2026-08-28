@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
+from resume_builder.fitting_provenance import (
+    normalise_fitting_search_algorithm_provenance,
+)
 
 
 PHASE7_PERSISTENCE_VERSION = "phase7-approved-generations-v1"
@@ -137,7 +140,9 @@ def _generation_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "fit_estimate": base_manager._load(row["fit_estimate_json"]),
         "projects": base_manager._load(row["projects_json"]),
         "skills": base_manager._load(row["skills_json"]),
-        "fit_result": base_manager._load(row["fit_result_json"]),
+        "fit_result": normalise_fitting_search_algorithm_provenance(
+            base_manager._load(row["fit_result_json"])
+        ),
         "generation_settings": base_manager._load(
             row["generation_settings_json"]
         ),

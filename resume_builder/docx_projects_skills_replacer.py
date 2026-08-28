@@ -28,6 +28,7 @@ Important:
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import re
 import shutil
@@ -35,6 +36,7 @@ import subprocess
 import time
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -73,6 +75,10 @@ from resume_builder.fitting_render_optimizer import (
     rendered_candidate_is_effective,
     source_docx_signature,
 )
+from resume_builder.fitting_provenance import (
+    PHASE6C_SEARCH_ALGORITHM_VERSION,
+    build_fitting_input_snapshot,
+)
 from tailoring.tailoring_generation_fingerprint import (
     build_fitting_lock_policy,
 )
@@ -80,6 +86,19 @@ from tailoring.tailoring_generation_fingerprint import (
 SAVED_RESUME_DIR = Path("data/saved_resumes")
 TAILORED_RESUME_DIR = Path("outputs/tailored_resumes")
 PREVIEW_DIR = Path("outputs/resume_previews")
+
+# Phase 6C renders actual DOCX/PDF output as the fit authority. These limits
+# bound external work without making any fitting or evidence decision from an
+# estimate alone.
+FIT_RENDER_BUDGET = 96
+FIT_COARSE_INITIAL_REMOVALS = 4
+FIT_LOCAL_REFINEMENT_LIMIT = 8
+FIT_RESTORATION_RENDER_BUDGET = 8
+DEFAULT_MINIMUM_TOTAL_SKILLS = 8
+LIBREOFFICE_SINGLE_CONVERSION_TIMEOUT_SECONDS = 120
+LIBREOFFICE_BATCH_BASE_TIMEOUT_SECONDS = 60
+LIBREOFFICE_BATCH_TIMEOUT_PER_CANDIDATE_SECONDS = 15
+LIBREOFFICE_BATCH_MAX_TIMEOUT_SECONDS = 300
 
 KNOWN_SECTION_HEADINGS = {
     "EDUCATION",
@@ -3023,6 +3042,172 @@ def resolve_effective_fitting_bullet_ceiling(
     ]
     return max([configured, *allocated_counts])
 
+@dataclass
+class PreparedFittingInput:
+    """One immutable-in-practice pre-render input shared with Phase 9F."""
+
+    fitting_input_snapshot: dict[str, Any]
+    working_projects: dict[str, Any] | None
+    working_skills: dict[str, Any] | None
+    source_signature: str
+    density_mode: str
+    density_max_fill: float | None
+    requested_project_header_layout: str
+    active_project_header_layout: str
+    active_project_metadata_style: str
+    lock_policy: dict[str, Any]
+    payload_max_bullets: int
+    effective_max_projects: int
+    effective_max_bullets: int
+
+
+def prepare_fitting_input_snapshot(
+    *,
+    saved_resume_docx_path: str | Path,
+    tailored_projects: dict[str, Any] | None,
+    tailored_skills: dict[str, Any] | None,
+    max_projects: int,
+    max_bullets_per_project: int,
+    spacing_mode: str,
+    project_spacing_pt: int,
+    after_projects_spacing_pt: int,
+    blank_lines_between_projects: int,
+    blank_lines_after_projects: int,
+    add_spacing_before_first_project: bool,
+    use_compact_before_delete: bool,
+    prefer_balanced_bullets: bool,
+    allow_skills_compaction: bool,
+    lock_projects: bool,
+    lock_skills: bool,
+    minimum_total_skills: int,
+    page_density_mode: str,
+    allow_margin_compaction: bool,
+    project_header_layout: str,
+    project_metadata_style: str,
+    source_artifact_identity: dict[str, Any] | None,
+) -> PreparedFittingInput:
+    """Build caller/prepared fitting provenance before the first render.
+
+    The existing source-display fallback and deterministic ceiling preparation
+    remain exactly where they were.  This helper records both sides of that
+    boundary once so Phase 9F can persist and pass the same pre-render state to
+    the expensive fitter.
+    """
+    density_mode = _normalise_page_density_mode(page_density_mode)
+    density_max_fill = _PAGE_DENSITY_MAX_FILL[density_mode]
+    requested_project_header_layout = normalise_project_header_layout(
+        project_header_layout
+    )
+    active_project_header_layout = (
+        "stacked"
+        if requested_project_header_layout == "auto"
+        else requested_project_header_layout
+    )
+    active_project_metadata_style = normalise_project_metadata_style(
+        project_metadata_style
+    )
+    lock_policy = build_fitting_lock_policy(
+        lock_projects=lock_projects,
+        lock_skills=lock_skills,
+    )
+    payload_max_bullets = resolve_effective_fitting_bullet_ceiling(
+        tailored_projects,
+        configured_max_bullets_per_project=max_bullets_per_project,
+    )
+    effective_max_projects = (
+        999999 if lock_policy["lock_projects"] else max_projects
+    )
+    effective_max_bullets = (
+        999999
+        if lock_policy["lock_projects"]
+        else payload_max_bullets
+    )
+
+    # Preserve caller input separately.  The fallback returns a deep copy, so
+    # neither this preparation nor later candidate search mutates it.
+    working_projects = (
+        apply_source_project_display_fallbacks(
+            saved_resume_docx_path,
+            tailored_projects,
+        )
+        if tailored_projects
+        else None
+    )
+    working_skills = deepcopy(tailored_skills) if tailored_skills else None
+
+    if working_projects and not lock_policy["lock_projects"]:
+        visible_projects = (
+            working_projects.get("recommended_projects", []) or []
+        )[:max_projects]
+        for project in visible_projects:
+            project["draft_bullets"] = (
+                project.get("draft_bullets", []) or []
+            )[:payload_max_bullets]
+            project["compact_bullets"] = (
+                project.get("compact_bullets", []) or []
+            )[:payload_max_bullets]
+            sync_project_bullet_metadata(
+                project,
+                bullet_texts=project["draft_bullets"],
+            )
+        working_projects["recommended_projects"] = visible_projects
+
+    source_signature = source_docx_signature(saved_resume_docx_path)
+    source_docx_bytes = Path(saved_resume_docx_path).read_bytes()
+    fitting_input_snapshot = build_fitting_input_snapshot(
+        source_docx_sha256=hashlib.sha256(source_docx_bytes).hexdigest(),
+        source_docx_byte_size=len(source_docx_bytes),
+        source_artifact_identity=source_artifact_identity,
+        caller_projects=tailored_projects,
+        caller_skills=tailored_skills,
+        prepared_projects=working_projects,
+        prepared_skills=working_skills,
+        fitter_invocation={
+            # These two fields describe the limits the renderer/search actually
+            # receives.  Preserve the incoming values separately because the
+            # lock policy and canonical allocation can resolve them differently.
+            "max_projects": effective_max_projects,
+            "max_bullets_per_project": effective_max_bullets,
+            "requested_max_projects": max_projects,
+            "requested_max_bullets_per_project": max_bullets_per_project,
+            "prepared_payload_max_bullets_per_project": payload_max_bullets,
+            "spacing_mode": spacing_mode,
+            "project_spacing_pt": project_spacing_pt,
+            "after_projects_spacing_pt": after_projects_spacing_pt,
+            "blank_lines_between_projects": blank_lines_between_projects,
+            "blank_lines_after_projects": blank_lines_after_projects,
+            "add_spacing_before_first_project": add_spacing_before_first_project,
+            "use_compact_before_delete": use_compact_before_delete,
+            "prefer_balanced_bullets": prefer_balanced_bullets,
+            "allow_skills_compaction": allow_skills_compaction,
+            "lock_projects": lock_projects,
+            "lock_skills": lock_skills,
+            "minimum_total_skills": minimum_total_skills,
+            "page_density_mode": density_mode,
+            "page_density_max_fill": density_max_fill,
+            "allow_margin_compaction": allow_margin_compaction,
+            "project_header_layout": active_project_header_layout,
+            "requested_project_header_layout": requested_project_header_layout,
+            "project_metadata_style": active_project_metadata_style,
+        },
+        fitting_policy_version=PHASE6C_FITTING_VERSION,
+    )
+    return PreparedFittingInput(
+        fitting_input_snapshot=fitting_input_snapshot,
+        working_projects=working_projects,
+        working_skills=working_skills,
+        source_signature=source_signature,
+        density_mode=density_mode,
+        density_max_fill=density_max_fill,
+        requested_project_header_layout=requested_project_header_layout,
+        active_project_header_layout=active_project_header_layout,
+        active_project_metadata_style=active_project_metadata_style,
+        lock_policy=lock_policy,
+        payload_max_bullets=payload_max_bullets,
+        effective_max_projects=effective_max_projects,
+        effective_max_bullets=effective_max_bullets,
+    )
+
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
@@ -3042,12 +3227,14 @@ def generate_tailored_resume_copy_fit_one_page(
     allow_skills_compaction: bool = False,
     lock_projects: bool = False,
     lock_skills: bool = False,
-    minimum_total_skills: int = 8,
+    minimum_total_skills: int = DEFAULT_MINIMUM_TOTAL_SKILLS,
     page_density_mode: str = "balanced",
     allow_margin_compaction: bool = False,
     project_header_layout: str = "auto",
     project_metadata_style: str = "pipes",
     generation_id: str | None = None,
+    source_artifact_identity: dict[str, Any] | None = None,
+    prepared_fitting_input: PreparedFittingInput | None = None,
 ) -> dict[str, Any]:
     """
     Fit the tailored resume to one page using layout-aware candidate probes.
@@ -3061,70 +3248,58 @@ def generate_tailored_resume_copy_fit_one_page(
             "Generate a tailored Projects section or Skills section first."
         )
 
-    density_mode = _normalise_page_density_mode(page_density_mode)
-    density_max_fill = _PAGE_DENSITY_MAX_FILL[density_mode]
-    requested_project_header_layout = normalise_project_header_layout(project_header_layout)
-    active_project_header_layout = (
-        "stacked" if requested_project_header_layout == "auto"
-        else requested_project_header_layout
-    )
-    active_project_metadata_style = normalise_project_metadata_style(project_metadata_style)
-    project_header_compaction_used = False
-    lock_policy = build_fitting_lock_policy(
+    fitting_started_at = time.perf_counter()
+
+    def _fit_log(message: str) -> None:
+        print(f"[FIT] {message}", flush=True)
+
+    preparation = prepared_fitting_input or prepare_fitting_input_snapshot(
+        saved_resume_docx_path=saved_resume_docx_path,
+        tailored_projects=tailored_projects,
+        tailored_skills=tailored_skills,
+        max_projects=max_projects,
+        max_bullets_per_project=max_bullets_per_project,
+        spacing_mode=spacing_mode,
+        project_spacing_pt=project_spacing_pt,
+        after_projects_spacing_pt=after_projects_spacing_pt,
+        blank_lines_between_projects=blank_lines_between_projects,
+        blank_lines_after_projects=blank_lines_after_projects,
+        add_spacing_before_first_project=add_spacing_before_first_project,
+        use_compact_before_delete=use_compact_before_delete,
+        prefer_balanced_bullets=prefer_balanced_bullets,
+        allow_skills_compaction=allow_skills_compaction,
         lock_projects=lock_projects,
         lock_skills=lock_skills,
+        minimum_total_skills=minimum_total_skills,
+        page_density_mode=page_density_mode,
+        allow_margin_compaction=allow_margin_compaction,
+        project_header_layout=project_header_layout,
+        project_metadata_style=project_metadata_style,
+        source_artifact_identity=source_artifact_identity,
     )
-    payload_max_bullets = resolve_effective_fitting_bullet_ceiling(
-        tailored_projects,
-        configured_max_bullets_per_project=max_bullets_per_project,
-    )
-    effective_max_projects = (
-        999999 if lock_policy["lock_projects"] else max_projects
-    )
-    effective_max_bullets = (
-        999999
-        if lock_policy["lock_projects"]
-        else payload_max_bullets
-    )
+    if not isinstance(preparation, PreparedFittingInput):
+        raise TypeError("prepared_fitting_input must be a PreparedFittingInput")
+
+    density_mode = preparation.density_mode
+    density_max_fill = preparation.density_max_fill
+    requested_project_header_layout = preparation.requested_project_header_layout
+    active_project_header_layout = preparation.active_project_header_layout
+    active_project_metadata_style = preparation.active_project_metadata_style
+    project_header_compaction_used = False
+    lock_policy = preparation.lock_policy
+    effective_max_projects = preparation.effective_max_projects
+    effective_max_bullets = preparation.effective_max_bullets
 
     # Preserve completed historical outputs. Temporary candidates are still
     # deleted explicitly by the fitting loop.
     attempt_logs: list[dict[str, Any]] = []
-    working_projects = (
-        apply_source_project_display_fallbacks(
-            saved_resume_docx_path,
-            tailored_projects,
-        )
-        if tailored_projects
-        else None
-    )
-    working_skills = deepcopy(tailored_skills) if tailored_skills else None
-
-    if working_projects and not lock_policy["lock_projects"]:
-        visible_projects = (
-            working_projects.get("recommended_projects", []) or []
-        )[:max_projects]
-
-        for project in visible_projects:
-            project["draft_bullets"] = (
-                project.get("draft_bullets", []) or []
-            )[:payload_max_bullets]
-            project["compact_bullets"] = (
-                project.get("compact_bullets", []) or []
-            )[:payload_max_bullets]
-
-            sync_project_bullet_metadata(
-                project,
-                bullet_texts=project["draft_bullets"],
-            )
-
-        working_projects["recommended_projects"] = visible_projects
+    working_projects = deepcopy(preparation.working_projects)
+    working_skills = deepcopy(preparation.working_skills)
 
     active_changes: list[dict[str, Any]] = []
 
-    source_signature = source_docx_signature(
-        saved_resume_docx_path
-    )
+    source_signature = preparation.source_signature
+    fitting_input_snapshot = preparation.fitting_input_snapshot
     render_layout_options = {
         "max_projects": effective_max_projects,
         "max_bullets_per_project": effective_max_bullets,
@@ -3153,6 +3328,20 @@ def generate_tailored_resume_copy_fit_one_page(
         "reduction_candidates_skipped_by_tier_stop": 0,
         "restoration_batch_count": 0,
         "restoration_candidates_rendered": 0,
+        "coarse_render_count": 0,
+        "exact_render_count": 0,
+        "local_refinement_render_count": 0,
+        "render_budget": FIT_RENDER_BUDGET,
+        "render_budget_used": 0,
+        "render_budget_exhausted": 0,
+        "candidate_states_rendered": 0,
+        "render_verification_failed": 0,
+        "libreoffice_timeout_count": 0,
+    }
+    timing_stats: dict[str, float] = {
+        "render_elapsed_seconds": 0.0,
+        "libreoffice_elapsed_seconds": 0.0,
+        "candidate_generation_elapsed_seconds": 0.0,
     }
 
     def optimization_summary() -> dict[str, Any]:
@@ -3160,6 +3349,16 @@ def generate_tailored_resume_copy_fit_one_page(
             "fitting_optimization_version": (
                 PHASE6C1_OPTIMIZATION_VERSION
             ),
+            "fitting_search_algorithm_version": (
+                PHASE6C_SEARCH_ALGORITHM_VERSION
+            ),
+            "render_state_fingerprint_version": (
+                PHASE6C1_OPTIMIZATION_VERSION
+            ),
+            "fitting_input_snapshot": deepcopy(fitting_input_snapshot),
+            "fitting_input_fingerprint": fitting_input_snapshot[
+                "fitting_input_fingerprint"
+            ],
             "section_locks": dict(lock_policy),
             "render_cache_entry_count": len(render_cache),
             "libreoffice_process_count": (
@@ -3170,6 +3369,14 @@ def generate_tailored_resume_copy_fit_one_page(
                     "libreoffice_fallback_processes"
                 ]
             ),
+            "fitting_elapsed_seconds": round(
+                time.perf_counter() - fitting_started_at,
+                3,
+            ),
+            **{
+                key: round(value, 3)
+                for key, value in timing_stats.items()
+            },
             **optimization_stats,
         }
 
@@ -3212,6 +3419,14 @@ def generate_tailored_resume_copy_fit_one_page(
             ),
         }
 
+    initial_counts = _candidate_counts(working_projects, working_skills)
+    _fit_log(
+        "start "
+        f"projects={initial_counts['project_count']} "
+        f"bullets={initial_counts['bullet_count']} "
+        f"skills={initial_counts['skill_item_count']}"
+    )
+
     def _prepare_candidate(
         specification: dict[str, Any],
     ) -> dict[str, Any]:
@@ -3221,7 +3436,8 @@ def generate_tailored_resume_copy_fit_one_page(
             specification.get("margin_profile") or active_margin_profile
         )
         candidate_project_header_layout = normalise_project_header_layout(
-            specification.get("project_header_layout") or active_project_header_layout
+            specification.get("project_header_layout")
+            or active_project_header_layout
         )
         if candidate_project_header_layout == "auto":
             candidate_project_header_layout = "stacked"
@@ -3300,22 +3516,28 @@ def generate_tailored_resume_copy_fit_one_page(
             )
         elif pdf_path is not None:
             page_count = count_pdf_pages(pdf_path)
-            fill_metrics = measure_pdf_page_fill(
-                pdf_path
-            )
-            try:
-                pdf_bytes = Path(pdf_path).read_bytes()
-            except OSError:
-                pdf_bytes = b""
+            if page_count is None:
+                # A PDF without a page count is not a verified render. Do not
+                # infer its fit from a converter exit code or its file size.
+                fill_metrics = _empty_fill_metrics()
+                pdf_path = None
+            else:
+                fill_metrics = measure_pdf_page_fill(
+                    pdf_path
+                )
+                try:
+                    pdf_bytes = Path(pdf_path).read_bytes()
+                except OSError:
+                    pdf_bytes = b""
 
-            if pdf_bytes:
-                render_cache[fingerprint] = {
-                    "pdf_bytes": pdf_bytes,
-                    "page_count": page_count,
-                    "fill_metrics": deepcopy(
-                        fill_metrics
-                    ),
-                }
+                if pdf_bytes:
+                    render_cache[fingerprint] = {
+                        "pdf_bytes": pdf_bytes,
+                        "page_count": page_count,
+                        "fill_metrics": deepcopy(
+                            fill_metrics
+                        ),
+                    }
         else:
             page_count = None
             fill_metrics = _empty_fill_metrics()
@@ -3387,14 +3609,40 @@ def generate_tailored_resume_copy_fit_one_page(
         if not specifications:
             return []
 
+        remaining_budget = max(
+            0,
+            FIT_RENDER_BUDGET
+            - optimization_stats["render_budget_used"],
+        )
+        if remaining_budget <= 0:
+            optimization_stats["render_budget_exhausted"] = 1
+            _fit_log(
+                f"render budget exhausted label={batch_label} "
+                f"budget={FIT_RENDER_BUDGET}"
+            )
+            return []
+        if len(specifications) > remaining_budget:
+            optimization_stats["render_budget_exhausted"] = 1
+            specifications = specifications[:remaining_budget]
+            _fit_log(
+                f"render budget limited label={batch_label} "
+                f"candidates={len(specifications)} remaining={remaining_budget}"
+            )
+
+        batch_started_at = time.perf_counter()
+
         optimization_stats[
             "candidate_state_requests"
         ] += len(specifications)
 
+        preparation_started_at = time.perf_counter()
         prepared_candidates = [
             _prepare_candidate(specification)
             for specification in specifications
         ]
+        timing_stats["candidate_generation_elapsed_seconds"] += (
+            time.perf_counter() - preparation_started_at
+        )
         uncached: list[dict[str, Any]] = []
 
         for prepared in prepared_candidates:
@@ -3415,6 +3663,7 @@ def generate_tailored_resume_copy_fit_one_page(
 
         converted: dict[str, Path | None] = {}
         if uncached:
+            conversion_started_at = time.perf_counter()
             converted, diagnostics = (
                 convert_docx_batch_to_pdf_if_possible(
                     [
@@ -3422,6 +3671,13 @@ def generate_tailored_resume_copy_fit_one_page(
                         for prepared in uncached
                     ]
                 )
+            )
+            conversion_elapsed = time.perf_counter() - conversion_started_at
+            timing_stats["libreoffice_elapsed_seconds"] += conversion_elapsed
+            _fit_log(
+                "libreoffice batch "
+                f"label={batch_label} candidates={len(uncached)} "
+                f"elapsed={conversion_elapsed:.3f}s"
             )
             optimization_stats[
                 "libreoffice_batch_processes"
@@ -3432,6 +3688,8 @@ def generate_tailored_resume_copy_fit_one_page(
                 )
                 or 0
             )
+            if diagnostics.get("timed_out"):
+                optimization_stats["libreoffice_timeout_count"] += 1
             optimization_stats[
                 "libreoffice_fallback_processes"
             ] += int(
@@ -3463,15 +3721,38 @@ def generate_tailored_resume_copy_fit_one_page(
                     )
                 )
 
-            results.append(
-                _complete_prepared_candidate(
-                    prepared,
-                    pdf_path=pdf_path,
-                    batch_label=batch_label,
-                    batch_size=batch_size,
-                    cache_hit=cache_hit,
-                )
+            completed = _complete_prepared_candidate(
+                prepared,
+                pdf_path=pdf_path,
+                batch_label=batch_label,
+                batch_size=batch_size,
+                cache_hit=cache_hit,
             )
+            if not cache_hit:
+                optimization_stats["render_budget_used"] += 1
+                optimization_stats["candidate_states_rendered"] += 1
+            if (
+                completed.get("pdf_path") is None
+                or completed.get("page_count") is None
+            ):
+                optimization_stats["render_verification_failed"] = 1
+            attempt_entry = completed["attempt_entry"]
+            counts = _candidate_counts(
+                prepared.get("projects"),
+                prepared.get("skills"),
+            )
+            _fit_log(
+                "render "
+                f"{attempt_entry['attempt']} label={batch_label} "
+                f"pages={completed.get('page_count')} "
+                f"bullets={counts['bullet_count']} "
+                f"elapsed={time.perf_counter() - batch_started_at:.3f}s"
+            )
+            results.append(completed)
+
+        timing_stats["render_elapsed_seconds"] += (
+            time.perf_counter() - batch_started_at
+        )
 
         return results
 
@@ -3488,7 +3769,7 @@ def generate_tailored_resume_copy_fit_one_page(
         margin_profile: str | None = None,
         project_header_layout_override: str | None = None,
     ) -> dict[str, Any]:
-        return render_candidates_batch(
+        rendered = render_candidates_batch(
             [
                 {
                     "projects": projects_state,
@@ -3507,49 +3788,138 @@ def generate_tailored_resume_copy_fit_one_page(
                         margin_profile or active_margin_profile
                     ),
                     "project_header_layout": (
-                        project_header_layout_override or active_project_header_layout
+                        project_header_layout_override
+                        or active_project_header_layout
                     ),
                 }
             ],
             batch_label=attempt_type,
-        )[0]
-
-    removable_bullet_count = 0
-    removable_project_count = 0
-    compact_candidate_count = 0
-
-    if working_projects and not lock_policy["lock_projects"]:
-        original_projects = working_projects.get("recommended_projects", []) or []
-        removable_bullet_count = sum(
-            max(0, len(project.get("draft_bullets", []) or []) - 1)
-            for project in original_projects
         )
-        removable_project_count = max(0, len(original_projects) - 2)
-        compact_candidate_count = (
-            _count_quality_compact_candidates(working_projects)
-            if use_compact_before_delete
-            else 0
-        )
+        if rendered:
+            return rendered[0]
+        return {
+            "docx_path": None,
+            "pdf_path": None,
+            "page_count": None,
+            "fill_metrics": _empty_fill_metrics(),
+            "attempt_entry": {
+                "attempt": len(attempt_logs) + 1,
+                "attempt_type": attempt_type,
+                "page_count": None,
+                "render_budget_exhausted": True,
+            },
+        }
 
-    skill_candidate_count = (
-        count_skill_reduction_candidates(
-            working_skills,
-            minimum_total_items=minimum_total_skills,
-        )
+    def build_reduction_candidates(
+        projects_state: dict[str, Any] | None,
+        skills_state: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Build the existing evidence-safe one-step candidates without rendering."""
+        candidates: list[dict[str, Any]] = []
+
+        if (
+            use_compact_before_delete
+            and projects_state
+            and not lock_policy["lock_projects"]
+        ):
+            compact_projects, changed, change = apply_compact_bullets_once(
+                projects_state
+            )
+            if changed:
+                change = deepcopy(change)
+                change["section"] = "projects"
+                candidates.append(
+                    {
+                        "projects": compact_projects,
+                        "skills": skills_state,
+                        "change": change,
+                        "quality_loss": _project_reduction_quality_loss(change),
+                        "candidate_order": 1,
+                    }
+                )
+
         if (
             allow_skills_compaction
-            and working_skills
+            and skills_state
             and not lock_policy["lock_skills"]
-        )
-        else 0
-    )
+        ):
+            compact_skills, changed, change = compact_skills_one_step(
+                skills_state,
+                minimum_total_items=minimum_total_skills,
+            )
+            if changed:
+                candidates.append(
+                    {
+                        "projects": projects_state,
+                        "skills": compact_skills,
+                        "change": change,
+                        "quality_loss": _skill_reduction_quality_loss(change),
+                        "candidate_order": 0,
+                    }
+                )
 
-    reduction_attempt_limit = (
-        compact_candidate_count
-        + removable_bullet_count
-        + removable_project_count
-        + skill_candidate_count
-    )
+        if projects_state and not lock_policy["lock_projects"]:
+            project_reductions = build_evidence_aware_project_reductions(
+                projects_state,
+                prefer_balanced_bullets=prefer_balanced_bullets,
+            )
+            for reduction_index, (reduced_projects, raw_change) in enumerate(
+                project_reductions,
+                start=2,
+            ):
+                change = deepcopy(raw_change)
+                change["section"] = "projects"
+                candidates.append(
+                    {
+                        "projects": reduced_projects,
+                        "skills": skills_state,
+                        "change": change,
+                        "quality_loss": _project_reduction_quality_loss(change),
+                        "candidate_order": reduction_index,
+                    }
+                )
+        return candidates
+
+    def build_safe_reduction_path(
+        projects_state: dict[str, Any] | None,
+        skills_state: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Create cumulative low-risk states using the current Phase 6C order."""
+        planning_started_at = time.perf_counter()
+        path: list[dict[str, Any]] = []
+        current_projects = deepcopy(projects_state)
+        current_skills = deepcopy(skills_state)
+        cumulative_changes: list[dict[str, Any]] = []
+
+        while True:
+            candidates = build_reduction_candidates(
+                current_projects,
+                current_skills,
+            )
+            if not candidates:
+                break
+            optimization_stats["reduction_candidates_generated"] += len(candidates)
+            tier_groups = group_candidates_by_protection_tier(candidates)
+            protection_tier, lowest_tier = tier_groups[0]
+            next_candidate = lowest_tier[0]
+            change = deepcopy(next_candidate["change"])
+            cumulative_changes.append(change)
+            current_projects = deepcopy(next_candidate["projects"])
+            current_skills = deepcopy(next_candidate["skills"])
+            path.append(
+                {
+                    "projects": current_projects,
+                    "skills": current_skills,
+                    "changes": deepcopy(cumulative_changes),
+                    "last_change": change,
+                    "protection_tier": protection_tier,
+                }
+            )
+
+        timing_stats["candidate_generation_elapsed_seconds"] += (
+            time.perf_counter() - planning_started_at
+        )
+        return path
 
     current_render = render_candidate(
         working_projects,
@@ -3558,13 +3928,19 @@ def generate_tailored_resume_copy_fit_one_page(
     )
 
     if current_render["pdf_path"] is None:
+        _fit_log(
+            "complete status=verification_failed "
+            f"renders={optimization_stats['candidate_states_rendered']} "
+            f"elapsed={time.perf_counter() - fitting_started_at:.3f}s"
+        )
         return {
             "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
             "docx_path": current_render["docx_path"],
             "pdf_path": None,
             "page_count": None,
-            "fit_one_page": None,
+            "fit_one_page": False,
+            "fit_status": "verification_failed",
             "attempts": attempt_logs,
             "tailored_projects_used": working_projects,
             "tailored_skills_used": working_skills,
@@ -3580,11 +3956,23 @@ def generate_tailored_resume_copy_fit_one_page(
             "project_header_compaction_used": project_header_compaction_used,
             **optimization_summary(),
             "note": (
-                "Could not check page count because LibreOffice is unavailable "
-                "or DOCX-to-PDF conversion failed. DOCX generation still worked."
+                "Could not verify page count because LibreOffice is unavailable, "
+                "timed out, or DOCX-to-PDF conversion failed. DOCX generation "
+                "still worked, but this result is not verified as one page."
             ),
         }
 
+    _fit_log(
+        "initial render "
+        f"pages={current_render['page_count']} "
+        f"overflow={_rendered_overflow_value(current_render):.3f} "
+        f"elapsed={time.perf_counter() - fitting_started_at:.3f}s"
+    )
+
+    # Auto preserves the clearer stacked display until physical rendering
+    # proves that inline metadata saves meaningful space. This is a format
+    # choice with zero evidence loss, and is intentionally evaluated before
+    # margin compaction or evidence-removing candidates.
     if (
         requested_project_header_layout == "auto"
         and working_projects
@@ -3610,13 +3998,17 @@ def generate_tailored_resume_copy_fit_one_page(
             inline_overflow = _rendered_overflow_value(inline_render)
             inline_improved = (
                 int(inline_render.get("page_count") or 99) <= 1
-                or inline_overflow <= baseline_overflow - _LAYOUT_EFFECT_THRESHOLD
+                or inline_overflow
+                <= baseline_overflow - _LAYOUT_EFFECT_THRESHOLD
             )
             inline_render["attempt_entry"]["project_header_auto_probe"] = True
-            inline_render["attempt_entry"]["project_header_auto_accepted"] = inline_improved
+            inline_render["attempt_entry"]["project_header_auto_accepted"] = (
+                inline_improved
+            )
             if inline_improved:
                 _delete_generated_output(
-                    current_render.get("docx_path"), current_render.get("pdf_path")
+                    current_render.get("docx_path"),
+                    current_render.get("pdf_path"),
                 )
                 current_render["attempt_entry"]["superseded_output_deleted"] = True
                 current_render = inline_render
@@ -3624,7 +4016,8 @@ def generate_tailored_resume_copy_fit_one_page(
                 project_header_compaction_used = True
             else:
                 _delete_generated_output(
-                    inline_render.get("docx_path"), inline_render.get("pdf_path")
+                    inline_render.get("docx_path"),
+                    inline_render.get("pdf_path"),
                 )
                 inline_render["attempt_entry"]["temporary_output_deleted"] = True
 
@@ -3685,356 +4078,274 @@ def generate_tailored_resume_copy_fit_one_page(
     if int(current_render["page_count"]) <= 1:
         fitting_render = current_render
 
-    for _ in range(reduction_attempt_limit):
-        if fitting_render is not None:
-            break
-
-        candidate_changes: list[dict[str, Any]] = []
-
-        if (
-            use_compact_before_delete
-            and working_projects
-            and not lock_policy["lock_projects"]
-        ):
-            compact_projects, changed, change = apply_compact_bullets_once(
-                working_projects
-            )
-            if changed:
-                change = deepcopy(change)
-                change["section"] = "projects"
-                candidate_changes.append(
-                    {
-                        "projects": compact_projects,
-                        "skills": working_skills,
-                        "change": change,
-                        "quality_loss": _project_reduction_quality_loss(change),
-                        "candidate_order": 1,
-                    }
-                )
-
-        if (
-            allow_skills_compaction
-            and working_skills
-            and not lock_policy["lock_skills"]
-        ):
-            compact_skills, changed, change = compact_skills_one_step(
-                working_skills,
-                minimum_total_items=minimum_total_skills,
-            )
-            if changed:
-                candidate_changes.append(
-                    {
-                        "projects": working_projects,
-                        "skills": compact_skills,
-                        "change": change,
-                        "quality_loss": _skill_reduction_quality_loss(change),
-                        "candidate_order": 0,
-                    }
-                )
-
-        if working_projects and not lock_policy["lock_projects"]:
-            project_reductions = build_evidence_aware_project_reductions(
-                working_projects,
-                prefer_balanced_bullets=prefer_balanced_bullets,
-            )
-            for reduction_index, (
-                reduced_projects,
-                raw_change,
-            ) in enumerate(project_reductions, start=2):
-                change = deepcopy(raw_change)
-                change["section"] = "projects"
-                candidate_changes.append(
-                    {
-                        "projects": reduced_projects,
-                        "skills": working_skills,
-                        "change": change,
-                        "quality_loss": _project_reduction_quality_loss(
-                            change
-                        ),
-                        "candidate_order": reduction_index,
-                    }
-                )
-
-        if not candidate_changes:
-            break
-
-        baseline_overflow = _rendered_overflow_value(
-            current_render
+    if fitting_render is None:
+        reduction_path = build_safe_reduction_path(
+            working_projects,
+            working_skills,
         )
-        rendered_candidates: list[
-            dict[str, Any]
-        ] = []
-        tier_groups = (
-            group_candidates_by_protection_tier(
-                candidate_changes
-            )
+        _fit_log(
+            "reduction stage=coarse "
+            f"path_states={len(reduction_path)} "
+            f"budget={FIT_RENDER_BUDGET}"
         )
-        rendered_tiers: list[int] = []
-        stopped_after_tier: int | None = None
+        if reduction_path:
+            coarse_counts: list[int] = []
+            next_count = FIT_COARSE_INITIAL_REMOVALS
+            while next_count < len(reduction_path):
+                coarse_counts.append(next_count)
+                next_count *= 2
+            coarse_counts.append(len(reduction_path))
+            coarse_counts = list(dict.fromkeys(coarse_counts))
 
-        optimization_stats[
-            "reduction_candidates_generated"
-        ] += len(candidate_changes)
-
-        for tier_index, (
-            protection_tier,
-            tier_candidates,
-        ) in enumerate(tier_groups):
-            rendered_tiers.append(protection_tier)
-            optimization_stats[
-                "reduction_tier_batches"
-            ] += 1
-
-            rendered_batch = render_candidates_batch(
-                [
-                    {
-                        "projects": candidate[
-                            "projects"
-                        ],
-                        "skills": candidate[
-                            "skills"
-                        ],
-                        "attempt_type": str(
-                            candidate["change"].get(
-                                "change_type",
-                                "fitting_change",
-                            )
-                        ),
-                        "change_applied": candidate[
-                            "change"
-                        ],
-                        "probe_candidate": True,
-                        "quality_loss": int(
-                            candidate[
-                                "quality_loss"
-                            ]
-                        ),
-                    }
-                    for candidate in tier_candidates
-                ],
-                batch_label=(
-                    "reduction_tier_"
-                    f"{protection_tier}"
-                ),
-            )
-
-            tier_rendered_candidates: list[
-                dict[str, Any]
-            ] = []
-
-            for candidate, rendered in zip(
-                tier_candidates,
-                rendered_batch,
-            ):
-                optimization_stats[
-                    "reduction_candidates_rendered"
-                ] += 1
-
-                if rendered["pdf_path"] is None:
-                    _delete_generated_output(
-                        rendered["docx_path"],
-                        None,
-                    )
-                    continue
-
-                candidate_overflow = (
-                    _rendered_overflow_value(
-                        rendered
-                    )
-                )
-                space_saved = max(
-                    0.0,
-                    baseline_overflow
-                    - candidate_overflow,
-                )
-                reaches_one_page = (
-                    int(rendered["page_count"]) <= 1
-                )
-                layout_effect = (
-                    "reached_one_page"
-                    if reaches_one_page
-                    else (
-                        "reduced_overflow"
-                        if space_saved
-                        >= _LAYOUT_EFFECT_THRESHOLD
-                        else "no_measurable_effect"
-                    )
-                )
-                efficiency_score = (
-                    float(candidate["quality_loss"])
-                    / max(
-                        space_saved,
-                        _LAYOUT_EFFECT_THRESHOLD,
-                    )
-                )
-
-                rendered[
-                    "attempt_entry"
-                ].update(
-                    {
-                        "baseline_overflow_ratio": round(
-                            baseline_overflow,
-                            3,
-                        ),
-                        "candidate_overflow_ratio": round(
-                            candidate_overflow,
-                            3,
-                        ),
-                        "space_saved_ratio": round(
-                            space_saved,
-                            3,
-                        ),
-                        "layout_effect": layout_effect,
-                        "layout_efficiency_score": round(
-                            efficiency_score,
-                            2,
-                        ),
-                        "phase6c1_protection_tier_batch": (
-                            protection_tier
-                        ),
-                    }
-                )
-
-                tier_rendered_candidates.append(
-                    {
-                        **candidate,
-                        "rendered": rendered,
-                        "space_saved_ratio": (
-                            space_saved
-                        ),
-                        "reaches_one_page": (
-                            reaches_one_page
-                        ),
-                        "layout_effect": layout_effect,
-                        "layout_efficiency_score": (
-                            efficiency_score
-                        ),
-                    }
-                )
-
-            rendered_candidates.extend(
-                tier_rendered_candidates
-            )
-
-            if any(
-                rendered_candidate_is_effective(
-                    candidate,
-                    layout_effect_threshold=(
-                        _LAYOUT_EFFECT_THRESHOLD
+            coarse_specs = [
+                {
+                    "projects": reduction_path[count - 1]["projects"],
+                    "skills": reduction_path[count - 1]["skills"],
+                    "attempt_type": "coarse_reduction",
+                    "change_applied": {
+                        "change_type": "cumulative_reduction",
+                        "reduction_count": count,
+                        "last_change": reduction_path[count - 1]["last_change"],
+                    },
+                    "probe_candidate": True,
+                    "quality_loss": sum(
+                        _skill_reduction_quality_loss(change)
+                        if str(change.get("section", "projects")) == "skills"
+                        else _project_reduction_quality_loss(change)
+                        for change in reduction_path[count - 1]["changes"]
                     ),
+                    "margin_profile": active_margin_profile,
+                }
+                for count in coarse_counts
+            ]
+            rendered_coarse = render_candidates_batch(
+                coarse_specs,
+                batch_label="coarse_reduction",
+            )
+            optimization_stats["coarse_render_count"] += len(rendered_coarse)
+
+            coarse_results: dict[int, dict[str, Any]] = {}
+            for count, rendered in zip(coarse_counts, rendered_coarse):
+                if rendered.get("pdf_path") is None:
+                    break
+                coarse_results[count] = rendered
+
+            if optimization_stats["render_verification_failed"]:
+                fitting_render = None
+            else:
+                fit_count = next(
+                    (
+                        count
+                        for count in coarse_counts
+                        if (
+                            count in coarse_results
+                            and int(coarse_results[count]["page_count"]) <= 1
+                        )
+                    ),
+                    None,
                 )
-                for candidate in (
-                    tier_rendered_candidates
-                )
-            ):
-                stopped_after_tier = protection_tier
-                skipped = sum(
-                    len(later_candidates)
-                    for _, later_candidates
-                    in tier_groups[
-                        tier_index + 1:
-                    ]
-                )
-                optimization_stats[
-                    "reduction_candidates_skipped_by_tier_stop"
-                ] += skipped
-                break
+                if fit_count is not None:
+                    lower_count = max(
+                        [
+                            count
+                            for count in [0, *coarse_counts]
+                            if count < fit_count
+                            and (
+                                count == 0
+                                or int(coarse_results[count]["page_count"]) > 1
+                            )
+                        ],
+                        default=0,
+                    )
+                    exact_fit_count = fit_count
+                    _fit_log(
+                        "reduction stage=exact "
+                        f"bracket={lower_count}:{fit_count}"
+                    )
+                    while (
+                        exact_fit_count - lower_count > 1
+                        and not optimization_stats["render_budget_exhausted"]
+                    ):
+                        midpoint = (lower_count + exact_fit_count) // 2
+                        midpoint_state = reduction_path[midpoint - 1]
+                        rendered_midpoint = render_candidate(
+                            midpoint_state["projects"],
+                            midpoint_state["skills"],
+                            attempt_type="exact_boundary",
+                            change_applied={
+                                "change_type": "cumulative_reduction",
+                                "reduction_count": midpoint,
+                                "last_change": midpoint_state["last_change"],
+                            },
+                            probe_candidate=True,
+                            margin_profile=active_margin_profile,
+                        )
+                        optimization_stats["exact_render_count"] += 1
+                        if rendered_midpoint.get("pdf_path") is None:
+                            break
+                        if int(rendered_midpoint["page_count"]) <= 1:
+                            exact_fit_count = midpoint
+                        else:
+                            lower_count = midpoint
+                        _delete_generated_output(
+                            rendered_midpoint.get("docx_path"),
+                            rendered_midpoint.get("pdf_path"),
+                        )
 
-        if not rendered_candidates:
-            break
+                    if not optimization_stats["render_verification_failed"]:
+                        boundary_before_projects = (
+                            deepcopy(working_projects)
+                            if exact_fit_count == 1
+                            else deepcopy(
+                                reduction_path[exact_fit_count - 2]["projects"]
+                            )
+                        )
+                        boundary_before_skills = (
+                            deepcopy(working_skills)
+                            if exact_fit_count == 1
+                            else deepcopy(
+                                reduction_path[exact_fit_count - 2]["skills"]
+                            )
+                        )
+                        boundary_before_changes = (
+                            []
+                            if exact_fit_count == 1
+                            else deepcopy(
+                                reduction_path[exact_fit_count - 2]["changes"]
+                            )
+                        )
+                        local_candidates = build_reduction_candidates(
+                            boundary_before_projects,
+                            boundary_before_skills,
+                        )
+                        local_tiers = group_candidates_by_protection_tier(
+                            local_candidates
+                        )
+                        local_candidates = (
+                            local_tiers[0][1][:FIT_LOCAL_REFINEMENT_LIMIT]
+                            if local_tiers
+                            else []
+                        )
+                        _fit_log(
+                            "reduction stage=local_refinement "
+                            f"candidates={len(local_candidates)}"
+                        )
+                        local_rendered = render_candidates_batch(
+                            [
+                                {
+                                    "projects": candidate["projects"],
+                                    "skills": candidate["skills"],
+                                    "attempt_type": "local_refinement",
+                                    "change_applied": candidate["change"],
+                                    "probe_candidate": True,
+                                    "quality_loss": candidate["quality_loss"],
+                                    "margin_profile": active_margin_profile,
+                                }
+                                for candidate in local_candidates
+                            ],
+                            batch_label="local_refinement",
+                        )
+                        optimization_stats["local_refinement_render_count"] += len(
+                            local_rendered
+                        )
+                        baseline_overflow = _rendered_overflow_value(
+                            current_render
+                        )
+                        local_results: list[dict[str, Any]] = []
+                        for candidate, rendered in zip(
+                            local_candidates,
+                            local_rendered,
+                        ):
+                            if rendered.get("pdf_path") is None:
+                                continue
+                            candidate_overflow = _rendered_overflow_value(rendered)
+                            space_saved = max(
+                                0.0,
+                                baseline_overflow - candidate_overflow,
+                            )
+                            local_results.append(
+                                {
+                                    **candidate,
+                                    "rendered": rendered,
+                                    "space_saved_ratio": space_saved,
+                                    "reaches_one_page": int(
+                                        rendered["page_count"]
+                                    ) <= 1,
+                                }
+                            )
 
-        chosen = _choose_layout_aware_reduction(rendered_candidates)
+                        selected = (
+                            _choose_layout_aware_reduction(local_results)
+                            if local_results
+                            else None
+                        )
+                        if selected is not None and selected.get(
+                            "reaches_one_page"
+                        ):
+                            working_projects = deepcopy(selected["projects"])
+                            working_skills = deepcopy(selected["skills"])
+                            active_changes = [
+                                *boundary_before_changes,
+                                deepcopy(selected["change"]),
+                            ]
+                        else:
+                            selected_state = reduction_path[exact_fit_count - 1]
+                            working_projects = deepcopy(selected_state["projects"])
+                            working_skills = deepcopy(selected_state["skills"])
+                            active_changes = deepcopy(selected_state["changes"])
 
-        current_render["attempt_entry"]["phase6c1_tier_plan"] = {
-            "optimization_version": PHASE6C1_OPTIMIZATION_VERSION,
-            "tiers_available": [
-                tier
-                for tier, _ in tier_groups
-            ],
-            "tiers_rendered": rendered_tiers,
-            "stopped_after_effective_tier": stopped_after_tier,
-            "higher_tier_candidate_count_skipped": sum(
-                len(candidates)
-                for tier, candidates in tier_groups
-                if (
-                    stopped_after_tier is not None
-                    and tier > stopped_after_tier
-                )
-            ),
-        }
-
-        current_render["attempt_entry"]["candidate_changes_considered"] = [
-            {
-                "section": candidate["change"].get("section", "projects"),
-                "change_type": candidate["change"].get("change_type"),
-                "project": candidate["change"].get("project"),
-                "category": candidate["change"].get("category"),
-                "removed_skill": candidate["change"].get("removed_skill"),
-                "removed_bullet_index": candidate["change"].get(
-                    "removed_bullet_index"
-                ),
-                "protection_tier": candidate["change"].get(
-                    "protection_tier",
-                    0,
-                ),
-                "supported_requirement_ids": candidate["change"].get(
-                    "supported_requirement_ids",
-                    [],
-                ),
-                "protected_requirement_ids": candidate["change"].get(
-                    "protected_requirement_ids",
-                    [],
-                ),
-                "globally_unique_requirement_ids": candidate["change"].get(
-                    "globally_unique_requirement_ids",
-                    [],
-                ),
-                "evidence_loss_score": candidate["change"].get(
-                    "evidence_loss_score"
-                ),
-                "evidence_loss_reason": candidate["change"].get(
-                    "evidence_loss_reason"
-                ),
-                "quality_loss": candidate["quality_loss"],
-                "space_saved_ratio": round(
-                    float(candidate["space_saved_ratio"]), 3
-                ),
-                "layout_effect": candidate["layout_effect"],
-                "layout_efficiency_score": round(
-                    float(candidate["layout_efficiency_score"]), 2
-                ),
-                "probe_attempt": candidate["rendered"]["attempt_entry"]["attempt"],
-                "selected": candidate is chosen,
-            }
-            for candidate in rendered_candidates
-        ]
-        current_render["attempt_entry"]["next_change"] = chosen["change"]
-
-        for candidate in rendered_candidates:
-            entry = candidate["rendered"]["attempt_entry"]
-            entry["probe_selected"] = candidate is chosen
-            if candidate is not chosen:
-                _delete_generated_output(
-                    candidate["rendered"]["docx_path"],
-                    candidate["rendered"]["pdf_path"],
-                )
-                entry["temporary_output_deleted"] = True
-
-        _delete_generated_output(
-            current_render["docx_path"],
-            current_render["pdf_path"],
-        )
-        current_render["attempt_entry"]["superseded_output_deleted"] = True
-
-        working_projects = deepcopy(chosen["projects"])
-        working_skills = deepcopy(chosen["skills"])
-        active_changes.append(deepcopy(chosen["change"]))
-        current_render = chosen["rendered"]
-
-        if int(current_render["page_count"]) <= 1:
-            fitting_render = current_render
+                        for candidate in local_results:
+                            _delete_generated_output(
+                                candidate["rendered"].get("docx_path"),
+                                candidate["rendered"].get("pdf_path"),
+                            )
+                        for rendered in rendered_coarse:
+                            _delete_generated_output(
+                                rendered.get("docx_path"),
+                                rendered.get("pdf_path"),
+                            )
+                        final_render = render_candidate(
+                            working_projects,
+                            working_skills,
+                            attempt_type="final_verification",
+                            change_applied={
+                                "change_type": "bounded_search_selected",
+                                "reduction_count": len(active_changes),
+                            },
+                            margin_profile=active_margin_profile,
+                        )
+                        optimization_stats["exact_render_count"] += 1
+                        if (
+                            final_render.get("pdf_path") is not None
+                            and int(final_render["page_count"]) <= 1
+                        ):
+                            _delete_generated_output(
+                                current_render.get("docx_path"),
+                                current_render.get("pdf_path"),
+                            )
+                            fitting_render = final_render
+                            _fit_log(
+                                "accepted reduction "
+                                f"count={len(active_changes)} "
+                                f"pages={final_render['page_count']}"
+                            )
 
     if fitting_render is None:
+        fit_status = (
+            "verification_failed"
+            if optimization_stats["render_verification_failed"]
+            else (
+                "search_exhausted"
+                if optimization_stats["render_budget_exhausted"]
+                else "unable_to_fit"
+            )
+        )
+        _fit_log(
+            "complete "
+            f"status={fit_status} pages={current_render.get('page_count')} "
+            f"renders={optimization_stats['candidate_states_rendered']} "
+            f"elapsed={time.perf_counter() - fitting_started_at:.3f}s"
+        )
         return {
             "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
@@ -4042,6 +4353,7 @@ def generate_tailored_resume_copy_fit_one_page(
             "pdf_path": current_render["pdf_path"],
             "page_count": current_render["page_count"],
             "fit_one_page": False,
+            "fit_status": fit_status,
             "attempts": attempt_logs,
             "tailored_projects_used": working_projects,
             "tailored_skills_used": working_skills,
@@ -4064,9 +4376,14 @@ def generate_tailored_resume_copy_fit_one_page(
                 )
                 if lock_policy["lock_projects"] or lock_policy["lock_skills"]
                 else (
+                    "Fit search reached its deterministic render budget before "
+                    "one-page output was verified."
+                    if optimization_stats["render_budget_exhausted"]
+                    else (
                     "Resume still exceeds one page after all allowed whole-resume "
                     "reductions. Reduce spacing, lower the minimum Skills count, "
                     "or allow more than one page."
+                    )
                 )
             ),
         }
@@ -4077,7 +4394,12 @@ def generate_tailored_resume_copy_fit_one_page(
     restored_change_count = 0
     permanently_rejected_restorations: set[str] = set()
 
-    while active_changes and density_max_fill is not None:
+    while (
+        active_changes
+        and density_max_fill is not None
+        and optimization_stats["restoration_candidates_rendered"]
+        < FIT_RESTORATION_RENDER_BUDGET
+    ):
         candidate_results: list[
             dict[str, Any]
         ] = []
@@ -4154,6 +4476,27 @@ def generate_tailored_resume_copy_fit_one_page(
 
         if not restoration_prepared:
             break
+
+        restoration_remaining = max(
+            0,
+            FIT_RESTORATION_RENDER_BUDGET
+            - optimization_stats["restoration_candidates_rendered"],
+        )
+        restoration_prepared = sorted(
+            restoration_prepared,
+            key=lambda candidate: (
+                -int(candidate["quality_gain"]),
+                int(candidate["change_index"]),
+            ),
+        )[:restoration_remaining]
+        if not restoration_prepared:
+            break
+
+        _fit_log(
+            "restoration "
+            f"candidates={len(restoration_prepared)} "
+            f"remaining_budget={restoration_remaining}"
+        )
 
         optimization_stats[
             "restoration_batch_count"
@@ -4397,6 +4740,14 @@ def generate_tailored_resume_copy_fit_one_page(
         for change in active_changes
     )
 
+    _fit_log(
+        "complete "
+        f"pages={best_render['page_count']} "
+        f"bullets={_candidate_counts(best_projects, best_skills)['bullet_count']} "
+        f"renders={optimization_stats['candidate_states_rendered']} "
+        f"elapsed={time.perf_counter() - fitting_started_at:.3f}s"
+    )
+
     return {
         "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
@@ -4404,6 +4755,7 @@ def generate_tailored_resume_copy_fit_one_page(
         "pdf_path": best_render["pdf_path"],
         "page_count": best_render["page_count"],
         "fit_one_page": True,
+        "fit_status": "verified_one_page",
         "attempts": attempt_logs,
         "tailored_projects_used": best_projects,
         "tailored_skills_used": best_skills,
@@ -4739,7 +5091,7 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=60,
+            timeout=LIBREOFFICE_SINGLE_CONVERSION_TIMEOUT_SECONDS,
             text=True,
             env=conversion_env,
         )
@@ -4776,6 +5128,13 @@ def convert_docx_to_pdf_if_possible(docx_path: str | Path) -> Path | None:
         print("STDERR:", result.stderr)
         return None
 
+    except subprocess.TimeoutExpired:
+        print(
+            "[FIT] LibreOffice conversion timed out "
+            f"after {LIBREOFFICE_SINGLE_CONVERSION_TIMEOUT_SECONDS}s.",
+            flush=True,
+        )
+        return None
     except Exception as exc:
         print(f"[LibreOffice conversion crashed] {exc}")
         return None
@@ -4816,6 +5175,8 @@ def convert_docx_batch_to_pdf_if_possible(
         "fallback_process_count": 0,
         "missing_source_count": 0,
         "batch_return_code": None,
+        "timed_out": False,
+        "timeout_seconds": None,
     }
     results: dict[str, Path | None] = {
         str(path): None
@@ -4888,9 +5249,14 @@ def convert_docx_batch_to_pdf_if_possible(
     try:
         diagnostics["batch_process_count"] = 1
         timeout_seconds = max(
-            60,
-            min(240, 30 + len(valid_paths) * 20),
+            LIBREOFFICE_BATCH_BASE_TIMEOUT_SECONDS,
+            min(
+                LIBREOFFICE_BATCH_MAX_TIMEOUT_SECONDS,
+                LIBREOFFICE_BATCH_BASE_TIMEOUT_SECONDS
+                + len(valid_paths) * LIBREOFFICE_BATCH_TIMEOUT_PER_CANDIDATE_SECONDS,
+            ),
         )
+        diagnostics["timeout_seconds"] = timeout_seconds
         result = subprocess.run(
             command,
             check=False,
@@ -4930,6 +5296,13 @@ def convert_docx_batch_to_pdf_if_possible(
                 break
             time.sleep(0.1)
 
+    except subprocess.TimeoutExpired:
+        diagnostics["timed_out"] = True
+        print(
+            "[FIT] LibreOffice batch conversion timed out "
+            f"after {diagnostics['timeout_seconds']}s.",
+            flush=True,
+        )
     except Exception as exc:
         print(f"[LibreOffice batch conversion crashed] {exc}")
 
@@ -4941,6 +5314,11 @@ def convert_docx_batch_to_pdf_if_possible(
             )
         except OSError:
             pass
+
+    if diagnostics["timed_out"]:
+        # Do not convert a timed-out batch one file at a time.  The batch did
+        # not provide rendered verification, so callers must fail closed.
+        return results, diagnostics
 
     # Retry only files that the batch did not produce. This keeps the existing
     # robust individual conversion path as a fallback.
