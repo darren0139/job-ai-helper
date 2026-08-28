@@ -35,8 +35,8 @@ from tailoring.phase6d_ranking_adapter import (
 )
 
 
-PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v2"
-SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v2"
+PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v4"
+SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v4"
 EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
 NEAR_TIE_MARGIN = 5
 
@@ -111,6 +111,67 @@ _STOPWORDS = {
     "work",
     "works",
 }
+
+# These terms constrain one-word Skills matching only. The Phase 6D taxonomy
+# remains the owner for recognised capabilities; this list keeps a generic
+# skill such as ``data`` from receiving the same priority as Kotlin merely
+# because the JD contains ``data structures and algorithms``. It is not used
+# to erase a literal multi-token JD requirement from project evidence scoring.
+_GENERIC_SKILL_RANKING_TOKENS = {
+    "app",
+    "applicate",
+    "base",
+    "code",
+    "develop",
+    "experience",
+    "foundation",
+    "general",
+    "high",
+    "implement",
+    "integrate",
+    "large",
+    "project",
+    "solution",
+    "software",
+    "strong",
+    "system",
+    "technical",
+    "understand",
+}
+
+# A single explicit language or platform name can establish direct skill
+# relevance even when the JD expresses it inside a broader sentence.  This is
+# an evidence-selection rule, not an alias expansion: the exact token must
+# appear in both the requirement and the one evidence record/skill being used.
+_EXPLICIT_TECHNICAL_TOKENS = {
+    "android",
+    "c",
+    "c++",
+    "c#",
+    "cuda",
+    "java",
+    "javascript",
+    "kotlin",
+    "python",
+    "rust",
+    "sql",
+    "typescript",
+}
+
+# Some real JDs omit a space immediately after a punctuation-bearing language
+# token (for example ``C++programming``).  Split only a closed set of exact
+# technical tokens at a letter boundary.  This preserves an explicit token
+# already present in the source text; it is neither an alias expansion nor a
+# generic substring match.
+_PUNCTUATION_ADJACENT_TECHNICAL_TOKEN = re.compile(
+    r"(?<![a-z0-9+#])(c\+\+|c#|f#)(?=[a-z])",
+    flags=re.IGNORECASE,
+)
+
+# Match the shared stable scorer's direct-evidence boundary for a concrete
+# evidence row while requiring more than one overlapping token. A single
+# generic word is consequently insufficient for direct project relevance.
+_SINGLE_RECORD_DIRECT_COVERAGE = 0.55
 
 _SOFT_SKILL_LINE_TERMS = {
     "attention to detail",
@@ -239,6 +300,7 @@ def _normalise_key(value: Any) -> str:
     text = _clean_text(value).lower()
     text = text.replace("row-level", "row level")
     text = text.replace("cross-functional", "cross functional")
+    text = _PUNCTUATION_ADJACENT_TECHNICAL_TOKEN.sub(r"\1 ", text)
     text = re.sub(r"[^a-z0-9+#.]+", " ", text)
     return " ".join(text.split())
 
@@ -692,10 +754,11 @@ def _deterministic_family_match(
 ) -> tuple[str | None, list[str], list[str], dict[str, Any]]:
     """Return the Phase 6D taxonomy-owned evidence decision.
 
-    A ``None`` label means the taxonomy does not recognise the requirement and
-    the validated LLM mapping may remain. A ``none`` label means the capability
-    is recognised but this project's evidence does not support it, so any LLM
-    proposal for the requirement must be discarded.
+    A ``None`` label means the taxonomy does not recognise the requirement. In
+    that case the caller must use the constrained single-record fallback below.
+    A ``none`` label means the capability is recognised but this project's
+    evidence does not support it, so any LLM proposal for the requirement must
+    be discarded.
     """
     decision = match_requirement_to_candidate(
         requirement=requirement,
@@ -759,6 +822,134 @@ def _deterministic_family_match(
     }
 
 
+def _specific_requirement_tokens(requirement: dict[str, Any]) -> set[str]:
+    """Return explicit requirement tokens for an unrecognised fallback.
+
+    This deliberately works from the requirement's explicit text only and
+    follows the stable scorer by ignoring the experience preamble. It does not
+    infer synonyms or combine evidence rows. Terms such as ``data`` remain
+    when they are part of a multi-token requirement; the one-record coverage
+    threshold below prevents them from independently creating strong support.
+    """
+    return _tokens(
+        requirement.get("atomic_focus") or requirement.get("text")
+    ) - {"experience"}
+
+
+def _unrecognised_single_record_match(
+    *,
+    requirement: dict[str, Any],
+    project_profile: dict[str, Any],
+) -> tuple[str, list[str], list[str], dict[str, Any]]:
+    """Select the strongest explicit match from one project evidence record.
+
+    Phase 6D owns recognised-capability decisions.  For an unrecognised JD
+    requirement, this fallback is intentionally conservative: one concrete
+    project record must establish the relationship.  Aggregating fragments
+    from separate rows would manufacture support and would let generic words
+    inflate a project rank.
+    """
+    requirement_tokens = _specific_requirement_tokens(requirement)
+    requirement_id = _clean_text(requirement.get("requirement_id"))
+    if not requirement_tokens:
+        return "none", [], [], {
+            "family": None,
+            "capability_id": None,
+            "rule": "unrecognised_no_specific_requirement_tokens",
+            "recognised": False,
+            "requirement_id": requirement_id,
+            "specific_requirement_tokens": [],
+        }
+
+    kind_priority = {
+        "bullet": 5,
+        "impact": 4,
+        "description": 3,
+        "skill": 2,
+        "tool": 1,
+    }
+    candidates: list[tuple[str, float, int, int, str, dict[str, Any], set[str]]] = []
+
+    for record in project_profile.get("evidence_records", []) or []:
+        if not isinstance(record, dict):
+            continue
+        kind = _clean_text(record.get("kind"))
+        if kind not in kind_priority:
+            continue
+
+        evidence_tokens = _tokens(record.get("text"))
+        overlap = requirement_tokens & evidence_tokens
+        if not overlap:
+            continue
+
+        coverage = len(overlap) / len(requirement_tokens)
+        if (
+            coverage >= _SINGLE_RECORD_DIRECT_COVERAGE
+            and len(overlap) >= 2
+        ) or coverage == 1.0:
+            label = "direct"
+        elif overlap & _EXPLICIT_TECHNICAL_TOKENS:
+            # A single explicit language/platform token is meaningful, but it
+            # does not establish unsupported companion claims in the same JD
+            # sentence, so it is transferable rather than direct.
+            label = "transferable"
+        elif len(overlap) >= 2 and coverage >= 0.6:
+            label = "transferable"
+        elif coverage >= 0.5:
+            label = "weak"
+        else:
+            continue
+
+        evidence_id = _clean_text(record.get("evidence_id"))
+        candidates.append(
+            (
+                label,
+                coverage,
+                len(overlap),
+                kind_priority[kind],
+                evidence_id,
+                record,
+                overlap,
+            )
+        )
+
+    if not candidates:
+        return "none", [], [], {
+            "family": None,
+            "capability_id": None,
+            "rule": "unrecognised_no_single_record_support",
+            "recognised": False,
+            "requirement_id": requirement_id,
+            "specific_requirement_tokens": sorted(requirement_tokens),
+        }
+
+    # Sort every component explicitly so selection never depends on input or
+    # hash-map order.  The final evidence ID is a stable lexical tie-breaker.
+    candidates.sort(
+        key=lambda item: (
+            -_MATCH_ORDER[item[0]],
+            -item[1],
+            -item[2],
+            -item[3],
+            item[4],
+        )
+    )
+    label, coverage, _, _, _, record, overlap = candidates[0]
+    evidence_id = _clean_text(record.get("evidence_id"))
+    snippet = _clean_text(record.get("text"))
+    return label, ([evidence_id] if evidence_id else []), ([snippet] if snippet else []), {
+        "family": None,
+        "capability_id": None,
+        "rule": "unrecognised_single_record_specific_evidence",
+        "recognised": False,
+        "requirement_id": requirement_id,
+        "specific_requirement_tokens": sorted(requirement_tokens),
+        "matched_specific_tokens": sorted(overlap),
+        "single_record_coverage": round(coverage, 4),
+        "evidence_kind": _clean_text(record.get("kind")),
+    }
+
+
 def _apply_deterministic_requirement_overrides(
     *,
     matches: dict[str, dict[str, Any]],
@@ -775,6 +966,46 @@ def _apply_deterministic_requirement_overrides(
             project_profile=project_profile,
         )
         if label is None:
+            previous = matches.pop(requirement_id, None)
+            (
+                fallback_label,
+                fallback_evidence_ids,
+                fallback_snippets,
+                fallback_debug,
+            ) = _unrecognised_single_record_match(
+                requirement=requirement,
+                project_profile=project_profile,
+            )
+            debug.append(
+                {
+                    "action": "deterministic_unrecognised_requirement_selection",
+                    "requirement_id": requirement_id,
+                    "previous_label": (
+                        previous.get("match_label")
+                        if isinstance(previous, dict)
+                        else "none"
+                    ),
+                    "final_label": fallback_label,
+                    **fallback_debug,
+                }
+            )
+            if fallback_label != "none":
+                matches[requirement_id] = {
+                    "requirement_id": requirement_id,
+                    "match_label": fallback_label,
+                    "evidence_ids": fallback_evidence_ids,
+                    "evidence_snippets": fallback_snippets,
+                    "source": "python_unrecognised_single_record_evidence",
+                    "mapping_similarity": fallback_debug.get(
+                        "single_record_coverage", 0.0
+                    ),
+                    "evidence_mapping_version": EVIDENCE_MAPPING_VERSION,
+                    "capability_id": None,
+                    "capability_taxonomy_version": fallback_debug.get(
+                        "taxonomy_version"
+                    ),
+                    "capability_does_not_prove": [],
+                }
             continue
 
         previous = matches.pop(requirement_id, None)
@@ -1165,6 +1396,77 @@ def _coverage_points(
     return total, by_requirement
 
 
+def _project_ranking_explanation(
+    matches: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any]]:
+    """Build a user-facing reason from the final Python-owned evidence map."""
+    if not matches:
+        return (
+            "No direct canonical JD requirement is supported by this project's "
+            "concrete résumé or Evidence Library evidence.",
+            {
+                "source": "python_deterministic_requirement_evidence",
+                "matched_requirement_ids": [],
+                "capability_ids": [],
+                "evidence_ids": [],
+            },
+        )
+
+    ordered = sorted(
+        matches,
+        key=lambda match: (
+            -_MATCH_ORDER.get(match.get("match_label", "none"), 0),
+            -_IMPORTANCE_POINTS.get(
+                _normalise_key(match.get("importance")),
+                _IMPORTANCE_POINTS["required"],
+            ),
+            _clean_text(match.get("requirement_id")),
+        ),
+    )
+    primary = ordered[0]
+    label = _clean_text(primary.get("match_label")).capitalize() or "Evidence-grounded"
+    requirement_text = _clean_text(primary.get("requirement_text"))
+    snippet = _clean_text((primary.get("evidence_snippets") or [""])[0])
+    capability_id = _clean_text(primary.get("capability_id"))
+    source = _clean_text(primary.get("source"))
+
+    reason = f"{label} match to JD requirement “{requirement_text}”"
+    if snippet:
+        reason += f": “{snippet}”"
+    if capability_id:
+        reason += f". Capability relationship: {capability_id}."
+    elif source == "python_unrecognised_single_record_evidence":
+        reason += ". Relationship established by one explicit project evidence record."
+    else:
+        reason += "."
+
+    return reason, {
+        "source": "python_deterministic_requirement_evidence",
+        "matched_requirement_ids": [
+            _clean_text(match.get("requirement_id"))
+            for match in ordered
+            if _clean_text(match.get("requirement_id"))
+        ],
+        "capability_ids": sorted(
+            {
+                _clean_text(match.get("capability_id"))
+                for match in ordered
+                if _clean_text(match.get("capability_id"))
+            }
+        ),
+        "evidence_ids": sorted(
+            {
+                _clean_text(evidence_id)
+                for match in ordered
+                for evidence_id in match.get("evidence_ids", []) or []
+                if _clean_text(evidence_id)
+            }
+        ),
+        "primary_requirement_id": _clean_text(primary.get("requirement_id")),
+        "primary_match_label": _clean_text(primary.get("match_label")),
+    }
+
+
 def _ranking_tiebreak_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
     matches = row.get("requirement_matches", []) or []
     direct_core = sum(
@@ -1306,6 +1608,10 @@ def rank_projects_deterministically(
                 }
             )
 
+        ranking_reason, explanation_debug = _project_ranking_explanation(
+            enriched_matches
+        )
+
         row.update(
             {
                 "project_id": project_profile["project_id"],
@@ -1317,6 +1623,8 @@ def rank_projects_deterministically(
                 "ai_diagnostic_final_score": int(row.get("final_score", 0) or 0),
                 "final_score": deterministic_score,
                 "relevance_score": round(min(5.0, coverage / 6.0), 2),
+                "reason": ranking_reason,
+                "ranking_explanation": explanation_debug,
                 "ranking_version": PROJECT_RANKING_VERSION,
                 "ranking_owner": "python_deterministic_evidence_mapping",
                 "mapping_debug": mapping_debug,
@@ -1345,6 +1653,7 @@ def rank_projects_deterministically(
                 "coverage_score": round(coverage, 4),
                 "support_score": support_score,
                 "requirement_matches": enriched_matches,
+                "ranking_explanation": explanation_debug,
                 "mapping_debug": mapping_debug,
             }
         )
@@ -1592,49 +1901,137 @@ def _skill_category(skill: str, hints: list[str]) -> str:
 def _skill_requirement_relevance(
     skill: str,
     requirements: dict[str, dict[str, Any]],
-) -> tuple[int, bool, bool, list[str]]:
+) -> tuple[int, bool, bool, list[str], list[dict[str, Any]]]:
+    """Score one evidence-supported skill against canonical JD requirements.
+
+    Recognised requirements remain wholly owned by the Phase 6D taxonomy. For
+    unrecognised requirements, only explicit non-generic tokens may establish
+    relevance; a skill such as ``data`` cannot become highly relevant merely
+    because a JD says ``data structures and algorithms``.
+    """
     key = _normalise_skill_key(skill)
     skill_tokens = _tokens(key)
     required_match = False
     preferred_match = False
     matched_ids: list[str] = []
+    details: list[dict[str, Any]] = []
     best = 0
 
     for requirement_id, requirement in requirements.items():
-        text = _normalise_key(_requirement_match_text(requirement))
-        requirement_tokens = _tokens(text)
         importance = _normalise_key(requirement.get("importance"))
-
-        exact = bool(
-            key
-            and (
-                f" {key} " in f" {text} "
-                or f" {text} " in f" {key} "
-            )
+        decision = match_requirement_to_candidate(
+            requirement=requirement,
+            candidate_evidence_text=skill,
         )
-        overlap = (
-            len(skill_tokens & requirement_tokens) / max(1, len(skill_tokens))
-            if skill_tokens
-            else 0.0
-        )
+        taxonomy_label = decision.get("label")
 
-        if exact:
-            relevance = 5 if importance in {"core", "deal_breaker", "required"} else 4
-        elif overlap >= 0.75:
-            relevance = 4 if importance in {"core", "deal_breaker", "required"} else 3
-        elif overlap >= 0.5:
-            relevance = 3 if importance in {"core", "deal_breaker", "required"} else 2
+        if taxonomy_label is not None:
+            label = _normalise_match_label(taxonomy_label)
+            if label == "direct":
+                relevance = 5 if importance in {"core", "deal_breaker", "required"} else 4
+            elif label == "transferable":
+                relevance = 4 if importance in {"core", "deal_breaker", "required"} else 3
+            elif label == "weak":
+                relevance = 2 if importance in {"core", "deal_breaker", "required"} else 1
+            else:
+                continue
+            strategy = "phase6d_capability_taxonomy"
+            capability_id = _clean_text(decision.get("capability_id"))
+            overlap = 1.0
         else:
-            continue
+            requirement_tokens = _specific_requirement_tokens(requirement)
+            specific_skill_tokens = skill_tokens - _GENERIC_SKILL_RANKING_TOKENS
+            overlap_tokens = specific_skill_tokens & requirement_tokens
+            if not specific_skill_tokens or not overlap_tokens:
+                continue
+
+            overlap = len(overlap_tokens) / len(specific_skill_tokens)
+            exact_technical = bool(
+                overlap_tokens & _EXPLICIT_TECHNICAL_TOKENS
+            )
+            if specific_skill_tokens <= requirement_tokens and (
+                len(specific_skill_tokens) >= 2 or exact_technical
+            ):
+                label = "direct"
+                relevance = 5 if importance in {"core", "deal_breaker", "required"} else 4
+            elif len(overlap_tokens) >= 2 and overlap >= 0.75:
+                label = "transferable"
+                relevance = 4 if importance in {"core", "deal_breaker", "required"} else 3
+            elif overlap >= 0.75 and len(specific_skill_tokens) >= 2:
+                label = "weak"
+                relevance = 2 if importance in {"core", "deal_breaker", "required"} else 1
+            else:
+                continue
+            strategy = "unrecognised_explicit_skill_tokens"
+            capability_id = ""
 
         best = max(best, relevance)
         matched_ids.append(requirement_id)
-        if importance in {"core", "deal_breaker", "required"}:
+        details.append(
+            {
+                "requirement_id": requirement_id,
+                "requirement_text": _clean_text(requirement.get("text")),
+                "match_label": label,
+                "strategy": strategy,
+                "capability_id": capability_id,
+                "overlap": round(overlap, 4),
+            }
+        )
+        # Weak evidence remains explainable, but does not make a candidate a
+        # primary required/preferred skill by itself.
+        if (
+            label in {"direct", "transferable"}
+            and importance in {"core", "deal_breaker", "required"}
+        ):
             required_match = True
-        elif importance == "preferred":
+        elif label in {"direct", "transferable"} and importance == "preferred":
             preferred_match = True
 
-    return best, required_match, preferred_match, sorted(set(matched_ids))
+    return (
+        best,
+        required_match,
+        preferred_match,
+        sorted(set(matched_ids)),
+        sorted(
+            details,
+            key=lambda item: (
+                -_MATCH_ORDER.get(item["match_label"], 0),
+                item["requirement_id"],
+                item["strategy"],
+            ),
+        ),
+    )
+
+
+def _skill_ranking_explanation(
+    *,
+    skill: str,
+    match_details: list[dict[str, Any]],
+    resume_support: bool,
+    selected_project_support: bool,
+) -> str:
+    if match_details:
+        primary = match_details[0]
+        label = _clean_text(primary.get("match_label")).capitalize()
+        reason = (
+            f"{label} match to canonical JD requirement “{_clean_text(primary.get('requirement_text'))}” "
+            f"through the evidence-supported skill “{_clean_text(skill)}”."
+        )
+        capability_id = _clean_text(primary.get("capability_id"))
+        if capability_id:
+            reason += f" Capability relationship: {capability_id}."
+        return reason
+    if selected_project_support:
+        return (
+            "No direct canonical JD requirement match; retained because the "
+            "skill is supported by a Python-selected project."
+        )
+    if resume_support:
+        return (
+            "No direct canonical JD requirement match; retained because the "
+            "skill is supported by the frozen résumé profile."
+        )
+    return "No direct canonical JD requirement match or supporting résumé evidence."
 
 
 def build_deterministic_skills_result(
@@ -1683,9 +2080,13 @@ def build_deterministic_skills_result(
     rows: list[dict[str, Any]] = []
 
     for candidate in candidates.values():
-        relevance, required_match, preferred_match, requirement_ids = _skill_requirement_relevance(
-            candidate["skill"], requirements
-        )
+        (
+            relevance,
+            required_match,
+            preferred_match,
+            requirement_ids,
+            match_details,
+        ) = _skill_requirement_relevance(candidate["skill"], requirements)
 
         source_count = len(candidate["sources"])
         evidence_strength = min(
@@ -1716,6 +2117,14 @@ def build_deterministic_skills_result(
                 "required_match": required_match,
                 "preferred_match": preferred_match,
                 "matched_requirement_ids": requirement_ids,
+                "requirement_match_details": match_details,
+                "matched_capability_ids": sorted(
+                    {
+                        _clean_text(item.get("capability_id"))
+                        for item in match_details
+                        if _clean_text(item.get("capability_id"))
+                    }
+                ),
                 "selected_project_support": candidate["selected_project_support"],
                 "selected_project_support_methods": sorted(
                     candidate["selected_project_support_methods"]
@@ -1723,10 +2132,11 @@ def build_deterministic_skills_result(
                 "resume_support": candidate["resume_support"],
                 "evidence_titles": sorted(candidate["evidence_titles"]),
                 "deterministic_priority_score": priority_score,
-                "reason": (
-                    "Priority calculated from canonical JD requirements, "
-                    "current-resume support, Evidence Library support, and "
-                    "the Python-selected project set."
+                "reason": _skill_ranking_explanation(
+                    skill=candidate["skill"],
+                    match_details=match_details,
+                    resume_support=candidate["resume_support"],
+                    selected_project_support=candidate["selected_project_support"],
                 ),
                 "ranking_version": SKILL_RANKING_VERSION,
             }
