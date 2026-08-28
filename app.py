@@ -143,7 +143,9 @@ from database.analysis_cache_manager import (
     build_analysis_input_fingerprint,
     delete_application_analysis_versions,
     find_cached_analysis,
+    find_reusable_analysis,
     init_analysis_cache,
+    prepare_reusable_analysis_report,
     save_analysis_snapshot,
 )
 from database.application_blueprint_manager import (
@@ -2829,6 +2831,7 @@ elif page == "Application Sessions":
                 )
 
                 cached_analysis = None
+                cross_application_cache_hit = False
                 if (
                     reuse_exact_analysis_cache
                     and not force_fresh_analysis
@@ -2837,43 +2840,90 @@ elif page == "Application Sessions":
                         application_id=application_id,
                         input_fingerprint=analysis_fingerprint,
                     )
+                    if not isinstance(cached_analysis, dict):
+                        cached_analysis = find_reusable_analysis(
+                            input_fingerprint=analysis_fingerprint,
+                            exclude_application_id=application_id,
+                        )
+                        cross_application_cache_hit = isinstance(
+                            cached_analysis,
+                            dict,
+                        )
 
                 analysis_cache_hit = isinstance(
                     cached_analysis,
                     dict,
                 )
                 if analysis_cache_hit:
-                    activated = activate_analysis_snapshot(
-                        application_id=application_id,
-                        analysis_id=str(
-                            cached_analysis.get("analysis_id") or ""
-                        ),
-                    )
-                    report = deepcopy(
-                        activated.get("report") or {}
-                    )
-                    report["raw_jd_text"] = jd_text
-                    report.setdefault("meta", {})[
-                        "analysis_cache"
-                    ] = {
-                        "status": "hit",
-                        "input_fingerprint": analysis_fingerprint,
-                        "analysis_id": activated.get(
+                    if cross_application_cache_hit:
+                        report = prepare_reusable_analysis_report(
+                            cached_analysis
+                        )
+                        # The source Application Session's historical model
+                        # usage belongs to that session only.
+                        report["api_cost_summary"] = summarise_api_calls([])
+                        cache_analysis_id = ""
+                    else:
+                        activated = activate_analysis_snapshot(
+                            application_id=application_id,
+                            analysis_id=str(
+                                cached_analysis.get("analysis_id") or ""
+                            ),
+                        )
+                        report = deepcopy(
+                            activated.get("report") or {}
+                        )
+                        cache_analysis_id = activated.get(
                             "analysis_id",
                             "",
-                        ),
+                        )
+
+                    report["raw_jd_text"] = jd_text
+                    cache_debug = {
+                        "status": "hit",
+                        "input_fingerprint": analysis_fingerprint,
+                        "analysis_id": cache_analysis_id,
                         "cache_version": ANALYSIS_CACHE_VERSION,
                     }
+                    if cross_application_cache_hit:
+                        cache_debug.update(
+                            {
+                                "reuse_scope": "cross_application",
+                                "source_application_id": cached_analysis.get(
+                                    "application_id"
+                                ),
+                                "source_analysis_id": cached_analysis.get(
+                                    "analysis_id",
+                                    "",
+                                ),
+                            }
+                        )
+
+                    report.setdefault("meta", {})[
+                        "analysis_cache"
+                    ] = cache_debug
                     record_zero_cost_action_event(
                         application_id=application_id,
                         action="analyse_resume",
                         note=(
-                            "Exact persistent analysis cache hit; "
-                            "the résumé/JD analysis AI was not called."
+                            (
+                                "Exact cross-application analysis cache hit; "
+                                "the résumé/JD analysis AI was not called."
+                            )
+                            if cross_application_cache_hit
+                            else (
+                                "Exact persistent analysis cache hit; "
+                                "the résumé/JD analysis AI was not called."
+                            )
                         ),
                     )
                     status.update(
-                        label="Loaded exact saved analysis.",
+                        label=(
+                            "Loaded exact saved analysis from another "
+                            "application."
+                            if cross_application_cache_hit
+                            else "Loaded exact saved analysis."
+                        ),
                         state="complete",
                     )
                 else:
@@ -2926,10 +2976,11 @@ elif page == "Application Sessions":
                 report=report,
             )
 
-            # A genuine fresh analysis replaces what is currently displayed,
-            # but historical approved/draft generations and their output files
-            # remain persisted for comparison and restoration.
-            if not analysis_cache_hit:
+            # A fresh analysis or a newly attached cross-application snapshot
+            # replaces what is currently displayed, but historical approved/draft
+            # generations and their output files remain persisted for comparison
+            # and restoration.
+            if not analysis_cache_hit or cross_application_cache_hit:
                 for key in [
                     f"tailored_projects_result_{application_id}",
                     f"tailored_projects_fit_{application_id}",
@@ -3020,12 +3071,14 @@ elif page == "Application Sessions":
                     f" RAG indexing skipped: {rag_exc}"
                 )
 
-            if not analysis_cache_hit:
-                append_api_usage(
-                    application_id=application_id,
-                    action="analyse_resume",
-                    report=report,
-                )
+            if cross_application_cache_hit or not analysis_cache_hit:
+                if not analysis_cache_hit:
+                    append_api_usage(
+                        application_id=application_id,
+                        action="analyse_resume",
+                        report=report,
+                    )
+
                 snapshot = save_analysis_snapshot(
                     application_id=application_id,
                     input_fingerprint=analysis_fingerprint,

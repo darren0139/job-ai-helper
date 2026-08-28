@@ -110,6 +110,16 @@ def init_analysis_cache() -> None:
     )
     cursor.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_analysis_cache_global_fingerprint
+        ON application_analysis_versions (
+            input_fingerprint,
+            updated_at DESC,
+            id DESC
+        )
+        """
+    )
+    cursor.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_analysis_cache_status
         ON application_analysis_versions (
             application_id,
@@ -174,6 +184,58 @@ def find_cached_analysis(
     row = cursor.fetchone()
     connection.close()
     return _row_to_dict(row) if row is not None else None
+
+
+def find_reusable_analysis(
+    *,
+    input_fingerprint: str,
+    exclude_application_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Find an exact cached analysis owned by another Application Session."""
+    fingerprint = str(input_fingerprint or "").strip()
+    if not fingerprint:
+        return None
+
+    excluded_id = (
+        int(exclude_application_id)
+        if exclude_application_id is not None
+        else None
+    )
+
+    init_analysis_cache()
+    connection = _connect()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT *
+        FROM application_analysis_versions
+        WHERE input_fingerprint = ?
+          AND (? IS NULL OR application_id <> ?)
+        ORDER BY
+            CASE status WHEN 'active' THEN 0 ELSE 1 END,
+            updated_at DESC,
+            id DESC
+        LIMIT 1
+        """,
+        (fingerprint, excluded_id, excluded_id),
+    )
+    row = cursor.fetchone()
+    connection.close()
+    return _row_to_dict(row) if row is not None else None
+
+
+def prepare_reusable_analysis_report(
+    snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Copy reusable analysis content without source-session usage/cache metadata."""
+    report = deepcopy((snapshot or {}).get("report") or {})
+    report.pop("api_cost_summary", None)
+
+    meta = report.get("meta")
+    if isinstance(meta, dict):
+        meta.pop("analysis_cache", None)
+
+    return report
 
 
 def save_analysis_snapshot(
