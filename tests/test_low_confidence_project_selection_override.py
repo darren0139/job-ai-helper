@@ -122,6 +122,10 @@ class LowConfidenceOverridePolicyTests(unittest.TestCase):
         self.assertEqual("user_override", debug["selection_source"])
         self.assertEqual("applied", debug["override_status"])
         self.assertEqual(
+            "pre_generation",
+            debug["selection_timing"],
+        )
+        self.assertEqual(
             ["query", "job_ai"],
             debug["final_selection"][
                 "low_confidence_project_ids"
