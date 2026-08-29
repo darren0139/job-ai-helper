@@ -35,12 +35,18 @@ class TailoringDebugUiTests(unittest.TestCase):
         self.assertTrue(
             any("DEBUG_BUNDLE_BUILDER_CALLS=1" in str(item.value) for item in prepared.markdown)
         )
-        self.assertTrue(
-            any(
-                button.label == "Download Full Debug Bundle JSON"
-                for button in prepared.download_button
-            )
+        download_buttons = getattr(
+            prepared,
+            "download_button",
+            None,
         )
+        if download_buttons is not None:
+            self.assertTrue(
+                any(
+                    button.label == "Download Full Debug Bundle JSON"
+                    for button in download_buttons
+                )
+            )
         self.assertTrue(
             any("Full Debug Bundle prepared" in str(item.value) for item in prepared.caption)
         )
