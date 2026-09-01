@@ -3814,7 +3814,7 @@ elif page == "Application Sessions":
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
-                value=int(generation_control_defaults.get("max_projects", 3)),
+                value=int(generation_control_defaults.get("max_projects", 4)),
                 key=f"max_projects_{current_application_id}",
                 disabled=project_controls_disabled,
             )
@@ -3822,7 +3822,7 @@ elif page == "Application Sessions":
             saved_bullet_allocation_mode = str(
                     generation_control_defaults.get(
                     "bullet_allocation_mode",
-                    "prefer_available_evidence",
+                    "all_canonical_before_fitting",
                 )
             ).strip().lower()
 
@@ -6993,7 +6993,7 @@ elif page == "Application Sessions":
                     saved_project_header_layout = str(
                         fit_control_defaults.get(
                             "project_header_layout",
-                            "auto",
+                            "stacked",
                         )
                     ).strip().lower()
                     project_header_layout_label = (
@@ -7109,7 +7109,7 @@ elif page == "Application Sessions":
                         value=bool(
                             fit_control_defaults.get(
                                 "allow_skills_compaction",
-                                False,
+                                True,
                             )
                         ),
                         key=(
@@ -7132,7 +7132,7 @@ elif page == "Application Sessions":
                     saved_page_density = str(
                         fit_control_defaults.get(
                             "page_density_mode",
-                            "balanced",
+                            "maximize",
                         )
                     ).strip().lower()
                     if saved_page_density == "none":
