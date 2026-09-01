@@ -113,9 +113,12 @@ class BulletAllocationPreferenceTests(unittest.TestCase):
         self.assertIn('"Bullet allocation"', app)
         self.assertIn('"Adaptive"', app)
         self.assertIn('"Prefer available evidence"', app)
-        self.assertIn(
-            '"prefer_available_evidence",',
+        self.assertRegex(
             app,
+            r'generation_control_defaults\.get\(\s*'
+            r'"bullet_allocation_mode",\s*'
+            r'"all_canonical_before_fitting",\s*'
+            r'\)',
         )
         self.assertGreaterEqual(
             app.count("bullet_allocation_mode=bullet_allocation_mode"),
