@@ -1193,6 +1193,83 @@ def _compact_bullets_are_quality_preserving(
     return True
 
 
+def _protected_compact_bullet_indexes(
+    project: dict[str, Any],
+    *,
+    bullet_count: int,
+) -> list[int]:
+    """Return Phase 6B.1-protected bullet indexes without mutating state."""
+    protected: set[int] = set()
+
+    for raw_index in project.get("protected_bullet_indexes", []) or []:
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < bullet_count:
+            protected.add(index)
+
+    for row in project.get("bullet_evidence_priorities", []) or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            index = int(row.get("bullet_index"))
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= index < bullet_count:
+            continue
+        if (
+            row.get("protect_during_fitting")
+            or row.get("protected_requirement_ids")
+            or int(row.get("unique_required_core_count", 0) or 0) > 0
+        ):
+            protected.add(index)
+
+    return sorted(protected)
+
+
+def _build_evidence_preserving_compact_bullets(
+    project: dict[str, Any],
+    *,
+    full_bullets: list[str],
+    compact_bullets: list[str],
+) -> tuple[list[str], list[int], list[int]] | None:
+    """Compact only unprotected indexes; protected text stays unchanged."""
+    if not _compact_bullets_are_quality_preserving(
+        full_bullets,
+        compact_bullets,
+    ):
+        return None
+
+    protected_indexes = _protected_compact_bullet_indexes(
+        project,
+        bullet_count=len(full_bullets),
+    )
+    protected_set = set(protected_indexes)
+
+    mixed_bullets = [
+        full_bullets[index]
+        if index in protected_set
+        else compact_bullets[index]
+        for index in range(len(full_bullets))
+    ]
+    compacted_indexes = [
+        index
+        for index in range(len(full_bullets))
+        if (
+            index not in protected_set
+            and compact_bullets[index] != full_bullets[index]
+        )
+    ]
+
+    if not compacted_indexes:
+        return None
+    if _bullet_word_count(mixed_bullets) >= _bullet_word_count(full_bullets):
+        return None
+
+    return mixed_bullets, protected_indexes, compacted_indexes
+
+
 def _count_quality_compact_candidates(
     tailored_projects: dict[str, Any],
 ) -> int:
@@ -1230,10 +1307,11 @@ def _count_quality_compact_candidates(
             if str(value).strip()
         ]
 
-        if _compact_bullets_are_quality_preserving(
-            full_bullets,
-            compact_bullets,
-        ):
+        if _build_evidence_preserving_compact_bullets(
+            project,
+            full_bullets=full_bullets,
+            compact_bullets=compact_bullets,
+        ) is not None:
             count += 1
 
     return count
@@ -1262,7 +1340,14 @@ def apply_compact_bullets_once(
     )
 
     eligible_projects: list[
-        tuple[dict[str, Any], list[str], list[str]]
+        tuple[
+            dict[str, Any],
+            list[str],
+            list[str],
+            list[str],
+            list[int],
+            list[int],
+        ]
     ] = []
 
     for project in projects:
@@ -1301,15 +1386,21 @@ def apply_compact_bullets_once(
             if str(value).strip()
         ]
 
-        if _compact_bullets_are_quality_preserving(
-            full_bullets,
-            compact_bullets,
-        ):
+        mixed = _build_evidence_preserving_compact_bullets(
+            project,
+            full_bullets=full_bullets,
+            compact_bullets=compact_bullets,
+        )
+        if mixed is not None:
+            mixed_bullets, protected_indexes, compacted_indexes = mixed
             eligible_projects.append(
                 (
                     project,
                     full_bullets,
                     compact_bullets,
+                    mixed_bullets,
+                    protected_indexes,
+                    compacted_indexes,
                 )
             )
 
@@ -1328,7 +1419,14 @@ def apply_compact_bullets_once(
             },
         )
 
-    target_project, full_bullets, compact_bullets = min(
+    (
+        target_project,
+        full_bullets,
+        source_compact_bullets,
+        mixed_bullets,
+        protected_indexes,
+        compacted_indexes,
+    ) = min(
         eligible_projects,
         key=lambda item: (
             _project_priority_score(
@@ -1339,7 +1437,7 @@ def apply_compact_bullets_once(
                     item[1]
                 )
                 - _bullet_word_count(
-                    item[2]
+                    item[3]
                 )
             ),
         ),
@@ -1354,17 +1452,17 @@ def apply_compact_bullets_once(
 
     target_project[
         "draft_bullets"
-    ] = list(compact_bullets)
+    ] = list(mixed_bullets)
 
     target_project[
         "space_action"
     ] = "compact_rewrite"
 
-    # Compact bullets preserve a one-to-one relationship with the full
-    # bullets. Keep the Phase 6B.1 evidence metadata aligned by index.
+    # Protected bullets retain their exact full text. Unprotected bullets may
+    # use their one-to-one compact alternative; metadata remains aligned by index.
     sync_project_bullet_metadata(
         target_project,
-        bullet_texts=compact_bullets,
+        bullet_texts=mixed_bullets,
     )
 
     project_title = (
@@ -1386,9 +1484,19 @@ def apply_compact_bullets_once(
         "original_draft_bullets": list(
             full_bullets
         ),
-        "compact_draft_bullets": list(
-            compact_bullets
+        "source_compact_bullets": list(
+            source_compact_bullets
         ),
+        "compact_draft_bullets": list(
+            mixed_bullets
+        ),
+        "protected_bullet_indexes_preserved": list(
+            protected_indexes
+        ),
+        "compacted_bullet_indexes": list(
+            compacted_indexes
+        ),
+        "protected_bullet_text_preserved": True,
         "project_priority_score": (
             _project_priority_score(
                 target_project
@@ -1407,7 +1515,7 @@ def apply_compact_bullets_once(
         ),
         "compact_word_count": (
             _bullet_word_count(
-                compact_bullets
+                mixed_bullets
             )
         ),
     }
@@ -1580,6 +1688,13 @@ def _restore_fitting_change(
         project[
             "draft_bullets"
         ] = original_bullets
+
+        # Compacting updates metadata bullet_text values to the mixed rendered
+        # wording. Restore those rows to the full text as well.
+        sync_project_bullet_metadata(
+            project,
+            bullet_texts=original_bullets,
+        )
 
         project[
             "space_action"

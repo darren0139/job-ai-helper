@@ -80,6 +80,21 @@ def _extract_location(jd_profile: dict[str, Any], explicit_location: str = "") -
     return ""
 
 
+def _resolved_jd_profile_identity(
+    jd_profile: dict[str, Any],
+    *,
+    title: str,
+    company: str,
+    location: str,
+) -> dict[str, Any]:
+    """Persist the exact identity values used to build the canonical JD ID."""
+    resolved = dict(jd_profile)
+    resolved["job_title"] = str(title or "").strip()
+    resolved["company"] = str(company or "").strip()
+    resolved["location"] = str(location or "").strip()
+    return resolved
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -359,6 +374,66 @@ def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
         )
 
 
+def _repair_missing_version_identity_profiles(
+    cursor: sqlite3.Cursor,
+) -> None:
+    """Repair old version profiles that omitted title/company identity.
+
+    Older saves could build the canonical row with fallback identity values such
+    as "Unknown Company" while persisting the original blank parsed profile in
+    job_description_versions. Exact-session reconstruction then failed closed.
+    Only versions missing title or company are repaired; requirements and all
+    other parsed profile fields are preserved.
+    """
+    cursor.execute(
+        """
+        SELECT
+            version.id AS version_id,
+            version.jd_profile_json,
+            jd.title,
+            jd.company,
+            jd.location
+        FROM job_description_versions AS version
+        JOIN job_descriptions AS jd
+          ON jd.id = version.job_description_id
+        """
+    )
+
+    for row in cursor.fetchall():
+        profile = _safe_json_loads(row["jd_profile_json"])
+        title = str(
+            profile.get("job_title") or profile.get("title") or ""
+        ).strip()
+        company = str(
+            profile.get("company") or profile.get("company_name") or ""
+        ).strip()
+        if title and company:
+            continue
+
+        resolved_title = str(row["title"] or title or "Untitled Job").strip()
+        resolved_company = str(
+            row["company"] or company or "Unknown Company"
+        ).strip()
+        resolved_location = str(row["location"] or "").strip()
+        resolved_profile = _resolved_jd_profile_identity(
+            profile,
+            title=resolved_title,
+            company=resolved_company,
+            location=resolved_location,
+        )
+        cursor.execute(
+            """
+            UPDATE job_description_versions
+            SET jd_profile_json = ?
+            WHERE id = ?
+            """,
+            (
+                _json_dumps(resolved_profile),
+                int(row["version_id"]),
+            ),
+        )
+
+
 def init_jd_library() -> None:
     """Create/migrate the canonical JD schema and backfill legacy rows."""
     connection = _connect()
@@ -366,6 +441,7 @@ def init_jd_library() -> None:
         cursor = connection.cursor()
         _create_schema(cursor)
         _backfill_legacy_rows(cursor)
+        _repair_missing_version_identity_profiles(cursor)
         cursor.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_job_descriptions_canonical_jd_id_unique
@@ -488,8 +564,14 @@ def save_or_link_job_description_for_application(
     if not cleaned_text:
         raise ValueError("Job description text cannot be empty.")
 
-    final_title = (title.strip() or str(jd_profile.get("job_title") or "Untitled Job").strip())
-    final_company = (company.strip() or str(jd_profile.get("company") or "Unknown Company").strip())
+    final_title = (
+        title.strip()
+        or str(jd_profile.get("job_title") or "Untitled Job").strip()
+    )
+    final_company = (
+        company.strip()
+        or str(jd_profile.get("company") or "Unknown Company").strip()
+    )
     final_location = _extract_location(jd_profile, location)
     now = _now()
 
@@ -499,7 +581,13 @@ def save_or_link_job_description_for_application(
         location=final_location,
         raw_jd_text=cleaned_text,
     )
-    profile_json = _json_dumps(jd_profile)
+    resolved_profile = _resolved_jd_profile_identity(
+        jd_profile,
+        title=final_title,
+        company=final_company,
+        location=final_location,
+    )
+    profile_json = _json_dumps(resolved_profile)
     cleaned_source_url = str(source_url or "").strip()
 
     connection = _connect()

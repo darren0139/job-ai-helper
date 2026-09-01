@@ -171,6 +171,55 @@ def _support_counts(projects: list[dict[str, Any]]) -> Counter[str]:
     return counts
 
 
+_DYNAMIC_REQUIRED_CORE_IMPORTANCE = {
+    "core",
+    "deal_breaker",
+    "required",
+}
+_DYNAMIC_PROTECTIVE_MATCH_LABELS = {
+    "direct",
+    "transferable",
+}
+
+
+def _dynamic_required_core_requirement_ids(
+    *,
+    project: dict[str, Any],
+    supported_requirement_ids: list[str],
+    global_support_counts: Counter[str],
+) -> list[str]:
+    """Promote CURRENTLY unique required/core evidence without rematching text.
+
+    Phase 6B.1 already stored canonical requirement IDs, importance, and match
+    labels on the selected project. Phase 6C only recomputes uniqueness against
+    the retained bullet set; it does not invent a new requirement match.
+    """
+    match_by_requirement: dict[str, dict[str, Any]] = {}
+    for raw_match in project.get("requirement_matches", []) or []:
+        if not isinstance(raw_match, dict):
+            continue
+        requirement_id = _clean_text(raw_match.get("requirement_id"))
+        if requirement_id:
+            match_by_requirement[requirement_id] = raw_match
+
+    promoted: list[str] = []
+    for requirement_id in supported_requirement_ids:
+        if global_support_counts.get(requirement_id, 0) != 1:
+            continue
+        match = match_by_requirement.get(requirement_id)
+        if not isinstance(match, dict):
+            continue
+        importance = _clean_text(match.get("importance")).lower()
+        label = _clean_text(match.get("match_label")).lower()
+        if (
+            importance in _DYNAMIC_REQUIRED_CORE_IMPORTANCE
+            and label in _DYNAMIC_PROTECTIVE_MATCH_LABELS
+        ):
+            promoted.append(requirement_id)
+
+    return sorted(set(promoted))
+
+
 def _bullet_evidence_summary(
     *,
     project: dict[str, Any],
@@ -189,9 +238,18 @@ def _bullet_evidence_summary(
         for requirement_id in supported
         if global_support_counts.get(requirement_id, 0) == 1
     )
-    unique_core_count = max(
+    static_unique_core_count = max(
         0,
         int(row.get("unique_required_core_count", 0) or 0),
+    )
+    dynamic_required_core_ids = _dynamic_required_core_requirement_ids(
+        project=project,
+        supported_requirement_ids=supported,
+        global_support_counts=global_support_counts,
+    )
+    unique_core_count = max(
+        static_unique_core_count,
+        len(dynamic_required_core_ids),
     )
     evidence_value = max(
         0.0,
@@ -200,7 +258,8 @@ def _bullet_evidence_summary(
     explicitly_protected = bool(
         row.get("protect_during_fitting")
         or protected
-        or unique_core_count
+        or static_unique_core_count
+        or dynamic_required_core_ids
     )
 
     try:
@@ -235,9 +294,16 @@ def _bullet_evidence_summary(
     )
 
     reasons: list[str] = []
-    if unique_core_count:
+    if dynamic_required_core_ids:
         reasons.append(
-            f"carries {unique_core_count} unique required/core requirement(s)"
+            "became the only retained direct/transferable required/core "
+            "evidence for "
+            + ", ".join(dynamic_required_core_ids)
+        )
+    elif static_unique_core_count:
+        reasons.append(
+            f"carries {static_unique_core_count} Phase 6B.1 unique "
+            "required/core requirement(s)"
         )
     if globally_unique:
         reasons.append(
@@ -258,6 +324,10 @@ def _bullet_evidence_summary(
         "supported_requirement_ids": supported,
         "protected_requirement_ids": protected,
         "globally_unique_requirement_ids": globally_unique,
+        "static_unique_required_core_count": static_unique_core_count,
+        "dynamic_unique_required_core_requirement_ids": (
+            dynamic_required_core_ids
+        ),
         "unique_required_core_count": unique_core_count,
         "protect_during_fitting": explicitly_protected,
         "protection_tier": protection_tier,
