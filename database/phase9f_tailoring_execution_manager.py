@@ -1092,6 +1092,7 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             PHASE6C_SEARCH_ALGORITHM_VERSION
         ),
         "use_compact_before_delete": bool(source.get("use_compact_before_delete", True)),
+        "allow_bullet_fusion": bool(source.get("allow_bullet_fusion", True)),
         "prefer_balanced_bullets": bool(source.get("prefer_balanced_bullets", False)),
         "allow_skills_compaction": bool(source.get("allow_skills_compaction", False)),
         "minimum_total_skills": _integer_setting(
@@ -3563,6 +3564,7 @@ def run_phase9f_normal_fit(
             blank_lines_after_projects=canonical_fit["blank_lines_after_projects"],
             add_spacing_before_first_project=canonical_fit["add_spacing_before_first_project"],
             use_compact_before_delete=canonical_fit["use_compact_before_delete"],
+            allow_bullet_fusion=canonical_fit["allow_bullet_fusion"],
             prefer_balanced_bullets=canonical_fit["prefer_balanced_bullets"],
             allow_skills_compaction=canonical_fit["allow_skills_compaction"],
             minimum_total_skills=canonical_fit["minimum_total_skills"],
@@ -3627,6 +3629,7 @@ def run_phase9f_normal_fit(
             "blank_lines_after_projects": canonical_fit["blank_lines_after_projects"],
             "add_spacing_before_first_project": canonical_fit["add_spacing_before_first_project"],
             "use_compact_before_delete": canonical_fit["use_compact_before_delete"],
+            "allow_bullet_fusion": canonical_fit["allow_bullet_fusion"],
             "prefer_balanced_bullets": canonical_fit["prefer_balanced_bullets"],
             "allow_skills_compaction": canonical_fit["allow_skills_compaction"],
             "minimum_total_skills": canonical_fit["minimum_total_skills"],
@@ -4168,6 +4171,9 @@ def execute_phase9f_tailoring(
                 use_compact_before_delete=canonical_fit_settings[
                     "use_compact_before_delete"
                 ],
+                allow_bullet_fusion=canonical_fit_settings[
+                    "allow_bullet_fusion"
+                ],
                 prefer_balanced_bullets=canonical_fit_settings[
                     "prefer_balanced_bullets"
                 ],
@@ -4267,6 +4273,9 @@ def execute_phase9f_tailoring(
                 ],
                 "use_compact_before_delete": canonical_fit_settings[
                     "use_compact_before_delete"
+                ],
+                "allow_bullet_fusion": canonical_fit_settings[
+                    "allow_bullet_fusion"
                 ],
                 "prefer_balanced_bullets": canonical_fit_settings[
                     "prefer_balanced_bullets"

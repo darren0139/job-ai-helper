@@ -89,6 +89,9 @@ class Phase6CRetentionRegressionTests(unittest.TestCase):
         self.assertEqual(change["protected_bullet_indexes_preserved"], [0])
         self.assertEqual(change["compacted_bullet_indexes"], [1])
         self.assertTrue(change["protected_bullet_text_preserved"])
+        self.assertEqual(change["source_compact_bullet_count"], 2)
+        self.assertEqual(change["applied_compact_bullet_count"], 1)
+        self.assertEqual(change["compact_bullet_count"], 1)
 
     def test_all_protected_project_is_not_compacted(self):
         full = [

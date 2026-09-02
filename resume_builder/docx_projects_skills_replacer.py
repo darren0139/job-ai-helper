@@ -63,10 +63,20 @@ from resume_builder.skills_section_compactor import (
     skill_restoration_quality_gain,
 )
 from resume_builder.evidence_aware_fitting import (
+    PHASE6C_BULLET_FUSION_VERSION,
     PHASE6C_FITTING_VERSION,
+    build_current_bullet_evidence_summaries,
     build_evidence_aware_project_reductions,
+    fuse_project_bullets,
+    restore_fused_bullet_metadata,
     restore_removed_bullet_metadata,
     sync_project_bullet_metadata,
+)
+from resume_builder.car_retention import (
+    PHASE6C_CAR_RETENTION_VERSION,
+    build_compaction_car_debug,
+    car_transform_preserves_minimum,
+    evaluate_car_retention,
 )
 from resume_builder.fitting_render_optimizer import (
     PHASE6C1_OPTIMIZATION_VERSION,
@@ -821,6 +831,44 @@ def measure_pdf_page_fill(
 
 
 
+def _snapshot_before_fitting_pdf(
+    pdf_path: str | Path | None,
+    *,
+    application_id: int | None,
+    generation_id: str | None,
+) -> Path | None:
+    """Preserve the initial overflow PDF for a before/after visual comparison."""
+    if pdf_path is None:
+        return None
+    source = Path(pdf_path)
+    try:
+        if not source.is_file() or source.stat().st_size <= 0:
+            return None
+    except OSError:
+        return None
+
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    app_part = (
+        f"app_{int(application_id)}_"
+        if application_id is not None
+        else ""
+    )
+    generation_part = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "_",
+        str(generation_id or "fit"),
+    ).strip("_")[:32] or "fit"
+    target = PREVIEW_DIR / (
+        f"{app_part}tailored_resume_before_fitting_"
+        f"{generation_part}_{uuid.uuid4().hex[:8]}.pdf"
+    )
+    try:
+        shutil.copy2(source, target)
+    except OSError:
+        return None
+    return target
+
+
 def _delete_generated_output(
     docx_path: str | Path | None,
     pdf_path: str | Path | None,
@@ -1138,59 +1186,58 @@ _COMPACT_ACTION_VERBS = {
 }
 
 
+def _compact_bullet_is_quality_preserving(
+    full_bullet: str,
+    compact_bullet: str,
+) -> bool:
+    """Validate one compact alternative without poisoning sibling indexes."""
+    full = str(full_bullet or "").strip()
+    compact = str(compact_bullet or "").strip()
+    if not full or not compact:
+        return False
+
+    full_words = full.split()
+    compact_words = compact.split()
+    if len(compact_words) >= len(full_words):
+        return False
+    if len(compact_words) / len(full_words) < 0.65:
+        return False
+    if not 10 <= len(compact_words) <= 24:
+        return False
+
+    first_word = re.sub(
+        r"[^a-z]+",
+        "",
+        compact_words[0].lower(),
+    )
+    if first_word not in _COMPACT_ACTION_VERBS:
+        return False
+    if compact[-1:] not in {".", ";", ":"}:
+        return False
+    return True
+
+
 def _compact_bullets_are_quality_preserving(
     full_bullets: list[str],
     compact_bullets: list[str],
 ) -> bool:
-    """
-    Return True only for conservative, one-to-one compact rewrites.
-
-    Complete-bullet removal is handled later by the fitting loop. The compact
-    pass should save lines without silently deleting evidence or producing
-    weak sentence fragments.
-    """
+    """Return True when every one-to-one compact alternative is conservative."""
     if not full_bullets or not compact_bullets:
         return False
-
     if len(compact_bullets) != len(full_bullets):
         return False
 
-    full_word_count = _bullet_word_count(
-        full_bullets
-    )
-    compact_word_count = _bullet_word_count(
-        compact_bullets
-    )
-
-    if full_word_count <= 0:
+    full_word_count = _bullet_word_count(full_bullets)
+    compact_word_count = _bullet_word_count(compact_bullets)
+    if full_word_count <= 0 or compact_word_count >= full_word_count:
         return False
-
-    if compact_word_count >= full_word_count:
-        return False
-
     if compact_word_count / full_word_count < 0.65:
         return False
 
-    for bullet in compact_bullets:
-        cleaned = str(bullet or "").strip()
-        words = cleaned.split()
-
-        if not 10 <= len(words) <= 24:
-            return False
-
-        first_word = re.sub(
-            r"[^a-z]+",
-            "",
-            words[0].lower(),
-        )
-
-        if first_word not in _COMPACT_ACTION_VERBS:
-            return False
-
-        if cleaned[-1:] not in {".", ";", ":"}:
-            return False
-
-    return True
+    return all(
+        _compact_bullet_is_quality_preserving(full, compact)
+        for full, compact in zip(full_bullets, compact_bullets)
+    )
 
 
 def _protected_compact_bullet_indexes(
@@ -1234,11 +1281,10 @@ def _build_evidence_preserving_compact_bullets(
     full_bullets: list[str],
     compact_bullets: list[str],
 ) -> tuple[list[str], list[int], list[int]] | None:
-    """Compact only unprotected indexes; protected text stays unchanged."""
-    if not _compact_bullets_are_quality_preserving(
-        full_bullets,
-        compact_bullets,
-    ):
+    """Compact only indexes that preserve both evidence and source CAR quality."""
+    if not full_bullets or not compact_bullets:
+        return None
+    if len(compact_bullets) != len(full_bullets):
         return None
 
     protected_indexes = _protected_compact_bullet_indexes(
@@ -1247,20 +1293,36 @@ def _build_evidence_preserving_compact_bullets(
     )
     protected_set = set(protected_indexes)
 
-    mixed_bullets = [
-        full_bullets[index]
-        if index in protected_set
-        else compact_bullets[index]
-        for index in range(len(full_bullets))
-    ]
-    compacted_indexes = [
-        index
-        for index in range(len(full_bullets))
-        if (
-            index not in protected_set
-            and compact_bullets[index] != full_bullets[index]
-        )
-    ]
+    mixed_bullets: list[str] = []
+    compacted_indexes: list[int] = []
+    for index in range(len(full_bullets)):
+        full_bullet = full_bullets[index]
+        compact_bullet = compact_bullets[index]
+
+        if index in protected_set:
+            mixed_bullets.append(full_bullet)
+            continue
+
+        if compact_bullet == full_bullet:
+            mixed_bullets.append(full_bullet)
+            continue
+
+        if not _compact_bullet_is_quality_preserving(
+            full_bullet,
+            compact_bullet,
+        ):
+            mixed_bullets.append(full_bullet)
+            continue
+
+        if not car_transform_preserves_minimum(
+            full_bullet,
+            compact_bullet,
+        ):
+            mixed_bullets.append(full_bullet)
+            continue
+
+        mixed_bullets.append(compact_bullet)
+        compacted_indexes.append(index)
 
     if not compacted_indexes:
         return None
@@ -1268,6 +1330,342 @@ def _build_evidence_preserving_compact_bullets(
         return None
 
     return mixed_bullets, protected_indexes, compacted_indexes
+
+
+_BULLET_FUSION_MIN_REQUIREMENT_OVERLAP = 0.60
+_BULLET_FUSION_MAX_WORDS = 35
+_BULLET_FUSION_SEPARATE_COMPETENCY_VERBS = {
+    "collaborated",
+    "led",
+    "managed",
+}
+
+
+def _leading_action_verb(value: str) -> str:
+    match = re.match(
+        r"^([A-Za-z]+)\b",
+        " ".join(str(value or "").split()).strip(),
+    )
+    return match.group(1).lower() if match else ""
+
+
+def _normalise_fusion_context_tokens(value: str) -> list[str]:
+    """Return conservative content tokens for comparing trailing contexts."""
+    return [
+        token
+        for token in re.findall(r"[a-z0-9+#]+", str(value or "").lower())
+        if token not in {"a", "an", "the"}
+    ]
+
+
+def _split_last_trailing_fusion_context(
+    body: str,
+) -> tuple[str, str, str, str] | None:
+    """Split only the LAST trailing ``in/within`` phrase from one clause."""
+    match = re.match(
+        r"^(?P<clause>.*)\s+(?P<prep>in|within)\s+"
+        r"(?P<context>[^,;:]{2,48})$",
+        str(body or "").strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+
+    clause = match.group("clause").rstrip()
+    prep = match.group("prep").lower()
+    context = match.group("context").strip()
+    article_match = re.match(
+        r"^(?P<article>a|an|the)\s+(?P<body>.+)$",
+        context,
+        re.IGNORECASE,
+    )
+    article = (
+        article_match.group("article").lower()
+        if article_match is not None
+        else ""
+    )
+    return clause, prep, context, article
+
+
+def _shared_trailing_fusion_context(
+    first_body: str,
+    second_body: str,
+) -> tuple[str, str, str] | None:
+    """Hoist a shared context only when the second phrase clearly refers back.
+
+    Safe cases:
+    - the two trailing contexts are textually equivalent after article cleanup; or
+    - the first introduces an indefinite context (``a/an ...``), the second uses
+      ``the ...`` to refer back to it, both end on the same head token, and the
+      second context is a near-subset of the first.
+
+    The richer FIRST source phrase is retained verbatim. Numeric specificity is
+    never hoisted. Distinct contexts fall back to ordinary v1-style fusion.
+    """
+    first_split = _split_last_trailing_fusion_context(first_body)
+    second_split = _split_last_trailing_fusion_context(second_body)
+    if first_split is None or second_split is None:
+        return None
+
+    first_clause, first_prep, first_context, first_article = first_split
+    second_clause, second_prep, second_context, second_article = second_split
+    if first_prep != second_prep:
+        return None
+
+    first_tokens = _normalise_fusion_context_tokens(first_context)
+    second_tokens = _normalise_fusion_context_tokens(second_context)
+    if (
+        len(first_tokens) < 2
+        or len(second_tokens) < 2
+        or first_tokens[-1] != second_tokens[-1]
+        or any(token.isdigit() for token in [*first_tokens, *second_tokens])
+    ):
+        return None
+
+    first_set = set(first_tokens)
+    second_set = set(second_tokens)
+
+    equivalent = first_tokens == second_tokens
+    anaphoric = (
+        first_article in {"a", "an"}
+        and second_article == "the"
+        and second_set <= first_set
+        and len(first_set - second_set) <= 1
+        and len(first_set & second_set) >= 2
+    )
+    if not (equivalent or anaphoric):
+        return None
+
+    shared_context = f"{first_prep} {first_context}"
+    return first_clause, second_clause, shared_context
+
+
+def _build_safe_fused_bullet_text(
+    first_bullet: str,
+    second_bullet: str,
+) -> str | None:
+    """Fuse two short action bullets without dropping either source clause."""
+    first = " ".join(str(first_bullet or "").split()).strip()
+    second = " ".join(str(second_bullet or "").split()).strip()
+    if not first or not second:
+        return None
+    if not first.endswith(".") or not second.endswith("."):
+        return None
+    if ". " in first[:-1] or ". " in second[:-1]:
+        return None
+    if ";" in first or ";" in second or ":" in first or ":" in second:
+        return None
+
+    first_verb = _leading_action_verb(first)
+    second_verb = _leading_action_verb(second)
+    if (
+        first_verb not in _COMPACT_ACTION_VERBS
+        or second_verb not in _COMPACT_ACTION_VERBS
+        or first_verb == second_verb
+        or first_verb in _BULLET_FUSION_SEPARATE_COMPETENCY_VERBS
+        or second_verb in _BULLET_FUSION_SEPARATE_COMPETENCY_VERBS
+    ):
+        return None
+
+    first_body = first[:-1].rstrip()
+    second_body = second[:-1].rstrip()
+
+    shared_context = _shared_trailing_fusion_context(
+        first_body,
+        second_body,
+    )
+    if shared_context is not None:
+        first_body, second_body, trailing_context = shared_context
+    else:
+        trailing_context = ""
+
+    match = re.match(r"^([A-Za-z]+)(.*)$", second_body)
+    if match is None:
+        return None
+
+    second_clause = match.group(1).lower() + match.group(2)
+    merged = f"{first_body} and {second_clause}"
+    if trailing_context:
+        merged += f" {trailing_context}"
+    merged += "."
+
+    if len(merged.split()) > _BULLET_FUSION_MAX_WORDS:
+        return None
+    return merged
+
+
+def _build_safe_bullet_fusion_candidates(
+    tailored_projects: dict[str, Any],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Build conservative adjacent-bullet fusion candidates with zero model calls."""
+    projects = [
+        project
+        for project in (
+            tailored_projects.get("recommended_projects", []) or []
+        )
+        if isinstance(project, dict)
+    ]
+    evidence_summaries = build_current_bullet_evidence_summaries(
+        tailored_projects
+    )
+    summaries = {
+        (
+            int(summary.get("project_index", -1)),
+            int(summary.get("bullet_index", -1)),
+        ): summary
+        for summary in evidence_summaries
+        if isinstance(summary, dict)
+    }
+
+    candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+    for project_index, project in enumerate(projects):
+        bullets = [
+            " ".join(str(value or "").split()).strip()
+            for value in (project.get("draft_bullets", []) or [])
+            if " ".join(str(value or "").split()).strip()
+        ]
+        if len(bullets) < 2:
+            continue
+
+        for first_index in range(len(bullets) - 1):
+            second_index = first_index + 1
+            first_summary = summaries.get((project_index, first_index))
+            second_summary = summaries.get((project_index, second_index))
+            if not first_summary or not second_summary:
+                continue
+
+            if (
+                int(first_summary.get("protection_tier", 0) or 0) > 0
+                or int(second_summary.get("protection_tier", 0) or 0) > 0
+            ):
+                continue
+            if (
+                int(first_summary.get("fusion_source_count", 1) or 1) > 1
+                or int(second_summary.get("fusion_source_count", 1) or 1) > 1
+            ):
+                continue
+
+            first_supported = set(
+                first_summary.get("supported_requirement_ids", []) or []
+            )
+            second_supported = set(
+                second_summary.get("supported_requirement_ids", []) or []
+            )
+            if not first_supported or not second_supported:
+                continue
+
+            shared_requirement_ids = sorted(
+                first_supported & second_supported
+            )
+            denominator = min(
+                len(first_supported),
+                len(second_supported),
+            )
+            overlap_ratio = (
+                len(shared_requirement_ids) / denominator
+                if denominator
+                else 0.0
+            )
+            if overlap_ratio < _BULLET_FUSION_MIN_REQUIREMENT_OVERLAP:
+                continue
+
+            merged_bullet = _build_safe_fused_bullet_text(
+                bullets[first_index],
+                bullets[second_index],
+            )
+            if merged_bullet is None:
+                continue
+
+            car_retention = evaluate_car_retention(
+                [
+                    bullets[first_index],
+                    bullets[second_index],
+                ],
+                merged_bullet,
+            )
+            if not car_retention["preserves_minimum"]:
+                continue
+
+            fused_projects = deepcopy(tailored_projects)
+            fused_project = (
+                fused_projects.get("recommended_projects", []) or []
+            )[project_index]
+            previous_space_action = str(
+                fused_project.get("space_action", "keep_full")
+            )
+            source_info = fuse_project_bullets(
+                fused_project,
+                first_index=first_index,
+                second_index=second_index,
+                merged_bullet=merged_bullet,
+            )
+            fused_project["space_action"] = "bullet_fusion"
+
+            project_title = (
+                fused_project.get("display_title")
+                or fused_project.get("title")
+                or "Untitled Project"
+            )
+            project_priority = _project_priority_score(fused_project)
+            source_word_count = _bullet_word_count(
+                source_info["source_bullets"]
+            )
+            merged_word_count = len(merged_bullet.split())
+
+            change = {
+                "change_type": "bullet_fusion",
+                "fusion_version": PHASE6C_BULLET_FUSION_VERSION,
+                "project": project_title,
+                "project_index": project_index,
+                "previous_space_action": previous_space_action,
+                "source_bullet_indexes": [
+                    first_index,
+                    second_index,
+                ],
+                "merged_bullet_index": first_index,
+                "source_bullets": list(
+                    source_info["source_bullets"]
+                ),
+                "source_bullet_metadata": deepcopy(
+                    source_info["source_bullet_metadata"]
+                ),
+                "merged_bullet": merged_bullet,
+                "shared_requirement_ids": shared_requirement_ids,
+                "requirement_overlap_ratio": round(overlap_ratio, 4),
+                "project_priority_score": project_priority,
+                "source_word_count": source_word_count,
+                "merged_word_count": merged_word_count,
+                "source_bullet_count": 2,
+                "merged_bullet_count": 1,
+                "protection_tier": 0,
+                "protected_bullet_fusion_allowed": False,
+                "car_retention_version": PHASE6C_CAR_RETENTION_VERSION,
+                "car_retention": car_retention,
+            }
+
+            fused_projects.setdefault(
+                "notes_for_user",
+                [],
+            ).append(
+                "Fused two closely related unprotected project bullets "
+                f"in {project_title} before deleting a complete bullet."
+            )
+            candidates.append((fused_projects, change))
+
+    candidates.sort(
+        key=lambda item: (
+            -float(
+                item[1].get("requirement_overlap_ratio", 0.0) or 0.0
+            ),
+            int(item[1].get("project_priority_score", 0) or 0),
+            int(item[1].get("project_index", 0) or 0),
+            int(
+                (item[1].get("source_bullet_indexes") or [0])[0]
+            ),
+        )
+    )
+    return candidates
 
 
 def _count_quality_compact_candidates(
@@ -1497,6 +1895,12 @@ def apply_compact_bullets_once(
             compacted_indexes
         ),
         "protected_bullet_text_preserved": True,
+        "car_retention_version": PHASE6C_CAR_RETENTION_VERSION,
+        "car_retention": build_compaction_car_debug(
+            full_bullets,
+            source_compact_bullets,
+            mixed_bullets,
+        ),
         "project_priority_score": (
             _project_priority_score(
                 target_project
@@ -1505,8 +1909,17 @@ def apply_compact_bullets_once(
         "full_bullet_count": len(
             full_bullets
         ),
+        "source_compact_bullet_count": len(
+            source_compact_bullets
+        ),
+        "applied_compact_bullet_count": len(
+            compacted_indexes
+        ),
+        # Backward-compatible alias: this now means bullets actually shortened
+        # in the selected mixed compact candidate, not the stale loop-local
+        # compact_bullets value from the last project inspected.
         "compact_bullet_count": len(
-            compact_bullets
+            compacted_indexes
         ),
         "full_word_count": (
             _bullet_word_count(
@@ -1718,6 +2131,55 @@ def _restore_fitting_change(
                     original_bullets
                 )
             ),
+        }
+
+    elif change_type == "bullet_fusion":
+        project = _find_project_for_change(
+            restored,
+            project_title,
+        )
+        source_bullets = [
+            str(value).strip()
+            for value in (
+                change.get("source_bullets", []) or []
+            )
+            if str(value).strip()
+        ]
+        try:
+            merged_bullet_index = int(
+                change.get("merged_bullet_index", 0) or 0
+            )
+        except (TypeError, ValueError):
+            merged_bullet_index = 0
+
+        if project is None or len(source_bullets) != 2:
+            return (
+                restored,
+                False,
+                {
+                    "change_type": "restore_unavailable",
+                    "reason": "The fused project bullets could not be restored.",
+                },
+            )
+
+        restore_fused_bullet_metadata(
+            project,
+            merged_bullet_index=merged_bullet_index,
+            source_bullets=source_bullets,
+            source_bullet_metadata=change.get("source_bullet_metadata"),
+        )
+        project["space_action"] = str(
+            change.get(
+                "previous_space_action",
+                "keep_full",
+            )
+        )
+
+        restore_info = {
+            "change_type": "restore_bullet_fusion",
+            "project": project_title,
+            "restored_change_type": change_type,
+            "restored_bullets": source_bullets,
         }
 
     elif change_type == "remove_bullet":
@@ -1941,6 +2403,10 @@ def _restoration_quality_gain(
             - int(change.get("compact_word_count", 0) or 0),
         )
         return project_priority * 10 + recovered_words
+
+    if change_type == "bullet_fusion":
+        source_words = int(change.get("source_word_count", 0) or 0)
+        return project_priority * 10 + source_words
 
     if change_type == "remove_bullet":
         recovered_words = len(
@@ -2878,6 +3344,12 @@ def _project_reduction_quality_loss(
         )
         return 200 + priority // 2 + removed_words
 
+    if change_type == "bullet_fusion":
+        source_words = int(change.get("source_word_count", 0) or 0)
+        merged_words = int(change.get("merged_word_count", 0) or 0)
+        readability_cost = max(0, merged_words - source_words)
+        return 350 + priority // 2 + readability_cost
+
     if change_type == "remove_bullet":
         removed_words = len(
             str(change.get("removed_bullet", "")).split()
@@ -3017,6 +3489,7 @@ def _change_identity(change: dict[str, Any]) -> str:
             str(change.get("category", "")),
             str(change.get("removed_skill", "")),
             str(change.get("removed_bullet_index", "")),
+            str(change.get("source_bullet_indexes", "")),
         ]
     )
 
@@ -3190,6 +3663,7 @@ def prepare_fitting_input_snapshot(
     blank_lines_after_projects: int,
     add_spacing_before_first_project: bool,
     use_compact_before_delete: bool,
+    allow_bullet_fusion: bool = True,
     prefer_balanced_bullets: bool,
     allow_skills_compaction: bool,
     lock_projects: bool,
@@ -3293,6 +3767,9 @@ def prepare_fitting_input_snapshot(
             "blank_lines_after_projects": blank_lines_after_projects,
             "add_spacing_before_first_project": add_spacing_before_first_project,
             "use_compact_before_delete": use_compact_before_delete,
+            "allow_bullet_fusion": bool(allow_bullet_fusion),
+            "bullet_fusion_policy_version": PHASE6C_BULLET_FUSION_VERSION,
+            "car_retention_policy_version": PHASE6C_CAR_RETENTION_VERSION,
             "prefer_balanced_bullets": prefer_balanced_bullets,
             "allow_skills_compaction": allow_skills_compaction,
             "lock_projects": lock_projects,
@@ -3338,6 +3815,7 @@ def generate_tailored_resume_copy_fit_one_page(
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
     use_compact_before_delete: bool = False,
+    allow_bullet_fusion: bool = True,
     prefer_balanced_bullets: bool = False,
     allow_skills_compaction: bool = False,
     lock_projects: bool = False,
@@ -3381,6 +3859,7 @@ def generate_tailored_resume_copy_fit_one_page(
         blank_lines_after_projects=blank_lines_after_projects,
         add_spacing_before_first_project=add_spacing_before_first_project,
         use_compact_before_delete=use_compact_before_delete,
+        allow_bullet_fusion=allow_bullet_fusion,
         prefer_balanced_bullets=prefer_balanced_bullets,
         allow_skills_compaction=allow_skills_compaction,
         lock_projects=lock_projects,
@@ -3953,6 +4432,32 @@ def generate_tailored_resume_copy_fit_one_page(
                     }
                 )
 
+        fusion_candidate_count = 0
+        if (
+            allow_bullet_fusion
+            and projects_state
+            and not lock_policy["lock_projects"]
+        ):
+            fusion_candidates = _build_safe_bullet_fusion_candidates(
+                projects_state
+            )
+            fusion_candidate_count = len(fusion_candidates)
+            for fusion_index, (fused_projects, raw_change) in enumerate(
+                fusion_candidates,
+                start=2,
+            ):
+                change = deepcopy(raw_change)
+                change["section"] = "projects"
+                candidates.append(
+                    {
+                        "projects": fused_projects,
+                        "skills": skills_state,
+                        "change": change,
+                        "quality_loss": _project_reduction_quality_loss(change),
+                        "candidate_order": fusion_index,
+                    }
+                )
+
         if (
             allow_skills_compaction
             and skills_state
@@ -3980,7 +4485,7 @@ def generate_tailored_resume_copy_fit_one_page(
             )
             for reduction_index, (reduced_projects, raw_change) in enumerate(
                 project_reductions,
-                start=2,
+                start=2 + fusion_candidate_count,
             ):
                 change = deepcopy(raw_change)
                 change["section"] = "projects"
@@ -4042,6 +4547,18 @@ def generate_tailored_resume_copy_fit_one_page(
         attempt_type="full",
     )
 
+    before_fitting_pdf_path: Path | None = None
+    if (
+        current_render.get("pdf_path") is not None
+        and current_render.get("page_count") is not None
+        and int(current_render["page_count"]) > 1
+    ):
+        before_fitting_pdf_path = _snapshot_before_fitting_pdf(
+            current_render.get("pdf_path"),
+            application_id=application_id,
+            generation_id=generation_id,
+        )
+
     if current_render["pdf_path"] is None:
         _fit_log(
             "complete status=verification_failed "
@@ -4051,6 +4568,11 @@ def generate_tailored_resume_copy_fit_one_page(
         return {
             "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
+            "before_fitting_pdf_path": (
+                str(before_fitting_pdf_path)
+                if before_fitting_pdf_path is not None
+                else None
+            ),
             "docx_path": current_render["docx_path"],
             "pdf_path": None,
             "page_count": None,
@@ -4464,6 +4986,11 @@ def generate_tailored_resume_copy_fit_one_page(
         return {
             "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
+            "before_fitting_pdf_path": (
+                str(before_fitting_pdf_path)
+                if before_fitting_pdf_path is not None
+                else None
+            ),
             "docx_path": current_render["docx_path"],
             "pdf_path": current_render["pdf_path"],
             "page_count": current_render["page_count"],
@@ -4866,6 +5393,11 @@ def generate_tailored_resume_copy_fit_one_page(
     return {
         "generation_id": generation_id,
             "fitting_version": PHASE6C_FITTING_VERSION,
+            "before_fitting_pdf_path": (
+                str(before_fitting_pdf_path)
+                if before_fitting_pdf_path is not None
+                else None
+            ),
         "docx_path": best_render["docx_path"],
         "pdf_path": best_render["pdf_path"],
         "page_count": best_render["page_count"],

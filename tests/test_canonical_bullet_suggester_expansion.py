@@ -21,11 +21,17 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "5-12 canonical bullets is common",
+            "Do not target an arbitrary small bullet count",
             prompt,
         )
         self.assertIn(
-            "More than 12 is allowed",
+            "the correct count is the number of materially distinct "
+            "evidence-backed accomplishments",
+            prompt,
+        )
+        self.assertIn(
+            "Fewer bullets are correct when the project evidence contains "
+            "fewer distinct accomplishments",
             prompt,
         )
         self.assertIn(
@@ -33,7 +39,7 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn(
-            "If a supported point is merged or omitted",
+            "If a supported point is merged, omitted, or split",
             prompt,
         )
 
@@ -43,7 +49,23 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
         mocked_ask_json,
     ) -> None:
         mocked_ask_json.return_value = {
-            "canonical_bullets": ["Built a supported feature."],
+            "canonical_bullets": [
+                "Built feature A.",
+                "Built feature B.",
+                "Added tests.",
+                "Added CI.",
+                "Added persistence.",
+                "Added RAG.",
+            ],
+            "source_coverage": [
+                {
+                    "source_index": index,
+                    "decision": "preserved",
+                    "canonical_bullet_indexes": [index],
+                    "reason": "",
+                }
+                for index in range(1, 7)
+            ],
             "notes": [],
         }
 
@@ -51,11 +73,11 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
             title="Large Project",
             period="May 2026 - Aug 2026",
             description=(
-                "- Built feature A.\\n"
-                "- Built feature B.\\n"
-                "- Added tests.\\n"
-                "- Added CI.\\n"
-                "- Added persistence.\\n"
+                "- Built feature A.\n"
+                "- Built feature B.\n"
+                "- Added tests.\n"
+                "- Added CI.\n"
+                "- Added persistence.\n"
                 "- Added RAG."
             ),
             skills=["Python", "Testing"],
@@ -65,7 +87,14 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
 
         self.assertEqual(
             result["canonical_bullets"],
-            ["Built a supported feature."],
+            [
+                "Built feature A.",
+                "Built feature B.",
+                "Added tests.",
+                "Added CI.",
+                "Added persistence.",
+                "Added RAG.",
+            ],
         )
         mocked_ask_json.assert_called_once()
 
@@ -89,7 +118,11 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
         self.assertIn("Python", user_prompt)
         self.assertIn("GitHub Actions", user_prompt)
         self.assertIn(
-            "Use notes to identify any",
+            "SOURCE CONTRIBUTIONS (authoritative 1-based indices):",
+            user_prompt,
+        )
+        self.assertIn(
+            "Run a source-coverage ledger before finalising the JSON",
             user_prompt,
         )
 
@@ -100,6 +133,14 @@ class CanonicalBulletSuggesterExpansionTests(unittest.TestCase):
     ) -> None:
         mocked_ask_json.return_value = {
             "canonical_bullets": ["Built a supported project feature."],
+            "source_coverage": [
+                {
+                    "source_index": 1,
+                    "decision": "preserved",
+                    "canonical_bullet_indexes": [1],
+                    "reason": "",
+                }
+            ],
             "notes": [],
         }
 

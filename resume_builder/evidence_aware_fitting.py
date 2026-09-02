@@ -15,6 +15,7 @@ from typing import Any
 
 PHASE6C_FITTING_VERSION = "phase6c-evidence-aware-fitting-v1"
 PHASE6C_RETENTION_TIEBREAK_VERSION = "phase6c2-retention-priority-v1"
+PHASE6C_BULLET_FUSION_VERSION = "phase6c3-safe-bullet-fusion-v3-anaphoric-context"
 
 
 def _clean_text(value: Any) -> str:
@@ -347,6 +348,61 @@ def _bullet_evidence_summary(
     }
 
 
+def build_current_bullet_evidence_summaries(
+    tailored_projects: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return current bullet evidence/protection summaries without mutation."""
+    projects = [
+        project
+        for project in (
+            tailored_projects.get("recommended_projects", []) or []
+        )
+        if isinstance(project, dict)
+    ]
+    global_support_counts = _support_counts(projects)
+    summaries: list[dict[str, Any]] = []
+
+    for project_index, project in enumerate(projects):
+        bullets = [
+            _clean_text(value)
+            for value in (project.get("draft_bullets", []) or [])
+            if _clean_text(value)
+        ]
+        rows = _metadata_rows_for_project(project)
+
+        for bullet_index, (bullet, row) in enumerate(zip(bullets, rows)):
+            summary = _bullet_evidence_summary(
+                project=project,
+                row=row,
+                bullet=bullet,
+                global_support_counts=global_support_counts,
+            )
+            try:
+                fusion_source_count = max(
+                    1,
+                    int(row.get("fusion_source_count", 1) or 1),
+                )
+            except (TypeError, ValueError):
+                fusion_source_count = 1
+
+            summaries.append(
+                {
+                    "project_index": project_index,
+                    "project": _clean_text(
+                        project.get("display_title")
+                        or project.get("title")
+                        or "Untitled Project"
+                    ),
+                    "bullet_index": bullet_index,
+                    "bullet_text": bullet,
+                    "fusion_source_count": fusion_source_count,
+                    **summary,
+                }
+            )
+
+    return summaries
+
+
 def remove_project_bullet(
     project: dict[str, Any],
     *,
@@ -374,6 +430,187 @@ def remove_project_bullet(
     project["bullet_evidence_priorities"] = rows
     sync_project_bullet_metadata(project)
     return removed_bullet, removed_metadata
+
+
+def fuse_project_bullets(
+    project: dict[str, Any],
+    *,
+    first_index: int,
+    second_index: int,
+    merged_bullet: str,
+) -> dict[str, Any]:
+    """Replace two adjacent bullets with one evidence-preserving fused bullet."""
+    bullets = [
+        _clean_text(value)
+        for value in (project.get("draft_bullets", []) or [])
+        if _clean_text(value)
+    ]
+    rows = _metadata_rows_for_project(project)
+
+    if second_index != first_index + 1:
+        raise ValueError("Bullet fusion requires two adjacent bullet indexes.")
+    if (
+        first_index < 0
+        or second_index < 0
+        or second_index >= len(bullets)
+    ):
+        raise IndexError("Bullet fusion indexes are outside the current project bullets.")
+
+    merged_text = _clean_text(merged_bullet)
+    if not merged_text:
+        raise ValueError("Merged bullet text cannot be empty.")
+
+    source_bullets = [
+        bullets[first_index],
+        bullets[second_index],
+    ]
+    source_metadata = [
+        deepcopy(rows[first_index]),
+        deepcopy(rows[second_index]),
+    ]
+
+    supported_requirement_ids = _clean_string_list(
+        [
+            *source_metadata[0].get("supported_requirement_ids", []),
+            *source_metadata[1].get("supported_requirement_ids", []),
+        ]
+    )
+    protected_requirement_ids = _clean_string_list(
+        [
+            *source_metadata[0].get("protected_requirement_ids", []),
+            *source_metadata[1].get("protected_requirement_ids", []),
+        ]
+    )
+    unique_required_core_count = sum(
+        max(
+            0,
+            int(row.get("unique_required_core_count", 0) or 0),
+        )
+        for row in source_metadata
+    )
+    evidence_value = max(
+        (
+            max(
+                0.0,
+                float(row.get("evidence_value", 0.0) or 0.0),
+            )
+            for row in source_metadata
+        ),
+        default=0.0,
+    )
+    evidence_priority = min(
+        (
+            max(
+                1,
+                int(row.get("evidence_priority", 1) or 1),
+            )
+            for row in source_metadata
+        ),
+        default=1,
+    )
+    fusion_source_count = sum(
+        max(
+            1,
+            int(row.get("fusion_source_count", 1) or 1),
+        )
+        for row in source_metadata
+    )
+
+    merged_row = deepcopy(source_metadata[0])
+    merged_row.update(
+        {
+            "bullet_index": first_index,
+            "bullet_text": merged_text,
+            "supported_requirement_ids": supported_requirement_ids,
+            "protected_requirement_ids": protected_requirement_ids,
+            "unique_required_core_count": unique_required_core_count,
+            "evidence_value": evidence_value,
+            "protect_during_fitting": bool(
+                protected_requirement_ids
+                or unique_required_core_count
+                or any(
+                    bool(row.get("protect_during_fitting"))
+                    for row in source_metadata
+                )
+            ),
+            "evidence_priority": evidence_priority,
+            "fusion_source_count": fusion_source_count,
+        }
+    )
+
+    bullets[first_index : second_index + 1] = [merged_text]
+    rows[first_index : second_index + 1] = [merged_row]
+
+    for new_index, row in enumerate(rows):
+        row["bullet_index"] = new_index
+        row["bullet_text"] = bullets[new_index]
+
+    project["draft_bullets"] = bullets
+    project["bullet_evidence_priorities"] = rows
+    sync_project_bullet_metadata(project)
+
+    return {
+        "source_bullets": source_bullets,
+        "source_bullet_metadata": source_metadata,
+        "merged_bullet": merged_text,
+        "merged_bullet_index": first_index,
+        "fusion_source_count": fusion_source_count,
+    }
+
+
+def restore_fused_bullet_metadata(
+    project: dict[str, Any],
+    *,
+    merged_bullet_index: int,
+    source_bullets: list[str],
+    source_bullet_metadata: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Restore the two source bullets and their metadata after a fusion."""
+    bullets = [
+        _clean_text(value)
+        for value in (project.get("draft_bullets", []) or [])
+        if _clean_text(value)
+    ]
+    rows = _metadata_rows_for_project(project)
+    index = int(merged_bullet_index)
+
+    restored_bullets = [
+        _clean_text(value)
+        for value in source_bullets
+        if _clean_text(value)
+    ]
+    if len(restored_bullets) != 2:
+        raise ValueError("Bullet fusion restoration requires exactly two source bullets.")
+    if index < 0 or index >= len(bullets):
+        raise IndexError("Merged bullet index is outside the current project bullets.")
+
+    raw_source_rows = (
+        source_bullet_metadata
+        if isinstance(source_bullet_metadata, list)
+        else []
+    )
+    restored_rows: list[dict[str, Any]] = []
+    for offset, bullet in enumerate(restored_bullets):
+        if (
+            offset < len(raw_source_rows)
+            and isinstance(raw_source_rows[offset], dict)
+        ):
+            row = deepcopy(raw_source_rows[offset])
+        else:
+            row = _default_metadata_row(index + offset, bullet)
+        restored_rows.append(row)
+
+    bullets[index : index + 1] = restored_bullets
+    rows[index : index + 1] = restored_rows
+
+    for new_index, row in enumerate(rows):
+        row["bullet_index"] = new_index
+        row["bullet_text"] = bullets[new_index]
+
+    project["draft_bullets"] = bullets
+    project["bullet_evidence_priorities"] = rows
+    sync_project_bullet_metadata(project)
+    return project
 
 
 def restore_removed_bullet_metadata(

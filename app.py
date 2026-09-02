@@ -2160,6 +2160,7 @@ def _restore_application_tailoring_to_session(
         f"max_projects_{application_id}",
         f"max_bullets_{application_id}",
         f"use_compact_before_delete_{application_id}",
+        f"allow_bullet_fusion_{application_id}",
         f"prefer_balanced_bullets_{application_id}",
         f"allow_skills_compaction_{application_id}",
         f"page_density_mode_{application_id}",
@@ -7084,6 +7085,27 @@ elif page == "Application Sessions":
                         ),
                     )
 
+                    allow_bullet_fusion = st.checkbox(
+                        "Allow safe bullet fusion",
+                        value=bool(
+                            fit_control_defaults.get(
+                                "allow_bullet_fusion",
+                                True,
+                            )
+                        ),
+                        key=(
+                            "allow_bullet_fusion_"
+                            f"{current_application_id}"
+                        ),
+                        disabled=phase9f_f_fit_settings_locked,
+                        help=(
+                            "When fitting needs more space, combine only closely "
+                            "related adjacent project bullets that are unprotected, "
+                            "share substantial JD evidence, remain readable, and "
+                            "preserve their evidence metadata. Enabled by default."
+                        ),
+                    )
+
                     prefer_balanced_bullets = st.checkbox(
                         "Balance project bullets during deletion",
                         value=bool(
@@ -7347,6 +7369,7 @@ elif page == "Application Sessions":
                                     generation_id=current_generation_id,
                                     fit_settings={
                                         "use_compact_before_delete": use_compact_before_delete,
+                                        "allow_bullet_fusion": allow_bullet_fusion,
                                         "prefer_balanced_bullets": prefer_balanced_bullets,
                                         "allow_skills_compaction": allow_skills_compaction,
                                         "page_density_mode": page_density_mode,
@@ -7508,6 +7531,7 @@ elif page == "Application Sessions":
                             blank_lines_after_projects=blank_lines_after_projects,
                             add_spacing_before_first_project=add_spacing_before_first_project,
                             use_compact_before_delete=use_compact_before_delete,
+                            allow_bullet_fusion=allow_bullet_fusion,
                             prefer_balanced_bullets=prefer_balanced_bullets,
                             allow_skills_compaction=allow_skills_compaction,
                             minimum_total_skills=DEFAULT_MINIMUM_TOTAL_SKILLS,
@@ -7546,6 +7570,9 @@ elif page == "Application Sessions":
                             ),
                             "use_compact_before_delete": (
                                 use_compact_before_delete
+                            ),
+                            "allow_bullet_fusion": (
+                                allow_bullet_fusion
                             ),
                             "prefer_balanced_bullets": (
                                 prefer_balanced_bullets
@@ -7683,6 +7710,7 @@ elif page == "Application Sessions":
                 )
 
                 pdf_preview_path = None
+                before_fitting_preview_path = None
 
                 if isinstance(fit_result, dict):
                     fitted_pdf_path = fit_result.get(
@@ -7697,6 +7725,19 @@ elif page == "Application Sessions":
                                 fitted_pdf
                             )
 
+                if isinstance(fit_result, dict):
+                    before_fitting_path = fit_result.get(
+                        "before_fitting_pdf_path"
+                    )
+                    if before_fitting_path:
+                        before_fitting_pdf = Path(
+                            before_fitting_path
+                        )
+                        if before_fitting_pdf.exists():
+                            before_fitting_preview_path = (
+                                before_fitting_pdf
+                            )
+
                 if pdf_preview_path is None:
                     pdf_preview_path = (
                         convert_docx_to_pdf_if_possible(
@@ -7704,7 +7745,49 @@ elif page == "Application Sessions":
                         )
                     )
 
-                if pdf_preview_path:
+                comparison_preview_rendered = False
+                if (
+                    pdf_preview_path
+                    and before_fitting_preview_path
+                ):
+                    try:
+                        st.caption(
+                            "Visual comparison of the full generated résumé "
+                            "before fitting and the selected fitted result."
+                        )
+                        before_tab, after_tab = st.tabs(
+                            ["Before fitting", "After fitting"]
+                        )
+                        with before_tab:
+                            st.markdown(
+                                pdf_to_preview_html(
+                                    before_fitting_preview_path,
+                                    max_width=820,
+                                    max_pages=5,
+                                    zoom=1.35,
+                                    include_download=False,
+                                ),
+                                unsafe_allow_html=True,
+                            )
+                        with after_tab:
+                            st.markdown(
+                                pdf_to_preview_html(
+                                    pdf_preview_path,
+                                    max_width=820,
+                                    max_pages=5,
+                                    zoom=1.35,
+                                    include_download=True,
+                                ),
+                                unsafe_allow_html=True,
+                            )
+                        comparison_preview_rendered = True
+                    except Exception as comparison_exc:
+                        st.caption(
+                            "Before/after preview unavailable: "
+                            f"{comparison_exc}"
+                        )
+
+                if pdf_preview_path and not comparison_preview_rendered:
                     try:
                         st.markdown(
                             pdf_to_preview_html(
