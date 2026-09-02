@@ -16,7 +16,7 @@ class AnalysisBackendUIRegressionTests(unittest.TestCase):
         self.assertIn("get_ai_backend_options()", self.app_text)
         self.assertNotIn('"JD extraction backend"', self.app_text)
         self.assertIn(
-            "Codex applies to the Analyze Resume pipeline.",
+            "Codex applies to Analyze Resume and Projects/Skills generation.",
             self.app_text,
         )
 

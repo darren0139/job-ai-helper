@@ -142,7 +142,7 @@ class OptionalCodexJDBackendTests(unittest.TestCase):
             app_text,
         )
         self.assertIn(
-            "Codex applies to the Analyze Resume pipeline.",
+            "Codex applies to Analyze Resume and Projects/Skills generation.",
             app_text,
         )
         self.assertNotIn(

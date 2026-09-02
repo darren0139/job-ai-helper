@@ -423,6 +423,38 @@ def append_api_usage(
     return summary
 
 
+def record_semantic_backend_usage(
+    *,
+    application_id: int | None,
+    action: str,
+    backend: str,
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record provider API usage or an explicit zero-provider-cost Codex event."""
+    if resolve_ai_backend(backend) == AI_BACKEND_CODEX:
+        stale_calls = drain_call_ledger()
+        if stale_calls:
+            raise RuntimeError(
+                "Codex semantic generation unexpectedly produced provider API "
+                "ledger entries; mixed-backend usage reporting was refused."
+            )
+        record_zero_cost_action_event(
+            application_id=application_id,
+            action=action,
+            note=(
+                "Codex semantic generation completed; no provider API billing calls "
+                "were recorded. ChatGPT/Codex plan allowance may still apply."
+            ),
+        )
+        return {"backend": "codex", "api_call_count": 0}
+
+    return append_api_usage(
+        application_id=application_id,
+        action=action,
+        report=report,
+    )
+
+
 def render_ai_action_subtotal(
     *,
     application_id: int | None,
@@ -1156,6 +1188,31 @@ def create_full_debug_bundle(
 
     chat_model = get_active_model("chat")
 
+    report_meta = (
+        report.get("meta", {})
+        if isinstance(report, dict)
+        and isinstance(report.get("meta"), dict)
+        else {}
+    )
+    recorded_analysis_backend = str(
+        report_meta.get("analysis_backend")
+        or "unknown_legacy"
+    )
+    recorded_analysis_backend_model = str(
+        report_meta.get("analysis_backend_model")
+        or (
+            report_meta.get("model")
+            if recorded_analysis_backend == AI_BACKEND_API
+            else ""
+        )
+        or "unknown_legacy"
+    )
+
+    selected_tailoring_backend = _selected_tailoring_backend()
+    selected_tailoring_backend_model = _analysis_backend_model_id(
+        selected_tailoring_backend
+    )
+
     workspace_provenance_debug: dict[str, Any] = {}
     if application_id is not None:
         try:
@@ -1174,6 +1231,7 @@ def create_full_debug_bundle(
                 row_fp = str(
                     row.get("phase9e_decision_fingerprint") or ""
                 )
+                row_backend = _debug_generation_backend_provenance(row)
                 generation_rows.append(
                     {
                         "generation_id": str(
@@ -1182,6 +1240,24 @@ def create_full_debug_bundle(
                         "status": str(row.get("status") or ""),
                         "generation_kind": str(
                             row.get("generation_kind") or ""
+                        ),
+                        "execution_backend": row_backend.get(
+                            "execution_backend", "unknown"
+                        ),
+                        "semantic_backend": row_backend.get(
+                            "semantic_backend", "unknown"
+                        ),
+                        "semantic_model": row_backend.get(
+                            "semantic_model", ""
+                        ),
+                        "fit_backend": row_backend.get(
+                            "fit_backend", "unknown"
+                        ),
+                        "last_operation_kind": row_backend.get(
+                            "last_operation_kind", "unknown"
+                        ),
+                        "backend_provenance_status": row_backend.get(
+                            "status", "missing"
                         ),
                         "phase9e_decision_fingerprint": row_fp,
                         "matches_current_phase9e": (
@@ -1253,7 +1329,22 @@ def create_full_debug_bundle(
             ),
             "application_id": application_id,
             "resume_filename": resume_filename,
+            "configured_api_model": active_model,
             "active_model": active_model,
+            "active_model_note": (
+                "Legacy compatibility field. This is the configured API "
+                "analysis/generation model and is not proof that the latest "
+                "analysis or tailoring generation used the provider API."
+            ),
+            "analysis_backend": recorded_analysis_backend,
+            "analysis_backend_model": recorded_analysis_backend_model,
+            "tailoring_backend": selected_tailoring_backend,
+            "tailoring_backend_model": selected_tailoring_backend_model,
+            "tailoring_backend_note": (
+                "Current Projects/Skills backend selector. Per-generation "
+                "provenance in workspace_provenance_debug.generations is "
+                "authoritative for saved generations."
+            ),
             "chat_model": chat_model,
             # "reasoning_effort": os.getenv(
 
@@ -1303,12 +1394,6 @@ def create_full_debug_bundle(
         default=str,
     ).encode("utf-8")
 
-    model_slug = (
-        active_model
-        .replace("/", "_")
-        .replace(":", "_")
-    )
-
     app_label = (
         str(application_id)
         if application_id is not None
@@ -1320,8 +1405,7 @@ def create_full_debug_bundle(
     )
 
     filename = (
-        f"app_{app_label}_{model_slug}_"
-        f"debug_bundle_{timestamp}.json"
+        f"app_{app_label}_debug_bundle_{timestamp}.json"
     )
 
     return json_bytes, filename
@@ -2019,6 +2103,227 @@ def _restore_application_tailoring_to_session(
     return True
 
 
+_SEMANTIC_TAILORING_GENERATION_KINDS = {
+    "projects_skills",
+    "projects",
+    "skills",
+}
+
+
+def _selected_tailoring_backend() -> str:
+    """Return the backend currently selected for semantic tailoring."""
+    selected = st.session_state.get(
+        "analysis_backend_selector",
+        AI_BACKEND_API,
+    )
+    try:
+        return resolve_ai_backend(selected)
+    except ValueError:
+        return AI_BACKEND_API
+
+
+def _tailoring_generation_backend_provenance(
+    generation_kind: str,
+) -> dict[str, str]:
+    """Describe who owns the work represented by one saved generation."""
+    kind = str(generation_kind or "").strip()
+
+    if kind in _SEMANTIC_TAILORING_GENERATION_KINDS:
+        backend = _selected_tailoring_backend()
+        return {
+            "provenance_version": "codex-poc-backend-provenance-v2",
+            "execution_backend": backend,
+            "semantic_backend": backend,
+            "semantic_model": _analysis_backend_model_id(backend),
+            "fit_backend": "not_applicable",
+        }
+
+    if kind == "fit_only":
+        return {
+            "provenance_version": "codex-poc-backend-provenance-v2",
+            "execution_backend": "deterministic-python",
+            "semantic_backend": "none",
+            "semantic_model": "",
+            "fit_backend": "deterministic-python",
+        }
+
+    if kind == "phase9e_reuse_snapshot":
+        return {
+            "provenance_version": "codex-poc-backend-provenance-v2",
+            "execution_backend": "deterministic-python-reuse",
+            "semantic_backend": "none",
+            "semantic_model": "",
+            "fit_backend": "not_applicable",
+        }
+
+    return {
+        "provenance_version": "codex-poc-backend-provenance-v2",
+        "execution_backend": "unknown",
+        "semantic_backend": "unknown",
+        "semantic_model": "",
+        "fit_backend": "unknown",
+    }
+
+
+def _merge_tailoring_generation_backend_provenance(
+    *,
+    existing_generation: dict[str, Any] | None,
+    generation_settings: dict[str, Any] | None,
+    generation_kind: str,
+) -> tuple[dict[str, Any], str]:
+    """Merge semantic and fit provenance without erasing either."""
+    existing = (
+        existing_generation
+        if isinstance(existing_generation, dict)
+        else {}
+    )
+    existing_settings = existing.get("generation_settings")
+    persisted_settings = (
+        deepcopy(existing_settings)
+        if isinstance(existing_settings, dict)
+        else {}
+    )
+    if isinstance(generation_settings, dict):
+        persisted_settings.update(deepcopy(generation_settings))
+
+    requested_kind = str(generation_kind or "").strip()
+    existing_kind = str(
+        existing.get("generation_kind") or ""
+    ).strip()
+
+    existing_provenance = (
+        existing_settings.get("backend_provenance")
+        if isinstance(existing_settings, dict)
+        else None
+    )
+    existing_provenance = (
+        deepcopy(existing_provenance)
+        if isinstance(existing_provenance, dict)
+        else {}
+    )
+
+    if (
+        requested_kind == "fit_only"
+        and existing_kind in _SEMANTIC_TAILORING_GENERATION_KINDS
+    ):
+        semantic_backend = str(
+            existing_provenance.get("semantic_backend")
+            or "unknown_legacy"
+        )
+        semantic_model = str(
+            existing_provenance.get("semantic_model")
+            or "unknown_legacy"
+        )
+        if semantic_backend == "none":
+            semantic_backend = "unknown_legacy"
+        if not semantic_model:
+            semantic_model = "unknown_legacy"
+
+        persisted_settings["backend_provenance"] = {
+            **existing_provenance,
+            "provenance_version": "codex-poc-backend-provenance-v3",
+            "execution_backend": "mixed",
+            "semantic_backend": semantic_backend,
+            "semantic_model": semantic_model,
+            "fit_backend": "deterministic-python",
+            "last_operation_kind": "fit_only",
+        }
+        return persisted_settings, existing_kind
+
+    if (
+        requested_kind == "fit_only"
+        and existing_kind == "phase9e_reuse_snapshot"
+    ):
+        persisted_settings["backend_provenance"] = {
+            **existing_provenance,
+            "provenance_version": "codex-poc-backend-provenance-v3",
+            "execution_backend": "deterministic-python-reuse",
+            "semantic_backend": "none",
+            "semantic_model": "",
+            "fit_backend": "deterministic-python",
+            "last_operation_kind": "fit_only",
+        }
+        return persisted_settings, existing_kind
+
+    provenance = _tailoring_generation_backend_provenance(requested_kind)
+    provenance["provenance_version"] = "codex-poc-backend-provenance-v3"
+    provenance["last_operation_kind"] = (
+        requested_kind or existing_kind or "unknown"
+    )
+    persisted_settings["backend_provenance"] = provenance
+    return persisted_settings, (requested_kind or existing_kind)
+
+
+def _debug_generation_backend_provenance(
+    row: dict[str, Any],
+) -> dict[str, str]:
+    """Read saved provenance without guessing pre-patch semantic backends."""
+    settings = row.get("generation_settings")
+    if isinstance(settings, dict):
+        saved = settings.get("backend_provenance")
+        if isinstance(saved, dict):
+            return {
+                "execution_backend": str(
+                    saved.get("execution_backend") or "unknown"
+                ),
+                "semantic_backend": str(
+                    saved.get("semantic_backend") or "unknown"
+                ),
+                "semantic_model": str(
+                    saved.get("semantic_model") or ""
+                ),
+                "fit_backend": str(
+                    saved.get("fit_backend") or "unknown"
+                ),
+                "last_operation_kind": str(
+                    saved.get("last_operation_kind")
+                    or row.get("generation_kind")
+                    or "unknown"
+                ),
+                "status": "recorded",
+            }
+
+    kind = str(row.get("generation_kind") or "").strip()
+    if kind == "fit_only":
+        return {
+            "execution_backend": "deterministic-python",
+            "semantic_backend": "none",
+            "semantic_model": "",
+            "fit_backend": "deterministic-python",
+            "last_operation_kind": "fit_only",
+            "status": "derived_from_generation_kind",
+        }
+
+    if kind == "phase9e_reuse_snapshot":
+        return {
+            "execution_backend": "deterministic-python-reuse",
+            "semantic_backend": "none",
+            "semantic_model": "",
+            "fit_backend": "not_applicable",
+            "last_operation_kind": "phase9e_reuse_snapshot",
+            "status": "derived_from_generation_kind",
+        }
+
+    if kind in _SEMANTIC_TAILORING_GENERATION_KINDS:
+        return {
+            "execution_backend": "unknown_legacy",
+            "semantic_backend": "unknown_legacy",
+            "semantic_model": "unknown_legacy",
+            "fit_backend": "not_applicable",
+            "last_operation_kind": kind,
+            "status": "legacy_missing",
+        }
+
+    return {
+        "execution_backend": "unknown",
+        "semantic_backend": "unknown",
+        "semantic_model": "",
+        "fit_backend": "unknown",
+        "last_operation_kind": kind or "unknown",
+        "status": "missing",
+    }
+
+
 def _persist_current_tailoring_state(
     *,
     application_id: int,
@@ -2029,6 +2334,17 @@ def _persist_current_tailoring_state(
     generation_kind: str = "",
 ) -> None:
     """Persist the current session-state tailoring payload."""
+    existing_generation = get_tailoring_generation(
+        application_id,
+        generation_id,
+    )
+    persisted_generation_settings, effective_generation_kind = (
+        _merge_tailoring_generation_backend_provenance(
+            existing_generation=existing_generation,
+            generation_settings=generation_settings,
+            generation_kind=generation_kind,
+        )
+    )
     save_application_tailoring_generation(
         application_id=application_id,
         generation_id=generation_id,
@@ -2048,7 +2364,7 @@ def _persist_current_tailoring_state(
             f"tailored_skills_result_{application_id}"
         ),
         fit_result=fit_result,
-        generation_settings=generation_settings,
+        generation_settings=persisted_generation_settings,
         docx_path=(
             fit_result.get("docx_path")
             if isinstance(fit_result, dict)
@@ -2061,11 +2377,7 @@ def _persist_current_tailoring_state(
         ),
     )
     stored_generation = get_tailoring_generation(application_id, generation_id)
-    effective_settings = (
-        generation_settings
-        if isinstance(generation_settings, dict)
-        else (stored_generation or {}).get("generation_settings") or {}
-    )
+    effective_settings = persisted_generation_settings
     phase9e_generation_binding = (
         effective_settings.get("phase9e_binding")
         if isinstance(effective_settings, dict)
@@ -2094,7 +2406,7 @@ def _persist_current_tailoring_state(
         application_id=application_id,
         generation_id=generation_id,
         input_fingerprint=input_fingerprint,
-        generation_kind=generation_kind,
+        generation_kind=effective_generation_kind,
         base_content_fingerprint=base_content_fingerprint,
         content_fingerprint=current_content_fingerprint,
         content_changed=content_changed,
@@ -2225,16 +2537,17 @@ with st.sidebar:
 
     if analysis_backend == AI_BACKEND_CODEX:
         st.caption(
-            "Codex applies to the Analyze Resume pipeline. "
-            "Chat, cover letters, project/skills generation, and other "
-            "generation features continue using their configured API models."
+            "Codex applies to Analyze Resume and Projects/Skills generation. "
+            "Generate + Fit remains deterministic Python and does not call "
+            "Codex or the provider API for layout/fitting. Chat, cover letters, "
+            "and other unsupported generation features continue using API."
         )
         st.caption(
             "Requires the local openai-codex SDK and ChatGPT/Codex sign-in. "
             "There is no automatic fallback to the API if Codex fails."
         )
         st.caption(
-            "Codex analysis model: "
+            "Codex analysis / tailoring model: "
             + (
                 os.getenv(
                     "CODEX_ANALYSIS_MODEL",
@@ -2278,20 +2591,22 @@ with st.sidebar:
     )
 
     analysis_model_widget_label = (
-        "API analysis / generation model"
+        "API model for cover letters / remaining generation"
         if analysis_backend == AI_BACKEND_CODEX
-        else "Analysis model"
+        else "Analysis / generation model"
     )
     analysis_model_label = st.selectbox(
         analysis_model_widget_label,
         model_labels,
         index=analysis_default_index,
         key="analysis_model_selector",
+        disabled=(analysis_backend == AI_BACKEND_CODEX),
         help=(
-            "Used by the API analysis path and by generation features that "
-            "have not been migrated to Codex. When Codex is selected for "
-            "Analyze Resume, this model remains the API model for those "
-            "other features."
+            "When API is selected, this controls analysis and generation. "
+            "When Codex is selected, Analyze Resume and Projects/Skills use "
+            "Codex instead, so this control is disabled. The displayed API "
+            "model remains configured for cover letters and other unsupported "
+            "generation features."
         ),
     )
 
@@ -3656,7 +3971,7 @@ if page == "Application Sessions":
                         evidence_items=evidence_items,
                         generation_settings=generation_settings,
                         generation_kind="projects_skills",
-                        model_id=get_active_model("analysis"),
+                        model_id=_analysis_backend_model_id(analysis_backend),
                         approved_generation=approved_generation,
                         lock_projects=lock_projects,
                         lock_skills=lock_skills,
@@ -3726,6 +4041,7 @@ if page == "Application Sessions":
                     ):
                         if generation_plan["requires_project_ai"]:
                             project_result = tailor_projects_section(
+                                backend=analysis_backend,
                                 resume_profile=report.get(
                                     "resume_profile",
                                     {},
@@ -3745,9 +4061,10 @@ if page == "Application Sessions":
                                     {},
                                 ),
                             )
-                            append_api_usage(
+                            record_semantic_backend_usage(
                                 application_id=current_application_id,
                                 action="generate_projects",
+                                backend=analysis_backend,
                                 report=persisted_application_report,
                             )
                         else:
@@ -3795,6 +4112,7 @@ if page == "Application Sessions":
                         reset_call_ledger()
                         if generation_plan["requires_skills_ai"]:
                             skills_result = tailor_skills_section(
+                                backend=analysis_backend,
                                 resume_profile=report.get(
                                     "resume_profile",
                                     {},
@@ -3807,9 +4125,10 @@ if page == "Application Sessions":
                                 ),
                                 selected_projects_result=project_result,
                             )
-                            append_api_usage(
+                            record_semantic_backend_usage(
                                 application_id=current_application_id,
                                 action="generate_skills",
+                                backend=analysis_backend,
                                 report=persisted_application_report,
                             )
                         else:
@@ -3919,6 +4238,7 @@ if page == "Application Sessions":
 
                             with st.spinner("Generating tailored projects..."):
                                 project_result = tailor_projects_section(
+                                    backend=analysis_backend,
                                     resume_profile=report.get("resume_profile", {}),
                                     jd_profile=report.get("jd_profile", {}),
                                     evidence_items=evidence_items,
@@ -3959,9 +4279,10 @@ if page == "Application Sessions":
                             ),
                                 )
 
-                            append_api_usage(
+                            record_semantic_backend_usage(
                                 application_id=current_application_id,
                                 action="generate_projects",
+                                backend=analysis_backend,
                                 report=persisted_application_report,
                             )
                             st.session_state["latest_report"] = (
@@ -4006,7 +4327,7 @@ if page == "Application Sessions":
                                         "bullet_allocation_mode": bullet_allocation_mode,
                                     },
                                     generation_kind="projects",
-                                    model_id=get_active_model("analysis"),
+                                    model_id=_analysis_backend_model_id(analysis_backend),
                                     phase9e_binding=phase9e_binding,
                                 ),
                                 generation_kind="projects",
@@ -4043,6 +4364,7 @@ if page == "Application Sessions":
                             reset_call_ledger()
                             with st.spinner("Generating tailored skills..."):
                                 skills_result = tailor_skills_section(
+                                    backend=analysis_backend,
                                     resume_profile=report.get("resume_profile", {}),
                                     jd_profile=report.get("jd_profile", {}),
                                     evidence_items=get_evidence_items(limit=100),
@@ -4052,9 +4374,10 @@ if page == "Application Sessions":
                                     ),
                                 )
 
-                            append_api_usage(
+                            record_semantic_backend_usage(
                                 application_id=current_application_id,
                                 action="generate_skills",
+                                backend=analysis_backend,
                                 report=persisted_application_report,
                             )
                             st.session_state["latest_report"] = (
@@ -4098,7 +4421,7 @@ if page == "Application Sessions":
                                         "bullet_allocation_mode": bullet_allocation_mode,
                                     },
                                     generation_kind="skills",
-                                    model_id=get_active_model("analysis"),
+                                    model_id=_analysis_backend_model_id(analysis_backend),
                                     phase9e_binding=phase9e_binding,
                                 ),
                                 generation_kind="skills",

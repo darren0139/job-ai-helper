@@ -1576,6 +1576,7 @@ def tailor_projects_section(
     keyword_match: dict[str, Any] | None = None,
     raw_jd_text: str = "",
     stable_analysis: dict[str, Any] | None = None,
+    backend: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate a tailored Projects section using the Option B two-stage pipeline.
@@ -1643,6 +1644,8 @@ IMPORTANT:
         scoring_user_prompt,
         temperature=0.0,
         max_tokens=4200,
+        backend=backend,
+        operation="tailor-project-scoring",
     )
 
     # Check whether the scoring AI returned one row for every
@@ -1682,6 +1685,8 @@ IMPORTANT:
             retry_user_prompt,
             temperature=0.0,
             max_tokens=2200,
+            backend=backend,
+            operation="tailor-project-scoring-retry",
         )
 
         scoring_result.setdefault(
@@ -1907,6 +1912,8 @@ IMPORTANT:
         writing_user_prompt,
         temperature=0.0,
         max_tokens=writer_max_tokens,
+        backend=backend,
+        operation="tailor-project-bullets",
     )
 
     writer_plans = _normalise_writer_plans(writer_result)
