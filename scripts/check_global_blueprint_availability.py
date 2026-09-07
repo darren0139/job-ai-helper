@@ -7,6 +7,8 @@ from pathlib import Path
 
 from database import tailoring_version_manager as base_manager
 from database.global_blueprint_manager import (
+    PRIMARY_BLUEPRINT_VARIANT_ID,
+    VARIANT_INTENT_UPDATE_EXISTING,
     approve_persisted_phase9c_evaluation,
     list_active_global_blueprints_read_only,
     list_global_blueprints,
@@ -73,6 +75,8 @@ def main() -> None:
                 evaluation_fingerprint=next_evaluation[
                     "evaluation_fingerprint"
                 ],
+                variant_intent=VARIANT_INTENT_UPDATE_EXISTING,
+                variant_id=PRIMARY_BLUEPRINT_VARIANT_ID,
             )["blueprint"]
             versions = {
                 row["blueprint_id"]: row for row in list_global_blueprints()

@@ -9,6 +9,11 @@ import streamlit as st
 
 from database.blueprint_evaluation_manager import list_blueprint_evaluations
 from database.global_blueprint_manager import (
+    PRIMARY_BLUEPRINT_VARIANT_ID,
+    PRIMARY_BLUEPRINT_VARIANT_LABEL,
+    VARIANT_INTENT_CREATE_NEW,
+    VARIANT_INTENT_INITIAL_PRIMARY,
+    VARIANT_INTENT_UPDATE_EXISTING,
     approve_persisted_phase9c_evaluation,
     list_global_blueprint_audit_events,
     list_global_blueprints,
@@ -161,9 +166,12 @@ def render_phase9d_global_blueprints(
 ) -> None:
     st.header("Global Blueprints")
     st.caption(
-        "Approve one exactly persisted Phase 9C evaluation as the reusable "
-        "global blueprint for its role family. Approval never changes the "
-        "candidate, evaluation, frozen résumé, or saved JD library."
+        "Approve persisted Phase 9C evaluations as reusable Blueprint "
+        "variants. A role family may have multiple active variant lanes, "
+        "while each lane supersedes independently. Removal/restoration "
+        "availability remains separate from lifecycle activation. Approval "
+        "never changes the candidate, evaluation, frozen résumé, or saved "
+        "JD library."
     )
     lifecycle_flash = st.session_state.pop("phase9d_lifecycle_flash", "")
     if lifecycle_flash:
@@ -177,6 +185,7 @@ def render_phase9d_global_blueprints(
             [
                 {
                     "Role family": row["role_family_label"],
+                    "Variant": row.get("variant_label", "Primary"),
                     "Version": row["version_number"],
                     "Display name": row["display_name"],
                     "Blueprint": row["blueprint_id"],
@@ -248,6 +257,87 @@ def render_phase9d_global_blueprints(
             key="phase9d_display_name",
             help="Editable display metadata; excluded from blueprint identity.",
         )
+        role_family_id = _clean(candidate_scope.get("role_family_id"))
+        active_family_lanes = sorted(
+            [
+                row
+                for row in blueprints
+                if _clean(row.get("role_family_id")) == role_family_id
+                and _clean(row.get("status")) == "active"
+            ],
+            key=lambda row: (
+                _clean(row.get("variant_id")),
+                int(row.get("version_number", 0) or 0),
+            ),
+        )
+        variant_intent = VARIANT_INTENT_INITIAL_PRIMARY
+        variant_id = PRIMARY_BLUEPRINT_VARIANT_ID
+        variant_label = PRIMARY_BLUEPRINT_VARIANT_LABEL
+        if not active_family_lanes:
+            st.info(
+                "No active Blueprint lane exists for this role family. This "
+                "approval will create the initial **Primary** lane."
+            )
+        else:
+            st.write("**Existing active Blueprint lanes**")
+            st.dataframe(
+                [
+                    {
+                        "Lane": row.get("variant_label", PRIMARY_BLUEPRINT_VARIANT_LABEL),
+                        "Version": row.get("version_number"),
+                        "Blueprint": row.get("blueprint_id"),
+                        "Availability": row.get("availability_status"),
+                    }
+                    for row in active_family_lanes
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+            selected_intent = st.radio(
+                "Variant approval intent",
+                options=(VARIANT_INTENT_CREATE_NEW, VARIANT_INTENT_UPDATE_EXISTING),
+                format_func=lambda value: (
+                    "Create new variant" if value == VARIANT_INTENT_CREATE_NEW
+                    else "Update existing variant lane"
+                ),
+                key="phase9d_variant_intent",
+                horizontal=True,
+            )
+            variant_intent = selected_intent
+            if selected_intent == VARIANT_INTENT_CREATE_NEW:
+                variant_id = ""
+                variant_label = st.text_input(
+                    "New Blueprint variant label",
+                    value="",
+                    key="phase9d_new_variant_label",
+                    help=(
+                        "Required. This creates a distinct active lane and does "
+                        "not supersede any existing lane."
+                    ),
+                )
+            else:
+                lane_by_id = {
+                    _clean(row.get("variant_id")): row
+                    for row in active_family_lanes
+                }
+                variant_id = st.selectbox(
+                    "Existing variant lane to update",
+                    options=list(lane_by_id),
+                    format_func=lambda value: (
+                        f"{lane_by_id[value].get('variant_label', PRIMARY_BLUEPRINT_VARIANT_LABEL)} "
+                        f"· v{lane_by_id[value].get('version_number')} · "
+                        f"{str(lane_by_id[value].get('blueprint_id') or '')[:12]}"
+                    ),
+                    key="phase9d_existing_variant_id",
+                )
+                variant_label = _clean(
+                    lane_by_id[variant_id].get("variant_label")
+                ) or PRIMARY_BLUEPRINT_VARIANT_LABEL
+                st.warning(
+                    "Approval will supersede only the selected variant lane. "
+                    "All other active variants, including Primary when not "
+                    "selected, remain active."
+                )
         notes = st.text_area(
             "Blueprint notes",
             value="",
@@ -274,8 +364,14 @@ def render_phase9d_global_blueprints(
                     "Phase 9C evaluated-JD scope."
                 )
 
-        approval_disabled = not policy_status["approvable_policy"] or (
-            provisional and not acknowledgement
+        invalid_new_variant_label = (
+            variant_intent == VARIANT_INTENT_CREATE_NEW
+            and not _clean(variant_label)
+        )
+        approval_disabled = (
+            not policy_status["approvable_policy"]
+            or (provisional and not acknowledgement)
+            or invalid_new_variant_label
         )
         if st.button(
             "Approve or exactly reuse global blueprint",
@@ -293,6 +389,9 @@ def render_phase9d_global_blueprints(
                         "accepted": acknowledgement,
                         "reason": override_reason,
                     },
+                    variant_intent=variant_intent,
+                    variant_id=variant_id,
+                    variant_label=variant_label,
                     display_name=display_name,
                     notes=notes,
                     actor_label=actor_label,
@@ -307,12 +406,16 @@ def render_phase9d_global_blueprints(
                         "superseded the previously active version."
                     ),
                 }
-                st.success(status_messages[result["cache_status"]])
-                st.write(
-                    f"Blueprint `{blueprint['blueprint_id']}` · "
-                    f"version {blueprint['version_number']}"
+                st.session_state["phase9d_lifecycle_flash"] = (
+                    f"{status_messages[result['cache_status']]} "
+                    f"Blueprint {blueprint['blueprint_id']} · "
+                    f"{blueprint.get('variant_label', 'Primary')} variant · "
+                    f"version {blueprint['version_number']}."
                 )
-                blueprints = list_global_blueprints(include_superseded=True)
+                st.session_state["phase9d_inspect_blueprint_id"] = (
+                    blueprint["blueprint_id"]
+                )
+                st.rerun()
             except (Phase9DApprovalError, ValueError, RuntimeError) as exc:
                 st.error(str(exc))
 
@@ -357,6 +460,7 @@ def render_phase9d_global_blueprints(
         [
             {
                 "Role family": row["role_family_label"],
+                "Variant": row.get("variant_label", "Primary"),
                 "Version": row["version_number"],
                 "Lifecycle": row["status"],
                 "Availability": row["availability_status"],
@@ -377,6 +481,7 @@ def render_phase9d_global_blueprints(
         options=list(by_blueprint_id),
         format_func=lambda value: (
             f"{by_blueprint_id[value]['role_family_label']} · "
+            f"{by_blueprint_id[value].get('variant_label', 'Primary')} · "
             f"v{by_blueprint_id[value]['version_number']} · "
             f"{by_blueprint_id[value]['status']} / "
             f"{by_blueprint_id[value]['availability_status']}"

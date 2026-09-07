@@ -23,7 +23,7 @@ from database.application_resume_result_manager import (
     list_application_resume_results,
 )
 from tailoring.generation_controls_ui import restore_generation_to_session
-from database.global_blueprint_manager import list_global_blueprints
+from database.global_blueprint_manager import list_reusable_global_blueprints
 from database.jd_library_manager import get_exact_job_description_for_application
 from database.phase9f_application_execution_manager import (
     get_phase9f_application_execution,
@@ -45,12 +45,66 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
-def _blueprint_label(blueprint: dict[str, Any], *, recommended: bool) -> str:
+def _score_suffix(comparison: dict[str, Any] | None) -> str:
+    if not isinstance(comparison, dict):
+        return ""
+    return (
+        " · Overall "
+        f"{int(comparison.get('deterministic_alignment_score', 0) or 0)}"
+        " · Core "
+        f"{int(comparison.get('required_core_coverage_score', 0) or 0)}%"
+        " · Pref "
+        f"{int(comparison.get('preferred_coverage_score', 0) or 0)}%"
+        " · Evidence "
+        f"{int(comparison.get('evidence_strength_score', 0) or 0)}%"
+    )
+
+
+def _blueprint_label(
+    blueprint: dict[str, Any],
+    *,
+    recommended: bool,
+    comparison: dict[str, Any] | None = None,
+    role_family_match: bool = True,
+) -> str:
     prefix = "Recommended — " if recommended else ""
+    variant = _clean(blueprint.get("variant_label")) or "Primary"
+    mismatch = "" if role_family_match else " · Different family"
     return (
         f"{prefix}{_clean(blueprint.get('display_name')) or _clean(blueprint.get('role_family_label'))} "
+        f"· {variant} variant "
         f"· {_clean(blueprint.get('role_family_label'))} "
         f"· v{int(blueprint.get('version_number', 0) or 0)}"
+        f"{_score_suffix(comparison)}{mismatch}"
+    )
+
+
+def _ranking_report_snapshot(
+    baseline_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep only source inputs that can affect read-only Tailoring Base scores."""
+    report = baseline_report if isinstance(baseline_report, dict) else {}
+    meta = report.get("meta") or {}
+    return {
+        "resume_profile": report.get("resume_profile") or {},
+        "raw_resume_text": str(report.get("raw_resume_text") or ""),
+        "meta": {
+            "jd_user_inputs": (meta.get("jd_user_inputs") or {}),
+        },
+    }
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def _cached_blueprint_recommendation(
+    exact_jd: dict[str, Any],
+    active_blueprints: list[dict[str, Any]],
+    ranking_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Avoid re-running stable source scoring on unrelated Streamlit reruns."""
+    return recommend_active_blueprint(
+        exact_jd,
+        active_blueprints,
+        application_report=ranking_report,
     )
 
 
@@ -679,7 +733,9 @@ def render_phase9e_blueprint_selection(
     baseline_report: dict[str, Any],
 ) -> dict[str, Any]:
     """Render Phase 9E and return the fail-closed generation context."""
-    del baseline_report  # persistence remains authoritative for preview/binding
+    # Binding remains persistence-authoritative. The supplied report is used
+    # only for read-only source ranking so application-local preferred
+    # requirements are scored consistently with the eventual preview.
     st.divider()
     st.header("Tailoring Base")
     st.caption(
@@ -747,8 +803,12 @@ def render_phase9e_blueprint_selection(
             raise Phase9EDecisionError(
                 "Analyze this application so its exact JD version is persisted."
             )
-        active = list_global_blueprints(include_superseded=False)
-        recommendation = recommend_active_blueprint(exact_jd, active)
+        active = list_reusable_global_blueprints()
+        recommendation = _cached_blueprint_recommendation(
+            exact_jd,
+            active,
+            _ranking_report_snapshot(baseline_report),
+        )
     except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
         st.error(str(exc))
         return {
@@ -769,13 +829,15 @@ def render_phase9e_blueprint_selection(
     recommended = recommendation.get("recommended_blueprint")
     if isinstance(recommended, dict):
         st.success(
-            "A single active same-family blueprint is recommended for this JD."
+            "The highest-ranked reusable same-family Blueprint variant is "
+            "recommended for this JD."
         )
         _show_blueprint_identity(recommended)
     else:
         st.warning(
-            "No active same-family blueprint exists. The original résumé is "
-            "recommended; no unrelated blueprint has been selected."
+            "No reusable same-family Blueprint variant exists. The original "
+            "résumé is recommended; other reusable Blueprint scores remain "
+            "visible but no unrelated family is selected automatically."
         )
     st.write(
         "**Recommendation confidence:** "
@@ -783,6 +845,90 @@ def render_phase9e_blueprint_selection(
     )
     for reason in recommendation.get("reasons") or []:
         st.write(f"- {reason}")
+
+    source_rankings = recommendation.get("source_rankings") or []
+    ranking_by_blueprint_id = {
+        _clean(row.get("blueprint_id")): row
+        for row in source_rankings
+        if isinstance(row, dict)
+        and row.get("source_type") == "global_blueprint"
+        and _clean(row.get("blueprint_id"))
+    }
+    original_ranking = next(
+        (
+            row
+            for row in source_rankings
+            if isinstance(row, dict)
+            and row.get("source_type") == "original_resume"
+        ),
+        None,
+    )
+    if source_rankings:
+        st.write("#### Tailoring base comparison")
+        st.dataframe(
+            [
+                {
+                    "Rank": int(row.get("diagnostic_rank", 0) or 0),
+                    "Source": (
+                        "Original résumé"
+                        if row.get("source_type") == "original_resume"
+                        else (
+                            _clean((row.get("blueprint") or {}).get("display_name"))
+                            or _clean(
+                                (row.get("blueprint") or {}).get(
+                                    "role_family_label"
+                                )
+                            )
+                        )
+                    ),
+                    "Variant": (
+                        "—"
+                        if row.get("source_type") == "original_resume"
+                        else (
+                            _clean((row.get("blueprint") or {}).get("variant_label"))
+                            or "Primary"
+                        )
+                    ),
+                    "Family": (
+                        "Original"
+                        if row.get("source_type") == "original_resume"
+                        else _clean(
+                            (row.get("blueprint") or {}).get("role_family_label")
+                        )
+                    ),
+                    "Overall": int(
+                        (row.get("comparison") or {}).get(
+                            "deterministic_alignment_score", 0
+                        )
+                        or 0
+                    ),
+                    "Required/Core": (
+                        f"{int((row.get('comparison') or {}).get('required_core_coverage_score', 0) or 0)}%"
+                    ),
+                    "Preferred": (
+                        f"{int((row.get('comparison') or {}).get('preferred_coverage_score', 0) or 0)}%"
+                    ),
+                    "Evidence": (
+                        f"{int((row.get('comparison') or {}).get('evidence_strength_score', 0) or 0)}%"
+                    ),
+                    "Important gaps": int(
+                        (row.get("comparison") or {}).get(
+                            "important_gap_count", 0
+                        )
+                        or 0
+                    ),
+                    "Recommended": "Yes" if row.get("recommended") else "",
+                }
+                for row in source_rankings
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+        st.caption(
+            "Scores are recalculated for this Application Session's exact JD. "
+            "The safe automatic recommendation is restricted to same-family "
+            "Blueprint variants; cross-family rows remain manual choices."
+        )
 
     options: list[str] = []
     option_rows: dict[str, dict[str, Any] | None] = {}
@@ -829,11 +975,31 @@ def render_phase9e_blueprint_selection(
         "Tailoring base",
         options=options,
         format_func=lambda value: (
-            "Original résumé for this application"
+            (
+                ("Recommended — " if recommended is None else "")
+                + "Original résumé for this application"
+                + _score_suffix(
+                    (original_ranking or {}).get("comparison")
+                    if isinstance(original_ranking, dict)
+                    else None
+                )
+            )
             if value == original_key
             else _blueprint_label(
                 option_rows[value] or {},
                 recommended=value.startswith("recommended:"),
+                comparison=(
+                    ranking_by_blueprint_id.get(
+                        _clean((option_rows[value] or {}).get("blueprint_id")),
+                        {},
+                    ).get("comparison")
+                ),
+                role_family_match=bool(
+                    ranking_by_blueprint_id.get(
+                        _clean((option_rows[value] or {}).get("blueprint_id")),
+                        {},
+                    ).get("role_family_match")
+                ),
             )
         ),
         key=selection_widget_key,

@@ -9,14 +9,17 @@ import streamlit as st
 
 from database.blueprint_candidate_manager import list_blueprint_candidates
 from database.blueprint_evaluation_manager import (
+    list_blueprint_evaluations,
     save_or_reuse_blueprint_evaluation,
 )
 from database.jd_library_manager import get_all_job_descriptions
 from tailoring.phase9b_blueprint_candidate import PHASE9B_VERSION
 from tailoring.phase9c_blueprint_evaluation import (
     Phase9CEvaluationError,
+    PHASE9C_POLICY_VERSION,
     evaluate_blueprint_candidate,
     preview_selected_scope,
+    resolve_source_jd,
     selection_control_signature,
 )
 
@@ -86,6 +89,25 @@ def render_phase9c_blueprint_evaluation(
     )
     candidate = by_candidate[candidate_id]
 
+    historical_evaluations = [
+        row
+        for row in list_blueprint_evaluations(candidate_id=candidate_id)
+        if _clean(
+            ((row.get("semantic_identity") or {}).get("policy") or {}).get(
+                "policy_version"
+            )
+        )
+        != PHASE9C_POLICY_VERSION
+    ]
+    if historical_evaluations:
+        st.warning(
+            "This candidate has historical Phase 9C evaluation(s). They remain "
+            "immutable and inspectable, but cannot be approved under the v4 "
+            "target-sample contract. Evaluate a fresh explicit v4 target scope."
+        )
+        with st.expander("Inspect historical Phase 9C evaluation(s)", expanded=False):
+            st.json(historical_evaluations)
+
     saved_jds = get_all_job_descriptions(limit=500)
     by_library_id = {
         int(jd["id"]): jd for jd in saved_jds if jd.get("id") is not None
@@ -93,13 +115,119 @@ def render_phase9c_blueprint_evaluation(
     if not by_library_id:
         st.info("Save job descriptions to the JD library before evaluating.")
         return
+    try:
+        source_jd, _source_identity = resolve_source_jd(candidate, saved_jds)
+    except (Phase9CEvaluationError, ValueError, RuntimeError) as exc:
+        st.error(str(exc))
+        return
+
+    source_library_id = source_jd.get("id")
+    source_job = candidate.get("source_job") or {}
+    source_title = _clean(source_job.get("job_title") or source_jd.get("title"))
+    source_company = _clean(source_job.get("company") or source_jd.get("company"))
+    with st.container(border=True):
+        st.write("**Source JD / immutable provenance**")
+        st.caption(
+            "This is the JD that the frozen candidate already proved against. "
+            "Phase 9C validates its immutable source parity separately; it is "
+            "not a selectable portability target and never contributes to the "
+            "cross-JD sample or mean."
+        )
+        st.write(
+            f"{source_title or 'Source JD'}"
+            + (f" · {source_company}" if source_company else "")
+        )
+        st.caption(
+            f"JD {source_library_id if source_library_id is not None else '—'} · "
+            f"canonical {_clean(source_jd.get('canonical_jd_id')) or '—'} · "
+            f"version {_clean(source_jd.get('source_version_id')) or '—'}"
+        )
+
+    comparison_jds = [
+        jd
+        for jd in by_library_id.values()
+        if jd.get("id") != source_library_id
+    ]
+    if not comparison_jds:
+        st.info(
+            "Phase 9C is pending: save another comparable JD before cross-JD "
+            "portability can be established. The source JD is not substituted "
+            "as a target."
+        )
+        return
+
+    candidate_preview = preview_selected_scope(candidate, comparison_jds)
+    preview_by_library_id = {
+        int(row["library_jd_id"]): row
+        for row in candidate_preview
+        if row.get("library_jd_id") is not None
+    }
+    possible_target_ids = [
+        library_id
+        for library_id, row in preview_by_library_id.items()
+        if row.get("family_match_status") in {"same", "uncertain"}
+    ]
+    st.write("**Comparable saved JDs**")
+    st.caption(
+        "Phase 9C tests other saved JDs in the same role family. Same-family "
+        "rows are recommended, uncertain rows require explicit inclusion, and "
+        "different-family rows remain visible but are deterministically excluded."
+    )
+    st.dataframe(
+        [
+            {
+                "JD": (
+                    f"{row.get('title', 'Untitled')} · "
+                    f"{row.get('company', '')} · JD {row.get('id')}"
+                ),
+                "Classified family": preview_by_library_id[int(row["id"])].get(
+                    "classified_role_family"
+                ),
+                "Target status": (
+                    "Recommended same-family"
+                    if preview_by_library_id[int(row["id"])].get(
+                        "family_match_status"
+                    ) == "same"
+                    else "Uncertain — explicit inclusion required"
+                    if preview_by_library_id[int(row["id"])].get(
+                        "family_match_status"
+                    ) == "uncertain"
+                    else "Different family — excluded from sample"
+                ),
+            }
+            for row in comparison_jds
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+    if not possible_target_ids:
+        st.info(
+            "Phase 9C is pending: no eligible non-source comparison target is "
+            "currently saved. Save another comparable JD before evaluating."
+        )
+        return
+
+    previous_selected = st.session_state.get("phase9c_selected_jd_ids", [])
+    if isinstance(previous_selected, list):
+        st.session_state["phase9c_selected_jd_ids"] = [
+            int(value)
+            for value in previous_selected
+            if value in preview_by_library_id
+        ]
     selected_ids = st.multiselect(
         "Target JDs (explicit selection required)",
-        options=list(by_library_id),
+        options=list(preview_by_library_id),
         default=[],
         format_func=lambda value: (
             f"{by_library_id[value].get('title', 'Untitled')} · "
-            f"{by_library_id[value].get('company', '')} · JD {value}"
+            f"{by_library_id[value].get('company', '')} · JD {value} · "
+            + (
+                "recommended same-family"
+                if preview_by_library_id[value]["family_match_status"] == "same"
+                else "uncertain"
+                if preview_by_library_id[value]["family_match_status"] == "uncertain"
+                else "different family (excluded)"
+            )
         ),
         help=(
             "Same-family JDs may be recommended by the classifications below, "
@@ -118,11 +246,16 @@ def render_phase9c_blueprint_evaluation(
         for row in preview
         if row["family_match_status"] == "uncertain"
     ]
+    previous_allowed = st.session_state.get("phase9c_allowed_uncertain", [])
+    if isinstance(previous_allowed, list):
+        st.session_state["phase9c_allowed_uncertain"] = [
+            value for value in previous_allowed if value in uncertain_keys
+        ]
     allowed_uncertain = st.multiselect(
         "Explicitly include uncertain-family selections",
         options=uncertain_keys,
         default=[],
-        help="Different-family JDs cannot be included in Phase 9C v1.",
+        help="Different-family JDs cannot be included in Phase 9C v4.",
         key="phase9c_allowed_uncertain",
     ) if uncertain_keys else []
     preview = preview_selected_scope(
@@ -145,6 +278,24 @@ def render_phase9c_blueprint_evaluation(
         width="stretch",
     )
 
+    counted_targets = [
+        row for row in preview if row.get("aggregate_included") is True
+    ]
+    excluded_targets = [
+        row for row in preview if row.get("selection_decision") == "excluded"
+    ]
+    accounting = st.columns(4)
+    accounting[0].metric("Selected target JDs", len(preview))
+    accounting[1].metric("Counted target JDs", len(counted_targets))
+    accounting[2].metric("Excluded target JDs", len(excluded_targets))
+    accounting[3].metric("Effective sample size", len(counted_targets))
+    if not counted_targets:
+        st.warning(
+            "No selected non-source target is eligible. Select a same-family JD "
+            "or explicitly include an uncertain-family JD; different-family JDs "
+            "cannot establish portability."
+        )
+
     control_signature = selection_control_signature(
         candidate,
         selected_jds,
@@ -163,6 +314,7 @@ def render_phase9c_blueprint_evaluation(
         "Evaluate exact selected scope",
         type="primary",
         key="phase9c_evaluate",
+        disabled=not counted_targets,
     ):
         try:
             evaluated = evaluate_blueprint_candidate(
@@ -196,7 +348,7 @@ def render_phase9c_blueprint_evaluation(
     if not existing:
         return
     aggregate = existing["aggregate_result"]
-    columns = st.columns(4)
+    columns = st.columns(5)
     columns[0].metric("Mean score", aggregate["mean_score"])
     columns[1].metric("Minimum", aggregate["minimum_score"])
     columns[2].metric("Pass rate", f"{aggregate['pass_rate']}%")
@@ -204,7 +356,27 @@ def render_phase9c_blueprint_evaluation(
         "Status",
         "Provisional" if aggregate["provisional"] else "Non-provisional",
     )
-    st.dataframe(existing["per_jd_results"], hide_index=True, width="stretch")
+    columns[4].metric(
+        "Effective sample", aggregate.get("counted_target_jd_count", 0)
+    )
+    source_rows = [
+        row
+        for row in existing.get("per_jd_results", [])
+        if row.get("is_source_jd") is True
+    ]
+    target_rows = [
+        row
+        for row in existing.get("per_jd_results", [])
+        if row.get("target_sample_membership") is True
+    ]
+    st.write("**Source JD / provenance parity**")
+    st.dataframe(source_rows, hide_index=True, width="stretch")
+    st.write("**Counted target results**")
+    st.dataframe(target_rows, hide_index=True, width="stretch")
+    excluded = existing.get("excluded_jds") or []
+    if excluded:
+        st.write("**Excluded target JDs**")
+        st.dataframe(excluded, hide_index=True, width="stretch")
     st.download_button(
         "Download Phase 9C JSON",
         data=json.dumps(existing, ensure_ascii=False, indent=2, default=str),

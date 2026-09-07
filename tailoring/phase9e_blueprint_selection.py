@@ -44,7 +44,7 @@ PHASE9E_ORIGINAL_SOURCE_IDENTITY_POLICY_VERSION = (
     "phase9e-original-resume-source-identity-v2"
 )
 PHASE9E_RECOMMENDATION_POLICY_VERSION = (
-    "phase9e-same-family-active-recommendation-v1"
+    "phase9e-ranked-reusable-blueprint-variants-v3"
 )
 PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION = (
     "phase9e-capability-aware-single-row-evidence-v1"
@@ -155,6 +155,8 @@ def _blueprint_identity(blueprint: dict[str, Any] | None) -> dict[str, Any]:
         "version_number": int(blueprint.get("version_number", 0) or 0),
         "role_family_id": _clean(blueprint.get("role_family_id")),
         "role_family_label": _clean(blueprint.get("role_family_label")),
+        "variant_id": _clean(blueprint.get("variant_id")) or "primary",
+        "variant_label": _clean(blueprint.get("variant_label")) or "Primary",
     }
 
 
@@ -323,22 +325,28 @@ def match_exact_approved_source(
             "The approved blueprint must contain exactly one Phase 9C source JD."
         )
     source = source_results[0]
-    source_scope = [
-        row
-        for row in evaluation_semantic.get("selected_jd_scope", []) or []
-        if isinstance(row, dict)
-        and row.get("selection_decision") == "evaluated"
-        and all(
-            _clean(row.get(field)) == _clean(source.get(field))
-            for field in (
-                "canonical_jd_id",
-                "source_version_id",
-                "raw_jd_sha256",
-                "canonical_requirement_fingerprint",
-                "stable_input_fingerprint",
+    persisted_source_scope = evaluation_semantic.get("source_jd_parity_scope")
+    if isinstance(persisted_source_scope, dict):
+        source_scope = [persisted_source_scope]
+    else:
+        # Global Blueprints already approved from Phase 9C v3 retain their
+        # original immutable provenance. Only v4 writes the separate scope.
+        source_scope = [
+            row
+            for row in evaluation_semantic.get("selected_jd_scope", []) or []
+            if isinstance(row, dict)
+            and row.get("selection_decision") == "evaluated"
+            and all(
+                _clean(row.get(field)) == _clean(source.get(field))
+                for field in (
+                    "canonical_jd_id",
+                    "source_version_id",
+                    "raw_jd_sha256",
+                    "canonical_requirement_fingerprint",
+                    "stable_input_fingerprint",
+                )
             )
-        )
-    ]
+        ]
     stable_rows = [
         row
         for row in semantic.get("stable_input_provenance", []) or []
@@ -357,6 +365,17 @@ def match_exact_approved_source(
     if len(source_scope) != 1 or len(stable_rows) != 1:
         raise Phase9EDecisionError(
             "The approved source JD has missing or ambiguous stable provenance."
+        )
+    if (
+        persisted_source_scope is not None
+        and (
+            source_scope[0].get("target_sample_membership") is not False
+            or source_scope[0].get("aggregate_included") is not False
+        )
+    ):
+        raise Phase9EDecisionError(
+            "The approved Phase 9C source parity row is incorrectly included "
+            "in the target portability sample."
         )
 
     phase9c_candidate = evaluation_semantic.get("candidate") or {}
@@ -564,45 +583,225 @@ def match_exact_approved_source(
     }
 
 
+def _blueprint_comparison_summary(
+    comparison: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep only visible deterministic metrics used for source ranking."""
+    return {
+        "deterministic_alignment_score": int(
+            comparison.get("deterministic_alignment_score", 0) or 0
+        ),
+        "required_core_coverage_score": int(
+            comparison.get("required_core_coverage_score", 0) or 0
+        ),
+        "preferred_coverage_score": int(
+            comparison.get("preferred_coverage_score", 0) or 0
+        ),
+        "evidence_strength_score": int(
+            comparison.get("evidence_strength_score", 0) or 0
+        ),
+        "important_gap_count": int(
+            comparison.get("important_gap_count", 0) or 0
+        ),
+        "deal_breaker_gap_count": int(
+            comparison.get("deal_breaker_gap_count", 0) or 0
+        ),
+    }
+
+
+def _blueprint_variant_ranking_key(
+    row: dict[str, Any],
+) -> tuple[Any, ...]:
+    comparison = row.get("comparison") or {}
+    blueprint = row.get("blueprint") or {}
+    return (
+        int(comparison.get("deal_breaker_gap_count", 0) or 0),
+        int(comparison.get("important_gap_count", 0) or 0),
+        -int(comparison.get("required_core_coverage_score", 0) or 0),
+        -int(comparison.get("deterministic_alignment_score", 0) or 0),
+        -int(comparison.get("evidence_strength_score", 0) or 0),
+        -int(comparison.get("preferred_coverage_score", 0) or 0),
+        _clean(blueprint.get("variant_id")) or "primary",
+        _clean(blueprint.get("blueprint_id")),
+    )
+
+
 def recommend_active_blueprint(
     jd: dict[str, Any],
     active_blueprints: Iterable[dict[str, Any]],
+    *,
+    application_report: dict[str, Any] | None = None,
+    historical_bound_blueprint_id: str = "",
 ) -> dict[str, Any]:
-    """Classify the JD and recommend only the exact same-family active row."""
+    """Rank reusable variants but auto-recommend only a safe same-family source."""
     validate_exact_jd_snapshot(jd)
+    historical_bound_blueprint_id = _clean(historical_bound_blueprint_id)
     classification = suggest_role_family(
         {"jd_profile": deepcopy(jd.get("jd_profile") or {})}
     )
     family_id = _clean(classification.get("role_family_id"))
+    preferred_requirements = _application_local_preferred_requirements(
+        application_report
+    )
+
     active = sorted(
         (
             validate_active_blueprint(deepcopy(row))
             for row in active_blueprints
             if _clean(row.get("status")) == "active"
+            and (
+                (
+                    _clean(row.get("availability_status")) != "removed"
+                    and row.get("is_reusable") is not False
+                )
+                or (
+                    historical_bound_blueprint_id
+                    and _clean(row.get("blueprint_id"))
+                    == historical_bound_blueprint_id
+                )
+            )
         ),
         key=lambda row: (
             _clean(row.get("role_family_id")),
+            _clean(row.get("variant_id")) or "primary",
             _clean(row.get("blueprint_id")),
         ),
     )
-    same_family = [
-        row for row in active if _clean(row.get("role_family_id")) == family_id
-    ]
-    if len(same_family) > 1:
-        raise Phase9EDecisionError(
-            "Multiple active blueprints exist for the classified role family."
+
+    rankings: list[dict[str, Any]] = []
+    for blueprint in active:
+        comparison = evaluate_starting_snapshot(
+            build_blueprint_starting_snapshot(blueprint),
+            jd,
+            preferred_requirements=preferred_requirements,
         )
-    recommended = same_family[0] if same_family else None
+        rankings.append(
+            {
+                "source_type": "global_blueprint",
+                "blueprint_id": _clean(blueprint.get("blueprint_id")),
+                "blueprint": deepcopy(blueprint),
+                "blueprint_identity": _blueprint_identity(blueprint),
+                "role_family_match": (
+                    _clean(blueprint.get("role_family_id")) == family_id
+                ),
+                "comparison": _blueprint_comparison_summary(comparison),
+            }
+        )
+
+    diagnostic_rankings = sorted(
+        rankings,
+        key=_blueprint_variant_ranking_key,
+    )
+    same_family_rankings = [
+        row for row in diagnostic_rankings if row["role_family_match"]
+    ]
+    recommended_row = (
+        same_family_rankings[0] if same_family_rankings else None
+    )
+    recommended = (
+        deepcopy(recommended_row["blueprint"])
+        if recommended_row is not None
+        else None
+    )
+    best_diagnostic = (
+        deepcopy(diagnostic_rankings[0]["blueprint"])
+        if diagnostic_rankings
+        else None
+    )
+
+    original_comparison: dict[str, Any] | None = None
+    if isinstance(application_report, dict) and application_report:
+        original_comparison = evaluate_starting_snapshot(
+            build_original_resume_starting_snapshot(application_report),
+            jd,
+            preferred_requirements=preferred_requirements,
+        )
+
+    source_rankings = [deepcopy(row) for row in diagnostic_rankings]
+    if original_comparison is not None:
+        source_rankings.append(
+            {
+                "source_type": "original_resume",
+                "blueprint_id": "",
+                "blueprint": None,
+                "blueprint_identity": {},
+                "role_family_match": True,
+                "comparison": _blueprint_comparison_summary(
+                    original_comparison
+                ),
+            }
+        )
+        source_rankings = sorted(
+            source_rankings,
+            key=lambda row: (
+                int((row.get("comparison") or {}).get(
+                    "deal_breaker_gap_count", 0
+                ) or 0),
+                int((row.get("comparison") or {}).get(
+                    "important_gap_count", 0
+                ) or 0),
+                -int((row.get("comparison") or {}).get(
+                    "required_core_coverage_score", 0
+                ) or 0),
+                -int((row.get("comparison") or {}).get(
+                    "deterministic_alignment_score", 0
+                ) or 0),
+                -int((row.get("comparison") or {}).get(
+                    "evidence_strength_score", 0
+                ) or 0),
+                -int((row.get("comparison") or {}).get(
+                    "preferred_coverage_score", 0
+                ) or 0),
+                0 if row.get("source_type") == "original_resume" else 1,
+                _clean(row.get("blueprint_id")),
+            ),
+        )
+
+    for index, row in enumerate(source_rankings, start=1):
+        row["diagnostic_rank"] = index
+        row["eligible_for_auto_recommendation"] = bool(
+            row.get("source_type") == "original_resume"
+            or row.get("role_family_match")
+        )
+        row["recommended"] = bool(
+            (
+                recommended is None
+                and row.get("source_type") == "original_resume"
+            )
+            or (
+                recommended is not None
+                and row.get("source_type") == "global_blueprint"
+                and _clean(row.get("blueprint_id"))
+                == _clean(recommended.get("blueprint_id"))
+            )
+        )
+
     if recommended:
+        variant_label = _clean(recommended.get("variant_label")) or "Primary"
         reasons = [
-            "The JD and blueprint share the same canonical role-family ID.",
-            "The blueprint is the single active version for that role family.",
+            "The JD and recommended Blueprint share the same canonical role-family ID.",
+            (
+                "The recommended source is the highest-ranked active variant in "
+                f"that family ({variant_label}) under the current deterministic "
+                "JD comparison."
+            ),
+            (
+                "Other variants and cross-family Blueprints remain visible with "
+                "diagnostic scores; cross-family rows are never auto-selected."
+            ),
         ]
+        recommended_source = "global_blueprint"
     else:
         reasons = [
-            "No active blueprint exists for the JD's canonical role family.",
-            "No unrelated blueprint was selected automatically.",
+            "No active Blueprint variant exists for the JD's canonical role family.",
+            (
+                "The original résumé remains the safe recommendation. Other "
+                "Blueprints are scored for comparison but are not auto-selected "
+                "across role-family boundaries."
+            ),
         ]
+        recommended_source = "original_resume"
+
     return {
         "policy_version": PHASE9E_RECOMMENDATION_POLICY_VERSION,
         "classification": deepcopy(classification),
@@ -610,10 +809,20 @@ def recommend_active_blueprint(
             classification.get("confidence")
         )
         or "low",
+        "recommended_source": recommended_source,
         "recommended_blueprint": deepcopy(recommended),
         "recommended_blueprint_identity": _blueprint_identity(recommended),
+        "best_diagnostic_blueprint": best_diagnostic,
         "reasons": reasons,
         "active_blueprints": active,
+        "blueprint_rankings": diagnostic_rankings,
+        "same_family_rankings": same_family_rankings,
+        "source_rankings": source_rankings,
+        "original_resume_comparison": (
+            _blueprint_comparison_summary(original_comparison)
+            if original_comparison is not None
+            else None
+        ),
     }
 
 
@@ -1310,6 +1519,7 @@ def build_phase9e_decision(
     selected_blueprint_id: str = "",
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
+    historical_bound_blueprint_id: str = "",
 ) -> dict[str, Any]:
     """Build one complete deterministic Phase 9E decision and binding."""
     if int(application_id) <= 0:
@@ -1318,7 +1528,12 @@ def build_phase9e_decision(
     application_local_preferred_requirements = (
         _application_local_preferred_requirements(application_report)
     )
-    recommendation = recommend_active_blueprint(exact_jd, active_blueprints)
+    recommendation = recommend_active_blueprint(
+        exact_jd,
+        active_blueprints,
+        application_report=application_report,
+        historical_bound_blueprint_id=historical_bound_blueprint_id,
+    )
     classification = recommendation["classification"]
     active = recommendation["active_blueprints"]
     selected_source = _clean(selected_source)

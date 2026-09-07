@@ -7,6 +7,8 @@ from pathlib import Path
 
 from database import tailoring_version_manager as base_manager
 from database.global_blueprint_manager import (
+    PRIMARY_BLUEPRINT_VARIANT_ID,
+    VARIANT_INTENT_UPDATE_EXISTING,
     approve_persisted_phase9c_evaluation,
     list_global_blueprint_audit_events,
     list_global_blueprints,
@@ -49,6 +51,8 @@ def main() -> None:
                 evaluation_fingerprint=non_provisional[
                     "evaluation_fingerprint"
                 ],
+                variant_intent=VARIANT_INTENT_UPDATE_EXISTING,
+                variant_id=PRIMARY_BLUEPRINT_VARIANT_ID,
                 actor_label="Phase 9D smoke",
             )
             reactivated = approve_persisted_phase9c_evaluation(
@@ -66,7 +70,16 @@ def main() -> None:
                 first_blueprint["blueprint_id"]
             )
             assert reactivated["blueprint"]["version_number"] == 1
-            assert provisional["aggregate_result"]["mean_score"] == 92.0
+            assert provisional["aggregate_result"]["evaluated_jd_count"] == 1
+            assert provisional["aggregate_result"]["counted_target_jd_count"] == 1
+            target = next(
+                row
+                for row in provisional["per_jd_results"]
+                if not row["is_source_jd"]
+            )
+            assert provisional["aggregate_result"]["mean_score"] == target[
+                "deterministic_alignment_score"
+            ]
             snapshot = first_blueprint["blueprint_snapshot"]
             assert snapshot["frozen_resume_snapshot"][
                 "resume_profile_snapshot"

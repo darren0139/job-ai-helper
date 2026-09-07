@@ -17,6 +17,8 @@ from database.blueprint_evaluation_manager import (
 from database.global_blueprint_manager import (
     PHASE9D_AVAILABILITY_EVENT_VERSION,
     PHASE9D_AVAILABILITY_POLICY_VERSION,
+    VARIANT_INTENT_CREATE_NEW,
+    VARIANT_INTENT_UPDATE_EXISTING,
     approve_persisted_phase9c_evaluation,
     get_active_global_blueprint,
     init_global_blueprint_registry,
@@ -31,6 +33,7 @@ from database.global_blueprint_manager import (
 from tailoring.phase9d_global_blueprint import Phase9DApprovalError
 from tests.phase9d_test_support import (
     persist_historical_v2_evaluation,
+    persist_historical_v3_evaluation,
     persist_non_provisional_evaluation,
     seed_phase9d_database,
 )
@@ -138,6 +141,8 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         second_result = approve_persisted_phase9c_evaluation(
             evaluation_id=non_provisional["evaluation_id"],
             evaluation_fingerprint=non_provisional["evaluation_fingerprint"],
+            variant_intent=VARIANT_INTENT_UPDATE_EXISTING,
+            variant_id="primary",
             actor_label="Test approver",
         )
         second = second_result["blueprint"]
@@ -175,6 +180,8 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         second = approve_persisted_phase9c_evaluation(
             evaluation_id=non_provisional["evaluation_id"],
             evaluation_fingerprint=non_provisional["evaluation_fingerprint"],
+            variant_intent=VARIANT_INTENT_UPDATE_EXISTING,
+            variant_id="primary",
         )["blueprint"]
         with patch(
             "database.global_blueprint_manager._insert_audit_event",
@@ -190,6 +197,64 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         }
         self.assertEqual(states[first["blueprint_id"]], "superseded")
         self.assertEqual(states[second["blueprint_id"]], "active")
+
+    def test_variant_lanes_are_independent_and_removal_stays_lane_local(self):
+        primary = self.approve_provisional()["blueprint"]
+
+        non_provisional = persist_non_provisional_evaluation(self.state)
+        with self.assertRaisesRegex(Phase9DApprovalError, "Explicitly choose"):
+            approve_persisted_phase9c_evaluation(
+                evaluation_id=non_provisional["evaluation_id"],
+                evaluation_fingerprint=non_provisional[
+                    "evaluation_fingerprint"
+                ],
+            )
+
+        exact = approve_persisted_phase9c_evaluation(
+            evaluation_id=self.provisional["evaluation_id"],
+            evaluation_fingerprint=self.provisional["evaluation_fingerprint"],
+            provisional_override=OVERRIDE,
+            variant_intent=VARIANT_INTENT_CREATE_NEW,
+            variant_label="C++ / Engine Focus",
+        )
+        self.assertEqual(exact["cache_status"], "hit_active")
+        self.assertEqual(exact["blueprint"]["variant_id"], "primary")
+
+        engine = approve_persisted_phase9c_evaluation(
+            evaluation_id=non_provisional["evaluation_id"],
+            evaluation_fingerprint=non_provisional[
+                "evaluation_fingerprint"
+            ],
+            variant_intent=VARIANT_INTENT_CREATE_NEW,
+            variant_label="C++ / Engine Focus",
+            actor_label="Variant tester",
+        )["blueprint"]
+
+        self.assertEqual(primary["role_family_id"], engine["role_family_id"])
+        self.assertEqual(primary["variant_id"], "primary")
+        self.assertEqual(engine["variant_id"], "cpp_engine_focus")
+        reusable = list_reusable_global_blueprints(
+            role_family_id=primary["role_family_id"]
+        )
+        self.assertEqual(
+            {row["blueprint_id"] for row in reusable},
+            {primary["blueprint_id"], engine["blueprint_id"]},
+        )
+        self.assertTrue(all(row["status"] == "active" for row in reusable))
+
+        remove_global_blueprint_from_reuse(
+            blueprint_id=engine["blueprint_id"],
+            blueprint_fingerprint=engine["blueprint_fingerprint"],
+            acknowledged=True,
+            actor_label="Variant tester",
+        )
+        reusable_after_remove = list_reusable_global_blueprints(
+            role_family_id=primary["role_family_id"]
+        )
+        self.assertEqual(
+            [row["blueprint_id"] for row in reusable_after_remove],
+            [primary["blueprint_id"]],
+        )
 
     def test_display_metadata_does_not_change_identity(self):
         original = self.approve_provisional()["blueprint"]
@@ -347,6 +412,8 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
         second = approve_persisted_phase9c_evaluation(
             evaluation_id=non_provisional["evaluation_id"],
             evaluation_fingerprint=non_provisional["evaluation_fingerprint"],
+            variant_intent=VARIANT_INTENT_UPDATE_EXISTING,
+            variant_id="primary",
         )["blueprint"]
         versions = {
             row["blueprint_id"]: row for row in list_global_blueprints()
@@ -506,10 +573,15 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
 
     def test_historical_evaluations_remain_listed_but_are_not_approvable(self):
         historical = persist_historical_v2_evaluation(self.provisional)
+        historical_v3 = persist_historical_v3_evaluation(self.provisional)
         listed = list_blueprint_evaluations()
         self.assertEqual(
             {row["evaluation_id"] for row in listed},
-            {self.provisional["evaluation_id"], historical["evaluation_id"]},
+            {
+                self.provisional["evaluation_id"],
+                historical["evaluation_id"],
+                historical_v3["evaluation_id"],
+            },
         )
         self.assertEqual(
             get_blueprint_evaluation_by_id(historical["evaluation_id"]),
@@ -519,6 +591,12 @@ class GlobalBlueprintManagerTests(unittest.TestCase):
             approve_persisted_phase9c_evaluation(
                 evaluation_id=historical["evaluation_id"],
                 evaluation_fingerprint=historical["evaluation_fingerprint"],
+                provisional_override=OVERRIDE,
+            )
+        with self.assertRaisesRegex(ValueError, "inspection-only"):
+            approve_persisted_phase9c_evaluation(
+                evaluation_id=historical_v3["evaluation_id"],
+                evaluation_fingerprint=historical_v3["evaluation_fingerprint"],
                 provisional_override=OVERRIDE,
             )
 

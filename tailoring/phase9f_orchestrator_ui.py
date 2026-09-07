@@ -9,13 +9,21 @@ import streamlit as st
 
 from analyzer import extract_jd_profile
 from database.jd_library_manager import (
+    archive_job_description_version,
+    delete_unlinked_saved_job_description,
     get_exact_job_description_version,
+    get_jd_library_cleanup_preview,
     get_job_description_versions,
     get_recent_job_descriptions,
+    purge_unreferenced_archived_job_description_versions,
+    restore_job_description_version,
     save_job_description_to_library,
 )
 from llm import drain_call_ledger, get_active_model, reset_call_ledger
-from rag.jd_chroma_rag import index_job_description_to_chroma
+from rag.jd_chroma_rag import (
+    delete_job_description_from_chroma,
+    index_job_description_to_chroma,
+)
 from rag.jd_identity import source_version_id
 from tailoring.jd_user_input_overrides import (
     PREFERRED_REQUIREMENTS_HELP,
@@ -48,16 +56,60 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
 
 
+def _saved_jd_record_id_for_label(row: Any) -> str:
+    # Resolve only the stable library-row ID for display; never mutate data.
+    if isinstance(row, dict):
+        for key in (
+            "job_description_id",
+            "saved_job_id",
+            "jd_id",
+            "id",
+        ):
+            value = row.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return ""
+    if isinstance(row, (tuple, list)) and row:
+        value = row[0]
+        return "" if value in (None, "") else str(value)
+    return ""
+
+
+def _with_saved_jd_id(formatter: Any) -> Any:
+    # Wrap an existing Streamlit formatter with an unambiguous JD ID suffix.
+    def wrapped(row: Any) -> str:
+        label = str(formatter(row))
+        jd_id = _saved_jd_record_id_for_label(row)
+        if not jd_id or f"JD #{jd_id}" in label:
+            return label
+        return f"{label} · JD #{jd_id}"
+
+    return wrapped
+
+
+
+
 def _saved_job_label(row: tuple[Any, ...]) -> str:
+    # Keep distinct library rows distinguishable even when company/title match.
     title = _clean(row[2]) or "Untitled job"
     company = _clean(row[3]) or "Unknown company"
-    return f"{company} — {title}"
+    try:
+        library_jd_id = int(row[0])
+    except (TypeError, ValueError, IndexError):
+        # Fail soft for an unexpected legacy row shape rather than hiding the JD.
+        return f"{company} — {title}"
+    return f"{company} — {title} · JD #{library_jd_id}"
 
 
 def _version_label(row: dict[str, Any]) -> str:
     created = _clean(row.get("created_at")) or "timestamp unavailable"
     version = _clean(row.get("source_version_id"))
-    return f"{created} · {version[:16]}"
+    archived = (
+        " · Archived"
+        if _clean(row.get("availability_status")) == "archived"
+        else ""
+    )
+    return f"{created} · {version[:16]}{archived}"
 
 
 def _find_exact_saved_jd_version(raw_text: str) -> dict[str, Any] | None:
@@ -424,9 +476,23 @@ def render_phase9f_jd_intake() -> None:
                 key="phase9f_saved_jd",
             )
             library_jd_id = int(selected_job[0])
-            versions = get_job_description_versions(library_jd_id)
+            show_archived_versions = st.checkbox(
+                "Show archived exact versions",
+                value=False,
+                key="phase9f_show_archived_jd_versions",
+                help=(
+                    "Archived versions remain available to historical "
+                    "Application Sessions but are hidden from normal reuse."
+                ),
+            )
+            versions = get_job_description_versions(
+                library_jd_id,
+                include_archived=show_archived_versions,
+            )
             if not versions:
-                st.error("The selected saved JD has no exact source version.")
+                st.error(
+                    "The selected saved JD has no selectable exact source version."
+                )
             else:
                 selected_version = st.selectbox(
                     "Exact version",
@@ -438,6 +504,212 @@ def render_phase9f_jd_intake() -> None:
                     selected_version.get("source_version_id") or ""
                 )
                 raw_text = str(selected_version.get("raw_text") or "")
+                selected_is_archived = bool(
+                    selected_version.get("is_archived")
+                    or _clean(selected_version.get("availability_status"))
+                    == "archived"
+                )
+
+                with st.expander(
+                    "Exact-version maintenance",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Archive hides a stale/experimental exact version from "
+                        "normal reuse without changing historical Application "
+                        "Session links."
+                    )
+                    if selected_is_archived:
+                        st.warning(
+                            "This exact version is archived and is visible only "
+                            "because archived versions are being shown."
+                        )
+                        if st.button(
+                            "Restore selected exact version",
+                            key="phase9f_restore_saved_jd_version",
+                            width="stretch",
+                        ):
+                            try:
+                                restore_job_description_version(
+                                    library_jd_id,
+                                    saved_source_version_id,
+                                )
+                                st.session_state.pop(
+                                    "phase9f_saved_jd_version",
+                                    None,
+                                )
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(
+                                    f"Could not restore this JD version: {exc}"
+                                )
+                    else:
+                        archive_reason = st.text_input(
+                            "Archive reason (optional)",
+                            key="phase9f_archive_jd_version_reason",
+                            placeholder=(
+                                "Example: superseded by fresh analysis"
+                            ),
+                        )
+                        archive_ack = st.checkbox(
+                            (
+                                "I understand this hides the version from "
+                                "normal reuse but preserves historical links."
+                            ),
+                            value=False,
+                            key="phase9f_archive_jd_version_ack",
+                        )
+                        if st.button(
+                            "Archive selected exact version",
+                            key="phase9f_archive_saved_jd_version",
+                            width="stretch",
+                            disabled=not archive_ack,
+                        ):
+                            try:
+                                archived = archive_job_description_version(
+                                    library_jd_id,
+                                    saved_source_version_id,
+                                    reason=archive_reason,
+                                )
+                                if archived.get("needs_chroma_reindex"):
+                                    try:
+                                        index_job_description_to_chroma(
+                                            library_jd_id
+                                        )
+                                    except Exception as exc:
+                                        st.warning(
+                                            "The JD version was archived, but "
+                                            "the market-insights index could "
+                                            f"not be refreshed: {exc}"
+                                        )
+                                st.session_state.pop(
+                                    "phase9f_saved_jd_version",
+                                    None,
+                                )
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(
+                                    f"Could not archive this JD version: {exc}"
+                                )
+
+            with st.expander("JD Library cleanup", expanded=False):
+                cleanup = get_jd_library_cleanup_preview()
+                metric_cols = st.columns(3)
+                metric_cols[0].metric(
+                    "Archived versions",
+                    int(cleanup["archived_version_count"]),
+                )
+                metric_cols[1].metric(
+                    "Safe to purge",
+                    int(cleanup["purgeable_archived_version_count"]),
+                )
+                metric_cols[2].metric(
+                    "Unused saved JDs",
+                    int(cleanup["unlinked_saved_job_count"]),
+                )
+                st.caption(
+                    "Safe-to-purge archived versions have no Application "
+                    "Session link. Referenced archived versions remain protected."
+                )
+
+                purge_ack = st.checkbox(
+                    (
+                        "I want to permanently purge every archived exact "
+                        "version that no Application Session references."
+                    ),
+                    value=False,
+                    key="phase9f_purge_archived_jd_versions_ack",
+                )
+                if st.button(
+                    "Purge unreferenced archived versions",
+                    width="stretch",
+                    disabled=(
+                        not purge_ack
+                        or int(
+                            cleanup["purgeable_archived_version_count"]
+                        )
+                        == 0
+                    ),
+                    key="phase9f_purge_archived_jd_versions",
+                ):
+                    try:
+                        result = (
+                            purge_unreferenced_archived_job_description_versions()
+                        )
+                        st.session_state[
+                            "phase9f_jd_cleanup_flash"
+                        ] = (
+                            "Purged "
+                            f"{int(result['purged_version_count'])} "
+                            "unreferenced archived exact version(s)."
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(
+                            "Could not purge archived JD versions: "
+                            f"{exc}"
+                        )
+
+                unused_jobs = list(
+                    cleanup.get("unlinked_saved_jobs") or []
+                )
+                if unused_jobs:
+                    st.caption(
+                        "Unused saved JDs below have zero Application Session "
+                        "links. Deleting one removes the entire saved JD and "
+                        "its exact-version history."
+                    )
+                    selected_unused = st.selectbox(
+                        "Unused saved JD",
+                        unused_jobs,
+                        format_func=_with_saved_jd_id(lambda row: (
+                            f"{_clean(row.get('company')) or 'Unknown company'} "
+                            f"— {_clean(row.get('title')) or 'Untitled job'} "
+                            f"· {int(row.get('version_count') or 0)} version(s)"
+                        )),
+                        key="phase9f_unused_saved_jd_cleanup",
+                    )
+                    delete_unused_ack = st.checkbox(
+                        (
+                            "I understand this permanently deletes the selected "
+                            "unused saved JD and all of its exact versions."
+                        ),
+                        value=False,
+                        key="phase9f_delete_unused_saved_jd_ack",
+                    )
+                    if st.button(
+                        "Delete selected unused saved JD",
+                        width="stretch",
+                        disabled=not delete_unused_ack,
+                        key="phase9f_delete_unused_saved_jd",
+                    ):
+                        try:
+                            deleted = delete_unlinked_saved_job_description(
+                                int(
+                                    selected_unused[
+                                        "job_description_id"
+                                    ]
+                                )
+                            )
+                            delete_job_description_from_chroma(
+                                int(deleted["job_description_id"]),
+                                canonical_jd_id=str(
+                                    deleted["canonical_jd_id"]
+                                ),
+                            )
+                            st.session_state.pop(
+                                "phase9f_saved_jd",
+                                None,
+                            )
+                            st.session_state.pop(
+                                "phase9f_saved_jd_version",
+                                None,
+                            )
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(
+                                f"Could not delete this unused saved JD: {exc}"
+                            )
 
     if source_type in {"pasted", "uploaded"}:
         with st.expander("Optional JD metadata", expanded=False):

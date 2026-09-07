@@ -34,7 +34,7 @@ class BlueprintEvaluationManagerTests(unittest.TestCase):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         self.evaluation = evaluate_blueprint_candidate(
             candidate=fixture["candidate"],
-            selected_jds=fixture["saved_jds"][:2],
+            selected_jds=fixture["saved_jds"][1:2],
             saved_jds_for_source_resolution=fixture["saved_jds"],
         )
 

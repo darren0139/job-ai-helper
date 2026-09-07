@@ -163,6 +163,15 @@ def seed_phase9d_database(
     fixture = load_phase9d_fixture()
     candidate = copy.deepcopy(fixture["candidate"])
     saved_jds = copy.deepcopy(fixture["saved_jds"])
+    second_target = copy.deepcopy(saved_jds[1])
+    second_target.update(
+        id=9405,
+        application_id=None,
+        application_ids=[],
+        canonical_jd_id="synthetic-phase9d-second-target",
+        source_version_id="synthetic-phase9d-second-target-v1",
+    )
+    saved_jds.append(second_target)
     # Phase 9D approvals now require two immutable source artifact identities.
     # Keep synthetic files beside the temporary SQLite database, never in the
     # repository artifact store.
@@ -210,7 +219,7 @@ def seed_phase9d_database(
     _seed_jd_library(saved_jds)
     provisional = evaluate_blueprint_candidate(
         candidate=copy.deepcopy(candidate),
-        selected_jds=[copy.deepcopy(saved_jds[0])],
+        selected_jds=[copy.deepcopy(saved_jds[1])],
         saved_jds_for_source_resolution=copy.deepcopy(saved_jds),
     )
     provisional = save_or_reuse_blueprint_evaluation(provisional)["evaluation"]
@@ -225,7 +234,9 @@ def seed_phase9d_database(
 def persist_non_provisional_evaluation(state: dict[str, Any]) -> dict[str, Any]:
     evaluation = evaluate_blueprint_candidate(
         candidate=copy.deepcopy(state["candidate"]),
-        selected_jds=copy.deepcopy(state["saved_jds"][:2]),
+        selected_jds=copy.deepcopy(
+            [state["saved_jds"][1], state["saved_jds"][-1]]
+        ),
         saved_jds_for_source_resolution=copy.deepcopy(state["saved_jds"]),
     )
     return save_or_reuse_blueprint_evaluation(evaluation)["evaluation"]
@@ -243,6 +254,23 @@ def persist_historical_v2_evaluation(
     )
     for row in semantic["selected_jd_scope"]:
         row.pop("stable_input_fingerprint", None)
+    historical["evaluation_fingerprint"] = fingerprint_semantic_identity(
+        semantic
+    )
+    return save_or_reuse_blueprint_evaluation(historical)["evaluation"]
+
+
+def persist_historical_v3_evaluation(
+    evaluation: dict[str, Any],
+) -> dict[str, Any]:
+    """Store a pre-v4 evaluation as immutable inspection-only provenance."""
+    historical = copy.deepcopy(evaluation)
+    historical.pop("evaluation_id", None)
+    historical.pop("created_at", None)
+    semantic = historical["semantic_identity"]
+    semantic["policy"]["policy_version"] = (
+        "phase9c-same-family-explicit-scope-v3"
+    )
     historical["evaluation_fingerprint"] = fingerprint_semantic_identity(
         semantic
     )

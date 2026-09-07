@@ -16,6 +16,7 @@ from database.global_blueprint_manager import (
 )
 from tests.phase9d_test_support import (
     persist_historical_v2_evaluation,
+    persist_non_provisional_evaluation,
     seed_phase9d_database,
 )
 
@@ -121,6 +122,50 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
             source,
         )
 
+    def test_existing_family_requires_explicit_variant_intent(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        evaluation = _by_key(app.selectbox, "phase9d_evaluation_id")
+        evaluation.set_value(
+            self.state["provisional_evaluation"]["evaluation_id"]
+        ).run()
+        _by_key(
+            app.checkbox, "phase9d_provisional_acknowledgement"
+        ).set_value(True).run()
+        _by_key(app.button, "phase9d_approve").click().run()
+
+        non_provisional = persist_non_provisional_evaluation(self.state)
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        _by_key(app.selectbox, "phase9d_evaluation_id").set_value(
+            non_provisional["evaluation_id"]
+        ).run()
+        intent = _by_key(app.radio, "phase9d_variant_intent")
+        self.assertEqual(intent.value, "create_new_variant")
+        self.assertTrue(_by_key(app.button, "phase9d_approve").disabled)
+
+        _by_key(app.text_input, "phase9d_new_variant_label").set_value(
+            "Engine focus"
+        ).run()
+        self.assertFalse(_by_key(app.button, "phase9d_approve").disabled)
+        _by_key(app.button, "phase9d_approve").click().run()
+        self.assertTrue(
+            any(
+                "immutable blueprint" in message.value.lower()
+                for message in app.success
+            )
+        )
+        reusable_table = app.dataframe[0].value
+        self.assertIn("Variant", reusable_table.columns)
+        self.assertTrue(
+            {"Primary", "Engine focus"}.issubset(
+                set(reusable_table["Variant"].tolist())
+            )
+        )
+        rows = list_global_blueprints()
+        self.assertEqual(
+            {row["variant_id"] for row in rows if row["status"] == "active"},
+            {"primary", "engine_focus"},
+        )
+
     def test_remove_is_confirmed_hidden_by_default_and_restorable(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
         evaluation = _by_key(app.selectbox, "phase9d_evaluation_id")
@@ -179,7 +224,11 @@ class Phase9DStreamlitAcceptanceTests(unittest.TestCase):
                     for value in frame.value.get("Availability", [])
                 }
                 for frame in app.dataframe
-                if "Availability" in frame.value.columns
+                if {
+                    "Lifecycle",
+                    "Availability",
+                    "Evaluation",
+                }.issubset(set(frame.value.columns))
             )
         )
 

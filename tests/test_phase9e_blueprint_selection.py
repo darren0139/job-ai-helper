@@ -15,6 +15,7 @@ from analysis_stability.stable_evidence_scoring import (
 from database import db_manager, jd_library_manager, tailoring_version_manager
 from database.jd_library_manager import get_exact_job_description_for_application
 from rag.jd_identity import build_job_identity
+from tailoring.phase9c_blueprint_evaluation import fingerprint_semantic_identity
 from tailoring.phase9e_blueprint_selection import (
     PHASE9E_DECISION_POLICY_VERSION,
     PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION,
@@ -28,6 +29,7 @@ from tailoring.phase9e_blueprint_selection import (
     recommend_active_blueprint,
     resolve_workflow_action,
     _apply_phase9e_preliminary_match_ceilings,
+    fingerprint_value,
 )
 from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
@@ -516,6 +518,62 @@ class Phase9EBlueprintSelectionTests(unittest.TestCase):
         self.assertEqual(action["workflow_action"], "use_blueprint_unchanged")
         self.assertTrue(action["section_lock_scope"]["projects_locked"])
         self.assertTrue(action["section_lock_scope"]["skills_locked"])
+
+    def test_existing_v3_approved_blueprint_remains_usable_with_its_provenance(self):
+        """v3 Blueprints remain usable even though v3 evaluations cannot reapprove."""
+        legacy = copy.deepcopy(self.blueprint)
+        snapshot = legacy["blueprint_snapshot"]
+        evaluation = snapshot["phase9c_evaluation_snapshot"]
+        evaluation_semantic = evaluation["semantic_identity"]
+        source_scope = copy.deepcopy(
+            evaluation_semantic.pop("source_jd_parity_scope")
+        )
+        # This is the persisted v3 shape: its source row shared the old
+        # selected-JD scope.  It was an approved immutable Blueprint before
+        # the v4 portability-sample contract, so it must remain readable.
+        source_scope["selection_decision"] = "evaluated"
+        source_scope["selection_reason"] = "same_role_family"
+        source_scope.pop("sample_role", None)
+        source_scope.pop("target_sample_membership", None)
+        source_scope.pop("aggregate_included", None)
+        evaluation_semantic["selected_jd_scope"] = [
+            source_scope,
+            *evaluation_semantic["selected_jd_scope"],
+        ]
+        evaluation_semantic["policy"]["policy_version"] = (
+            "phase9c-same-family-explicit-scope-v3"
+        )
+        evaluation["evaluation_fingerprint"] = fingerprint_semantic_identity(
+            evaluation_semantic
+        )
+        blueprint_semantic = snapshot["semantic_identity"]
+        evaluation_identity = blueprint_semantic["evaluation"]
+        evaluation_identity["evaluation_fingerprint"] = evaluation[
+            "evaluation_fingerprint"
+        ]
+        evaluation_identity["policy_version"] = evaluation_semantic["policy"][
+            "policy_version"
+        ]
+        evaluation_identity["semantic_identity_fingerprint"] = fingerprint_value(
+            evaluation_semantic
+        )
+        legacy["evaluation_fingerprint"] = evaluation["evaluation_fingerprint"]
+        legacy["blueprint_fingerprint"] = fingerprint_value(blueprint_semantic)
+        legacy["blueprint_id"] = legacy["blueprint_fingerprint"][:32]
+
+        decision = self.build_blueprint_decision(
+            active_blueprints=[legacy],
+            selected_blueprint_id=legacy["blueprint_id"],
+        )
+        self.assertEqual(
+            decision["recommended_tailoring"], "reuse_approved_source"
+        )
+        self.assertEqual(
+            decision["source_approval"]["source_identity"][
+                "phase9c_policy_version"
+            ],
+            "phase9c-same-family-explicit-scope-v3",
+        )
 
     def test_optional_polish_supports_unchanged_and_explicit_polish(self):
         decision = self.build_blueprint_decision()

@@ -35,12 +35,23 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
         self.jds = self.fixture["saved_jds"]
         self.source = self.jds[0]
         self.target = self.jds[1]
+        self.second_target = copy.deepcopy(self.target)
+        self.second_target.update(
+            id=9403,
+            application_id=None,
+            application_ids=[],
+            canonical_jd_id="synthetic-application-94-second-target",
+            source_version_id="synthetic-application-94-second-target-v1",
+        )
+        self.all_jds = [*self.jds, self.second_target]
 
     def evaluate(self, selected=None, **kwargs):
         return evaluate_blueprint_candidate(
             candidate=copy.deepcopy(self.candidate),
-            selected_jds=copy.deepcopy(selected or [self.source, self.target]),
-            saved_jds_for_source_resolution=copy.deepcopy(self.jds),
+            selected_jds=copy.deepcopy(
+                [self.target] if selected is None else selected
+            ),
+            saved_jds_for_source_resolution=copy.deepcopy(self.all_jds),
             **kwargs,
         )
 
@@ -55,6 +66,9 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
             self.assertGreater(counts[section], 0, section)
         self.assertEqual(target["evaluation_mode"], "full_frozen_snapshot")
         self.assertEqual(result["candidate_scope"]["scoring_version"], SCORING_VERSION)
+        self.assertFalse(source["target_sample_membership"])
+        self.assertFalse(source["aggregate_included"])
+        self.assertEqual(result["aggregate_result"]["evaluated_jd_count"], 1)
 
     def test_candidate_fail_closed_gates(self):
         mutations = (
@@ -77,39 +91,41 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
                 with self.assertRaises(Phase9CEvaluationError):
                     evaluate_blueprint_candidate(
                         candidate=candidate,
-                        selected_jds=[copy.deepcopy(self.source)],
-                        saved_jds_for_source_resolution=copy.deepcopy(self.jds),
+                        selected_jds=[copy.deepcopy(self.target)],
+                        saved_jds_for_source_resolution=copy.deepcopy(self.all_jds),
                     )
 
     def test_different_family_is_recorded_and_excluded(self):
-        result = self.evaluate([self.source, self.fixture["different_family_jd"]])
-        self.assertEqual(len(result["per_jd_results"]), 1)
+        result = self.evaluate([self.target, self.fixture["different_family_jd"]])
+        self.assertEqual(len(result["per_jd_results"]), 2)
         excluded = result["excluded_jds"]
         self.assertEqual(excluded[0]["family_match_status"], "different")
         self.assertEqual(excluded[0]["selection_reason"], "different_role_family")
 
     def test_uncertain_family_requires_explicit_inclusion(self):
         uncertain = self.fixture["uncertain_family_jd"]
-        without = self.evaluate([self.source, uncertain])
-        self.assertEqual(len(without["per_jd_results"]), 1)
+        without = self.evaluate([self.target, uncertain])
+        self.assertEqual(len(without["per_jd_results"]), 2)
         uncertain_key = next(
             row["jd_key"]
             for row in without["selected_jd_scope"]
             if row["family_match_status"] == "uncertain"
         )
         included = self.evaluate(
-            [self.source, uncertain],
+            [self.target, uncertain],
             explicitly_allowed_uncertain=[uncertain_key],
         )
-        self.assertEqual(len(included["per_jd_results"]), 2)
+        self.assertEqual(len(included["per_jd_results"]), 3)
 
     def test_one_is_provisional_and_two_are_not(self):
-        self.assertTrue(self.evaluate([self.source])["aggregate_result"]["provisional"])
-        self.assertFalse(self.evaluate()["aggregate_result"]["provisional"])
+        self.assertTrue(self.evaluate([self.target])["aggregate_result"]["provisional"])
+        self.assertFalse(
+            self.evaluate([self.target, self.second_target])["aggregate_result"]["provisional"]
+        )
 
     def test_selection_order_does_not_change_fingerprint_or_result_order(self):
-        first = self.evaluate([self.source, self.target])
-        second = self.evaluate([self.target, self.source])
+        first = self.evaluate([self.target, self.second_target])
+        second = self.evaluate([self.second_target, self.target])
         self.assertEqual(
             first["evaluation_fingerprint"], second["evaluation_fingerprint"]
         )
@@ -133,9 +149,9 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
         )
 
     def test_excluded_jd_changes_complete_scope_fingerprint(self):
-        source_only = self.evaluate([self.source])
+        source_only = self.evaluate([self.target])
         with_excluded = self.evaluate(
-            [self.source, self.fixture["different_family_jd"]]
+            [self.target, self.fixture["different_family_jd"]]
         )
         self.assertNotEqual(
             source_only["evaluation_fingerprint"],
@@ -154,6 +170,14 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
         }
         self.assertTrue(semantic_by_jd)
         for row in result["per_jd_results"]:
+            if row["is_source_jd"]:
+                self.assertEqual(
+                    row["stable_input_fingerprint"],
+                    result["semantic_identity"]["source_jd_parity_scope"][
+                        "stable_input_fingerprint"
+                    ],
+                )
+                continue
             self.assertEqual(
                 row["stable_input_fingerprint"],
                 semantic_by_jd[row["jd_key"]],
@@ -165,9 +189,9 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
             "_stable_input_fingerprint"
         )
         with patch(target, return_value="stable-input-a"):
-            first = self.evaluate([self.source])
+            first = self.evaluate([self.target])
         with patch(target, return_value="stable-input-b"):
-            second = self.evaluate([self.source])
+            second = self.evaluate([self.target])
 
         first_identity = copy.deepcopy(first["semantic_identity"])
         second_identity = copy.deepcopy(second["semantic_identity"])
@@ -185,6 +209,9 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
         )
         for identity in (first_identity, second_identity):
             identity["selected_jd_scope"][0].pop(
+                "stable_input_fingerprint"
+            )
+            identity["source_jd_parity_scope"].pop(
                 "stable_input_fingerprint"
             )
         self.assertEqual(first_identity, second_identity)
@@ -231,7 +258,7 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
                 with self.assertRaises(Phase9CEvaluationError):
                     evaluate_blueprint_candidate(
                         candidate=copy.deepcopy(self.candidate),
-                        selected_jds=[copy.deepcopy(mismatch[0])],
+                        selected_jds=[copy.deepcopy(self.target)],
                         saved_jds_for_source_resolution=mismatch,
                     )
         candidate_ids = copy.deepcopy(self.candidate)
@@ -239,15 +266,15 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
         with self.assertRaises(Phase9CEvaluationError):
             evaluate_blueprint_candidate(
                 candidate=candidate_ids,
-                selected_jds=[copy.deepcopy(self.source)],
-                saved_jds_for_source_resolution=copy.deepcopy(self.jds),
+                selected_jds=[copy.deepcopy(self.target)],
+                saved_jds_for_source_resolution=copy.deepcopy(self.all_jds),
             )
         duplicate = copy.deepcopy(self.source)
         duplicate["id"] = 9402
         with self.assertRaisesRegex(Phase9CEvaluationError, "ambiguous"):
             evaluate_blueprint_candidate(
                 candidate=copy.deepcopy(self.candidate),
-                selected_jds=[copy.deepcopy(self.source)],
+                selected_jds=[copy.deepcopy(self.target)],
                 saved_jds_for_source_resolution=[self.source, duplicate, self.target],
             )
 
@@ -296,16 +323,45 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
 
     def test_candidate_and_saved_jd_inputs_are_not_mutated(self):
         candidate = copy.deepcopy(self.candidate)
-        jds = copy.deepcopy([self.source, self.target])
+        jds = copy.deepcopy([self.target])
         before_candidate = copy.deepcopy(candidate)
         before_jds = copy.deepcopy(jds)
         evaluate_blueprint_candidate(
             candidate=candidate,
             selected_jds=jds,
-            saved_jds_for_source_resolution=copy.deepcopy(self.jds),
+            saved_jds_for_source_resolution=copy.deepcopy(self.all_jds),
         )
         self.assertEqual(candidate, before_candidate)
         self.assertEqual(jds, before_jds)
+
+    def test_source_parity_is_persisted_but_outside_target_sample(self):
+        result = self.evaluate([self.target])
+        source = next(
+            row for row in result["per_jd_results"] if row["is_source_jd"]
+        )
+        target = next(
+            row for row in result["per_jd_results"] if not row["is_source_jd"]
+        )
+        self.assertEqual(
+            result["source_jd_parity_scope"],
+            result["semantic_identity"]["source_jd_parity_scope"],
+        )
+        self.assertEqual(source["sample_role"], "source_parity")
+        self.assertFalse(source["target_sample_membership"])
+        self.assertFalse(source["aggregate_included"])
+        self.assertEqual(target["sample_role"], "selected_target")
+        self.assertTrue(target["aggregate_included"])
+        self.assertEqual(result["aggregate_result"]["evaluated_jd_count"], 1)
+        self.assertEqual(
+            result["aggregate_result"]["mean_score"],
+            target["deterministic_alignment_score"],
+        )
+
+    def test_source_cannot_be_selected_and_cannot_make_zero_target_valid(self):
+        with self.assertRaisesRegex(Phase9CEvaluationError, "source JD"):
+            self.evaluate([self.source])
+        with self.assertRaisesRegex(Phase9CEvaluationError, "Explicitly select"):
+            self.evaluate([])
 
     def test_recurring_gaps_and_outliers_are_deterministic(self):
         rows = [

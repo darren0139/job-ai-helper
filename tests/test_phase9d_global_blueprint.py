@@ -26,7 +26,7 @@ class Phase9DGlobalBlueprintTests(unittest.TestCase):
         self.jds = fixture["saved_jds"]
         self.evaluation = evaluate_blueprint_candidate(
             candidate=copy.deepcopy(self.candidate),
-            selected_jds=[copy.deepcopy(self.jds[0])],
+            selected_jds=[copy.deepcopy(self.jds[1])],
             saved_jds_for_source_resolution=copy.deepcopy(self.jds),
         )
         self.evaluation["evaluation_id"] = self.evaluation[
@@ -38,7 +38,7 @@ class Phase9DGlobalBlueprintTests(unittest.TestCase):
         values = {
             "candidate": copy.deepcopy(self.candidate),
             "evaluation": copy.deepcopy(self.evaluation),
-            "selected_jds": [copy.deepcopy(self.jds[0])],
+            "selected_jds": [copy.deepcopy(self.jds[1])],
             "all_saved_jds": copy.deepcopy(self.jds),
             "provisional_override": {
                 "accepted": True,
@@ -147,17 +147,17 @@ class Phase9DGlobalBlueprintTests(unittest.TestCase):
             self.prepare(evaluation=historical)
 
         changed = copy.deepcopy(self.jds)
-        changed[0]["raw_text"] += " changed"
+        changed[1]["raw_text"] += " changed"
         with self.assertRaises(Phase9DApprovalError):
             self.prepare(
-                selected_jds=[copy.deepcopy(changed[0])],
+                selected_jds=[copy.deepcopy(changed[1])],
                 all_saved_jds=changed,
             )
 
     def test_inputs_are_not_mutated_and_zero_call_surfaces_remain_unused(self):
         candidate = copy.deepcopy(self.candidate)
         evaluation = copy.deepcopy(self.evaluation)
-        selected = [copy.deepcopy(self.jds[0])]
+        selected = [copy.deepcopy(self.jds[1])]
         all_jds = copy.deepcopy(self.jds)
         originals = copy.deepcopy((candidate, evaluation, selected, all_jds))
         llm = types.ModuleType("llm")

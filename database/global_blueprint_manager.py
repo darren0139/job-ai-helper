@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import tempfile
 import uuid
@@ -38,6 +39,13 @@ PHASE9D_AVAILABILITY_EVENT_VERSION = (
 )
 BLUEPRINT_AVAILABLE = "available"
 BLUEPRINT_REMOVED = "removed"
+PHASE9D_VARIANT_POLICY_VERSION = "phase9d-blueprint-variant-lanes-v1"
+PRIMARY_BLUEPRINT_VARIANT_ID = "primary"
+PRIMARY_BLUEPRINT_VARIANT_LABEL = "Primary"
+VARIANT_INTENT_INITIAL_PRIMARY = "initial_primary"
+VARIANT_INTENT_CREATE_NEW = "create_new_variant"
+VARIANT_INTENT_UPDATE_EXISTING = "update_existing_variant"
+VARIANT_INTENT_EXACT_REUSE = "exact_existing_snapshot"
 
 
 def _sha256_path(path: Path) -> str:
@@ -164,6 +172,117 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def normalise_blueprint_variant_label(value: Any) -> str:
+    """Return one stable human label for a Blueprint variant lane."""
+    cleaned = " ".join(str(value or "").split()).strip()
+    return cleaned or PRIMARY_BLUEPRINT_VARIANT_LABEL
+
+
+def blueprint_variant_id(value: Any) -> str:
+    """Build the stable variant-lane key used for independent activation."""
+    label = normalise_blueprint_variant_label(value).lower()
+    label = label.replace("c++", "cpp").replace("c#", "csharp")
+    label = label.replace("&", " and ")
+    slug = re.sub(r"[^a-z0-9]+", "_", label).strip("_")
+    return slug or PRIMARY_BLUEPRINT_VARIANT_ID
+
+
+def _resolve_new_blueprint_variant_lane(
+    connection: sqlite3.Connection,
+    *,
+    role_family_id: str,
+    variant_intent: str,
+    variant_id: str,
+    variant_label: str,
+) -> tuple[str, str, str]:
+    """Require durable user intent before a new snapshot changes a lane."""
+    active_lanes = connection.execute(
+        """
+        SELECT variant_id, variant_label
+        FROM global_blueprint_versions
+        WHERE role_family_id = ? AND status = 'active'
+        ORDER BY variant_id ASC
+        """,
+        (str(role_family_id),),
+    ).fetchall()
+    supplied_intent = str(variant_intent or "").strip()
+    supplied_id = str(variant_id or "").strip()
+    supplied_label = " ".join(str(variant_label or "").split()).strip()
+
+    if not active_lanes:
+        if supplied_intent in {"", VARIANT_INTENT_INITIAL_PRIMARY}:
+            if supplied_id and blueprint_variant_id(supplied_id) != (
+                PRIMARY_BLUEPRINT_VARIANT_ID
+            ):
+                raise Phase9DApprovalError(
+                    "The first Blueprint lane must be created as Primary unless "
+                    "an explicit new-variant intent is supplied."
+                )
+            if supplied_label and blueprint_variant_id(supplied_label) != (
+                PRIMARY_BLUEPRINT_VARIANT_ID
+            ):
+                raise Phase9DApprovalError(
+                    "The first Blueprint lane is Primary. Choose explicit new "
+                    "variant intent to create a differently named lane."
+                )
+            return (
+                PRIMARY_BLUEPRINT_VARIANT_ID,
+                PRIMARY_BLUEPRINT_VARIANT_LABEL,
+                VARIANT_INTENT_INITIAL_PRIMARY,
+            )
+        if supplied_intent != VARIANT_INTENT_CREATE_NEW:
+            raise Phase9DApprovalError(
+                "A new Blueprint lane requires explicit create-new-variant intent."
+            )
+        if not supplied_label:
+            raise Phase9DApprovalError(
+                "Creating a new Blueprint variant requires an explicit label."
+            )
+        return (
+            blueprint_variant_id(supplied_label),
+            normalise_blueprint_variant_label(supplied_label),
+            VARIANT_INTENT_CREATE_NEW,
+        )
+
+    by_id = {str(row["variant_id"]): row for row in active_lanes}
+    if supplied_intent == VARIANT_INTENT_CREATE_NEW:
+        if not supplied_label:
+            raise Phase9DApprovalError(
+                "Creating a new Blueprint variant requires an explicit label."
+            )
+        resolved_id = blueprint_variant_id(supplied_label)
+        if resolved_id in by_id:
+            raise Phase9DApprovalError(
+                "That Blueprint variant lane already exists. Select update-existing "
+                "intent to supersede only that lane, or provide a new label."
+            )
+        return (
+            resolved_id,
+            normalise_blueprint_variant_label(supplied_label),
+            VARIANT_INTENT_CREATE_NEW,
+        )
+    if supplied_intent == VARIANT_INTENT_UPDATE_EXISTING:
+        if not supplied_id:
+            raise Phase9DApprovalError(
+                "Updating a Blueprint variant requires explicit lane selection."
+            )
+        lane = by_id.get(supplied_id)
+        if lane is None:
+            raise Phase9DApprovalError(
+                "The selected Blueprint variant is not an active lane for this "
+                "role family."
+            )
+        return (
+            str(lane["variant_id"]),
+            str(lane["variant_label"]),
+            VARIANT_INTENT_UPDATE_EXISTING,
+        )
+    raise Phase9DApprovalError(
+        "This role family already has active Blueprint variants. Explicitly choose "
+        "create-new-variant or update-existing-variant intent."
+    )
+
+
 def init_global_blueprint_registry() -> None:
     connection = _connect()
     try:
@@ -176,6 +295,8 @@ def init_global_blueprint_registry() -> None:
                 fingerprint_policy_version TEXT NOT NULL,
                 role_family_id TEXT NOT NULL,
                 role_family_label TEXT NOT NULL,
+                variant_id TEXT NOT NULL DEFAULT 'primary',
+                variant_label TEXT NOT NULL DEFAULT 'Primary',
                 version_number INTEGER NOT NULL,
                 status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
                 candidate_id TEXT NOT NULL,
@@ -201,11 +322,41 @@ def init_global_blueprint_registry() -> None:
             )
             """
         )
+        blueprint_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(global_blueprint_versions)"
+            ).fetchall()
+        }
+        if "variant_id" not in blueprint_columns:
+            connection.execute(
+                "ALTER TABLE global_blueprint_versions "
+                "ADD COLUMN variant_id TEXT NOT NULL DEFAULT 'primary'"
+            )
+        if "variant_label" not in blueprint_columns:
+            connection.execute(
+                "ALTER TABLE global_blueprint_versions "
+                "ADD COLUMN variant_label TEXT NOT NULL DEFAULT 'Primary'"
+            )
+        connection.execute(
+            "DROP INDEX IF EXISTS idx_global_blueprint_one_active"
+        )
         connection.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_global_blueprint_one_active
-            ON global_blueprint_versions (role_family_id)
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_global_blueprint_one_active_variant
+            ON global_blueprint_versions (role_family_id, variant_id)
             WHERE status = 'active'
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_global_blueprint_variant_history
+            ON global_blueprint_versions (
+                role_family_id,
+                variant_id,
+                version_number DESC
+            )
             """
         )
         connection.execute(
@@ -358,6 +509,16 @@ def _row_to_blueprint(row: sqlite3.Row) -> dict[str, Any]:
         ),
         "role_family_id": str(row["role_family_id"]),
         "role_family_label": str(row["role_family_label"]),
+        "variant_id": (
+            str(row["variant_id"] or PRIMARY_BLUEPRINT_VARIANT_ID)
+            if "variant_id" in keys
+            else PRIMARY_BLUEPRINT_VARIANT_ID
+        ),
+        "variant_label": (
+            str(row["variant_label"] or PRIMARY_BLUEPRINT_VARIANT_LABEL)
+            if "variant_label" in keys
+            else PRIMARY_BLUEPRINT_VARIANT_LABEL
+        ),
         "version_number": int(row["version_number"]),
         "status": lifecycle_status,
         "lifecycle_status": lifecycle_status,
@@ -497,6 +658,7 @@ def active_global_blueprints_with_connection(
           AND COALESCE(availability.availability_status, 'available')
               = 'available'
         ORDER BY blueprint.role_family_label ASC,
+                 blueprint.variant_label ASC,
                  blueprint.version_number DESC
         """
     ).fetchall()
@@ -654,6 +816,7 @@ def _insert_audit_event(
     created_at: str,
     event_version: str = PHASE9D_AUDIT_EVENT_VERSION,
     lifecycle_change: dict[str, Any] | None = None,
+    variant_intent: str = "",
 ) -> dict[str, Any]:
     identity = blueprint.get("semantic_identity") or {}
     candidate = identity.get("candidate") or {}
@@ -664,6 +827,13 @@ def _insert_audit_event(
         "event_version": event_version,
         "event_type": event_type,
         "role_family_id": blueprint["role_family_id"],
+        "variant_id": str(
+            blueprint.get("variant_id") or PRIMARY_BLUEPRINT_VARIANT_ID
+        ),
+        "variant_label": str(
+            blueprint.get("variant_label") or PRIMARY_BLUEPRINT_VARIANT_LABEL
+        ),
+        "variant_intent": str(variant_intent or ""),
         "blueprint_id": blueprint["blueprint_id"],
         "blueprint_fingerprint": blueprint["blueprint_fingerprint"],
         "version_number": int(blueprint["version_number"]),
@@ -736,6 +906,9 @@ def approve_persisted_phase9c_evaluation(
     evaluation_id: str,
     evaluation_fingerprint: str,
     provisional_override: dict[str, Any] | None = None,
+    variant_intent: str = "",
+    variant_id: str = "",
+    variant_label: str = "",
     display_name: str = "",
     notes: str = "",
     actor_label: str = "Local user",
@@ -821,14 +994,38 @@ def approve_persisted_phase9c_evaluation(
                     "approval cannot silently restore or reactivate it."
                 )
 
+        if existing is not None:
+            existing_variant_id = str(
+                existing["variant_id"] or PRIMARY_BLUEPRINT_VARIANT_ID
+            )
+            requested_variant_id = existing_variant_id
+            requested_variant_label = str(
+                existing["variant_label"] or PRIMARY_BLUEPRINT_VARIANT_LABEL
+            )
+            resolved_variant_intent = VARIANT_INTENT_EXACT_REUSE
+        else:
+            (
+                requested_variant_id,
+                requested_variant_label,
+                resolved_variant_intent,
+            ) = _resolve_new_blueprint_variant_lane(
+                connection,
+                role_family_id=prepared["role_family_id"],
+                variant_intent=variant_intent,
+                variant_id=variant_id,
+                variant_label=variant_label,
+            )
+
         active = connection.execute(
             """
             SELECT *
             FROM global_blueprint_versions
-            WHERE role_family_id = ? AND status = 'active'
+            WHERE role_family_id = ?
+              AND variant_id = ?
+              AND status = 'active'
             LIMIT 1
             """,
-            (prepared["role_family_id"],),
+            (prepared["role_family_id"], requested_variant_id),
         ).fetchone()
         previous_active_id = str(active["blueprint_id"]) if active else ""
 
@@ -873,6 +1070,8 @@ def approve_persisted_phase9c_evaluation(
                     fingerprint_policy_version,
                     role_family_id,
                     role_family_label,
+                    variant_id,
+                    variant_label,
                     version_number,
                     status,
                     candidate_id,
@@ -895,7 +1094,7 @@ def approve_persisted_phase9c_evaluation(
                     superseded_by_blueprint_id,
                     metadata_updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?
                 )
                 """,
@@ -906,6 +1105,8 @@ def approve_persisted_phase9c_evaluation(
                     PHASE9D_FINGERPRINT_POLICY_VERSION,
                     prepared["role_family_id"],
                     prepared["role_family_label"],
+                    requested_variant_id,
+                    requested_variant_label,
                     next_version,
                     candidate_identity["candidate_id"],
                     candidate_identity["candidate_fingerprint"],
@@ -981,6 +1182,7 @@ def approve_persisted_phase9c_evaluation(
             metadata_change=None,
             actor_label=str(actor_label or "Local user"),
             created_at=approved_at,
+            variant_intent=resolved_variant_intent,
         )
         connection.commit()
         return {
@@ -1048,10 +1250,15 @@ def remove_global_blueprint_from_reuse(
             """
             SELECT blueprint_id
             FROM global_blueprint_versions
-            WHERE role_family_id = ? AND status = 'active'
+            WHERE role_family_id = ?
+              AND variant_id = ?
+              AND status = 'active'
             LIMIT 1
             """,
-            (str(row["role_family_id"]),),
+            (
+                str(row["role_family_id"]),
+                str(row["variant_id"] or PRIMARY_BLUEPRINT_VARIANT_ID),
+            ),
         ).fetchone()
         if active is None or str(active["blueprint_id"]) != blueprint_id:
             raise Phase9DApprovalError(
@@ -1086,7 +1293,7 @@ def remove_global_blueprint_from_reuse(
             validation={
                 "exact_blueprint_identity": True,
                 "lifecycle_active": True,
-                "same_family_active_blueprint_id": blueprint_id,
+                "same_variant_active_blueprint_id": blueprint_id,
                 "availability_before": BLUEPRINT_AVAILABLE,
             },
             metadata_change=None,
@@ -1205,10 +1412,15 @@ def restore_global_blueprint_to_reuse(
             """
             SELECT blueprint_id
             FROM global_blueprint_versions
-            WHERE role_family_id = ? AND status = 'active'
+            WHERE role_family_id = ?
+              AND variant_id = ?
+              AND status = 'active'
             LIMIT 1
             """,
-            (str(row["role_family_id"]),),
+            (
+                str(row["role_family_id"]),
+                str(row["variant_id"] or PRIMARY_BLUEPRINT_VARIANT_ID),
+            ),
         ).fetchone()
         if active is None or str(active["blueprint_id"]) != blueprint_id:
             active_id = str(active["blueprint_id"]) if active else "none"
@@ -1243,7 +1455,7 @@ def restore_global_blueprint_to_reuse(
             validation={
                 "exact_blueprint_identity": True,
                 "lifecycle_active": True,
-                "same_family_active_blueprint_id": blueprint_id,
+                "same_variant_active_blueprint_id": blueprint_id,
                 "availability_before": BLUEPRINT_REMOVED,
             },
             metadata_change=None,
@@ -1324,6 +1536,7 @@ def get_global_blueprint_by_fingerprint(
 
 def get_active_global_blueprint(
     role_family_id: str,
+    variant_id: str = PRIMARY_BLUEPRINT_VARIANT_ID,
 ) -> dict[str, Any] | None:
     init_global_blueprint_registry()
     connection = _connect()
@@ -1332,6 +1545,7 @@ def get_active_global_blueprint(
             _BLUEPRINT_WITH_AVAILABILITY_SELECT
             + """
             WHERE blueprint.role_family_id = ?
+              AND blueprint.variant_id = ?
               AND blueprint.status = 'active'
               AND COALESCE(
                     availability.availability_status,
@@ -1339,7 +1553,10 @@ def get_active_global_blueprint(
                   ) = 'available'
             LIMIT 1
             """,
-            (str(role_family_id),),
+            (
+                str(role_family_id),
+                blueprint_variant_id(variant_id),
+            ),
         ).fetchone()
         return _row_to_blueprint(row) if row is not None else None
     finally:
@@ -1373,6 +1590,7 @@ def list_global_blueprints(
             + f"""
             {where}
             ORDER BY blueprint.role_family_label ASC,
+                     blueprint.variant_label ASC,
                      blueprint.version_number DESC
             """,
             values,
@@ -1402,6 +1620,7 @@ def list_removed_global_blueprints() -> list[dict[str, Any]]:
             + """
             WHERE availability.availability_status = 'removed'
             ORDER BY blueprint.role_family_label ASC,
+                     blueprint.variant_label ASC,
                      blueprint.version_number DESC
             """
         ).fetchall()
@@ -1432,7 +1651,7 @@ def list_active_global_blueprints_read_only() -> list[dict[str, Any]]:
                 """
                 SELECT * FROM global_blueprint_versions
                 WHERE status = 'active'
-                ORDER BY role_family_label ASC, version_number DESC
+                ORDER BY role_family_label ASC, variant_label ASC, version_number DESC
                 """
             ).fetchall()
         return [_row_to_blueprint(row) for row in rows]

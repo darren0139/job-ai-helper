@@ -146,7 +146,9 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
         self.assertEqual(list(app.exception), [])
         self.assertTrue(
             any(
-                "same-family blueprint is recommended" in item.value
+                "same-family" in str(item.value).lower()
+                and "blueprint" in str(item.value).lower()
+                and "recommended" in str(item.value).lower()
                 for item in app.success
             )
         )

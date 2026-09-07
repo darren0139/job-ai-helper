@@ -293,6 +293,137 @@ def _render_completed_phase9b_summary(
         )
 
 
+def completed_phase9c_accounting(
+    evaluation: dict[str, Any],
+) -> dict[str, Any]:
+    """Return read-only v4 sample accounting for the completed lifecycle UI."""
+    aggregate = evaluation.get("aggregate_result") or {}
+    semantic = evaluation.get("semantic_identity") or {}
+    source_scope = evaluation.get("source_jd_parity_scope") or semantic.get(
+        "source_jd_parity_scope"
+    ) or {}
+    source_result = next(
+        (
+            row
+            for row in evaluation.get("per_jd_results", []) or []
+            if isinstance(row, dict) and row.get("is_source_jd") is True
+        ),
+        {},
+    )
+    selected = [
+        row
+        for row in semantic.get("selected_jd_scope", []) or []
+        if isinstance(row, dict)
+    ]
+    counted = [
+        row for row in selected if row.get("aggregate_included") is True
+    ]
+    excluded = [
+        row for row in selected if row.get("selection_decision") == "excluded"
+    ]
+    return {
+        "source_scope": source_scope,
+        "source_result": source_result,
+        "selected_targets": selected,
+        "counted_targets": counted,
+        "excluded_targets": excluded,
+        "effective_sample_size": int(
+            aggregate.get(
+                "counted_target_jd_count",
+                aggregate.get("evaluated_jd_count", 0),
+            )
+            or 0
+        ),
+    }
+
+
+def _render_completed_phase9c_summary(
+    candidate: dict[str, Any],
+    evaluation: dict[str, Any],
+) -> None:
+    """Render persisted cross-JD provenance without reopening Phase 9C."""
+    aggregate = evaluation.get("aggregate_result") or {}
+    accounting = completed_phase9c_accounting(evaluation)
+    source_scope = accounting["source_scope"]
+    source_result = accounting["source_result"]
+    selected = accounting["selected_targets"]
+    counted = accounting["counted_targets"]
+    excluded = accounting["excluded_targets"]
+    candidate_name = _clean(
+        candidate.get("candidate_name") or candidate.get("display_name")
+    ) or "Blueprint candidate"
+    source_job = candidate.get("source_job") or {}
+    source_label = " · ".join(
+        value
+        for value in (
+            _clean(source_job.get("job_title")),
+            _clean(source_job.get("company")),
+        )
+        if value
+    ) or _clean(source_result.get("title")) or "Source JD"
+    with st.expander(
+        "Phase 9C — Cross-JD Evaluation · Complete",
+        expanded=False,
+    ):
+        st.write(f"**{candidate_name}**")
+        st.caption(
+            "The source JD below is immutable parity provenance only. The "
+            "portability sample contains only explicitly selected, eligible "
+            "non-source targets."
+        )
+        st.write("**Source JD / provenance**")
+        st.caption(
+            f"{source_label} · JD "
+            f"{source_scope.get('library_jd_id', source_result.get('library_jd_id', '—'))} "
+            f"· version {_clean(source_scope.get('source_version_id') or source_result.get('source_version_id')) or '—'}"
+        )
+        metrics = st.columns(6)
+        metrics[0].metric("Selected targets", len(selected))
+        metrics[1].metric("Counted targets", len(counted))
+        metrics[2].metric("Excluded targets", len(excluded))
+        metrics[3].metric(
+            "Effective sample", accounting["effective_sample_size"]
+        )
+        metrics[4].metric("Mean score", aggregate.get("mean_score", "—"))
+        metrics[5].metric(
+            "Status",
+            "Provisional" if aggregate.get("provisional") else "Non-provisional",
+        )
+        st.caption(
+            f"Evaluation {_clean(evaluation.get('evaluation_id'))[:12] or '—'} · "
+            f"fingerprint {_clean(evaluation.get('evaluation_fingerprint'))[:12] or '—'}"
+        )
+        if selected:
+            st.write("**Selected target JDs**")
+            st.dataframe(
+                [
+                    {
+                        "JD": row.get("jd_key"),
+                        "Family": row.get("classified_role_family"),
+                        "Counted": "Yes" if row.get("aggregate_included") else "No",
+                        "Decision": row.get("selection_decision"),
+                        "Reason": row.get("selection_reason"),
+                    }
+                    for row in selected
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+        if excluded:
+            st.write("**Excluded target JDs / deterministic reasons**")
+            st.dataframe(
+                [
+                    {
+                        "JD": row.get("jd_key"),
+                        "Reason": row.get("selection_reason"),
+                    }
+                    for row in excluded
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+
 def render_state_aware_blueprint_lifecycle(
     *,
     application_id: int,
@@ -430,6 +561,13 @@ def render_state_aware_blueprint_lifecycle(
                 + " · ".join(source_parts)
             )
         _render_completed_phase9b_summary(lifecycle_candidate)
+        if current_stage in {"phase9d", "phase9e"} and isinstance(
+            state.get("evaluation"), dict
+        ):
+            _render_completed_phase9c_summary(
+                lifecycle_candidate,
+                state["evaluation"],
+            )
 
     if current_stage == "phase9b":
         render_blueprint_candidate_promotion(
@@ -471,20 +609,10 @@ def render_state_aware_blueprint_lifecycle(
                 st.rerun()
     elif current_stage == "phase9d":
         evaluation = state["evaluation"] or {}
-        aggregate = evaluation.get("aggregate_result") or {}
         with st.container(border=True):
             st.success(
                 "The current Phase 9C evaluation is persisted and ready for "
                 "Global Blueprint approval."
-            )
-            metrics = st.columns(3)
-            metrics[0].metric("Mean score", aggregate.get("mean_score", "—"))
-            metrics[1].metric(
-                "Evaluated JDs", aggregate.get("evaluated_jd_count", 0)
-            )
-            metrics[2].metric(
-                "Status",
-                "Provisional" if aggregate.get("provisional") else "Non-provisional",
             )
             if st.button(
                 "Continue to Global Blueprints",

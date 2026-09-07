@@ -34,8 +34,11 @@ from tailoring.phase9b_role_family import (
 
 
 PHASE9C_VERSION = "phase9c-cross-jd-evaluation-v1"
-PHASE9C_POLICY_VERSION = "phase9c-same-family-explicit-scope-v3"
+PHASE9C_POLICY_VERSION = "phase9c-same-family-explicit-scope-v4"
 PHASE9C_EVIDENCE_LINK_VERSION = "phase9c-full-snapshot-evidence-v3"
+PHASE9C_SOURCE_PARITY_SAMPLE_POLICY = (
+    "phase9c-source-parity-outside-target-sample-v1"
+)
 PORTABILITY_PASS_THRESHOLD = 65
 MINIMUM_NON_PROVISIONAL_JDS = 2
 IMPORTANT = {"deal_breaker", "required", "core"}
@@ -414,12 +417,66 @@ def _scope_row(
         **family,
         "selection_decision": decision,
         "selection_reason": reason,
+        "sample_role": "selected_target",
+        "target_sample_membership": True,
+        "aggregate_included": decision == "evaluated",
         "canonical_requirement_fingerprint": _canonical_requirement_fingerprint(canonical),
         "stable_input_fingerprint": _stable_input_fingerprint(candidate, jd),
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
     }
     return row, canonical
+
+
+def _source_parity_scope_row(
+    candidate: dict[str, Any],
+    source_jd: dict[str, Any],
+    canonical: dict[str, Any],
+) -> dict[str, Any]:
+    """Describe the immutable source-parity check outside the target sample."""
+    family = classify_jd_role_family(candidate, source_jd)
+    if family["family_match_status"] != "same":
+        raise Phase9CEvaluationError(
+            "The resolved source JD does not validate as the candidate role family."
+        )
+    return {
+        "jd_key": _jd_key(source_jd),
+        "library_jd_id": source_jd.get("id"),
+        "canonical_jd_id": _clean(source_jd.get("canonical_jd_id")),
+        "source_version_id": _clean(source_jd.get("source_version_id")),
+        "raw_jd_sha256": _text_sha256(source_jd.get("raw_text")),
+        **family,
+        "selection_decision": "source_parity",
+        "selection_reason": "immutable_source_jd_parity",
+        "sample_role": "source_parity",
+        "target_sample_membership": False,
+        "aggregate_included": False,
+        "canonical_requirement_fingerprint": _canonical_requirement_fingerprint(
+            canonical
+        ),
+        "stable_input_fingerprint": _stable_input_fingerprint(
+            candidate, source_jd
+        ),
+        "scoring_version": SCORING_VERSION,
+        "capability_taxonomy_version": get_default_taxonomy().version,
+    }
+
+
+def _is_exact_source_jd(
+    source_jd: dict[str, Any],
+    candidate_jd: dict[str, Any],
+) -> bool:
+    """Match the saved source record without excluding another JD version."""
+    source_id = source_jd.get("id")
+    candidate_id = candidate_jd.get("id")
+    if source_id is not None and candidate_id is not None:
+        return int(source_id) == int(candidate_id)
+    return all(
+        _clean(source_jd.get(field)) == _clean(candidate_jd.get(field))
+        for field in ("canonical_jd_id", "source_version_id")
+    ) and _text_sha256(source_jd.get("raw_text")) == _text_sha256(
+        candidate_jd.get("raw_text")
+    )
 
 
 def preview_selected_scope(
@@ -731,17 +788,22 @@ def aggregate_portability_metrics(
     source_required_core_score: int,
     pass_threshold: int = PORTABILITY_PASS_THRESHOLD,
 ) -> dict[str, Any]:
-    if not per_jd_results:
+    counted_results = [
+        row
+        for row in per_jd_results
+        if row.get("aggregate_included", True) is True
+    ]
+    if not counted_results:
         raise Phase9CEvaluationError("At least one eligible selected JD is required.")
-    scores = [int(row["deterministic_alignment_score"]) for row in per_jd_results]
-    required = [int(row["required_core_coverage_score"]) for row in per_jd_results]
-    preferred = [int(row["preferred_coverage_score"]) for row in per_jd_results]
-    evidence = [int(row["evidence_strength_score"]) for row in per_jd_results]
+    scores = [int(row["deterministic_alignment_score"]) for row in counted_results]
+    required = [int(row["required_core_coverage_score"]) for row in counted_results]
+    preferred = [int(row["preferred_coverage_score"]) for row in counted_results]
+    evidence = [int(row["evidence_strength_score"]) for row in counted_results]
     mean_score = fmean(scores)
     deviation = pstdev(scores) if len(scores) > 1 else 0.0
 
     gap_groups: dict[str, dict[str, Any]] = {}
-    for result in per_jd_results:
+    for result in counted_results:
         for gap in result.get("important_gaps", []) or []:
             key = _normalise(gap.get("text")) or _clean(gap.get("requirement_id"))
             group = gap_groups.setdefault(
@@ -774,7 +836,7 @@ def aggregate_portability_metrics(
                 mean_score - int(row["deterministic_alignment_score"]), 2
             ),
         }
-        for row in per_jd_results
+        for row in counted_results
         if int(row["deterministic_alignment_score"]) < outlier_cutoff
     ]
     outliers.sort(key=lambda row: (row["score"], row["jd_key"]))
@@ -782,6 +844,7 @@ def aggregate_portability_metrics(
     source_denominator = max(1, int(source_required_core_score or 0))
     return {
         "evaluated_jd_count": len(scores),
+        "counted_target_jd_count": len(scores),
         "mean_score": round(mean_score, 2),
         "minimum_score": min(scores),
         "maximum_score": max(scores),
@@ -829,13 +892,18 @@ def evaluate_blueprint_candidate(
         candidate,
         saved_jds_for_source_resolution,
     )
-    source_family = classify_jd_role_family(candidate, source_jd)
-    if source_family["family_match_status"] != "same":
-        raise Phase9CEvaluationError(
-            "The resolved source JD does not validate as the candidate role family."
-        )
     source_canonical = source_identity.pop("canonical")
     source_analysis = _source_analysis(candidate, source_jd, source_canonical)
+    source_scope = _source_parity_scope_row(
+        candidate,
+        source_jd,
+        source_canonical,
+    )
+    if any(_is_exact_source_jd(source_jd, jd) for jd in selected_jds):
+        raise Phase9CEvaluationError(
+            "The source JD is used only for immutable source-parity validation. "
+            "Select one or more other saved JDs as cross-JD targets."
+        )
 
     allowed = {_clean(value) for value in explicitly_allowed_uncertain}
     prepared: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
@@ -888,6 +956,7 @@ def evaluate_blueprint_candidate(
         "minimum_non_provisional_jds": MINIMUM_NON_PROVISIONAL_JDS,
         "different_family_policy": "excluded",
         "uncertain_family_policy": "explicit_inclusion_required",
+        "source_jd_target_sample_policy": PHASE9C_SOURCE_PARITY_SAMPLE_POLICY,
         "retrieval_mode_override": "lexical",
         "model_calls": 0,
         "embedding_calls": 0,
@@ -896,26 +965,27 @@ def evaluate_blueprint_candidate(
         "phase9c_version": PHASE9C_VERSION,
         "candidate": candidate_identity,
         "policy": policy,
+        "source_jd_parity_scope": source_scope,
         "selected_jd_scope": semantic_scope,
     }
     evaluation_fingerprint = _fingerprint(semantic_identity)
 
-    per_jd: list[dict[str, Any]] = []
-    source_key = _jd_key(source_jd)
+    source_result = _per_jd_result(
+        candidate=candidate,
+        jd=source_jd,
+        scope=source_scope,
+        analysis=source_analysis,
+        is_source=True,
+    )
+    per_jd: list[dict[str, Any]] = [source_result]
     for scope, canonical, jd in evaluated_prepared:
-        is_source = scope["jd_key"] == source_key
-        analysis = (
-            source_analysis
-            if is_source
-            else _target_analysis(candidate, jd, canonical)
-        )
         per_jd.append(
             _per_jd_result(
                 candidate=candidate,
                 jd=jd,
                 scope=scope,
-                analysis=analysis,
-                is_source=is_source,
+                analysis=_target_analysis(candidate, jd, canonical),
+                is_source=False,
             )
         )
     aggregate = aggregate_portability_metrics(
@@ -938,6 +1008,8 @@ def evaluate_blueprint_candidate(
         "source_jd_identity": {
             key: value for key, value in source_identity.items() if key != "canonical"
         },
+        "source_jd_parity_scope": source_scope,
+        "source_jd_parity_result": source_result,
         "selected_jd_scope": semantic_scope,
         "excluded_jds": [
             row for row in semantic_scope if row["selection_decision"] == "excluded"

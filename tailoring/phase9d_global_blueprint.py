@@ -175,7 +175,10 @@ def _normalise_replay_result(value: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(value)
     result.pop("evaluation_id", None)
     result.pop("created_at", None)
-    for row in result.get("per_jd_results", []) or []:
+    for row in [
+        *(result.get("per_jd_results", []) or []),
+        result.get("source_jd_parity_result"),
+    ]:
         if isinstance(row, dict):
             row.pop("title", None)
             row.pop("company", None)
@@ -352,7 +355,16 @@ def prepare_global_blueprint_approval(
         ),
         "resume_text_snapshot": str(candidate["resume_text_snapshot"]),
     }
-    stable_provenance = deepcopy(semantic["selected_jd_scope"])
+    source_parity_scope = semantic.get("source_jd_parity_scope")
+    if not isinstance(source_parity_scope, dict):
+        raise Phase9DApprovalError(
+            "The persisted Phase 9C source-parity scope is missing. "
+            "Re-evaluate this candidate under the current Phase 9C policy."
+        )
+    stable_provenance = [
+        deepcopy(source_parity_scope),
+        *deepcopy(semantic["selected_jd_scope"]),
+    ]
     supplied = deepcopy(artifact_provenance)
     artifacts = supplied.get("artifacts") if isinstance(supplied, dict) else None
     if (

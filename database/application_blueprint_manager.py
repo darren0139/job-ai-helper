@@ -268,6 +268,7 @@ def preview_application_blueprint_decision(
             "The application has no exact persisted JD version link."
         )
     active_blueprints = _active_blueprints()
+    historical_id = ""
     if isinstance(historical_bound_blueprint, dict):
         historical_id = str(
             historical_bound_blueprint.get("blueprint_id") or ""
@@ -286,6 +287,7 @@ def preview_application_blueprint_decision(
         selected_blueprint_id=selected_blueprint_id,
         selection_mode=selection_mode,
         mismatch_acknowledged=mismatch_acknowledged,
+        historical_bound_blueprint_id=historical_id,
     )
 
 
