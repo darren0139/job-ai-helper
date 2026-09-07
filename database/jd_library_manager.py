@@ -31,6 +31,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        LIMIT 1
+        """,
+        (str(table_name),),
+    )
+    return cursor.fetchone() is not None
+
+
 def _column_exists(cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
     cursor.execute(f"PRAGMA table_info({table_name})")
     return column_name in {str(row[1]) for row in cursor.fetchall()}
@@ -163,6 +176,33 @@ def _create_schema(cursor: sqlite3.Cursor) -> None:
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS job_description_version_availability (
+            job_description_id INTEGER NOT NULL,
+            source_version_id TEXT NOT NULL,
+            availability_status TEXT NOT NULL
+                CHECK (availability_status IN ('available', 'archived')),
+            archived_at TEXT,
+            archived_by TEXT,
+            archive_reason TEXT NOT NULL DEFAULT '',
+            restored_at TEXT,
+            restored_by TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (job_description_id, source_version_id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_jd_version_availability_status
+        ON job_description_version_availability (
+            availability_status,
+            updated_at DESC
+        )
+        """
+    )
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS application_job_links (
             application_id INTEGER PRIMARY KEY,
             job_description_id INTEGER NOT NULL,
@@ -232,8 +272,18 @@ def _upsert_version(
     return not existed
 
 
-def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
-    """Convert legacy one-row-per-session data into canonical rows and links."""
+def _backfill_legacy_rows(
+    cursor: sqlite3.Cursor,
+    *,
+    migrate_legacy_application_links: bool,
+) -> None:
+    """Convert legacy rows while keeping the link table authoritative.
+
+    ``job_descriptions.application_id`` is a compatibility field. It may seed
+    ``application_job_links`` only when that table did not exist before schema
+    creation. Once the link table exists, deleted/unlinked relationships must
+    never be recreated from the legacy column.
+    """
     cursor.execute(
         """
         SELECT *
@@ -290,7 +340,7 @@ def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
         )
 
         application_id = row["application_id"]
-        if application_id is not None:
+        if migrate_legacy_application_links and application_id is not None:
             cursor.execute(
                 """
                 INSERT INTO application_job_links (
@@ -377,14 +427,15 @@ def _backfill_legacy_rows(cursor: sqlite3.Cursor) -> None:
 def _repair_missing_version_identity_profiles(
     cursor: sqlite3.Cursor,
 ) -> None:
-    """Repair old version profiles that omitted title/company identity.
-
-    Older saves could build the canonical row with fallback identity values such
-    as "Unknown Company" while persisting the original blank parsed profile in
-    job_description_versions. Exact-session reconstruction then failed closed.
-    Only versions missing title or company are repaired; requirements and all
-    other parsed profile fields are preserved.
-    """
+    # Reconcile exact-version identity metadata to the canonical JD row.
+    #
+    # job_descriptions owns canonical company/title/location. Older exact
+    # version profiles can contain blank or stale non-empty identity metadata,
+    # which makes exact saved-JD reconstruction fail closed.
+    #
+    # Repair only direct identity metadata. Requirements, skills,
+    # responsibilities, raw text, source-version IDs, archive state, and
+    # Application Session links remain unchanged.
     cursor.execute(
         """
         SELECT
@@ -401,20 +452,30 @@ def _repair_missing_version_identity_profiles(
 
     for row in cursor.fetchall():
         profile = _safe_json_loads(row["jd_profile_json"])
-        title = str(
+
+        profile_title = str(
             profile.get("job_title") or profile.get("title") or ""
         ).strip()
-        company = str(
+        profile_company = str(
             profile.get("company") or profile.get("company_name") or ""
         ).strip()
-        if title and company:
-            continue
 
-        resolved_title = str(row["title"] or title or "Untitled Job").strip()
+        resolved_title = str(
+            row["title"] or profile_title or "Untitled Job"
+        ).strip()
         resolved_company = str(
-            row["company"] or company or "Unknown Company"
+            row["company"] or profile_company or "Unknown Company"
         ).strip()
         resolved_location = str(row["location"] or "").strip()
+
+        if (
+            str(profile.get("job_title") or "").strip() == resolved_title
+            and str(profile.get("company") or "").strip() == resolved_company
+            and str(profile.get("location") or "").strip()
+            == resolved_location
+        ):
+            continue
+
         resolved_profile = _resolved_jd_profile_identity(
             profile,
             title=resolved_title,
@@ -439,8 +500,15 @@ def init_jd_library() -> None:
     connection = _connect()
     try:
         cursor = connection.cursor()
+        had_application_job_links = _table_exists(
+            cursor,
+            "application_job_links",
+        )
         _create_schema(cursor)
-        _backfill_legacy_rows(cursor)
+        _backfill_legacy_rows(
+            cursor,
+            migrate_legacy_application_links=not had_application_job_links,
+        )
         _repair_missing_version_identity_profiles(cursor)
         cursor.execute(
             """
@@ -495,6 +563,13 @@ def _delete_orphaned_job(cursor: sqlite3.Cursor, job_description_id: int) -> dic
     remaining_count = int(cursor.fetchone()["count"])
 
     if remaining_count == 0 and source_type != "jd_library":
+        cursor.execute(
+            """
+            DELETE FROM job_description_version_availability
+            WHERE job_description_id = ?
+            """,
+            (job_description_id,),
+        )
         cursor.execute(
             "DELETE FROM job_description_versions WHERE job_description_id = ?",
             (job_description_id,),
@@ -1275,6 +1350,13 @@ def delete_job_description(jd_id: int) -> None:
             (jd_id,),
         )
         cursor.execute(
+            """
+            DELETE FROM job_description_version_availability
+            WHERE job_description_id = ?
+            """,
+            (jd_id,),
+        )
+        cursor.execute(
             "DELETE FROM job_description_versions WHERE job_description_id = ?",
             (jd_id,),
         )
@@ -1330,29 +1412,585 @@ def delete_job_description_by_application_id(application_id: int) -> None:
     unlink_job_description_from_application(application_id)
 
 
-def get_job_description_versions(jd_id: int) -> list[dict[str, Any]]:
-    """Return stored source versions for one canonical JD, newest first."""
+def get_job_description_versions(
+    jd_id: int,
+    *,
+    include_archived: bool = False,
+) -> list[dict[str, Any]]:
+    """Return stored exact versions newest-first.
+
+    Archived rows are hidden from normal reuse by default. Callers resolving a
+    historical Application Session should continue using the exact-version
+    resolvers, which intentionally ignore this availability projection.
+    """
     connection = _connect()
     try:
         cursor = connection.cursor()
         cursor.execute(
             """
-            SELECT source_version_id, raw_text, jd_profile_json, created_at
-            FROM job_description_versions
-            WHERE job_description_id = ?
-            ORDER BY created_at DESC, id DESC
+            SELECT
+                version.source_version_id,
+                version.raw_text,
+                version.jd_profile_json,
+                version.created_at,
+                COALESCE(
+                    availability.availability_status,
+                    'available'
+                ) AS availability_status,
+                COALESCE(availability.archived_at, '') AS archived_at,
+                COALESCE(availability.archived_by, '') AS archived_by,
+                COALESCE(availability.archive_reason, '') AS archive_reason,
+                COALESCE(availability.restored_at, '') AS restored_at,
+                COALESCE(availability.restored_by, '') AS restored_by,
+                COALESCE(availability.updated_at, '') AS availability_updated_at
+            FROM job_description_versions AS version
+            LEFT JOIN job_description_version_availability AS availability
+              ON availability.job_description_id = version.job_description_id
+             AND availability.source_version_id = version.source_version_id
+            WHERE version.job_description_id = ?
+              AND (
+                    ? = 1
+                    OR COALESCE(
+                        availability.availability_status,
+                        'available'
+                    ) = 'available'
+              )
+            ORDER BY version.created_at DESC, version.id DESC
             """,
-            (jd_id,),
+            (int(jd_id), 1 if include_archived else 0),
         )
         return [
             {
-                "source_version_id": row["source_version_id"],
-                "raw_text": row["raw_text"],
+                "source_version_id": str(row["source_version_id"] or ""),
+                "raw_text": str(row["raw_text"] or ""),
                 "jd_profile": _safe_json_loads(row["jd_profile_json"]),
-                "created_at": row["created_at"],
+                "created_at": str(row["created_at"] or ""),
+                "availability_status": str(
+                    row["availability_status"] or "available"
+                ),
+                "is_archived": (
+                    str(row["availability_status"] or "") == "archived"
+                ),
+                "archived_at": str(row["archived_at"] or ""),
+                "archived_by": str(row["archived_by"] or ""),
+                "archive_reason": str(row["archive_reason"] or ""),
+                "restored_at": str(row["restored_at"] or ""),
+                "restored_by": str(row["restored_by"] or ""),
+                "availability_updated_at": str(
+                    row["availability_updated_at"] or ""
+                ),
             }
             for row in cursor.fetchall()
         ]
+    finally:
+        connection.close()
+
+
+def _version_reference_count(
+    cursor: sqlite3.Cursor,
+    *,
+    jd_id: int,
+    source_version_id: str,
+) -> int:
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM application_job_links
+        WHERE job_description_id = ? AND source_version_id = ?
+        """,
+        (int(jd_id), str(source_version_id)),
+    )
+    return int(cursor.fetchone()["count"])
+
+
+def _latest_available_version(
+    cursor: sqlite3.Cursor,
+    *,
+    jd_id: int,
+    excluding_source_version_id: str = "",
+) -> sqlite3.Row | None:
+    cursor.execute(
+        """
+        SELECT
+            version.source_version_id,
+            version.raw_text,
+            version.jd_profile_json,
+            version.created_at
+        FROM job_description_versions AS version
+        LEFT JOIN job_description_version_availability AS availability
+          ON availability.job_description_id = version.job_description_id
+         AND availability.source_version_id = version.source_version_id
+        WHERE version.job_description_id = ?
+          AND version.source_version_id != ?
+          AND COALESCE(
+                availability.availability_status,
+                'available'
+              ) = 'available'
+        ORDER BY version.created_at DESC, version.id DESC
+        LIMIT 1
+        """,
+        (int(jd_id), str(excluding_source_version_id or "")),
+    )
+    return cursor.fetchone()
+
+
+def _promote_canonical_version(
+    cursor: sqlite3.Cursor,
+    *,
+    jd_id: int,
+    version: sqlite3.Row,
+) -> None:
+    now = _now()
+    cursor.execute(
+        """
+        UPDATE job_descriptions
+        SET raw_text = ?,
+            jd_profile_json = ?,
+            source_version_id = ?,
+            last_seen_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            str(version["raw_text"] or ""),
+            str(version["jd_profile_json"] or ""),
+            str(version["source_version_id"] or ""),
+            now,
+            now,
+            int(jd_id),
+        ),
+    )
+
+
+def archive_job_description_version(
+    jd_id: int,
+    source_version_id: str,
+    *,
+    reason: str = "",
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Hide one exact version from normal reuse without deleting history."""
+    init_jd_library()
+    jd_id = int(jd_id)
+    source_version_id = str(source_version_id or "").strip()
+    if jd_id <= 0 or not source_version_id:
+        raise ValueError(
+            "A canonical JD ID and exact source-version ID are required."
+        )
+
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            """
+            SELECT
+                version.source_version_id,
+                jd.source_version_id AS canonical_source_version_id,
+                COALESCE(
+                    availability.availability_status,
+                    'available'
+                ) AS availability_status
+            FROM job_description_versions AS version
+            JOIN job_descriptions AS jd
+              ON jd.id = version.job_description_id
+            LEFT JOIN job_description_version_availability AS availability
+              ON availability.job_description_id = version.job_description_id
+             AND availability.source_version_id = version.source_version_id
+            WHERE version.job_description_id = ?
+              AND version.source_version_id = ?
+            LIMIT 1
+            """,
+            (jd_id, source_version_id),
+        )
+        target = cursor.fetchone()
+        if target is None:
+            raise ValueError("The exact JD version was not found.")
+
+        if str(target["availability_status"] or "") == "archived":
+            connection.rollback()
+            return {
+                "status": "already_archived",
+                "job_description_id": jd_id,
+                "source_version_id": source_version_id,
+                "needs_chroma_reindex": False,
+            }
+
+        replacement = _latest_available_version(
+            cursor,
+            jd_id=jd_id,
+            excluding_source_version_id=source_version_id,
+        )
+        if replacement is None:
+            raise ValueError(
+                "Cannot archive the last available exact JD version. "
+                "Keep at least one normal version selectable."
+            )
+
+        now = _now()
+        cursor.execute(
+            """
+            INSERT INTO job_description_version_availability (
+                job_description_id,
+                source_version_id,
+                availability_status,
+                archived_at,
+                archived_by,
+                archive_reason,
+                restored_at,
+                restored_by,
+                updated_at
+            )
+            VALUES (?, ?, 'archived', ?, ?, ?, NULL, NULL, ?)
+            ON CONFLICT(job_description_id, source_version_id) DO UPDATE SET
+                availability_status = 'archived',
+                archived_at = excluded.archived_at,
+                archived_by = excluded.archived_by,
+                archive_reason = excluded.archive_reason,
+                restored_at = NULL,
+                restored_by = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (
+                jd_id,
+                source_version_id,
+                now,
+                str(actor_label or "Local user").strip() or "Local user",
+                str(reason or "").strip(),
+                now,
+            ),
+        )
+
+        was_canonical = (
+            str(target["canonical_source_version_id"] or "")
+            == source_version_id
+        )
+        if was_canonical:
+            _promote_canonical_version(
+                cursor,
+                jd_id=jd_id,
+                version=replacement,
+            )
+
+        reference_count = _version_reference_count(
+            cursor,
+            jd_id=jd_id,
+            source_version_id=source_version_id,
+        )
+        connection.commit()
+        return {
+            "status": "archived",
+            "job_description_id": jd_id,
+            "source_version_id": source_version_id,
+            "archived_at": now,
+            "linked_application_count": reference_count,
+            "needs_chroma_reindex": was_canonical,
+            "promoted_source_version_id": (
+                str(replacement["source_version_id"] or "")
+                if was_canonical
+                else ""
+            ),
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def restore_job_description_version(
+    jd_id: int,
+    source_version_id: str,
+    *,
+    actor_label: str = "Local user",
+) -> dict[str, Any]:
+    """Restore an archived exact version to the normal Tailor Resume picker."""
+    init_jd_library()
+    jd_id = int(jd_id)
+    source_version_id = str(source_version_id or "").strip()
+    if jd_id <= 0 or not source_version_id:
+        raise ValueError(
+            "A canonical JD ID and exact source-version ID are required."
+        )
+
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            """
+            SELECT 1
+            FROM job_description_versions
+            WHERE job_description_id = ? AND source_version_id = ?
+            LIMIT 1
+            """,
+            (jd_id, source_version_id),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError("The exact JD version was not found.")
+
+        cursor.execute(
+            """
+            SELECT availability_status
+            FROM job_description_version_availability
+            WHERE job_description_id = ? AND source_version_id = ?
+            LIMIT 1
+            """,
+            (jd_id, source_version_id),
+        )
+        current = cursor.fetchone()
+        if current is None or str(current["availability_status"]) == "available":
+            connection.rollback()
+            return {
+                "status": "already_available",
+                "job_description_id": jd_id,
+                "source_version_id": source_version_id,
+            }
+
+        now = _now()
+        cursor.execute(
+            """
+            UPDATE job_description_version_availability
+            SET availability_status = 'available',
+                restored_at = ?,
+                restored_by = ?,
+                updated_at = ?
+            WHERE job_description_id = ? AND source_version_id = ?
+            """,
+            (
+                now,
+                str(actor_label or "Local user").strip() or "Local user",
+                now,
+                jd_id,
+                source_version_id,
+            ),
+        )
+        connection.commit()
+        return {
+            "status": "restored",
+            "job_description_id": jd_id,
+            "source_version_id": source_version_id,
+            "restored_at": now,
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def get_jd_library_cleanup_preview() -> dict[str, Any]:
+    """Return read-only cleanup candidates; nothing is deleted here."""
+    init_jd_library()
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT
+                version.job_description_id,
+                version.source_version_id,
+                version.created_at,
+                jd.company,
+                jd.title,
+                COALESCE(availability.archive_reason, '') AS archive_reason,
+                (
+                    SELECT COUNT(*)
+                    FROM application_job_links AS link
+                    WHERE link.job_description_id = version.job_description_id
+                      AND link.source_version_id = version.source_version_id
+                ) AS linked_application_count,
+                CASE
+                    WHEN jd.source_version_id = version.source_version_id
+                    THEN 1 ELSE 0
+                END AS is_canonical_current
+            FROM job_description_versions AS version
+            JOIN job_descriptions AS jd
+              ON jd.id = version.job_description_id
+            JOIN job_description_version_availability AS availability
+              ON availability.job_description_id = version.job_description_id
+             AND availability.source_version_id = version.source_version_id
+            WHERE availability.availability_status = 'archived'
+            ORDER BY version.created_at ASC, version.id ASC
+            """
+        )
+        archived = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute(
+            """
+            SELECT
+                jd.id AS job_description_id,
+                jd.canonical_jd_id,
+                jd.company,
+                jd.title,
+                COALESCE(jd.last_seen_at, jd.updated_at, jd.created_at) AS seen_at,
+                COUNT(version.id) AS version_count
+            FROM job_descriptions AS jd
+            LEFT JOIN application_job_links AS link
+              ON link.job_description_id = jd.id
+            JOIN job_description_versions AS version
+              ON version.job_description_id = jd.id
+            WHERE jd.source_type = 'jd_library'
+            GROUP BY jd.id
+            HAVING COUNT(DISTINCT link.application_id) = 0
+            ORDER BY seen_at ASC, jd.id ASC
+            """
+        )
+        unlinked_saved_jobs = [dict(row) for row in cursor.fetchall()]
+
+        purgeable = [
+            row
+            for row in archived
+            if int(row.get("linked_application_count") or 0) == 0
+            and not bool(row.get("is_canonical_current"))
+        ]
+        protected = [
+            row
+            for row in archived
+            if row not in purgeable
+        ]
+        return {
+            "archived_versions": archived,
+            "purgeable_archived_versions": purgeable,
+            "protected_archived_versions": protected,
+            "unlinked_saved_jobs": unlinked_saved_jobs,
+            "archived_version_count": len(archived),
+            "purgeable_archived_version_count": len(purgeable),
+            "protected_archived_version_count": len(protected),
+            "unlinked_saved_job_count": len(unlinked_saved_jobs),
+        }
+    finally:
+        connection.close()
+
+
+def purge_unreferenced_archived_job_description_versions() -> dict[str, Any]:
+    """Hard-delete archived versions that no Application Session references."""
+    init_jd_library()
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            """
+            SELECT
+                version.job_description_id,
+                version.source_version_id
+            FROM job_description_versions AS version
+            JOIN job_descriptions AS jd
+              ON jd.id = version.job_description_id
+            JOIN job_description_version_availability AS availability
+              ON availability.job_description_id = version.job_description_id
+             AND availability.source_version_id = version.source_version_id
+            WHERE availability.availability_status = 'archived'
+              AND jd.source_version_id != version.source_version_id
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM application_job_links AS link
+                    WHERE link.job_description_id = version.job_description_id
+                      AND link.source_version_id = version.source_version_id
+              )
+            ORDER BY version.job_description_id, version.source_version_id
+            """
+        )
+        targets = [dict(row) for row in cursor.fetchall()]
+        for row in targets:
+            cursor.execute(
+                """
+                DELETE FROM job_description_version_availability
+                WHERE job_description_id = ? AND source_version_id = ?
+                """,
+                (
+                    int(row["job_description_id"]),
+                    str(row["source_version_id"]),
+                ),
+            )
+            cursor.execute(
+                """
+                DELETE FROM job_description_versions
+                WHERE job_description_id = ? AND source_version_id = ?
+                """,
+                (
+                    int(row["job_description_id"]),
+                    str(row["source_version_id"]),
+                ),
+            )
+        connection.commit()
+        return {
+            "purged_version_count": len(targets),
+            "purged_versions": targets,
+        }
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def delete_unlinked_saved_job_description(jd_id: int) -> dict[str, Any]:
+    """Delete one explicitly saved JD only when no Application Session uses it."""
+    init_jd_library()
+    jd_id = int(jd_id)
+    if jd_id <= 0:
+        raise ValueError("A canonical JD ID is required.")
+
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            """
+            SELECT canonical_jd_id, source_type
+            FROM job_descriptions
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (jd_id,),
+        )
+        job = cursor.fetchone()
+        if job is None:
+            raise ValueError("The saved JD was not found.")
+        if str(job["source_type"] or "") != "jd_library":
+            raise ValueError(
+                "Only explicitly saved JD Library rows can be removed by "
+                "library cleanup."
+            )
+
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM application_job_links
+            WHERE job_description_id = ?
+            """,
+            (jd_id,),
+        )
+        link_count = int(cursor.fetchone()["count"])
+        if link_count:
+            raise ValueError(
+                "This saved JD is still referenced by one or more "
+                "Application Sessions."
+            )
+
+        cursor.execute(
+            """
+            DELETE FROM job_description_version_availability
+            WHERE job_description_id = ?
+            """,
+            (jd_id,),
+        )
+        cursor.execute(
+            "DELETE FROM job_description_versions WHERE job_description_id = ?",
+            (jd_id,),
+        )
+        cursor.execute("DELETE FROM job_descriptions WHERE id = ?", (jd_id,))
+        connection.commit()
+        return {
+            "status": "deleted",
+            "job_description_id": jd_id,
+            "canonical_jd_id": str(job["canonical_jd_id"] or ""),
+        }
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
