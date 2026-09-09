@@ -689,6 +689,18 @@ def _load_candidate(
     return candidate
 
 
+def get_persisted_blueprint_candidate(candidate_id: str) -> dict[str, Any]:
+    """Load one persisted Phase 9B candidate read-only for UI diagnostics."""
+    candidate_id = str(candidate_id or "").strip()
+    if not candidate_id:
+        raise Phase9DApprovalError("A persisted Phase 9B candidate ID is required.")
+    connection = _connect()
+    try:
+        return _load_candidate(connection, candidate_id)
+    finally:
+        connection.close()
+
+
 def _load_evaluation(
     connection: sqlite3.Connection,
     evaluation_id: str,

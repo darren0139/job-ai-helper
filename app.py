@@ -231,6 +231,9 @@ from tailoring.phase9c_blueprint_evaluation_ui import (
 from tailoring.phase9d_global_blueprint_ui import (
     render_phase9d_global_blueprints,
 )
+from tailoring.blueprint_tag_library_ui import (
+    render_blueprint_tag_library,
+)
 from tailoring.phase9e_blueprint_selection_ui import (
     render_phase9e_blueprint_selection,
 )
@@ -2339,6 +2342,7 @@ with st.sidebar:
             "Tailor Resume",
             "Application Sessions",
             "Blueprint Library",
+            "Tag Library",
             "Profile & Evidence",
             "Job Market Insights",
         ],
@@ -2663,6 +2667,11 @@ with st.sidebar:
         st.subheader("Blueprint Library")
         st.caption(
             "Approve and inspect immutable reusable role-family blueprint versions."
+        )
+    elif page == "Tag Library":
+        st.subheader("Tag Library")
+        st.caption(
+            "Manage Blueprint tag vocabulary and lane-tag metadata."
         )
     else:
         st.subheader("Profile & Evidence")
@@ -8295,6 +8304,10 @@ elif page == "Blueprint Library":
     render_phase9d_global_blueprints(
         current_application_id=global_blueprint_application_id
     )
+
+elif page == "Tag Library":
+    st.divider()
+    render_blueprint_tag_library()
 
 elif page == "Job Market Insights":
     # ---------------------------------------------------------------------------
