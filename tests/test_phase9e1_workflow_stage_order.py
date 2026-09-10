@@ -15,34 +15,41 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Phase9E1WorkflowStageOrderTests(unittest.TestCase):
-    def test_main_flow_is_generate_fit_approve_verify_lifecycle(self) -> None:
+    def test_main_flow_is_generate_fit_verify_approve_lifecycle(self) -> None:
         text = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
         flow = text[text.index('st.header("Tailor Résumé Content")'):]
 
         tailor = flow.index('st.header("Tailor Résumé Content")')
         build = flow.index('st.subheader("Build and Fit Résumé Document")')
-        approve = flow.index('st.subheader("Approve and Verify Résumé")')
-        controls = flow.index("render_tailoring_generation_controls(", approve)
-        phase8 = flow.index("render_phase8_verification(", controls)
+        verify_approve = flow.index(
+            'st.subheader("Verify and Approve Résumé")'
+        )
+        phase8 = flow.index("render_phase8_verification(", verify_approve)
+        controls = flow.index("render_tailoring_generation_controls(", phase8)
         lifecycle = flow.index(
             "render_state_aware_blueprint_lifecycle(",
-            phase8,
+            controls,
         )
 
         self.assertLess(tailor, build)
-        self.assertLess(build, approve)
-        self.assertLess(approve, controls)
-        self.assertLess(controls, phase8)
-        self.assertLess(phase8, lifecycle)
+        self.assertLess(build, verify_approve)
+        self.assertLess(verify_approve, phase8)
+        self.assertLess(phase8, controls)
+        self.assertLess(controls, lifecycle)
 
-    def test_approval_panel_is_gated_by_fitted_output(self) -> None:
+    def test_approval_panel_is_gated_by_fitted_and_verified_output(self) -> None:
         text = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
         flow = text[text.index('st.subheader("Build and Fit Résumé Document")'):]
         self.assertIn("has_fitted_output", flow)
         self.assertIn(
-            "Generate and fit the résumé document before approving",
+            '"Generate and fit the résumé document before running "',
             flow,
         )
+        self.assertIn(
+            '"Phase 8 or approving."',
+            flow,
+        )
+        self.assertIn("require_phase8_before_approval=True", flow)
 
     @patch(
         "tailoring.phase9e1_blueprint_lifecycle_ui."

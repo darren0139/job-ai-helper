@@ -16,6 +16,9 @@ from database.tailoring_verification_manager import (
     get_latest_tailoring_verification,
     save_tailoring_verification,
 )
+from tailoring.tailoring_generation_fingerprint import (
+    generation_matches_phase9e_binding,
+)
 from tailoring.phase8_verification import (
     build_phase8_verification,
     refresh_phase8_readiness,
@@ -175,11 +178,20 @@ def _render_result(result: dict[str, Any]) -> None:
             "Blueprint readiness: Passed. This approved one-page version "
             "maintained or improved alignment without detected evidence loss."
         )
+    elif result.get("approval_ready"):
+        st.success(
+            "Phase 8 pre-approval verification: Passed. This exact fitted "
+            "version is ready for approval."
+        )
+        st.caption(
+            "Blueprint readiness will become complete after this exact "
+            "verified version is approved."
+        )
     else:
         st.caption(
-            "Blueprint readiness has not passed every Phase 8 gate."
+            "Phase 8 approval readiness has not passed every verification gate."
         )
-        st.json(result.get("blueprint_readiness_reasons", {}))
+        st.json(result.get("approval_readiness_reasons", {}))
 
     improved = comparison.get("improved_requirements", []) or []
     regressed = comparison.get("regressed_requirements", []) or []
@@ -246,6 +258,8 @@ def render_phase8_verification(
     baseline_report: dict[str, Any],
     raw_jd_text: str,
     phase9f_execution: dict[str, Any] | None = None,
+    required_phase9e_binding: dict[str, Any] | None = None,
+    preferred_generation_id: str = "",
 ) -> None:
     st.divider()
     st.subheader("Phase 8 — Final Tailored Résumé Verification")
@@ -260,6 +274,13 @@ def render_phase8_verification(
         for state in versions
         if isinstance(state.get("fit_result"), dict)
         and is_phase9f_normal_generation_approvable(state)
+        and (
+            not required_phase9e_binding
+            or generation_matches_phase9e_binding(
+                state,
+                required_phase9e_binding,
+            )
+        )
     ]
     phase9f_generation_id = str(
         (phase9f_execution or {}).get("generation_id") or ""
@@ -267,16 +288,9 @@ def render_phase8_verification(
     phase9f_legacy_private = _phase9f_execution_uses_legacy_private_stages(
         phase9f_execution
     )
-    # A normal F lifecycle generation becomes eligible for Phase 8 only
-    # after the ordinary Application Session approval has selected it.  The
-    # F ledger validates that approval's immutable context; it does not add a
-    # parallel approval path.
-    if phase9f_execution and not phase9f_legacy_private:
-        eligible = [
-            state
-            for state in eligible
-            if str(state.get("status") or "") == "approved"
-        ]
+    # Normal F lifecycle generations are verified while still Drafts.
+    # Historical private-stage F rows keep their old approval-first behavior
+    # below so persisted legacy sessions remain recoverable.
     if phase9f_generation_id and phase9f_legacy_private:
         eligible = [
             state
@@ -296,11 +310,14 @@ def render_phase8_verification(
         if isinstance(approved, dict)
         else ""
     )
+    preferred_id = str(preferred_generation_id or "").strip()
+    default_generation_id = preferred_id or approved_id
     default_index = next(
         (
             index
             for index, state in enumerate(eligible)
-            if str(state.get("generation_id") or "") == approved_id
+            if str(state.get("generation_id") or "")
+            == default_generation_id
         ),
         0,
     )

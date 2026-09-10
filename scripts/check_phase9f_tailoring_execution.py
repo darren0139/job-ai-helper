@@ -16,8 +16,15 @@ from database import (
 )
 import database.phase9f_tailoring_execution_manager as execution_manager
 from database.tailoring_generation_control import approve_tailoring_generation
+from database.tailoring_verification_manager import (
+    get_latest_tailoring_verification,
+)
 from tests.phase9f_d_test_support import configure_database
 from tests.phase9f_e_test_support import create_d_reuse_session
+from tailoring.phase8_verification import (
+    PHASE8_PREAPPROVAL_GATE_VERSION,
+    build_phase8_generation_snapshot_fingerprint,
+)
 from tailoring.phase9f_tailoring_execution import (
     PHASE9F_F_SECTION_SCOPE_POLICY_VERSION,
 )
@@ -166,22 +173,25 @@ def main() -> None:
                 assert fitted["generation_settings"]["phase9f_f_normal_lifecycle"][
                     "fit"
                 ]["settings"]["page_density_mode"] == "maximize"
-                approve_tailoring_generation(
-                    application_id, fitted["generation_id"]
-                )
+                # PHASE9F_F_SMOKE_PREAPPROVAL_LIFECYCLE_V1
                 baseline = execution_manager._prepare_frozen_phase8_context(
                     execution_manager.get_phase9f_tailoring_execution(application_id)
                 )["baseline_report"]
                 phase8_result = {
                     "phase8_version": execution_manager.PHASE8_VERIFICATION_VERSION,
                     "verification_fingerprint": "9" * 64,
+                    "verified_generation_snapshot_fingerprint": (
+                        build_phase8_generation_snapshot_fingerprint(fitted)
+                    ),
+                    "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
                     "application_id": application_id,
                     "generation_id": fitted["generation_id"],
-                    "generation_status": "approved",
+                    "generation_status": "draft",
                     "comparison_valid": True,
                     "fit_one_page": True,
                     "page_count": 1,
-                    "blueprint_ready": True,
+                    "approval_ready": True,
+                    "blueprint_ready": False,
                     "verdict": "maintained",
                     "before_stable_analysis": copy.deepcopy(
                         baseline["stable_analysis"]
@@ -192,10 +202,37 @@ def main() -> None:
                     "build_phase8_verification",
                     return_value=phase8_result,
                 ):
-                    completed = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
-                        application_id=application_id,
-                        generation_id=fitted["generation_id"],
+                    preapproval = (
+                        execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
+                            application_id=application_id,
+                            generation_id=fitted["generation_id"],
+                        )
                     )
+
+                assert preapproval["execution"]["status"] == "waiting_for_approval"
+                assert preapproval["verification"]["approval_ready"] is True
+                assert preapproval["verification"]["blueprint_ready"] is False
+                assert preapproval["verification"]["generation_status"] == "draft"
+
+                approve_tailoring_generation(
+                    application_id, fitted["generation_id"]
+                )
+                completed_execution = (
+                    execution_manager.reconcile_phase9f_tailoring_approval(
+                        application_id=application_id
+                    )
+                )
+                completed = {
+                    "execution": completed_execution,
+                    "verification": get_latest_tailoring_verification(
+                        application_id,
+                        fitted["generation_id"],
+                    ),
+                }
+                assert completed["execution"]["status"] == "completed"
+                assert completed["verification"]["blueprint_ready"] is True
+                assert completed["verification"]["generation_status"] == "approved"
+
                 repeated = execution_manager.run_phase9f_normal_generation(
                     application_id=application_id,
                     projects_writer=projects_writer,
@@ -224,7 +261,8 @@ def main() -> None:
             assert draft_count == 1
             print(
                 "Phase 9F-F smoke PASS: executions=1 drafts=1 approved=yes "
-                "phase8=completed fitted_one_page=yes protected_sections=yes "
+                "phase8=preapproval_then_approved fitted_one_page=yes "
+                "protected_sections=yes "
                 "mock_projects=1 mock_skills=1 mock_fit=1 model_calls=0 "
                 "embedding_calls=0 chroma_reads=0 chroma_writes=0 exact_reuse=yes"
             )

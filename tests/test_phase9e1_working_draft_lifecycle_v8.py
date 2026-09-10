@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tailoring.phase9e1_blueprint_lifecycle_ui import (
     build_working_draft_lifecycle_summary,
+    build_working_draft_next_action_message,
 )
 from tailoring.phase9e1_resume_workspace_ui import (
     should_clear_phase9e_session_state,
@@ -58,7 +59,36 @@ class Phase9E1WorkingDraftLifecycleV8Tests(unittest.TestCase):
         )
         self.assertEqual(
             summary["current_title"],
-            "Approve and Verify Working Draft",
+            "Verify and Approve Working Draft",
+        )
+
+    def test_working_draft_next_action_tracks_phase8_gate(self) -> None:
+        generation = {"generation_id": "4196a915", "status": "draft"}
+
+        before = build_working_draft_next_action_message(
+            generation,
+            phase8_ready=False,
+        )
+        after = build_working_draft_next_action_message(
+            generation,
+            phase8_ready=True,
+        )
+
+        self.assertIn("run Phase 8 on working draft", before)
+        self.assertIn("then approve that exact verified draft", before)
+        self.assertLess(before.index("run Phase 8"), before.index("approve"))
+
+        self.assertIn("Phase 8 passed for working draft", after)
+        self.assertIn("Approve this exact verified draft", after)
+        self.assertNotIn("then run Phase 8", after)
+
+    def test_workspace_managed_approval_has_one_heading(self) -> None:
+        text = (
+            REPO_ROOT / "tailoring" / "generation_controls_ui.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn(
+            'if workspace_managed:\n        st.write("#### Approval")',
+            text,
         )
 
     def test_app_routes_working_draft_to_phase8_and_lifecycle(self) -> None:
@@ -72,7 +102,8 @@ class Phase9E1WorkingDraftLifecycleV8Tests(unittest.TestCase):
         self.assertIn("active_workspace_is_draft", names)
         self.assertIn("active_workspace_generation", names)
         self.assertIn("should_clear_phase9e_session_state", names)
-        self.assertIn("Phase 8 — Waiting for working draft ", text)
+        self.assertNotIn("Phase 8 — Waiting for working draft ", text)
+        self.assertIn("render_phase8_verification(**phase8_kwargs)", text)
         self.assertIn("working_generation=(", text)
 
     def test_workflow_overview_reports_loaded_working_draft(self) -> None:

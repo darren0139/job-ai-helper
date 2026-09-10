@@ -29,6 +29,10 @@ from database.phase9f_application_confirmation_manager import (
 )
 from database.tailoring_generation_control import approve_tailoring_generation
 from analysis_stability import build_stable_analysis
+from tailoring.phase8_verification import (
+    PHASE8_PREAPPROVAL_GATE_VERSION,
+    build_phase8_generation_snapshot_fingerprint,
+)
 from tailoring.phase9e_blueprint_selection import build_phase9e_keyword_match
 from tailoring.phase9f_application_execution import (
     build_execution_identity as build_reuse_execution_identity,
@@ -204,18 +208,31 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         return writer
 
     @staticmethod
-    def _valid_phase8_result(*, application_id: int, generation_id: str, baseline: dict) -> dict:
-        """A complete existing-Phase-8 success contract for orchestration tests."""
+    def _valid_phase8_result(
+        *,
+        application_id: int,
+        generation_id: str,
+        baseline: dict,
+        generation_status: str = "approved",
+        blueprint_ready: bool = True,
+        verified_generation_snapshot_fingerprint: str = "",
+    ) -> dict:
+        """A complete Phase 8 success contract for orchestration tests."""
         return {
             "phase8_version": execution_manager.PHASE8_VERIFICATION_VERSION,
             "verification_fingerprint": "f" * 64,
+            "verified_generation_snapshot_fingerprint": (
+                verified_generation_snapshot_fingerprint
+            ),
+            "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
             "application_id": int(application_id),
             "generation_id": str(generation_id),
-            "generation_status": "approved",
+            "generation_status": generation_status,
             "comparison_valid": True,
             "fit_one_page": True,
             "page_count": 1,
-            "blueprint_ready": True,
+            "approval_ready": True,
+            "blueprint_ready": bool(blueprint_ready),
             "verdict": "maintained",
             "before_stable_analysis": copy.deepcopy(
                 baseline["stable_analysis"]
@@ -911,8 +928,8 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         self.assertEqual(len(project_calls), 1)
         self.assertEqual(len(fit_calls), 2)
 
-    def test_normal_phase8_requires_and_reconciles_the_selected_approved_generation(self) -> None:
-        """F provenance validates the normal approved winner, never a first draft."""
+    def test_normal_phase8_verifies_selected_fitted_draft_before_approval(self) -> None:
+        """F verifies the exact fitted Draft, then approval finalizes that result."""
         state = self._session("full")
         application_id = state["application_id"]
         self._add_evidence(1)
@@ -944,15 +961,11 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
                 generation_id=second["generation"]["generation_id"],
                 fit_writer=self._fit_writer(fit_calls),
             )
-            with self.assertRaisesRegex(Phase9FFExecutionError, "exact approved"):
-                execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
-                    application_id=application_id,
-                    generation_id=fitted["generation"]["generation_id"],
-                )
-            approve_tailoring_generation(
+            fitted_generation = execution_manager.get_tailoring_generation(
                 application_id,
                 fitted["generation"]["generation_id"],
             )
+            self.assertIsNotNone(fitted_generation)
             baseline = execution_manager._prepare_frozen_phase8_context(
                 execution_manager.get_phase9f_tailoring_execution(application_id)
             )["baseline_report"]
@@ -960,25 +973,60 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
                 application_id=application_id,
                 generation_id=fitted["generation"]["generation_id"],
                 baseline=baseline,
+                generation_status="draft",
+                blueprint_ready=False,
+                verified_generation_snapshot_fingerprint=(
+                    build_phase8_generation_snapshot_fingerprint(
+                        fitted_generation
+                    )
+                ),
             )
             with patch.object(
                 execution_manager,
                 "build_phase8_verification",
                 return_value=expected,
             ):
-                completed = (
+                preapproval = (
                     execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
                         application_id=application_id,
                         generation_id=fitted["generation"]["generation_id"],
                     )
                 )
+
+            self.assertEqual(
+                preapproval["execution"]["status"],
+                "waiting_for_approval",
+            )
+            self.assertEqual(
+                preapproval["execution"]["current_stage"],
+                "normal_phase8_verified_waiting_for_approval",
+            )
+            self.assertTrue(preapproval["verification"]["approval_ready"])
+            self.assertFalse(preapproval["verification"]["blueprint_ready"])
+            self.assertEqual(
+                preapproval["verification"]["generation_status"],
+                "draft",
+            )
+
+            approve_tailoring_generation(
+                application_id,
+                fitted["generation"]["generation_id"],
+            )
+            completed = execution_manager.reconcile_phase9f_tailoring_approval(
+                application_id=application_id
+            )
+
         self.assertNotEqual(
             first["generation"]["generation_id"],
             fitted["generation"]["generation_id"],
         )
-        self.assertEqual(completed["execution"]["status"], "completed")
+        self.assertEqual(completed["status"], "completed")
         self.assertEqual(
-            completed["execution"]["generation_id"],
+            completed["current_stage"],
+            "normal_phase8_verified_and_approved",
+        )
+        self.assertEqual(
+            completed["generation_id"],
             fitted["generation"]["generation_id"],
         )
         self.assertEqual(len(project_calls), 2)

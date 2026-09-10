@@ -10,7 +10,10 @@ from database.blueprint_candidate_manager import list_blueprint_candidates
 from database.blueprint_evaluation_manager import list_blueprint_evaluations
 from database.global_blueprint_manager import list_global_blueprints
 from database.tailoring_generation_control import get_application_generation_control
-from database.tailoring_verification_manager import get_latest_tailoring_verification
+from database.tailoring_verification_manager import (
+    get_latest_tailoring_verification,
+    get_tailoring_verification_approval_gate,
+)
 from tailoring.phase9b_blueprint_candidate import blueprint_candidate_eligibility
 from tailoring.phase9b_blueprint_ui import render_blueprint_candidate_promotion
 from tailoring.phase9c_blueprint_evaluation_ui import render_phase9c_blueprint_evaluation
@@ -243,8 +246,32 @@ def build_working_draft_lifecycle_summary(
     summary["working_generation_status"] = _clean(
         working_generation.get("status")
     ).lower() or "draft"
-    summary["current_title"] = "Approve and Verify Working Draft"
+    summary["current_title"] = "Verify and Approve Working Draft"
     return summary
+
+
+PHASE8_PREAPPROVAL_UI_COPY_VERSION = "phase8-preapproval-ui-copy-v1"
+
+
+def build_working_draft_next_action_message(
+    working_generation: dict[str, Any],
+    *,
+    phase8_ready: bool,
+) -> str:
+    """Describe the exact next action for an unapproved working draft."""
+    working_id = _clean(working_generation.get("generation_id"))[:8] or "draft"
+    if phase8_ready:
+        return (
+            "Phase 8 passed for working draft "
+            f"**{working_id}**. Approve this exact verified draft to continue "
+            "to Phase 9B. Phase 9B–9E stay waiting until approval."
+        )
+    return (
+        "Current step: run Phase 8 on working draft "
+        f"**{working_id}**, then approve that exact verified draft. "
+        "Phase 9B–9E stay waiting until this draft becomes the approved, "
+        "verified workflow result."
+    )
 
 
 def _render_stepper(summary: dict[str, Any]) -> None:
@@ -456,11 +483,15 @@ def render_state_aware_blueprint_lifecycle(
         )
         _render_stepper(working_summary)
         working_id = _clean(working_generation.get("generation_id"))
+        approval_gate = get_tailoring_verification_approval_gate(
+            application_id,
+            working_id,
+        )
         st.info(
-            "Current step: approve working draft "
-            f"**{working_id[:8] or 'draft'}**, then run Phase 8. "
-            "Phase 9B–9E stay waiting until this draft becomes the approved, "
-            "verified workflow result."
+            build_working_draft_next_action_message(
+                working_generation,
+                phase8_ready=bool(approval_gate.get("ready")),
+            )
         )
         approved_id = _clean(
             (state.get("approved_generation") or {}).get("generation_id")
@@ -516,14 +547,14 @@ def render_state_aware_blueprint_lifecycle(
         if failed_keys == ["matches_current_phase9e_scope"]:
             st.error(
                 "The approved résumé belongs to a different Phase 9E "
-                "starting-source decision. Generate, fit, and approve the "
+                "starting-source decision. Generate, fit, verify, and approve the "
                 "résumé under the current source before Phase 9B."
             )
         else:
             st.info(
-                "Current step: finish and approve a one-page résumé, then "
-                "pass Phase 8 Blueprint readiness. Phase 9B will open "
-                "automatically."
+                "Current step: finish and fit a one-page résumé, run Phase 8 "
+                "verification, then approve that exact verified résumé. "
+                "Phase 9B will open automatically after approval."
             )
         failed = [
             name.replace("_", " ").title()

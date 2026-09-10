@@ -197,6 +197,40 @@ class Phase8VerificationTests(unittest.TestCase):
 
 
     @patch("tailoring.phase8_verification.build_stable_analysis")
+    def test_fitted_draft_can_pass_preapproval_gate_without_being_blueprint_ready(
+        self,
+        mocked_build,
+    ):
+        mocked_build.return_value = stable(60, [BASE_ROW])
+        baseline = {
+            "stable_analysis": stable(55, [BASE_ROW]),
+            "resume_profile": {
+                "projects": [],
+                "skills": {},
+                "experience": [],
+                "education": [],
+            },
+            "jd_profile": {},
+            "keyword_match": {"present": [], "missing": []},
+            "raw_jd_text": "Python required",
+            "bullets": {"bullet_quality_avg": 80},
+            "structure": {"structure_score": 100},
+        }
+        draft = {**GENERATION, "status": "draft"}
+
+        result = build_phase8_verification(
+            baseline_report=baseline,
+            generation_state=draft,
+            raw_jd_text="Python is required for this role.",
+        )
+
+        self.assertEqual(result["generation_status"], "draft")
+        self.assertTrue(result["approval_ready"])
+        self.assertFalse(result["blueprint_ready"])
+        self.assertTrue(result["verified_generation_snapshot_fingerprint"])
+        self.assertFalse(result["blueprint_readiness_reasons"]["is_approved"])
+
+    @patch("tailoring.phase8_verification.build_stable_analysis")
     def test_stale_stored_baseline_is_rebuilt_with_current_scorer(
         self,
         mocked_build,

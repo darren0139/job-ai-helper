@@ -28,6 +28,7 @@ from tailoring.tailoring_generation_fingerprint import (
 
 PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v8"
 PHASE8_BASELINE_RESOLUTION_VERSION = "phase8-current-scorer-baseline-v1"
+PHASE8_PREAPPROVAL_GATE_VERSION = "phase8-preapproval-gate-v1"
 MATCH_RANK = {
     "none": 0,
     "weak": 1,
@@ -537,6 +538,34 @@ def resolve_phase8_baseline_analysis(
     }
     return resolved, metadata
 
+def build_phase8_generation_snapshot_fingerprint(
+    generation_state: dict[str, Any],
+) -> str:
+    """Fingerprint the exact fitted content that Phase 8 verified.
+
+    Approval changes lifecycle metadata from Draft to Approved, so status is
+    intentionally excluded. Any fitted Projects, Skills, fit-result, or
+    content-identity change invalidates the pre-approval verification gate.
+    """
+    effective = get_effective_generation_sections(generation_state)
+    payload = {
+        "gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
+        "generation_id": generation_state.get("generation_id", ""),
+        "content_fingerprint": generation_state.get("content_fingerprint", ""),
+        "fit_result": generation_state.get("fit_result"),
+        "projects": effective.get("projects"),
+        "skills": effective.get("skills"),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _verification_fingerprint(
     baseline_report: dict[str, Any],
     generation_state: dict[str, Any],
@@ -629,8 +658,7 @@ def refresh_phase8_readiness(
     fit_one_page = fit_result.get("fit_one_page") is True
     approved = status == "approved"
 
-    reasons = {
-        "is_approved": approved,
+    approval_reasons = {
         "fits_one_page": fit_one_page,
         "canonical_requirement_ids_stable": comparison_valid,
         "no_required_core_regression": (
@@ -639,6 +667,13 @@ def refresh_phase8_readiness(
         "no_claim_review_risks": claim_risks == 0,
         "score_not_lower": score_delta >= 0,
     }
+    approval_ready = all(
+        bool(value) for value in approval_reasons.values()
+    )
+    blueprint_reasons = {
+        "is_approved": approved,
+        **approval_reasons,
+    }
 
     refreshed["generation_status"] = status
     refreshed["fit_one_page"] = fit_one_page
@@ -646,10 +681,10 @@ def refresh_phase8_readiness(
         "page_count",
         refreshed.get("page_count"),
     )
-    refreshed["blueprint_readiness_reasons"] = reasons
-    refreshed["blueprint_ready"] = all(
-        bool(value) for value in reasons.values()
-    )
+    refreshed["approval_readiness_reasons"] = approval_reasons
+    refreshed["approval_ready"] = approval_ready
+    refreshed["blueprint_readiness_reasons"] = blueprint_reasons
+    refreshed["blueprint_ready"] = bool(approved and approval_ready)
     return refreshed
 
 
@@ -777,14 +812,19 @@ def build_phase8_verification(
             "required/core evidence."
         )
 
-    blueprint_ready = bool(
-        approved
-        and fit_one_page
-        and comparison_valid
-        and not important_regressions
-        and claim_risks == 0
-        and score_delta >= 0
+    approval_readiness_reasons = {
+        "fits_one_page": fit_one_page,
+        "canonical_requirement_ids_stable": comparison_valid,
+        "no_required_core_regression": (
+            comparison_valid and not important_regressions
+        ),
+        "no_claim_review_risks": claim_risks == 0,
+        "score_not_lower": score_delta >= 0,
+    }
+    approval_ready = all(
+        bool(value) for value in approval_readiness_reasons.values()
     )
+    blueprint_ready = bool(approved and approval_ready)
 
     return {
         "phase8_version": PHASE8_VERIFICATION_VERSION,
@@ -794,6 +834,12 @@ def build_phase8_verification(
             generation_state,
             canonical_jd_text,
         ),
+        "verified_generation_snapshot_fingerprint": (
+            build_phase8_generation_snapshot_fingerprint(
+                generation_state
+            )
+        ),
+        "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
         "comparison_valid": comparison_valid,
         "jd_text_source": "application_job_description",
         "baseline_resolution": baseline_resolution,
@@ -813,16 +859,12 @@ def build_phase8_verification(
         "claim_lineage": lineage,
         "verdict": verdict,
         "verdict_message": verdict_message,
+        "approval_ready": approval_ready,
+        "approval_readiness_reasons": approval_readiness_reasons,
         "blueprint_ready": blueprint_ready,
         "blueprint_readiness_reasons": {
             "is_approved": approved,
-            "fits_one_page": fit_one_page,
-            "canonical_requirement_ids_stable": comparison_valid,
-            "no_required_core_regression": (
-                comparison_valid and not important_regressions
-            ),
-            "no_claim_review_risks": claim_risks == 0,
-            "score_not_lower": score_delta >= 0,
+            **approval_readiness_reasons,
         },
         "canonical_requirement_guard": {
             "valid": comparison_valid,

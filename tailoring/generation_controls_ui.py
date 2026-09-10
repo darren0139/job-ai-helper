@@ -34,6 +34,8 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 from database.tailoring_verification_manager import (
     get_latest_tailoring_verification,
+    get_tailoring_verification_approval_gate,
+    refresh_tailoring_verification_readiness,
 )
 
 
@@ -342,6 +344,7 @@ def render_tailoring_generation_controls(
     required_phase9e_binding: dict[str, Any] | None = None,
     workspace_managed: bool = False,
     phase9f_execution: dict[str, Any] | None = None,
+    require_phase8_before_approval: bool = False,
 ) -> None:
     all_versions = list_tailoring_generations(application_id)
     legacy_reuse_drafts = [
@@ -513,7 +516,6 @@ def render_tailoring_generation_controls(
     loaded = by_id.get(current_id)
 
     if workspace_managed:
-        st.write("#### Approval")
         if isinstance(loaded, dict):
             loaded_status = str(
                 loaded.get("status") or "draft"
@@ -538,20 +540,47 @@ def render_tailoring_generation_controls(
             )
 
             if loaded_status == "draft":
+                loaded_generation_id = str(
+                    loaded.get("generation_id") or ""
+                )
+                approval_gate = (
+                    get_tailoring_verification_approval_gate(
+                        application_id,
+                        loaded_generation_id,
+                    )
+                    if require_phase8_before_approval
+                    else {"ready": True, "reasons": []}
+                )
+                approval_ready = bool(approval_gate.get("ready"))
+                if require_phase8_before_approval:
+                    if approval_ready:
+                        st.success(
+                            "Phase 8 passed for this exact fitted generation. "
+                            "Approval is unlocked."
+                        )
+                    else:
+                        st.info(
+                            "Run and pass Phase 8 verification on this exact "
+                            "fitted generation before approving it."
+                        )
+
                 if st.button(
                     "Approve current working draft",
                     key=f"phase7_approve_loaded_{application_id}",
                     type="primary",
                     width="stretch",
+                    disabled=not approval_ready,
                 ):
                     approve_tailoring_generation(
                         application_id,
-                        str(loaded.get("generation_id") or ""),
+                        loaded_generation_id,
                     )
+                    if require_phase8_before_approval:
+                        refresh_tailoring_verification_readiness(
+                            application_id,
+                            loaded_generation_id,
+                        )
                     if phase9f_generation_id:
-                        # Approval remains the established Application Session
-                        # authority.  F merely records that exact user action
-                        # so its later Phase 8 gate can remain fail-closed.
                         from database.phase9f_tailoring_execution_manager import (
                             reconcile_phase9f_tailoring_approval,
                         )
@@ -562,8 +591,8 @@ def render_tailoring_generation_controls(
                     st.session_state[
                         f"phase7_flash_{application_id}"
                     ] = (
-                        "Approved the current working draft. Run Phase 8 "
-                        "verification on the approved fitted résumé next."
+                        "Approved the exact fitted generation after its "
+                        "current Phase 8 verification passed."
                     )
                     st.rerun()
             elif (

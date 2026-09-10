@@ -9,7 +9,12 @@ from datetime import datetime
 from typing import Any
 
 from database import tailoring_version_manager as base_manager
-from tailoring.phase8_verification import PHASE8_VERIFICATION_VERSION
+from tailoring.phase8_verification import (
+    PHASE8_PREAPPROVAL_GATE_VERSION,
+    PHASE8_VERIFICATION_VERSION,
+    build_phase8_generation_snapshot_fingerprint,
+    refresh_phase8_readiness,
+)
 
 
 def _now() -> str:
@@ -225,6 +230,94 @@ def get_latest_tailoring_verification(
     row = cursor.fetchone()
     connection.close()
     return _row_to_result(row) if row is not None else None
+
+
+def get_tailoring_verification_approval_gate(
+    application_id: int,
+    generation_id: str,
+) -> dict[str, Any]:
+    """Return a fail-closed approval gate for one exact fitted generation."""
+    from database.tailoring_generation_control import get_tailoring_generation
+
+    generation = get_tailoring_generation(
+        int(application_id),
+        str(generation_id),
+    )
+    verification = get_latest_tailoring_verification(
+        int(application_id),
+        str(generation_id),
+    )
+    reasons: list[str] = []
+
+    if generation is None:
+        reasons.append("generation_missing")
+        current_snapshot_fingerprint = ""
+    else:
+        current_snapshot_fingerprint = (
+            build_phase8_generation_snapshot_fingerprint(generation)
+        )
+
+    if verification is None:
+        reasons.append("verification_missing")
+    else:
+        if (
+            str(verification.get("phase8_version") or "").strip()
+            != PHASE8_VERIFICATION_VERSION
+        ):
+            reasons.append("phase8_version_mismatch")
+        if verification.get("approval_ready") is not True:
+            reasons.append("approval_readiness_failed")
+        if (
+            str(verification.get("approval_gate_version") or "").strip()
+            != PHASE8_PREAPPROVAL_GATE_VERSION
+        ):
+            reasons.append("approval_gate_version_mismatch")
+        if (
+            str(
+                verification.get(
+                    "verified_generation_snapshot_fingerprint"
+                )
+                or ""
+            ).strip()
+            != current_snapshot_fingerprint
+        ):
+            reasons.append("verified_generation_snapshot_mismatch")
+
+    return {
+        "ready": not reasons,
+        "application_id": int(application_id),
+        "generation_id": str(generation_id),
+        "reasons": reasons,
+        "generation": generation,
+        "verification": verification,
+        "current_snapshot_fingerprint": current_snapshot_fingerprint,
+    }
+
+
+def refresh_tailoring_verification_readiness(
+    application_id: int,
+    generation_id: str,
+) -> dict[str, Any]:
+    """Refresh lifecycle readiness only for a still-current verified output."""
+    gate = get_tailoring_verification_approval_gate(
+        int(application_id),
+        str(generation_id),
+    )
+    if not gate["ready"]:
+        raise ValueError(
+            "The exact fitted generation does not have a current successful "
+            "Phase 8 verification: " + ", ".join(gate["reasons"])
+        )
+
+    refreshed = refresh_phase8_readiness(
+        gate["verification"],
+        gate["generation"],
+    )
+    return save_tailoring_verification(
+        application_id=int(application_id),
+        generation_id=str(generation_id),
+        result=refreshed,
+    )
 
 
 def list_tailoring_verifications(

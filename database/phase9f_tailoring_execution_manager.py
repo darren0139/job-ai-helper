@@ -39,6 +39,8 @@ from database.tailoring_generation_control import (
     restore_tailoring_generation_as_draft,
 )
 from database.tailoring_verification_manager import (
+    get_tailoring_verification_approval_gate,
+    refresh_tailoring_verification_readiness,
     save_tailoring_verification,
 )
 from database.tailoring_version_manager import save_application_tailoring_generation
@@ -1593,8 +1595,9 @@ def _phase8_validity_issues(
     verification: dict[str, Any],
     expected: dict[str, Any],
     execution: dict[str, Any],
+    require_approved: bool = True,
 ) -> list[str]:
-    """Require the existing Phase 8 success contract before F can complete."""
+    """Validate Phase 8, optionally before the final approval transition."""
     issues: list[str] = []
     if _clean(verification.get("phase8_version")) != PHASE8_VERIFICATION_VERSION:
         issues.append("phase8_version_mismatch")
@@ -1606,7 +1609,11 @@ def _phase8_validity_issues(
         issues.append("verification_application_mismatch")
     if _clean(verification.get("generation_id")) != _clean(execution.get("generation_id")):
         issues.append("verification_generation_mismatch")
-    if _clean(verification.get("generation_status")).lower() != "approved":
+    if (
+        require_approved
+        and _clean(verification.get("generation_status")).lower()
+        != "approved"
+    ):
         issues.append("verification_generation_not_approved")
     if verification.get("comparison_valid") is not True:
         issues.append("verification_canonical_scope_invalid")
@@ -1614,7 +1621,9 @@ def _phase8_validity_issues(
         verification.get("page_count") or 0
     ) != 1:
         issues.append("verification_fit_invalid")
-    if verification.get("blueprint_ready") is not True:
+    if verification.get("approval_ready") is not True:
+        issues.append("verification_approval_readiness_failed")
+    if require_approved and verification.get("blueprint_ready") is not True:
         issues.append("verification_readiness_failed")
     if _clean(verification.get("verdict")) not in {"improved", "maintained"}:
         issues.append("verification_verdict_invalid")
@@ -4484,13 +4493,71 @@ def run_phase9f_tailoring_fit(
 def reconcile_phase9f_tailoring_approval(
     *, application_id: int, actor_label: str = "Local user"
 ) -> dict[str, Any] | None:
-    """Observe the existing approval lifecycle; do not approve on F's behalf."""
+    """Observe approval and finalize a valid pre-approval Phase 8 result."""
     execution = get_phase9f_tailoring_execution(application_id)
     if execution is None or not execution.get("generation_id"):
         return execution
-    generation = get_tailoring_generation(application_id, execution["generation_id"])
+    generation = get_tailoring_generation(
+        application_id,
+        execution["generation_id"],
+    )
     if generation is None or generation.get("status") != "approved":
         return execution
+
+    if is_phase9f_normal_lifecycle_execution(execution):
+        outputs = deepcopy(execution.get("stage_outputs") or {})
+        normal_phase8 = outputs.get("normal_phase8") or {}
+        recorded_generation_id = _clean(normal_phase8.get("generation_id"))
+        recorded_verification_fingerprint = _clean(
+            normal_phase8.get("verification_fingerprint")
+        )
+        if (
+            recorded_generation_id == _clean(generation.get("generation_id"))
+            and recorded_verification_fingerprint
+        ):
+            gate = get_tailoring_verification_approval_gate(
+                application_id,
+                generation["generation_id"],
+            )
+            latest = gate.get("verification") or {}
+            if (
+                gate.get("ready") is True
+                and _clean(latest.get("verification_fingerprint"))
+                == recorded_verification_fingerprint
+            ):
+                refreshed = refresh_tailoring_verification_readiness(
+                    application_id,
+                    generation["generation_id"],
+                )
+                if refreshed.get("blueprint_ready") is True:
+                    return _update_execution(
+                        execution_id=execution["execution_id"],
+                        status="completed",
+                        current_stage="normal_phase8_verified_and_approved",
+                        phase8_verification=refreshed,
+                        event_type="normal_verified_approval_observed",
+                        actor_label=actor_label,
+                        details={
+                            "generation_id": generation["generation_id"],
+                            "verification_fingerprint": refreshed.get(
+                                "verification_fingerprint"
+                            ),
+                        },
+                    )
+
+        # Compatibility path for direct/older approvals that did not have a
+        # pre-approval verification. They can still run Phase 8 afterward.
+        if execution["status"] in {"waiting_for_phase8", "completed"}:
+            return execution
+        return _update_execution(
+            execution_id=execution["execution_id"],
+            status="waiting_for_phase8",
+            current_stage="approved_changed_output",
+            event_type="existing_approval_observed",
+            actor_label=actor_label,
+            details={"generation_id": execution["generation_id"]},
+        )
+
     if execution["status"] in {"waiting_for_phase8", "completed"}:
         return execution
     return _update_execution(
@@ -4581,41 +4648,51 @@ def run_or_reuse_phase9f_normal_generation_phase8(
     generation_id: str,
     actor_label: str = "Local user",
 ) -> dict[str, Any]:
-    """Run existing Phase 8 for the selected approved normal F generation."""
+    """Run Phase 8 on the exact fitted normal generation before approval."""
     execution = get_phase9f_tailoring_execution(int(application_id))
-    generation = get_tailoring_generation(int(application_id), str(generation_id))
+    generation = get_tailoring_generation(
+        int(application_id),
+        str(generation_id),
+    )
     if (
         not is_phase9f_normal_lifecycle_execution(execution)
         or generation is None
         or not _normal_generation_matches_context(
-            execution=execution or {}, generation=generation
+            execution=execution or {},
+            generation=generation,
         )
         or not _normal_generation_is_approvable(generation)
-        or generation.get("status") != "approved"
+        or _clean(generation.get("status")).lower()
+        not in {"draft", "approved"}
     ):
         raise Phase9FFExecutionError(
-            "Phase 8 requires the exact approved, completed normal generation "
+            "Phase 8 requires the exact fitted, completed normal generation "
             "for this frozen Phase 9F-F context.",
             code="normal_phase8_generation_invalid",
             stage="phase8",
         )
+
     prepared = _prepare_frozen_phase8_context(execution)
     result = build_phase8_verification(
         baseline_report=prepared["baseline_report"],
         generation_state=generation,
-        raw_jd_text=str(prepared["baseline_report"].get("raw_jd_text") or ""),
+        raw_jd_text=str(
+            prepared["baseline_report"].get("raw_jd_text") or ""
+        ),
     )
     latest = save_tailoring_verification(
         application_id=int(application_id),
         generation_id=str(generation_id),
         result=result,
     )
+    already_approved = _clean(generation.get("status")).lower() == "approved"
     issues = [
         issue
         for issue in _phase8_validity_issues(
             verification=latest,
             expected=result,
             execution={**execution, "generation_id": str(generation_id)},
+            require_approved=already_approved,
         )
         if issue != "verification_generation_mismatch"
     ]
@@ -4626,7 +4703,9 @@ def run_or_reuse_phase9f_normal_generation_phase8(
             actor_label=actor_label,
             details={
                 "generation_id": str(generation_id),
-                "verification_fingerprint": latest.get("verification_fingerprint"),
+                "verification_fingerprint": latest.get(
+                    "verification_fingerprint"
+                ),
                 "issues": issues,
             },
         )
@@ -4636,33 +4715,47 @@ def run_or_reuse_phase9f_normal_generation_phase8(
             "cache_status": "phase8_retry_required",
             "issues": issues,
         }
-    # F records the final selected generation as provenance only.  The normal
-    # workspace must continue to show every current-scope normal generation.
+
     outputs = deepcopy(execution.get("stage_outputs") or {})
-    outputs["normal_lifecycle_adapter_version"] = (
-        PHASE9F_F_NORMAL_LIFECYCLE_VERSION
-    )
+    outputs["normal_lifecycle_adapter_version"] = PHASE9F_F_NORMAL_LIFECYCLE_VERSION
     outputs["normal_phase8"] = {
         "generation_id": str(generation_id),
         "verification_id": latest.get("verification_id"),
         "verification_fingerprint": latest.get("verification_fingerprint"),
+        "verified_generation_snapshot_fingerprint": latest.get(
+            "verified_generation_snapshot_fingerprint"
+        ),
+        "verified_before_approval": not already_approved,
     }
+
+    if already_approved:
+        status = "completed"
+        current_stage = "normal_phase8_verified"
+        event_type = "normal_phase8_completed"
+        cache_status = "normal_phase8_completed"
+    else:
+        status = "waiting_for_approval"
+        current_stage = "normal_phase8_verified_waiting_for_approval"
+        event_type = "normal_phase8_preapproval_completed"
+        cache_status = "normal_phase8_preapproval_completed"
+
     updated = _update_execution(
         execution_id=execution["execution_id"],
-        status="completed",
-        current_stage="normal_phase8_verified",
+        status=status,
+        current_stage=current_stage,
         stage_outputs=outputs,
         generation_id=str(generation_id),
         phase8_verification=latest,
-        event_type="normal_phase8_completed",
+        event_type=event_type,
         actor_label=actor_label,
         details={
             "generation_id": str(generation_id),
             "verification_fingerprint": latest.get("verification_fingerprint"),
+            "verified_before_approval": not already_approved,
         },
     )
     return {
         "execution": updated,
         "verification": latest,
-        "cache_status": "normal_phase8_completed",
+        "cache_status": cache_status,
     }

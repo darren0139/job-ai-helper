@@ -7831,11 +7831,12 @@ elif page == "Application Sessions":
                     )
 
             st.divider()
-            st.subheader("Approve and Verify Résumé")
+            st.subheader("Verify and Approve Résumé")
             st.caption(
-                "Workflow order: build and fit the document, approve the "
-                "chosen fitted generation, run Phase 8 verification, then "
-                "continue through Phase 9B, Phase 9C, and Phase 9D."
+                "Workflow order: build and fit the document, run Phase 8 "
+                "verification on the exact fitted generation, approve that "
+                "verified generation, then continue through Phase 9B, "
+                "Phase 9C, and Phase 9D."
             )
 
             post_fit_control = get_application_generation_control(
@@ -7863,38 +7864,10 @@ elif page == "Application Sessions":
 
             if not has_fitted_output:
                 st.info(
-                    "Generate and fit the résumé document before approving "
-                    "or running Phase 8."
+                    "Generate and fit the résumé document before running "
+                    "Phase 8 or approving."
                 )
             else:
-                if phase9e_ready:
-                    render_tailoring_generation_controls(
-                        application_id=current_application_id,
-                        required_phase9e_binding=(
-                            phase9e_binding
-                            if phase9e_enforced
-                            else None
-                        ),
-                        workspace_managed=True,
-                        phase9f_execution=(
-                            phase9f_f_execution if phase9f_f_active else None
-                        ),
-                    )
-                else:
-                    st.info(
-                        "Approval and generation restoration are blocked for "
-                        "an unbound or stale Phase 9E scope."
-                    )
-
-                post_approval_control = (
-                    get_application_generation_control(
-                        current_application_id
-                    )
-                )
-                approved_for_phase8 = post_approval_control.get(
-                    "approved_generation"
-                )
-
                 active_workspace_context = get_resume_workspace_context(
                     int(current_application_id)
                 )
@@ -7906,12 +7879,13 @@ elif page == "Application Sessions":
                     == "working_draft"
                     and isinstance(active_workspace_generation, dict)
                 )
-
                 active_previous_scope_approved = (
                     active_workspace_context.get(
                         "previous_scope_approved_generation"
                     )
                 )
+
+                approved_for_phase8 = post_fit_approved
                 approved_for_phase8_id = str(
                     (approved_for_phase8 or {}).get("generation_id")
                     or ""
@@ -7960,26 +7934,52 @@ elif page == "Application Sessions":
                     or ""
                 )
 
-                if active_workspace_is_draft:
-                    working_draft_short = str(
-                        active_workspace_generation.get("generation_id")
-                        or ""
-                    )[:8]
-                    st.info(
-                        "Phase 8 — Waiting for working draft "
-                        f"{working_draft_short or 'draft'}. Approve this fitted "
-                        "draft first; then verify it before Phase 9B can begin."
+                preferred_phase8_generation_id = str(
+                    (
+                        active_workspace_generation
+                        if active_workspace_is_draft
+                        else approved_for_phase8
+                        if (
+                            isinstance(approved_for_phase8, dict)
+                            and approved_for_phase8_is_current_scope
+                        )
+                        else {}
+                    ).get("generation_id")
+                    or st.session_state.get(
+                        f"tailored_generation_id_{current_application_id}",
+                        "",
                     )
-                elif (
-                    phase9e_ready
-                    and isinstance(approved_for_phase8, dict)
-                    and approved_for_phase8_is_current_scope
-                ):
-                    if post_fit_lifecycle_stage in {
-                        "phase9c",
-                        "phase9d",
-                        "phase9e",
-                    }:
+                    or ""
+                )
+
+                if phase9e_ready:
+                    phase8_kwargs = {
+                        "application_id": current_application_id,
+                        "baseline_report": report,
+                        "raw_jd_text": phase8_raw_jd_text,
+                        "phase9f_execution": (
+                            phase9f_f_execution
+                            if phase9f_f_active
+                            else None
+                        ),
+                        "required_phase9e_binding": (
+                            phase9e_binding
+                            if phase9e_enforced
+                            else None
+                        ),
+                        "preferred_generation_id": (
+                            preferred_phase8_generation_id
+                        ),
+                    }
+                    if (
+                        isinstance(approved_for_phase8, dict)
+                        and approved_for_phase8_is_current_scope
+                        and post_fit_lifecycle_stage in {
+                            "phase9c",
+                            "phase9d",
+                            "phase9e",
+                        }
+                    ):
                         phase8_force_open = bool(
                             st.session_state.pop(
                                 f"phase8_force_open_{current_application_id}",
@@ -7998,46 +7998,29 @@ elif page == "Application Sessions":
                             phase8_complete_label,
                             expanded=phase8_force_open,
                         ):
-                            render_phase8_verification(
-                                application_id=current_application_id,
-                                baseline_report=report,
-                                raw_jd_text=phase8_raw_jd_text,
-                                phase9f_execution=(
-                                    phase9f_f_execution
-                                    if phase9f_f_active
-                                    else None
-                                ),
-                            )
+                            render_phase8_verification(**phase8_kwargs)
                     else:
-                        render_phase8_verification(
-                            application_id=current_application_id,
-                            baseline_report=report,
-                            raw_jd_text=phase8_raw_jd_text,
-                            phase9f_execution=(
-                                phase9f_f_execution
-                                if phase9f_f_active
-                                else None
-                            ),
-                        )
-                elif isinstance(
-                    active_previous_scope_approved,
-                    dict,
-                ):
-                    previous_phase8_short = str(
-                        active_previous_scope_approved.get(
-                            "generation_id"
-                        )
-                        or ""
-                    )[:8]
-                    st.info(
-                        "Phase 8 — Waiting for a résumé under the current "
-                        "Tailoring Base. Previous approved résumé "
-                        f"{previous_phase8_short or 'result'} keeps its old "
-                        "verification as preserved lineage/history."
+                        render_phase8_verification(**phase8_kwargs)
+
+                    render_tailoring_generation_controls(
+                        application_id=current_application_id,
+                        required_phase9e_binding=(
+                            phase9e_binding
+                            if phase9e_enforced
+                            else None
+                        ),
+                        workspace_managed=True,
+                        phase9f_execution=(
+                            phase9f_f_execution
+                            if phase9f_f_active
+                            else None
+                        ),
+                        require_phase8_before_approval=True,
                     )
-                elif phase9e_ready:
+                else:
                     st.info(
-                        "Approve one fitted generation to unlock Phase 8."
+                        "Phase 8 and approval are blocked for an unbound "
+                        "or stale Phase 9E scope."
                     )
 
                 render_state_aware_blueprint_lifecycle(
