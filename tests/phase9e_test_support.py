@@ -10,6 +10,7 @@ from typing import Any
 from database import db_manager
 from database import jd_library_manager
 from database import tailoring_version_manager
+from database import global_master_resume_manager
 import database.global_blueprint_manager as global_blueprint_manager_module
 import database.phase9f_exact_verified_reuse_manager as exact_reuse_module
 from database.tailoring_generation_control import (
@@ -27,6 +28,12 @@ from database.jd_library_manager import init_jd_library
 from tests.phase9d_test_support import seed_phase9d_database
 from resume_builder.immutable_snapshot_docx import (
     materialise_immutable_snapshot_docx,
+)
+from tailoring.phase8_verification import build_resume_text_from_profile
+from tailoring.phase9f_master_resume import (
+    build_prepared_master_resume_snapshot,
+    sha256_bytes,
+    sha256_text,
 )
 
 
@@ -64,6 +71,116 @@ def _different_original_profile(
     return profile
 
 
+def _complete_phase9e_base_resume_profile(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    """Adapt the Phase 9D synthetic snapshot to the strict Phase 9F master contract."""
+    source = copy.deepcopy(profile) if isinstance(profile, dict) else {}
+    raw_skills = source.get("skills") or {}
+    normalized_skills = {
+        "languages": [],
+        "frameworks": [],
+        "tools": [],
+        "concepts": [],
+        "platforms": [],
+    }
+
+    if isinstance(raw_skills, dict):
+        for category, raw_values in raw_skills.items():
+            if isinstance(raw_values, str):
+                values = [raw_values]
+            elif isinstance(raw_values, list):
+                values = raw_values
+            else:
+                values = []
+
+            category_key = str(category or "").strip().lower()
+            if "language" in category_key:
+                target = "languages"
+            elif "tool" in category_key:
+                target = "tools"
+            elif "platform" in category_key:
+                target = "platforms"
+            elif category_key in {"web", "framework", "frameworks"}:
+                target = "frameworks"
+            else:
+                target = "concepts"
+
+            for value in values:
+                clean = str(value or "").strip()
+                if clean and clean not in normalized_skills[target]:
+                    normalized_skills[target].append(clean)
+
+    raw_contact = source.get("contact")
+    contact = raw_contact if isinstance(raw_contact, dict) else {}
+    complete_contact = {
+        key: str(contact.get(key) or "")
+        for key in ("email", "phone", "linkedin", "github", "portfolio")
+    }
+
+    return {
+        **source,
+        "name": str(source.get("name") or "Phase 9E Synthetic Candidate"),
+        "contact": complete_contact,
+        "summary": str(
+            source.get("summary")
+            or "Synthetic complete Base Resume fixture for deterministic Phase 9E tests."
+        ),
+        "education": copy.deepcopy(source.get("education") or []),
+        "projects": copy.deepcopy(source.get("projects") or []),
+        "experience": copy.deepcopy(source.get("experience") or []),
+        "skills": normalized_skills,
+    }
+
+
+def seed_phase9e_base_resume(
+    profile: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Persist one complete immutable Base Resume fixture at zero model cost."""
+    global_master_resume_manager.init_global_master_resume_registry()
+    master_profile = _complete_phase9e_base_resume_profile(profile)
+    resume_text = build_resume_text_from_profile(copy.deepcopy(master_profile))
+    artifact_bytes = b"phase9e-base-resume-fixture-v1"
+    inspected = {
+        "inspection_fingerprint": "phase9e-base-resume-inspection-v1",
+        "artifact_sha256": sha256_bytes(artifact_bytes),
+        "artifact_type": "docx",
+        "artifact_size_bytes": len(artifact_bytes),
+        "original_filename": "phase9e-base-resume.docx",
+        "media_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "artifact_bytes": artifact_bytes,
+        "resume_text": resume_text,
+        "resume_text_sha256": sha256_text(resume_text),
+        "resume_text_char_count": len(resume_text),
+        "extraction_method": "phase9e_zero_cost_fixture",
+    }
+    prepared = build_prepared_master_resume_snapshot(
+        inspection=inspected,
+        structured_profile=copy.deepcopy(master_profile),
+        extraction_provenance={
+            "method": "phase9e_zero_cost_fixture",
+            "requested_model": "",
+            "response_model": "",
+            "extraction_policy_version": "phase9e-test-fixture-v1",
+            "call_count": 0,
+            "api_usage": {"call_count": 0},
+            "embedding_call_count": 0,
+        },
+        current_master=global_master_resume_manager.get_current_global_master_resume(),
+        preparation_mode="phase9e_zero_cost_fixture",
+    )
+    receipt = global_master_resume_manager.commit_prepared_global_master_resume(
+        prepared, display_name="Base Resume Fixture", actor_label="Phase 9E test"
+    )
+    master = receipt["master"]
+    artifact = global_master_resume_manager.get_global_master_resume_artifact(
+        master["master_version_id"], "original"
+    )
+    if artifact is None:
+        raise RuntimeError("Phase 9E Base Resume fixture artifact is missing.")
+    return master, artifact
+
+
 def seed_phase9e_database(
     database_path: Path,
     *,
@@ -84,6 +201,7 @@ def seed_phase9e_database(
         if different_original
         else copy.deepcopy(blueprint_profile)
     )
+    base_resume, base_resume_artifact = seed_phase9e_base_resume(blueprint_profile)
     source_jd = state["saved_jds"][0]
     report = {
         "resume_profile": original_profile,
@@ -205,6 +323,8 @@ def seed_phase9e_database(
         **state,
         "application_report": report,
         "original_profile": original_profile,
+        "base_resume": base_resume,
+        "base_resume_artifact": base_resume_artifact,
         "blueprint": approval["blueprint"],
         "source_generation_id": source_generation_id,
         "source_artifact_path": source_artifact,

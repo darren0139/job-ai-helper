@@ -20,6 +20,7 @@ from tailoring.phase9e_blueprint_selection import (
     PHASE9E_DECISION_POLICY_VERSION,
     PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION,
     PHASE9E_EXACT_SOURCE_REUSE_POLICY_VERSION,
+    build_base_resume_starting_snapshot,
     build_effective_tailoring_report,
     build_phase9e_decision,
     build_phase9e_keyword_match,
@@ -51,6 +52,9 @@ class Phase9EBlueprintSelectionTests(unittest.TestCase):
             different_original=True,
         )
         self.blueprint = self.state["blueprint"]
+        self.base_resume_snapshot = build_base_resume_starting_snapshot(
+            self.state["base_resume"], self.state["base_resume_artifact"]
+        )
         self.jd = get_exact_job_description_for_application(94)
 
     def tearDown(self) -> None:
@@ -776,6 +780,135 @@ class Phase9EBlueprintSelectionTests(unittest.TestCase):
         self.assertEqual(
             first["decision_fingerprint"], second["decision_fingerprint"]
         )
+
+    def test_base_resume_is_ranked_as_neutral_fallback_and_can_be_selected(self):
+        def comparison_for_source(snapshot, _jd, **_kwargs):
+            if snapshot.get("source_type") == "base_resume":
+                return {
+                    "deterministic_alignment_score": 82,
+                    "required_core_coverage_score": 86,
+                    "preferred_coverage_score": 60,
+                    "evidence_strength_score": 78,
+                    "important_gap_count": 0,
+                    "deal_breaker_gap_count": 0,
+                }
+            return {
+                "deterministic_alignment_score": 40,
+                "required_core_coverage_score": 45,
+                "preferred_coverage_score": 20,
+                "evidence_strength_score": 40,
+                "important_gap_count": 2,
+                "deal_breaker_gap_count": 0,
+            }
+
+        with patch(
+            "tailoring.phase9e_blueprint_selection.evaluate_starting_snapshot",
+            side_effect=comparison_for_source,
+        ):
+            recommendation = recommend_active_blueprint(
+                self.jd, [],
+                application_report=copy.deepcopy(self.state["application_report"]),
+                base_resume_starting_snapshot=copy.deepcopy(self.base_resume_snapshot),
+            )
+        self.assertEqual(recommendation["recommended_source"], "base_resume")
+        base_row = next(row for row in recommendation["source_rankings"] if row["source_type"] == "base_resume")
+        self.assertTrue(base_row["recommended"])
+        self.assertEqual(base_row["role_family_relationship"], "neutral_base_resume")
+
+        decision = build_phase9e_decision(
+            application_id=94,
+            application_report=copy.deepcopy(self.state["application_report"]),
+            exact_jd=copy.deepcopy(self.jd),
+            active_blueprints=[copy.deepcopy(self.blueprint)],
+            selected_source="base_resume",
+            base_resume_starting_snapshot=copy.deepcopy(self.base_resume_snapshot),
+            selection_mode="manual",
+        )
+        self.assertEqual(decision["selection"]["selected_source"], "base_resume")
+        self.assertEqual(decision["starting_snapshot"]["source_type"], "base_resume")
+        self.assertEqual(decision["starting_snapshot"]["source_identity"]["source_id"], self.state["base_resume"]["master_version_id"])
+        self.assertEqual(decision["recommended_tailoring"], "full_regeneration")
+        self.assertEqual(decision["recommended_tailoring_label"], "Tailor from Base Resume")
+        action = resolve_workflow_action(decision)
+        self.assertTrue(action["can_generate"])
+        self.assertEqual(action["workflow_action"], "regenerate_from_base_resume")
+        effective = build_effective_tailoring_report(self.state["application_report"], decision)
+        self.assertEqual(effective["resume_profile"], self.state["base_resume"]["structured_profile"])
+        self.assertNotEqual(effective["resume_profile"], self.state["original_profile"])
+
+    def test_exact_base_original_tie_preserves_original_compatibility_prior(self):
+        tied = {
+            "deterministic_alignment_score": 72,
+            "required_core_coverage_score": 68,
+            "preferred_coverage_score": 55,
+            "evidence_strength_score": 61,
+            "important_gap_count": 1,
+            "deal_breaker_gap_count": 0,
+        }
+        with patch(
+            "tailoring.phase9e_blueprint_selection.evaluate_starting_snapshot",
+            return_value=copy.deepcopy(tied),
+        ):
+            recommendation = recommend_active_blueprint(
+                self.jd,
+                [],
+                application_report=copy.deepcopy(
+                    self.state["application_report"]
+                ),
+                base_resume_starting_snapshot=copy.deepcopy(
+                    self.base_resume_snapshot
+                ),
+            )
+
+        self.assertTrue(recommendation["neutral_exact_tie"])
+        self.assertEqual(
+            recommendation["recommended_source"],
+            "original_resume",
+        )
+        neutral_rows = [
+            row
+            for row in recommendation["source_rankings"]
+            if row["source_type"] in {"base_resume", "original_resume"}
+        ]
+        self.assertEqual(
+            [row["source_type"] for row in neutral_rows],
+            ["original_resume", "base_resume"],
+        )
+        self.assertTrue(neutral_rows[0]["recommended"])
+        self.assertFalse(neutral_rows[1]["recommended"])
+        self.assertTrue(
+            any("tie-break" in reason for reason in recommendation["reasons"])
+        )
+
+    def test_base_original_and_blueprint_starting_identities_are_distinct(self):
+        base_decision = build_phase9e_decision(
+            application_id=94,
+            application_report=copy.deepcopy(self.state["application_report"]),
+            exact_jd=copy.deepcopy(self.jd),
+            active_blueprints=[copy.deepcopy(self.blueprint)],
+            selected_source="base_resume",
+            base_resume_starting_snapshot=copy.deepcopy(self.base_resume_snapshot),
+            selection_mode="manual",
+        )
+        original_decision = build_phase9e_decision(
+            application_id=94,
+            application_report=copy.deepcopy(self.state["application_report"]),
+            exact_jd=copy.deepcopy(self.jd),
+            active_blueprints=[copy.deepcopy(self.blueprint)],
+            selected_source="original_resume",
+            base_resume_starting_snapshot=copy.deepcopy(self.base_resume_snapshot),
+            selection_mode="original_resume",
+        )
+        blueprint_decision = self.build_blueprint_decision(
+            base_resume_starting_snapshot=copy.deepcopy(self.base_resume_snapshot)
+        )
+        fingerprints = {
+            generation_binding_identity(base_decision)["starting_snapshot_fingerprint"],
+            generation_binding_identity(original_decision)["starting_snapshot_fingerprint"],
+            generation_binding_identity(blueprint_decision)["starting_snapshot_fingerprint"],
+        }
+        self.assertEqual(len(fingerprints), 3)
+
 
 
 if __name__ == "__main__":

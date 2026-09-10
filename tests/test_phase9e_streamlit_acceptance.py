@@ -29,6 +29,9 @@ from database.tailoring_generation_control import list_tailoring_generations
 from database.jd_library_manager import get_exact_job_description_for_application
 from rag.jd_identity import build_job_identity
 from tests.phase9e_test_support import seed_phase9e_database
+from tailoring.phase9e_blueprint_selection_ui import (
+    _ordered_tailoring_base_options,
+)
 
 
 HARNESS = Path(__file__).with_name("phase9e_streamlit_harness.py")
@@ -540,6 +543,73 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
         self.assertEqual(list(app.exception), [])
         self.assertEqual(len(app.dataframe), 3)
         automatic_repair.assert_not_called()
+
+    def test_tailoring_base_dropdown_preserves_diagnostic_rank_order(self):
+        ranked = [
+            {
+                "source_type": "original_resume",
+                "source_id": "original_resume",
+                "comparison": {},
+            },
+            {
+                "source_type": "base_resume",
+                "source_id": "base-v2",
+                "base_resume": {"source_id": "base-v2"},
+                "comparison": {},
+            },
+            {
+                "source_type": "global_blueprint",
+                "source_id": "bp-primary",
+                "blueprint_id": "bp-primary",
+                "blueprint": {"blueprint_id": "bp-primary"},
+                "comparison": {},
+            },
+            {
+                "source_type": "global_blueprint",
+                "source_id": "bp-backend",
+                "blueprint_id": "bp-backend",
+                "blueprint": {"blueprint_id": "bp-backend"},
+                "comparison": {},
+            },
+        ]
+
+        options, _ = _ordered_tailoring_base_options(
+            ranked,
+            recommended_blueprint_id="bp-backend",
+        )
+
+        self.assertEqual(
+            options,
+            [
+                "original_resume",
+                "base_resume",
+                "manual:bp-primary",
+                "recommended:bp-backend",
+            ],
+        )
+
+    def test_base_resume_is_visible_and_can_be_bound_as_tailoring_base(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=60).run()
+        self.assertEqual(list(app.exception), [])
+        selection = _by_key(app.selectbox, "phase9e_selection_94")
+        self.assertTrue(
+            any("Base Resume" in str(option) for option in selection.options),
+            list(selection.options),
+        )
+        selection.set_value("base_resume").run()
+        self.assertEqual(list(app.exception), [])
+        self.assertTrue(any(button.label == "Use Base Resume as tailoring base" for button in app.button))
+        self.assertFalse(any("selected blueprint is unsuitable" in str(item.value).lower() for item in app.warning))
+        app = self.confirm_and_bind(app)
+        self.assertEqual(list(app.exception), [])
+        current = get_current_application_blueprint_decision(94)
+        self.assertEqual(current["selection"]["selected_source"], "base_resume")
+        self.assertEqual(current["starting_snapshot"]["source_type"], "base_resume")
+        self.assertEqual(current["starting_snapshot"]["source_identity"]["source_id"], self.state["base_resume"]["master_version_id"])
+        context = resolve_current_phase9e_generation_context(94)
+        self.assertTrue(context["can_generate"])
+        self.assertEqual(context["workflow_action"]["workflow_action"], "regenerate_from_base_resume")
+
 
 
 if __name__ == "__main__":

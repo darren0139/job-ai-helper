@@ -25,6 +25,10 @@ from tailoring.phase9d_global_blueprint import (
     PHASE9D_FINGERPRINT_POLICY_VERSION,
     PHASE9D_VERSION,
 )
+from tailoring.phase9f_starting_source_ranking import (
+    Phase9FBRankingError,
+    normalize_base_resume_source,
+)
 from tailoring.jd_user_input_overrides import (
     apply_preferred_requirement_overrides_to_canonical_rows,
     build_effective_application_local_requirement_scope,
@@ -43,6 +47,7 @@ PHASE9E_IDENTITY_POLICY_VERSION = (
 PHASE9E_ORIGINAL_SOURCE_IDENTITY_POLICY_VERSION = (
     "phase9e-original-resume-source-identity-v2"
 )
+PHASE9E_BASE_RESUME_PARITY_POLICY_VERSION = "phase9e-base-resume-parity-v1"
 PHASE9E_RECOMMENDATION_POLICY_VERSION = (
     "phase9e-ranked-reusable-blueprint-variants-v3"
 )
@@ -157,6 +162,27 @@ def _blueprint_identity(blueprint: dict[str, Any] | None) -> dict[str, Any]:
         "role_family_label": _clean(blueprint.get("role_family_label")),
         "variant_id": _clean(blueprint.get("variant_id")) or "primary",
         "variant_label": _clean(blueprint.get("variant_label")) or "Primary",
+    }
+
+
+def _base_resume_identity(
+    starting_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if (
+        not isinstance(starting_snapshot, dict)
+        or _clean(starting_snapshot.get("source_type")) != "base_resume"
+    ):
+        return {}
+    source = starting_snapshot.get("source_identity") or {}
+    return {
+        "source_type": "base_resume",
+        "source_id": _clean(source.get("source_id")),
+        "source_version": int(source.get("source_version", 0) or 0),
+        "source_fingerprint": _clean(source.get("source_fingerprint")),
+        "source_content_fingerprint": _clean(source.get("source_content_fingerprint")),
+        "normalized_source_fingerprint": _clean(source.get("normalized_source_fingerprint")),
+        "source_display_name": _clean(source.get("source_display_name")) or "Base Resume",
+        "parity_policy_version": PHASE9E_BASE_RESUME_PARITY_POLICY_VERSION,
     }
 
 
@@ -631,18 +657,17 @@ def recommend_active_blueprint(
     active_blueprints: Iterable[dict[str, Any]],
     *,
     application_report: dict[str, Any] | None = None,
+    base_resume_starting_snapshot: dict[str, Any] | None = None,
     historical_bound_blueprint_id: str = "",
 ) -> dict[str, Any]:
-    """Rank reusable variants but auto-recommend only a safe same-family source."""
+    """Rank all visible sources while preserving the same-family Blueprint prior."""
     validate_exact_jd_snapshot(jd)
     historical_bound_blueprint_id = _clean(historical_bound_blueprint_id)
     classification = suggest_role_family(
         {"jd_profile": deepcopy(jd.get("jd_profile") or {})}
     )
     family_id = _clean(classification.get("role_family_id"))
-    preferred_requirements = _application_local_preferred_requirements(
-        application_report
-    )
+    preferred_requirements = _application_local_preferred_requirements(application_report)
 
     active = sorted(
         (
@@ -650,15 +675,8 @@ def recommend_active_blueprint(
             for row in active_blueprints
             if _clean(row.get("status")) == "active"
             and (
-                (
-                    _clean(row.get("availability_status")) != "removed"
-                    and row.get("is_reusable") is not False
-                )
-                or (
-                    historical_bound_blueprint_id
-                    and _clean(row.get("blueprint_id"))
-                    == historical_bound_blueprint_id
-                )
+                (_clean(row.get("availability_status")) != "removed" and row.get("is_reusable") is not False)
+                or (historical_bound_blueprint_id and _clean(row.get("blueprint_id")) == historical_bound_blueprint_id)
             )
         ),
         key=lambda row: (
@@ -672,107 +690,134 @@ def recommend_active_blueprint(
     for blueprint in active:
         comparison = evaluate_starting_snapshot(
             build_blueprint_starting_snapshot(blueprint),
-            jd,
+            jd, preferred_requirements=preferred_requirements,
+        )
+        match = _clean(blueprint.get("role_family_id")) == family_id
+        rankings.append({
+            "source_type": "global_blueprint",
+            "source_id": _clean(blueprint.get("blueprint_id")),
+            "blueprint_id": _clean(blueprint.get("blueprint_id")),
+            "blueprint": deepcopy(blueprint),
+            "blueprint_identity": _blueprint_identity(blueprint),
+            "base_resume": None,
+            "role_family_match": match,
+            "role_family_relationship": "same_family" if match else "different_family",
+            "comparison": _blueprint_comparison_summary(comparison),
+        })
+
+    diagnostic_rankings = sorted(rankings, key=_blueprint_variant_ranking_key)
+    same_family_rankings = [row for row in diagnostic_rankings if row["role_family_match"]]
+    recommended_row = same_family_rankings[0] if same_family_rankings else None
+    recommended = deepcopy(recommended_row["blueprint"]) if recommended_row is not None else None
+    best_diagnostic = deepcopy(diagnostic_rankings[0]["blueprint"]) if diagnostic_rankings else None
+
+    base_resume_comparison: dict[str, Any] | None = None
+    base_resume_identity = _base_resume_identity(base_resume_starting_snapshot)
+    if isinstance(base_resume_starting_snapshot, dict):
+        if not base_resume_identity.get("source_id"):
+            raise Phase9EDecisionError("The Base Resume starting snapshot identity is incomplete.")
+        base_resume_comparison = evaluate_starting_snapshot(
+            deepcopy(base_resume_starting_snapshot), jd,
             preferred_requirements=preferred_requirements,
         )
-        rankings.append(
-            {
-                "source_type": "global_blueprint",
-                "blueprint_id": _clean(blueprint.get("blueprint_id")),
-                "blueprint": deepcopy(blueprint),
-                "blueprint_identity": _blueprint_identity(blueprint),
-                "role_family_match": (
-                    _clean(blueprint.get("role_family_id")) == family_id
-                ),
-                "comparison": _blueprint_comparison_summary(comparison),
-            }
-        )
-
-    diagnostic_rankings = sorted(
-        rankings,
-        key=_blueprint_variant_ranking_key,
-    )
-    same_family_rankings = [
-        row for row in diagnostic_rankings if row["role_family_match"]
-    ]
-    recommended_row = (
-        same_family_rankings[0] if same_family_rankings else None
-    )
-    recommended = (
-        deepcopy(recommended_row["blueprint"])
-        if recommended_row is not None
-        else None
-    )
-    best_diagnostic = (
-        deepcopy(diagnostic_rankings[0]["blueprint"])
-        if diagnostic_rankings
-        else None
-    )
 
     original_comparison: dict[str, Any] | None = None
     if isinstance(application_report, dict) and application_report:
         original_comparison = evaluate_starting_snapshot(
             build_original_resume_starting_snapshot(application_report),
-            jd,
-            preferred_requirements=preferred_requirements,
+            jd, preferred_requirements=preferred_requirements,
         )
 
     source_rankings = [deepcopy(row) for row in diagnostic_rankings]
+    if base_resume_comparison is not None:
+        source_rankings.append({
+            "source_type": "base_resume",
+            "source_id": _clean(base_resume_identity.get("source_id")),
+            "blueprint_id": "",
+            "blueprint": None,
+            "blueprint_identity": {},
+            "base_resume": deepcopy(base_resume_identity),
+            "role_family_match": False,
+            "role_family_relationship": "neutral_base_resume",
+            "comparison": _blueprint_comparison_summary(base_resume_comparison),
+        })
     if original_comparison is not None:
-        source_rankings.append(
-            {
-                "source_type": "original_resume",
-                "blueprint_id": "",
-                "blueprint": None,
-                "blueprint_identity": {},
-                "role_family_match": True,
-                "comparison": _blueprint_comparison_summary(
-                    original_comparison
-                ),
-            }
+        source_rankings.append({
+            "source_type": "original_resume",
+            "source_id": "original_resume",
+            "blueprint_id": "",
+            "blueprint": None,
+            "blueprint_identity": {},
+            "base_resume": None,
+            "role_family_match": False,
+            "role_family_relationship": "application_original",
+            "comparison": _blueprint_comparison_summary(original_comparison),
+        })
+
+    source_order = {"original_resume": 0, "base_resume": 1, "global_blueprint": 2}
+    source_rankings = sorted(
+        source_rankings,
+        key=lambda row: (
+            int((row.get("comparison") or {}).get("deal_breaker_gap_count", 0) or 0),
+            int((row.get("comparison") or {}).get("important_gap_count", 0) or 0),
+            -int((row.get("comparison") or {}).get("required_core_coverage_score", 0) or 0),
+            -int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
+            -int((row.get("comparison") or {}).get("evidence_strength_score", 0) or 0),
+            -int((row.get("comparison") or {}).get("preferred_coverage_score", 0) or 0),
+            source_order.get(_clean(row.get("source_type")), 9),
+            _clean(row.get("source_id")),
+            _clean(row.get("blueprint_id")),
+        ),
+    )
+
+    neutral = [
+        row
+        for row in source_rankings
+        if row.get("source_type") in {"base_resume", "original_resume"}
+    ]
+    neutral_by_type = {
+        _clean(row.get("source_type")): row
+        for row in neutral
+    }
+    neutral_tie_fields = (
+        "deal_breaker_gap_count",
+        "important_gap_count",
+        "required_core_coverage_score",
+        "deterministic_alignment_score",
+        "evidence_strength_score",
+        "preferred_coverage_score",
+    )
+    base_neutral = neutral_by_type.get("base_resume")
+    original_neutral = neutral_by_type.get("original_resume")
+    neutral_exact_tie = bool(
+        isinstance(base_neutral, dict)
+        and isinstance(original_neutral, dict)
+        and all(
+            int((base_neutral.get("comparison") or {}).get(field, 0) or 0)
+            == int((original_neutral.get("comparison") or {}).get(field, 0) or 0)
+            for field in neutral_tie_fields
         )
-        source_rankings = sorted(
-            source_rankings,
-            key=lambda row: (
-                int((row.get("comparison") or {}).get(
-                    "deal_breaker_gap_count", 0
-                ) or 0),
-                int((row.get("comparison") or {}).get(
-                    "important_gap_count", 0
-                ) or 0),
-                -int((row.get("comparison") or {}).get(
-                    "required_core_coverage_score", 0
-                ) or 0),
-                -int((row.get("comparison") or {}).get(
-                    "deterministic_alignment_score", 0
-                ) or 0),
-                -int((row.get("comparison") or {}).get(
-                    "evidence_strength_score", 0
-                ) or 0),
-                -int((row.get("comparison") or {}).get(
-                    "preferred_coverage_score", 0
-                ) or 0),
-                0 if row.get("source_type") == "original_resume" else 1,
-                _clean(row.get("blueprint_id")),
-            ),
-        )
+    )
+
+    if recommended is not None:
+        recommended_source = "global_blueprint"
+    elif neutral:
+        recommended_source = _clean(neutral[0].get("source_type"))
+    else:
+        recommended_source = "original_resume"
 
     for index, row in enumerate(source_rankings, start=1):
         row["diagnostic_rank"] = index
         row["eligible_for_auto_recommendation"] = bool(
-            row.get("source_type") == "original_resume"
-            or row.get("role_family_match")
+            row.get("source_type") in {"base_resume", "original_resume"} or row.get("role_family_match")
         )
         row["recommended"] = bool(
-            (
-                recommended is None
-                and row.get("source_type") == "original_resume"
-            )
+            (recommended_source == "base_resume" and row.get("source_type") == "base_resume")
+            or (recommended_source == "original_resume" and row.get("source_type") == "original_resume")
             or (
-                recommended is not None
+                recommended_source == "global_blueprint"
                 and row.get("source_type") == "global_blueprint"
-                and _clean(row.get("blueprint_id"))
-                == _clean(recommended.get("blueprint_id"))
+                and _clean(row.get("blueprint_id")) == _clean((recommended or {}).get("blueprint_id"))
             )
         )
 
@@ -780,49 +825,48 @@ def recommend_active_blueprint(
         variant_label = _clean(recommended.get("variant_label")) or "Primary"
         reasons = [
             "The JD and recommended Blueprint share the same canonical role-family ID.",
-            (
-                "The recommended source is the highest-ranked active variant in "
-                f"that family ({variant_label}) under the current deterministic "
-                "JD comparison."
-            ),
-            (
-                "Other variants and cross-family Blueprints remain visible with "
-                "diagnostic scores; cross-family rows are never auto-selected."
-            ),
+            "The recommended source is the highest-ranked active variant in that family "
+            f"({variant_label}) under the current deterministic JD comparison.",
+            "Base Resume, Original résumé, other variants, and cross-family Blueprints remain visible with diagnostic scores.",
         ]
-        recommended_source = "global_blueprint"
+    elif recommended_source == "base_resume":
+        reasons = [
+            "No active Blueprint variant exists for the JD's canonical role family.",
+            "The current immutable Base Resume is the strongest safe neutral starting source under the deterministic JD comparison.",
+            "Cross-family Blueprints remain visible for manual inspection but are never auto-selected across role-family boundaries.",
+        ]
+    elif neutral_exact_tie and recommended_source == "original_resume":
+        reasons = [
+            "No active Blueprint variant exists for the JD's canonical role family.",
+            "The current Base Resume and application Original résumé are exactly tied on the deterministic neutral-source comparison.",
+            "The application Original résumé wins the compatibility-preserving neutral-source tie-break; Base Resume remains a manual choice.",
+            "Cross-family Blueprints remain visible for manual inspection but are never auto-selected across role-family boundaries.",
+        ]
     else:
         reasons = [
             "No active Blueprint variant exists for the JD's canonical role family.",
-            (
-                "The original résumé remains the safe recommendation. Other "
-                "Blueprints are scored for comparison but are not auto-selected "
-                "across role-family boundaries."
-            ),
+            "The application Original résumé is the strongest available safe neutral starting source under the deterministic JD comparison.",
+            "Cross-family Blueprints remain visible for manual inspection but are never auto-selected across role-family boundaries.",
         ]
-        recommended_source = "original_resume"
 
     return {
         "policy_version": PHASE9E_RECOMMENDATION_POLICY_VERSION,
+        "base_resume_parity_policy_version": PHASE9E_BASE_RESUME_PARITY_POLICY_VERSION,
         "classification": deepcopy(classification),
-        "recommendation_confidence": _clean(
-            classification.get("confidence")
-        )
-        or "low",
+        "recommendation_confidence": _clean(classification.get("confidence")) or "low",
         "recommended_source": recommended_source,
+        "neutral_exact_tie": neutral_exact_tie,
         "recommended_blueprint": deepcopy(recommended),
         "recommended_blueprint_identity": _blueprint_identity(recommended),
+        "recommended_base_resume": deepcopy(base_resume_identity) if recommended_source == "base_resume" else {},
         "best_diagnostic_blueprint": best_diagnostic,
         "reasons": reasons,
         "active_blueprints": active,
         "blueprint_rankings": diagnostic_rankings,
         "same_family_rankings": same_family_rankings,
         "source_rankings": source_rankings,
-        "original_resume_comparison": (
-            _blueprint_comparison_summary(original_comparison)
-            if original_comparison is not None
-            else None
-        ),
+        "base_resume_comparison": _blueprint_comparison_summary(base_resume_comparison) if base_resume_comparison is not None else None,
+        "original_resume_comparison": _blueprint_comparison_summary(original_comparison) if original_comparison is not None else None,
     }
 
 
@@ -843,6 +887,39 @@ def build_blueprint_starting_snapshot(
         "resume_text_snapshot": str(frozen["resume_text_snapshot"]),
         "source_identity": _blueprint_identity(blueprint),
         "phase9d_blueprint_snapshot": phase9d_snapshot,
+    }
+    result["starting_snapshot_fingerprint"] = fingerprint_value(result)
+    return result
+
+
+def build_base_resume_starting_snapshot(
+    master: dict[str, Any],
+    authoritative_artifact: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Map the validated Phase 9F Base Resume into the Phase 9E source contract."""
+    try:
+        normalized = normalize_base_resume_source(deepcopy(master), deepcopy(authoritative_artifact))
+    except Phase9FBRankingError as exc:
+        raise Phase9EDecisionError(str(exc)) from exc
+    source_identity = {
+        "source_type": "base_resume",
+        "source_id": _clean(normalized.get("source_id")),
+        "source_version": int(normalized.get("source_version", 0) or 0),
+        "source_fingerprint": _clean(normalized.get("source_fingerprint")),
+        "source_content_fingerprint": _clean(normalized.get("source_content_fingerprint")),
+        "normalized_source_fingerprint": _clean(normalized.get("normalized_source_fingerprint")),
+        "source_display_name": _clean(normalized.get("display_name")) or "Base Resume",
+        "parity_policy_version": PHASE9E_BASE_RESUME_PARITY_POLICY_VERSION,
+    }
+    result = {
+        "source_type": "base_resume",
+        "source_fidelity": "phase9f_global_master_resume_complete_snapshot",
+        "resume_text_is_original_uploaded_text": False,
+        "resume_text_representation_method": "phase9f_master_resume_frozen_text",
+        "resume_profile_snapshot": deepcopy(normalized["resume_profile_snapshot"]),
+        "resume_text_snapshot": str(normalized["resume_text_snapshot"]),
+        "source_identity": source_identity,
+        "phase9f_master_resume_snapshot": deepcopy(master.get("master_snapshot") or {}),
     }
     result["starting_snapshot_fingerprint"] = fingerprint_value(result)
     return result
@@ -1408,12 +1485,18 @@ def decide_tailoring(
         locked = list(ALL_RESUME_SECTIONS)
         tailorable: list[str] = []
         optional_tailorable: list[str] = []
-    elif selected_source == "original_resume":
+    elif selected_source in {"original_resume", "base_resume"}:
         decision = "full_regeneration"
-        reasons = [
-            "The persisted original résumé was explicitly selected as the starting source.",
-            "This is a workflow-source choice, not a conclusion forced by the diagnostic score.",
-        ]
+        if selected_source == "base_resume":
+            reasons = [
+                "The current immutable Base Resume was explicitly selected as the starting source.",
+                "Full JD-specific tailoring starts from that Base Resume; Education and Work Experience remain protected.",
+            ]
+        else:
+            reasons = [
+                "The persisted original résumé was explicitly selected as the starting source.",
+                "This is a workflow-source choice, not a conclusion forced by the diagnostic score.",
+            ]
         locked = ["education", "work_experience"]
         tailorable = ["projects", "skills"]
         optional_tailorable = []
@@ -1479,10 +1562,14 @@ def decide_tailoring(
         tailorable = []
         optional_tailorable = ["projects", "skills"]
 
+    user_facing_label = DECISION_LABELS[decision]
+    if decision == "full_regeneration" and selected_source == "base_resume":
+        user_facing_label = "Tailor from Base Resume"
+
     return {
         "decision_policy_version": PHASE9E_DECISION_POLICY_VERSION,
         "decision": decision,
-        "user_facing_label": DECISION_LABELS[decision],
+        "user_facing_label": user_facing_label,
         "reasons": reasons,
         "original_resume_comparison": {
             "automatic_superiority_eligible": original_automatic_comparison,
@@ -1517,6 +1604,7 @@ def build_phase9e_decision(
     active_blueprints: Iterable[dict[str, Any]],
     selected_source: str,
     selected_blueprint_id: str = "",
+    base_resume_starting_snapshot: dict[str, Any] | None = None,
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
     historical_bound_blueprint_id: str = "",
@@ -1532,6 +1620,7 @@ def build_phase9e_decision(
         exact_jd,
         active_blueprints,
         application_report=application_report,
+        base_resume_starting_snapshot=base_resume_starting_snapshot,
         historical_bound_blueprint_id=historical_bound_blueprint_id,
     )
     classification = recommendation["classification"]
@@ -1540,6 +1629,7 @@ def build_phase9e_decision(
     selection_mode = _clean(selection_mode)
 
     selected_blueprint: dict[str, Any] | None = None
+    selected_base_resume_identity: dict[str, Any] = {}
     source_approval: dict[str, Any] | None = None
     original_snapshot: dict[str, Any] | None = None
     if selected_source == "global_blueprint":
@@ -1586,20 +1676,33 @@ def build_phase9e_decision(
         original_snapshot = build_original_resume_starting_snapshot(
             application_report
         )
+    elif selected_source == "base_resume":
+        if selected_blueprint_id:
+            raise Phase9EDecisionError("Base Resume selection cannot bind a Blueprint ID.")
+        if not isinstance(base_resume_starting_snapshot, dict):
+            raise Phase9EDecisionError("The selected Base Resume snapshot is unavailable.")
+        selected_base_resume_identity = _base_resume_identity(base_resume_starting_snapshot)
+        if not selected_base_resume_identity.get("source_id"):
+            raise Phase9EDecisionError("The selected Base Resume identity is incomplete.")
+        if selection_mode == "recommended" and recommendation.get("recommended_source") != "base_resume":
+            raise Phase9EDecisionError("The recommended Base Resume selection no longer matches the current recommendation.")
+        role_mismatch = False
+        diagnostic_starting_snapshot = deepcopy(base_resume_starting_snapshot)
+        original_snapshot = build_original_resume_starting_snapshot(application_report)
     elif selected_source == "original_resume":
         if selected_blueprint_id:
             raise Phase9EDecisionError(
                 "Original-resume selection cannot bind a blueprint ID."
             )
-        selection_mode = "original_resume"
+        if selection_mode == "recommended" and recommendation.get("recommended_source") != "original_resume":
+            raise Phase9EDecisionError("The recommended Original résumé selection no longer matches the current recommendation.")
+        selection_mode = "recommended" if selection_mode == "recommended" else "original_resume"
         role_mismatch = False
-        diagnostic_starting_snapshot = build_original_resume_starting_snapshot(
-            application_report
-        )
+        diagnostic_starting_snapshot = build_original_resume_starting_snapshot(application_report)
         original_snapshot = diagnostic_starting_snapshot
     else:
         raise Phase9EDecisionError(
-            "selected_source must be global_blueprint or original_resume."
+            "selected_source must be global_blueprint, base_resume, or original_resume."
         )
 
     comparison = evaluate_starting_snapshot(
@@ -1628,7 +1731,7 @@ def build_phase9e_decision(
         ),
     )
     starting_snapshot = diagnostic_starting_snapshot
-    if outcome["decision"] == "full_regeneration":
+    if outcome["decision"] == "full_regeneration" and selected_source == "global_blueprint":
         if not isinstance(original_snapshot, dict):
             raise Phase9EDecisionError(
                 "Full regeneration requires the persisted original resume snapshot."
@@ -1711,11 +1814,16 @@ def build_phase9e_decision(
             "recommended_blueprint": deepcopy(
                 recommendation["recommended_blueprint_identity"]
             ),
+            **({
+                "recommended_source": _clean(recommendation.get("recommended_source")),
+                "base_resume_parity_policy_version": PHASE9E_BASE_RESUME_PARITY_POLICY_VERSION,
+            } if selected_source == "base_resume" else {}),
         },
         "selection": {
             "selected_source": selected_source,
             "selection_mode": selection_mode,
             "selected_blueprint": selected_identity,
+            **({"selected_base_resume": deepcopy(selected_base_resume_identity)} if selected_source == "base_resume" else {}),
             "role_family_mismatch": role_mismatch,
             "diagnostic_starting_snapshot_fingerprint": (
                 diagnostic_starting_snapshot[
@@ -1794,6 +1902,10 @@ def build_phase9e_decision(
             "selected_blueprint_display_name": _clean(
                 (selected_blueprint or {}).get("display_name")
             ),
+            **({
+                "selected_base_resume": deepcopy(selected_base_resume_identity),
+                "selected_base_resume_display_name": _clean(selected_base_resume_identity.get("source_display_name")) or "Base Resume",
+            } if selected_source == "base_resume" else {}),
             "role_family_mismatch": role_mismatch,
             "mismatch_acknowledged": bool(mismatch_acknowledged),
             "effective_starting_source": _clean(
@@ -1862,6 +1974,8 @@ def build_phase9e_decision(
                 "full_regeneration": (
                     "regenerate_from_original_resume"
                     if selected_source == "original_resume"
+                    else "regenerate_from_base_resume"
+                    if selected_source == "base_resume"
                     else "awaiting_explicit_choice"
                 ),
             }[outcome["decision"]],
@@ -1876,9 +1990,11 @@ def build_phase9e_decision(
                     "apply_targeted_retargeting",
                     "use_blueprint_unchanged_override",
                 ],
-                "full_regeneration": [
-                    "regenerate_from_original_resume"
-                ],
+                "full_regeneration": (
+                    ["regenerate_from_base_resume"]
+                    if selected_source == "base_resume"
+                    else ["regenerate_from_original_resume"]
+                ),
             }[outcome["decision"]],
         },
         "mutation_policy": {
@@ -1990,6 +2106,7 @@ def resolve_workflow_action(
         "apply_optional_polish",
         "apply_targeted_retargeting",
         "regenerate_from_original_resume",
+        "regenerate_from_base_resume",
     }:
         locked = ["education", "work_experience"]
         tailorable = ["projects", "skills"]

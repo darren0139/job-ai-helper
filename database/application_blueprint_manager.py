@@ -16,7 +16,9 @@ from database.global_blueprint_manager import (
     list_reusable_global_blueprints,
 )
 from database.global_master_resume_manager import (
+    get_current_global_master_resume,
     get_global_master_resume,
+    get_global_master_resume_artifact,
 )
 from database.jd_library_manager import (
     get_exact_job_description_for_application,
@@ -29,6 +31,7 @@ from tailoring.phase9e_blueprint_selection import (
     PHASE9E_VERSION,
     PHASE9E_WORKFLOW_ACTION_POLICY_VERSION,
     Phase9EDecisionError,
+    build_base_resume_starting_snapshot,
     build_effective_tailoring_report,
     build_phase9e_decision,
     canonical_json,
@@ -252,11 +255,24 @@ def _active_blueprints() -> list[dict[str, Any]]:
     return list_reusable_global_blueprints()
 
 
+def get_phase9e_base_resume_starting_snapshot(
+    master_version_id: str = "",
+) -> dict[str, Any] | None:
+    """Load one exact validated Base Resume snapshot without persistence writes."""
+    requested_id = str(master_version_id or "").strip()
+    master = get_global_master_resume(requested_id) if requested_id else get_current_global_master_resume()
+    if master is None:
+        return None
+    artifact = get_global_master_resume_artifact(str(master.get("master_version_id") or ""), "original")
+    return build_base_resume_starting_snapshot(master, artifact)
+
+
 def preview_application_blueprint_decision(
     *,
     application_id: int,
     selected_source: str,
     selected_blueprint_id: str = "",
+    selected_base_resume_id: str = "",
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
     historical_bound_blueprint: dict[str, Any] | None = None,
@@ -268,6 +284,7 @@ def preview_application_blueprint_decision(
             "The application has no exact persisted JD version link."
         )
     active_blueprints = _active_blueprints()
+    base_resume_starting_snapshot = get_phase9e_base_resume_starting_snapshot(selected_base_resume_id)
     historical_id = ""
     if isinstance(historical_bound_blueprint, dict):
         historical_id = str(
@@ -285,6 +302,7 @@ def preview_application_blueprint_decision(
         active_blueprints=active_blueprints,
         selected_source=selected_source,
         selected_blueprint_id=selected_blueprint_id,
+        base_resume_starting_snapshot=base_resume_starting_snapshot,
         selection_mode=selection_mode,
         mismatch_acknowledged=mismatch_acknowledged,
         historical_bound_blueprint_id=historical_id,
@@ -324,6 +342,33 @@ def _database_context_signature(
         raise Phase9EDecisionError(
             "The application's exact linked JD version is missing."
         )
+    base_resume_context: dict[str, Any] | None = None
+    base_table = connection.execute(
+        """
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name = 'global_master_resume_state'
+        LIMIT 1
+        """
+    ).fetchone()
+    if base_table is not None:
+        base_row = connection.execute(
+            """
+            SELECT
+                state.current_master_version_id,
+                state.current_master_version_fingerprint,
+                version.master_content_fingerprint,
+                version.version_number,
+                version.artifact_sha256
+            FROM global_master_resume_state AS state
+            JOIN global_master_resume_versions AS version
+              ON version.master_version_id = state.current_master_version_id
+            WHERE state.singleton_id = 1
+            LIMIT 1
+            """
+        ).fetchone()
+        if base_row is not None:
+            base_resume_context = dict(base_row)
+
     active = connection.execute(
         """
         SELECT
@@ -348,6 +393,7 @@ def _database_context_signature(
             "application_id": int(application_id),
             "report_json": str(application["report_json"]),
             "exact_jd": dict(jd),
+            "current_base_resume": base_resume_context,
             "active_blueprints": [dict(row) for row in active],
         }
     )
@@ -616,6 +662,7 @@ def evaluate_and_bind_application_blueprint(
     scope_replacement_confirmed: bool,
     selected_source: str,
     selected_blueprint_id: str = "",
+    selected_base_resume_id: str = "",
     selection_mode: str = "recommended",
     mismatch_acknowledged: bool = False,
     actor_label: str = "Local user",
@@ -638,6 +685,7 @@ def evaluate_and_bind_application_blueprint(
         application_id=application_id,
         selected_source=selected_source,
         selected_blueprint_id=selected_blueprint_id,
+        selected_base_resume_id=selected_base_resume_id,
         selection_mode=selection_mode,
         mismatch_acknowledged=mismatch_acknowledged,
     )
@@ -649,7 +697,7 @@ def evaluate_and_bind_application_blueprint(
         after_signature = _database_context_signature(connection, application_id)
         if before_signature != after_signature:
             raise Phase9EDecisionError(
-                "The application, linked JD, or active blueprint changed during binding."
+                "The application, linked JD, active Blueprint, or current Base Resume changed during binding."
             )
 
         existing = connection.execute(
@@ -896,7 +944,7 @@ def set_application_blueprint_workflow_action(
             connection, application_id
         ):
             raise Phase9EDecisionError(
-                "The application, linked JD, or active blueprint changed during the workflow action."
+                "The application, linked JD, active Blueprint, or current Base Resume changed during the workflow action."
             )
         state = connection.execute(
             """
@@ -1219,6 +1267,15 @@ def get_current_application_blueprint_decision(
     error: Exception | None = None
     try:
         historical_bound_blueprint = None
+        selected_base_resume_id = ""
+        if (
+            str(selection.get("selected_source") or "").strip()
+            == "base_resume"
+        ):
+            selected_base_resume_id = str(
+                (((decision.get("starting_snapshot") or {}).get("source_identity") or {}).get("source_id"))
+                or ""
+            ).strip()
         selected_blueprint = selection.get("selected_blueprint") or {}
         selected_blueprint_id = str(
             selected_blueprint.get("blueprint_id") or ""
@@ -1246,6 +1303,7 @@ def get_current_application_blueprint_decision(
                 )
                 or ""
             ),
+            selected_base_resume_id=selected_base_resume_id,
             selection_mode=str(selection.get("selection_mode") or ""),
             mismatch_acknowledged=bool(
                 selection.get("mismatch_acknowledged")
