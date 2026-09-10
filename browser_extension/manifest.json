@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Job AI Helper \u2014 Browser Integration POC",
+  "version": "0.2.0",
+  "description": "Local JD capture, Job AI Helper bridge, and deterministic basic-field autofill.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_title": "Job AI Helper Browser Integration",
+    "default_popup": "popup.html"
+  }
+}

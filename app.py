@@ -100,6 +100,10 @@ from database.user_profile_manager import (
     migrate_legacy_project_titles_to_structured_metadata,
 )
 
+from tailoring.application_profile_ui import render_application_profile
+from tailoring.browser_capture_ui import render_browser_capture_inbox
+from browser_integration.streamlit_runtime import ensure_streamlit_browser_bridge
+
 from tailoring.project_section_tailor import (
     tailor_projects_section,
     estimate_project_section_length,
@@ -359,6 +363,9 @@ from llm import (
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
 from tailoring.ollama_performance_settings import is_local_ollama_model as _ollama_perf_is_local_model
 
+
+# Start/reuse the localhost browser bridge only under Streamlit.
+_browser_bridge_resource = ensure_streamlit_browser_bridge()
 
 VALID_DEGREES = ["RTIS", "IMGD", "UXGD", "BFA"]
 ATS_PASS_THRESHOLD = 60
@@ -8579,6 +8586,9 @@ elif page == "Profile & Evidence":
         "The app can use this later to recommend which projects or skills to include "
         "without inventing experience."
     )
+
+    render_application_profile()
+    render_browser_capture_inbox()
 
     render_phase9f_master_resume()
 

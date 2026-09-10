@@ -8,6 +8,15 @@ from typing import Any
 import streamlit as st
 
 from analyzer import extract_jd_profile
+
+from database.browser_capture_manager import (
+    get_browser_job_capture,
+    list_browser_job_captures,
+)
+from browser_integration.tailor_resume_handoff import (
+    browser_capture_to_phase9f_input,
+)
+
 from database.jd_library_manager import (
     get_exact_job_description_version,
     get_job_description_versions,
@@ -40,6 +49,7 @@ from tailoring.phase9f_starting_source_ranking_ui import (
 SOURCE_LABELS = {
     "Paste job description": "pasted",
     "Upload job-description file": "uploaded",
+    "Choose browser capture": "browser",
     "Choose saved JD": "saved",
 }
 
@@ -52,6 +62,13 @@ def _saved_job_label(row: tuple[Any, ...]) -> str:
     title = _clean(row[2]) or "Untitled job"
     company = _clean(row[3]) or "Unknown company"
     return f"{company} — {title}"
+
+
+
+def _browser_capture_label(row: dict[str, Any]) -> str:
+    title = _clean(row.get("job_title")) or "Untitled job"
+    company = _clean(row.get("company")) or "Unknown company"
+    return f"#{row.get('id')} — {company} — {title}"
 
 
 def _version_label(row: dict[str, Any]) -> str:
@@ -265,7 +282,7 @@ def _render_analysis(snapshot: dict[str, Any], *, current_source_url: str) -> No
             f"{_clean(snapshot.get('snapshot_fingerprint'))}"
         )
 
-    can_offer_save = snapshot.get("source_type") in {"pasted", "uploaded"}
+    can_offer_save = snapshot.get("source_type") in {"pasted", "uploaded", "browser"}
     has_save_identity = bool(
         _clean(snapshot.get("job_title")) and _clean(snapshot.get("company"))
     )
@@ -412,6 +429,95 @@ def render_phase9f_jd_intake() -> None:
                     height=280,
                     key=f"phase9f_uploaded_jd_text_{upload_hash}",
                 )
+    elif source_type == "browser":
+        captures = list_browser_job_captures(limit=100, status="pending")
+        if not captures:
+            st.info(
+                "No browser JD captures are available yet. Use the Chrome "
+                "extension to extract and save a job first."
+            )
+        else:
+            by_id = {
+                int(item["id"]): item
+                for item in captures
+                if item.get("id") is not None
+            }
+            capture_ids = list(by_id)
+            requested_capture_id = st.session_state.get(
+                "phase9f_browser_capture_id"
+            )
+            try:
+                requested_capture_id = int(requested_capture_id)
+            except (TypeError, ValueError):
+                requested_capture_id = 0
+            if requested_capture_id not in by_id:
+                st.session_state["phase9f_browser_capture_id"] = capture_ids[0]
+
+            selected_capture_id = st.selectbox(
+                "Browser capture",
+                options=capture_ids,
+                format_func=lambda capture_id: _browser_capture_label(
+                    by_id[capture_id]
+                ),
+                key="phase9f_browser_capture_id",
+            )
+            selected_capture = (
+                get_browser_job_capture(int(selected_capture_id))
+                or by_id[int(selected_capture_id)]
+            )
+            browser_input = browser_capture_to_phase9f_input(
+                selected_capture
+            )
+            capture_hash = (
+                _clean(selected_capture.get("capture_hash"))
+                or f"capture-{int(selected_capture_id)}"
+            )
+            widget_suffix = capture_hash[:16]
+
+            raw_text = st.text_area(
+                "Browser-captured JD text — review and correct before analysis",
+                value=browser_input["raw_text"],
+                height=280,
+                key=f"phase9f_browser_jd_text_{widget_suffix}",
+            )
+
+            with st.expander("Browser capture metadata", expanded=False):
+                company = st.text_input(
+                    "Company",
+                    value=browser_input["company"],
+                    key=f"phase9f_browser_company_{widget_suffix}",
+                )
+                title = st.text_input(
+                    "Job title / Role",
+                    value=browser_input["title"],
+                    key=f"phase9f_browser_title_{widget_suffix}",
+                )
+                location = st.text_input(
+                    "Location",
+                    value=browser_input["location"],
+                    key=f"phase9f_browser_location_{widget_suffix}",
+                )
+                source_url = st.text_input(
+                    "Source URL",
+                    value=browser_input["source_url"],
+                    key=f"phase9f_browser_source_url_{widget_suffix}",
+                )
+
+            source_artifact_sha256 = browser_input[
+                "source_artifact_sha256"
+            ]
+            confidence = _clean(
+                selected_capture.get("extraction_confidence")
+            )
+            strategy = _clean(
+                selected_capture.get("extraction_strategy")
+            )
+            st.caption(
+                "Browser capture "
+                f"#{int(selected_capture_id)} · "
+                f"{strategy or 'generic extraction'} · "
+                f"confidence {confidence or 'unknown'}"
+            )
     else:
         jobs = get_recent_job_descriptions(limit=200)
         if not jobs:
@@ -469,7 +575,7 @@ def render_phase9f_jd_intake() -> None:
     )
 
     exact_saved_match = None
-    if source_type in {"pasted", "uploaded"} and _clean(raw_text):
+    if source_type in {"pasted", "uploaded", "browser"} and _clean(raw_text):
         exact_saved_match = _find_exact_saved_jd_version(raw_text)
 
     active_analysis_model = (
@@ -505,7 +611,7 @@ def render_phase9f_jd_intake() -> None:
             "structured analysis will be reused, so JD analysis requires "
             "0 model calls and no JD-extraction API charge."
         )
-    elif has_input and source_type in {"pasted", "uploaded"}:
+    elif has_input and source_type in {"pasted", "uploaded", "browser"}:
         st.warning(
             "Analyse Job Description calls the selected analysis API model "
             f"({analysis_model}) and may incur API charges. "

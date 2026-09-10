@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Job AI Helper Browser Integration</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Job AI Helper</h1>
+    <p class="subtitle">JD capture + local bridge + deterministic autofill</p>
+
+    <section>
+      <h2>1. Local bridge</h2>
+      <label>
+        Bridge URL
+        <input id="bridgeUrl" type="text" value="http://127.0.0.1:8765">
+      </label>
+      <label>
+        Bridge token
+        <input id="bridgeToken" type="password" placeholder="Paste token printed by bridge">
+      </label>
+      <button id="connectButton" type="button">Connect + load profile</button>
+      <div id="bridgeStatus" class="status">Not connected.</div>
+    </section>
+
+    <section>
+      <h2>Fallback profile import</h2>
+      <input id="profileFile" type="file" accept=".json,application/json">
+      <div id="profileStatus" class="status">No profile loaded.</div>
+    </section>
+
+    <section>
+      <h2>2. Current tab</h2>
+      <button id="extractButton" type="button">Extract clean JD</button>
+      <button id="saveCaptureButton" type="button" disabled>Save JD to Job AI Helper</button>
+      <button id="scanButton" type="button">Scan form fields</button>
+      <button id="autofillButton" type="button">Autofill basic details</button>
+    </section>
+
+    <section>
+      <h2>Result</h2>
+      <pre id="result">Ready.</pre>
+      <div class="row">
+        <button id="copyButton" type="button" disabled>Copy result JSON</button>
+        <button id="downloadButton" type="button" disabled>Download result JSON</button>
+      </div>
+    </section>
+
+    <p class="warning">
+      POC only. Captures are pending until analyzed in Job AI Helper.
+      This extension never submits an application.
+    </p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

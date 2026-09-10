@@ -175,7 +175,7 @@ def build_transient_exact_jd_snapshot(
 ) -> dict[str, Any]:
     """Build one deterministic transient snapshot without persistence."""
     text = validate_jd_text(raw_text)
-    if source_type not in {"pasted", "uploaded", "saved"}:
+    if source_type not in {"pasted", "uploaded", "browser", "saved"}:
         raise Phase9FJDIntakeError("Invalid Phase 9F JD source type.")
     if not isinstance(jd_profile, dict) or not jd_profile:
         raise Phase9FJDIntakeError(
@@ -389,10 +389,10 @@ def build_reused_exact_jd_snapshot(
     source_artifact_sha256: str = "",
     preferred_requirements: str | list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Reuse one exact saved JD profile for pasted/uploaded intake at zero LLM cost."""
-    if source_type not in {"pasted", "uploaded"}:
+    """Reuse one exact saved JD profile for pasted/uploaded/browser intake at zero LLM cost."""
+    if source_type not in {"pasted", "uploaded", "browser"}:
         raise Phase9FJDIntakeError(
-            "Exact saved-analysis reuse is only valid for pasted/uploaded intake."
+            "Exact saved-analysis reuse is only valid for pasted/uploaded/browser intake."
         )
     if not isinstance(saved, dict) or not saved:
         raise Phase9FJDIntakeError(
