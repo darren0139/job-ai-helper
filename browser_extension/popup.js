@@ -14,12 +14,18 @@ const extractButton = document.getElementById("extractButton");
 const saveCaptureButton = document.getElementById("saveCaptureButton");
 const scanButton = document.getElementById("scanButton");
 const autofillButton = document.getElementById("autofillButton");
+const discoverTabsButton = document.getElementById("discoverTabsButton");
+const batchTabList = document.getElementById("batchTabList");
+const batchCaptureButton = document.getElementById("batchCaptureButton");
+const batchAutofillButton = document.getElementById("batchAutofillButton");
+const batchStatus = document.getElementById("batchStatus");
 const result = document.getElementById("result");
 const copyButton = document.getElementById("copyButton");
 const downloadButton = document.getElementById("downloadButton");
 
 let latestResult = null;
 let latestJobCapture = null;
+const batchTabsById = new Map();
 
 function showResult(value) {
   latestResult = value;
@@ -74,7 +80,15 @@ async function getActiveTab() {
 async function ensureInjected(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["mapping.js", "jd_cleaning.js", "content.js"],
+    files: [
+      "mapping.js",
+      "jd_cleaning.js",
+      "adapters/registry.js",
+      "adapters/generic.js",
+      "adapters/careers_gov.js",
+      "adapters/greenhouse.js",
+      "content.js",
+    ],
   });
 }
 
@@ -82,6 +96,254 @@ async function sendToActiveTab(message) {
   const tab = await getActiveTab();
   await ensureInjected(tab.id);
   return await chrome.tabs.sendMessage(tab.id, message);
+}
+
+async function sendToTab(tabId, message) {
+  await ensureInjected(tabId);
+  return await chrome.tabs.sendMessage(tabId, message);
+}
+
+function selectedBatchTabs() {
+  return [...batchTabList.querySelectorAll('input[type="checkbox"]:checked')]
+    .map((input) => batchTabsById.get(Number(input.dataset.tabId)))
+    .filter(Boolean);
+}
+
+function refreshBatchButtons() {
+  const hasSelection = selectedBatchTabs().length > 0;
+  batchCaptureButton.disabled = !hasSelection;
+  batchAutofillButton.disabled = !hasSelection;
+}
+
+function renderBatchTabs(tabs) {
+  batchTabsById.clear();
+  batchTabList.replaceChildren();
+
+  if (!tabs.length) {
+    const empty = document.createElement("div");
+    empty.className = "status";
+    empty.textContent = "No normal web tabs found in this window.";
+    batchTabList.appendChild(empty);
+    refreshBatchButtons();
+    return;
+  }
+
+  for (const tab of tabs) {
+    batchTabsById.set(tab.id, tab);
+
+    const label = document.createElement("label");
+    label.className = "batch-tab";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.tabId = String(tab.id);
+    checkbox.checked = self.JobAIBatchTabs.defaultSelected(tab);
+    checkbox.addEventListener("change", refreshBatchButtons);
+
+    const text = document.createElement("span");
+    text.textContent = self.JobAIBatchTabs.displayLabel(tab);
+
+    label.append(checkbox, text);
+    batchTabList.appendChild(label);
+  }
+
+  refreshBatchButtons();
+}
+
+async function requestTabMetadataPermission() {
+  const alreadyGranted = await chrome.permissions.contains({
+    permissions: ["tabs"],
+  });
+  if (alreadyGranted) return true;
+
+  return await chrome.permissions.request({
+    permissions: ["tabs"],
+  });
+}
+
+async function requestSelectedHostAccess(tabs) {
+  const origins = self.JobAIBatchTabs.permissionPatterns(tabs);
+  if (!origins.length) {
+    throw new Error("No normal HTTP(S) tabs are selected.");
+  }
+
+  const alreadyGranted = await chrome.permissions.contains({ origins });
+  if (alreadyGranted) return origins;
+
+  const granted = await chrome.permissions.request({ origins });
+  if (!granted) {
+    throw new Error(
+      "Site access was not granted. Batch actions need permission only for the selected sites."
+    );
+  }
+  return origins;
+}
+
+async function discoverBatchTabs() {
+  const granted = await requestTabMetadataPermission();
+  if (!granted) {
+    throw new Error(
+      "Tab discovery permission was not granted. The extension cannot inspect background tab titles/URLs."
+    );
+  }
+
+  const tabs = await chrome.tabs.query({ currentWindow: true });
+  const candidates = self.JobAIBatchTabs.capturableTabs(tabs);
+  renderBatchTabs(candidates);
+
+  const selectedCount = selectedBatchTabs().length;
+  batchStatus.textContent =
+    `Found ${candidates.length} web tab(s); ${selectedCount} preselected. ` +
+    "Review the selection before running a batch action.";
+
+  return candidates;
+}
+
+async function batchCaptureSelectedTabs() {
+  const tabs = selectedBatchTabs();
+  if (!tabs.length) throw new Error("Select at least one tab.");
+
+  await requestSelectedHostAccess(tabs);
+
+  const items = [];
+  for (let index = 0; index < tabs.length; index += 1) {
+    const tab = tabs[index];
+    batchStatus.textContent =
+      `Capturing ${index + 1}/${tabs.length}: ${tab.title || tab.url}`;
+
+    try {
+      const extracted = await sendToTab(tab.id, {
+        type: "JOB_AI_EXTRACT_PAGE",
+      });
+      if (!extracted?.ok) {
+        throw new Error(extracted?.error || "Page extraction failed.");
+      }
+
+      const capture = extracted?.data;
+      if (!capture?.job?.jd_text) {
+        throw new Error("No clean JD text was extracted.");
+      }
+
+      const saved = await bridgeFetch("/api/v1/jd-captures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(capture),
+      });
+
+      items.push({
+        tab_id: tab.id,
+        title: tab.title || "",
+        url: tab.url || "",
+        status: "saved",
+        capture_id: saved?.capture?.id || null,
+        job_title: saved?.capture?.job_title || capture?.job?.job_title || "",
+        company: saved?.capture?.company || capture?.job?.company || "",
+        extraction_strategy:
+          saved?.capture?.extraction_strategy ||
+          capture?.job?.cleaning_strategy ||
+          "",
+      });
+    } catch (error) {
+      items.push({
+        tab_id: tab.id,
+        title: tab.title || "",
+        url: tab.url || "",
+        status: "error",
+        error: String(error?.message || error),
+      });
+    }
+  }
+
+  const savedCount = items.filter((item) => item.status === "saved").length;
+  const errorCount = items.length - savedCount;
+  batchStatus.textContent =
+    `Batch capture finished: ${savedCount} saved, ${errorCount} error(s).`;
+
+  return {
+    ok: errorCount === 0,
+    action: "batch_capture_selected_tabs",
+    selected_count: tabs.length,
+    saved_count: savedCount,
+    error_count: errorCount,
+    model_calls: 0,
+    items,
+    note:
+      "Captures were sent to the local Job AI Helper inbox only. No JD analysis or model call was triggered.",
+  };
+}
+
+async function batchAutofillSelectedTabs() {
+  const tabs = selectedBatchTabs();
+  if (!tabs.length) throw new Error("Select at least one tab.");
+
+  const stored = await chrome.storage.local.get(PROFILE_STORAGE_KEY);
+  const payload = stored[PROFILE_STORAGE_KEY];
+  if (!payload) {
+    throw new Error(
+      "Connect to Job AI Helper or import job_ai_helper_work_profile.json first."
+    );
+  }
+
+  await requestSelectedHostAccess(tabs);
+
+  const items = [];
+  for (let index = 0; index < tabs.length; index += 1) {
+    const tab = tabs[index];
+    batchStatus.textContent =
+      `Autofilling ${index + 1}/${tabs.length}: ${tab.title || tab.url}`;
+
+    try {
+      const response = await sendToTab(tab.id, {
+        type: "JOB_AI_AUTOFILL",
+        profilePayload: payload,
+      });
+      if (!response?.ok) {
+        throw new Error(response?.error || "Autofill failed.");
+      }
+
+      items.push({
+        tab_id: tab.id,
+        title: tab.title || "",
+        url: tab.url || "",
+        status: "completed",
+        filled_count: Number(response.filled_count || 0),
+        skipped_unknown_count: Number(response.skipped_unknown_count || 0),
+        not_filled_count: Number(response.not_filled_count || 0),
+      });
+    } catch (error) {
+      items.push({
+        tab_id: tab.id,
+        title: tab.title || "",
+        url: tab.url || "",
+        status: "error",
+        error: String(error?.message || error),
+      });
+    }
+  }
+
+  const completed = items.filter((item) => item.status === "completed");
+  const filledCount = completed.reduce(
+    (total, item) => total + item.filled_count,
+    0
+  );
+  const errorCount = items.length - completed.length;
+
+  batchStatus.textContent =
+    `Batch autofill finished: ${filledCount} field(s) filled across ` +
+    `${completed.length} tab(s); ${errorCount} error(s).`;
+
+  return {
+    ok: errorCount === 0,
+    action: "batch_autofill_selected_tabs",
+    selected_count: tabs.length,
+    completed_count: completed.length,
+    error_count: errorCount,
+    filled_count: filledCount,
+    model_calls: 0,
+    items,
+    note:
+      "Only the existing deterministic whitelist was used. No navigation or submit action was performed.",
+  };
 }
 
 async function loadStoredProfileStatus() {
@@ -233,6 +495,40 @@ autofillButton.addEventListener("click", async () => {
       })
     );
   } catch (error) {
+    showResult({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+discoverTabsButton.addEventListener("click", async () => {
+  try {
+    const tabs = await discoverBatchTabs();
+    showResult({
+      ok: true,
+      action: "discover_batch_tabs",
+      tab_count: tabs.length,
+      selected_count: selectedBatchTabs().length,
+      model_calls: 0,
+    });
+  } catch (error) {
+    batchStatus.textContent = String(error?.message || error);
+    showResult({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+batchCaptureButton.addEventListener("click", async () => {
+  try {
+    showResult(await batchCaptureSelectedTabs());
+  } catch (error) {
+    batchStatus.textContent = String(error?.message || error);
+    showResult({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+batchAutofillButton.addEventListener("click", async () => {
+  try {
+    showResult(await batchAutofillSelectedTabs());
+  } catch (error) {
+    batchStatus.textContent = String(error?.message || error);
     showResult({ ok: false, error: String(error?.message || error) });
   }
 });

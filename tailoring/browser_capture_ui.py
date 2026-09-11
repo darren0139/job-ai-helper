@@ -64,11 +64,11 @@ def _render_browser_bridge_status() -> None:
 def render_browser_capture_inbox() -> None:
     _render_browser_bridge_status()
 
-    st.subheader("Browser JD Capture Inbox")
+    st.subheader("Browser JD Queue")
     st.caption(
-        "JD text captured by the local browser extension. These entries are "
-        "pending browser source artifacts until you analyse them through the "
-        "existing Tailor Resume JD workflow."
+        "Single-tab and batch browser captures land here as pending source "
+        "artifacts. Batch capture itself makes no model calls; analysis still "
+        "happens explicitly through the existing Tailor Resume workflow."
     )
 
     captures = list_browser_job_captures(limit=20, status="pending")
@@ -78,6 +78,31 @@ def render_browser_capture_inbox() -> None:
             "extension, then choose 'Save JD to Job AI Helper'."
         )
         return
+
+    queue_rows = [
+        {
+            "ID": int(item["id"]),
+            "Job": str(item.get("job_title") or "Untitled job"),
+            "Company": str(item.get("company") or "Unknown company"),
+            "Site": str(item.get("source_host") or ""),
+            "Extraction": str(item.get("extraction_strategy") or "unknown"),
+            "Captured": str(
+                item.get("captured_at")
+                or item.get("last_received_at")
+                or ""
+            ),
+        }
+        for item in captures
+    ]
+    st.dataframe(
+        queue_rows,
+        width="stretch",
+        hide_index=True,
+    )
+    st.caption(
+        f"{len(captures)} pending browser capture(s). Choose one below when "
+        "you are ready to analyze/tailor it."
+    )
 
     by_id = {int(item["id"]): item for item in captures}
     selected_id = st.selectbox(

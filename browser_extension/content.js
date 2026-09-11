@@ -6,8 +6,10 @@
 
   const mapping = self.JobAIFieldMapping;
   const jdCleaning = self.JobAIJDCleaning;
+  const adapterRegistry = self.JobAISiteAdapters;
   if (!mapping) throw new Error("JobAIFieldMapping is not loaded.");
   if (!jdCleaning) throw new Error("JobAIJDCleaning is not loaded.");
+  if (!adapterRegistry) throw new Error("JobAISiteAdapters is not loaded.");
 
   const BASIC_TYPES = new Set(["text", "email", "tel", "url", "search", "number"]);
 
@@ -121,15 +123,64 @@
     return false;
   }
 
-  function getStandardControls() {
-    return [...document.querySelectorAll("input, select, textarea")]
+  function adapterContext(extra = {}) {
+    return {
+      url: location.href,
+      host: location.hostname,
+      document,
+      documentTitle: document.title,
+      textOf,
+      visibleElement,
+      ...extra,
+    };
+  }
+
+  function currentSiteAdapter(extra = {}) {
+    return (
+      adapterRegistry.resolve(adapterContext(extra)) ||
+      {
+        id: "generic",
+        version: "missing-generic-fallback",
+        fieldHints: () => [],
+        getControls: () => null,
+        diagnostics: () => ({}),
+      }
+    );
+  }
+
+  function getStandardControls(adapter = currentSiteAdapter()) {
+    let candidates = null;
+    try {
+      candidates = adapter?.getControls?.(document);
+    } catch (_error) {
+      candidates = null;
+    }
+
+    const source =
+      Array.isArray(candidates) && candidates.length
+        ? candidates
+        : [...document.querySelectorAll("input, select, textarea")];
+
+    return source
       .filter((element) => !element.disabled)
       .filter((element) => element.type !== "hidden");
   }
 
+  function semanticFieldLabel(element, adapter) {
+    const pieces = [associatedLabelText(element)];
+    try {
+      const hints = adapter?.fieldHints?.(element);
+      if (Array.isArray(hints)) pieces.push(...hints);
+    } catch (_error) {
+      // Site hints are optional; generic labels remain usable.
+    }
+    return uniquePieces(pieces).join(" | ");
+  }
+
   function scanFields() {
-    const fields = getStandardControls().map((element, index) => {
-      const label = associatedLabelText(element);
+    const adapter = currentSiteAdapter();
+    const fields = getStandardControls(adapter).map((element, index) => {
+      const label = semanticFieldLabel(element, adapter);
       const match = mapping.classifyField(label);
 
       return {
@@ -156,7 +207,10 @@
       schema_version: 2,
       url: location.href,
       title: document.title,
-      site_adapter: detectSiteAdapter(),
+      site_adapter: adapter.id,
+      site_adapter_version: adapter.version || "",
+      adapter_diagnostics:
+        adapter.diagnostics?.(adapterContext()) || {},
       standard_control_count: fields.length,
       visible_standard_control_count: fields.filter((field) => field.visible).length,
       mapped_field_count: fields.filter((field) => field.matched_key).length,
@@ -184,57 +238,6 @@
     return document.body;
   }
 
-  function detectSiteAdapter() {
-    const host = location.hostname.toLowerCase();
-    if (
-      host === "jobs.careers.gov.sg" ||
-      host === "www.careers.hrp.gov.sg" ||
-      host === "careers.hrp.gov.sg"
-    ) {
-      return "careers_gov";
-    }
-    return "generic";
-  }
-
-  function careersGovIdentity(headings, rawText) {
-    const title =
-      headings.find((heading) =>
-        ![
-          "What the role is",
-          "What you will be working on",
-          "What we are looking for",
-          "About your application process",
-        ].includes(heading)
-      ) ||
-      document.title.replace(/\s*\|\s*Careers@Gov\s*$/i, "").trim();
-
-    let company = "";
-    const aboutHeading = headings.find(
-      (heading) =>
-        /^About\s+/i.test(heading) &&
-        !/^About your application process$/i.test(heading)
-    );
-    if (aboutHeading) company = aboutHeading.replace(/^About\s+/i, "").trim();
-
-    if (!company) {
-      const lines = jdCleaning.normalizeLines(rawText);
-      const titleIndex = lines.findIndex((line) => line === title);
-      if (titleIndex > 0) {
-        const before = lines
-          .slice(Math.max(0, titleIndex - 4), titleIndex)
-          .filter((line) => line !== "/" && line !== line.toUpperCase());
-        company = before.at(-1) || "";
-      }
-    }
-
-    return { title, company };
-  }
-
-  function genericJobIdentity(headings) {
-    const title = headings[0] || document.title || "";
-    return { title, company: "" };
-  }
-
   function extractJobPage() {
     const root = findMainTextRoot();
     const rawText = textOf(root).replace(/\n{3,}/g, "\n\n").trim();
@@ -244,21 +247,35 @@
       .filter(Boolean)
       .slice(0, 80);
 
-    const siteAdapter = detectSiteAdapter();
-    let identity;
-    let isolated;
+    const adapter = currentSiteAdapter({
+      rawText,
+      headings,
+    });
 
-    if (siteAdapter === "careers_gov") {
-      identity = careersGovIdentity(headings, rawText);
-      isolated = jdCleaning.cleanCareersGovText(rawText);
-    } else {
-      identity = genericJobIdentity(headings);
-      isolated = {
-        jdText: rawText,
-        strategy: "generic_visible_main_text",
-        confidence: "medium",
-      };
+    let adapted = null;
+    try {
+      adapted = adapter.extractJob?.(
+        adapterContext({
+          rawText,
+          headings,
+        })
+      );
+    } catch (_error) {
+      adapted = null;
     }
+
+    const identity = adapted?.identity || {
+      title: headings[0] || document.title || "",
+      company: "",
+      location: "",
+    };
+    const isolated = adapted?.isolated || {
+      jdText: rawText,
+      postingNotes: [],
+      discardedTrackingTags: [],
+      strategy: "generic_visible_main_text",
+      confidence: "medium",
+    };
 
     const capturedAt = new Date().toISOString();
 
@@ -270,7 +287,8 @@
         host: location.hostname,
         document_title: document.title,
         source_type: "browser_extension",
-        site_adapter: siteAdapter,
+        site_adapter: adapter.id,
+        site_adapter_version: adapter.version || "",
       },
       capture: {
         headings,
@@ -280,7 +298,7 @@
       job: {
         job_title: identity.title || "",
         company: identity.company || "",
-        location: "",
+        location: identity.location || "",
         jd_text: isolated.jdText || "",
         jd_character_count: String(isolated.jdText || "").length,
         posting_notes: Array.isArray(isolated.postingNotes)
@@ -378,19 +396,23 @@
       return { ok: false, error: "Unsupported Job AI Helper profile payload." };
     }
 
-    const controls = getStandardControls();
+    const adapter = currentSiteAdapter();
+    const controls = getStandardControls(adapter);
     const processedRadioNames = new Set();
     const results = [];
 
     for (const element of controls) {
       const kind = fieldKind(element);
-      let label = associatedLabelText(element);
+      let label = semanticFieldLabel(element, adapter);
 
       if (kind === "radio") {
         const name = element.getAttribute("name") || "";
         if (!name || processedRadioNames.has(name)) continue;
         processedRadioNames.add(name);
-        label = groupQuestionText(element);
+        label = uniquePieces([
+          groupQuestionText(element),
+          semanticFieldLabel(element, adapter),
+        ]).join(" | ");
       }
 
       const match = mapping.classifyField(label);
@@ -443,6 +465,8 @@
       ok: true,
       schema_version: 2,
       url: location.href,
+      site_adapter: adapter.id,
+      site_adapter_version: adapter.version || "",
       filled_count: results.filter((item) => item.status === "filled").length,
       skipped_unknown_count: results.filter(
         (item) => item.status === "skipped_unknown"

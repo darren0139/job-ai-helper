@@ -20,6 +20,11 @@
       aliases: ["first name", "given name", "forename", "given names"],
     },
     {
+      key: "middle_name",
+      section: "personal",
+      aliases: ["middle name", "middle names", "middle initial"],
+    },
+    {
       key: "last_name",
       section: "personal",
       aliases: ["last name", "surname", "family name"],
@@ -48,14 +53,21 @@
       ],
     },
     {
+      key: "phone_country_code",
+      section: "personal",
+      exactOnly: true,
+      aliases: [
+        "phone country code",
+        "country calling code",
+        "dialing code",
+        "dialling code",
+        "country code",
+      ],
+    },
+    {
       key: "current_location",
       section: "personal",
-      aliases: [
-        "current location",
-        "current country",
-        "country of residence",
-        "current country of residence",
-      ],
+      aliases: ["current location", "location"],
     },
     {
       key: "linkedin_url",
@@ -78,9 +90,89 @@
       ],
     },
     {
+      key: "portfolio_url",
+      section: "personal",
+      aliases: [
+        "portfolio",
+        "portfolio url",
+        "website",
+        "website url",
+        "personal website",
+        "personal website url",
+      ],
+    },
+    {
+      key: "address_line_1",
+      section: "address",
+      aliases: [
+        "address line 1",
+        "address 1",
+        "street address",
+        "street address line 1",
+      ],
+    },
+    {
+      key: "address_line_2",
+      section: "address",
+      aliases: [
+        "address line 2",
+        "address 2",
+        "street address line 2",
+        "apartment suite unit",
+      ],
+    },
+    {
+      key: "city",
+      section: "address",
+      aliases: ["city", "town city", "city town"],
+    },
+    {
+      key: "state_region",
+      section: "address",
+      aliases: [
+        "state",
+        "province",
+        "state province",
+        "state region",
+        "region",
+      ],
+    },
+    {
+      key: "postal_code",
+      section: "address",
+      aliases: [
+        "postal code",
+        "postcode",
+        "zip",
+        "zip code",
+        "postal zip code",
+      ],
+    },
+    {
+      key: "country",
+      section: "address",
+      aliases: [
+        "country",
+        "country region",
+        "country of residence",
+        "current country",
+        "current country of residence",
+      ],
+    },
+    {
       key: "notice_period",
       section: "availability",
       aliases: ["notice period", "notice period required", "availability notice period"],
+    },
+    {
+      key: "earliest_start_date",
+      section: "availability",
+      aliases: [
+        "earliest start date",
+        "available start date",
+        "date available",
+        "available from",
+      ],
     },
     {
       key: "requires_sponsorship",
@@ -169,7 +261,11 @@
 
     if (match.section === "derived" && match.key === "full_name") {
       const personal = profile.personal || {};
-      return [personal.first_name, personal.last_name]
+      return [
+        personal.first_name,
+        personal.middle_name,
+        personal.last_name,
+      ]
         .map((value) => String(value || "").trim())
         .filter(Boolean)
         .join(" ");

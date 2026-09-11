@@ -86,3 +86,37 @@ pre {
   font-size: 11px;
   font-weight: 600;
 }
+
+
+.hint {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.batch-list {
+  max-height: 190px;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 6px;
+}
+
+.batch-tab {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 6px;
+  align-items: start;
+  margin: 5px 0;
+  font-size: 11px;
+}
+
+.batch-tab input[type="checkbox"] {
+  margin: 2px 0 0;
+  width: auto;
+}
+
+.batch-tab span {
+  overflow-wrap: anywhere;
+}

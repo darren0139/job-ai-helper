@@ -68,6 +68,10 @@ def render_application_profile() -> None:
                 "First name",
                 value=profile["personal"]["first_name"],
             )
+            middle_name = st.text_input(
+                "Middle name, optional",
+                value=profile["personal"]["middle_name"],
+            )
             preferred_name = st.text_input(
                 "Preferred name, optional",
                 value=profile["personal"]["preferred_name"],
@@ -95,6 +99,15 @@ def render_application_profile() -> None:
                 "Phone",
                 value=profile["personal"]["phone"],
             )
+            phone_country_code = st.text_input(
+                "Phone country code",
+                value=profile["personal"]["phone_country_code"],
+                placeholder="Example: +65",
+                help=(
+                    "Store this explicitly rather than deriving it from your "
+                    "location or phone number."
+                ),
+            )
             linkedin_url = st.text_input(
                 "LinkedIn",
                 value=profile["personal"]["linkedin_url"],
@@ -102,6 +115,39 @@ def render_application_profile() -> None:
             portfolio_url = st.text_input(
                 "Portfolio",
                 value=profile["personal"]["portfolio_url"],
+            )
+
+        st.markdown("#### Address")
+        st.caption(
+            "Structured address fields are optional and are never inferred "
+            "from Current location."
+        )
+        address_col1, address_col2 = st.columns(2)
+        with address_col1:
+            address_line_1 = st.text_input(
+                "Address line 1",
+                value=profile["address"]["address_line_1"],
+            )
+            city = st.text_input(
+                "City / town",
+                value=profile["address"]["city"],
+            )
+            postal_code = st.text_input(
+                "Postal / ZIP code",
+                value=profile["address"]["postal_code"],
+            )
+        with address_col2:
+            address_line_2 = st.text_input(
+                "Address line 2, optional",
+                value=profile["address"]["address_line_2"],
+            )
+            state_region = st.text_input(
+                "State / province / region",
+                value=profile["address"]["state_region"],
+            )
+            country = st.text_input(
+                "Country / region",
+                value=profile["address"]["country"],
             )
 
         st.markdown("#### Work eligibility")
@@ -188,14 +234,24 @@ def render_application_profile() -> None:
                 {
                     "personal": {
                         "first_name": first_name,
+                        "middle_name": middle_name,
                         "last_name": last_name,
                         "preferred_name": preferred_name,
                         "email": email,
                         "phone": phone,
+                        "phone_country_code": phone_country_code,
                         "current_location": current_location,
                         "linkedin_url": linkedin_url,
                         "github_url": github_url,
                         "portfolio_url": portfolio_url,
+                    },
+                    "address": {
+                        "address_line_1": address_line_1,
+                        "address_line_2": address_line_2,
+                        "city": city,
+                        "state_region": state_region,
+                        "postal_code": postal_code,
+                        "country": country,
                     },
                     "work_eligibility": {
                         "work_authorization": work_authorization,

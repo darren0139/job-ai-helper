@@ -19,20 +19,30 @@ from typing import Any
 
 
 DB_PATH = Path("data/applications.db")
-APPLICATION_PROFILE_VERSION = 1
+APPLICATION_PROFILE_VERSION = 2
 UNKNOWN_LABEL = "UNKNOWN — ask user"
 
 APPLICATION_PROFILE_DEFAULTS: dict[str, dict[str, str]] = {
     "personal": {
         "first_name": "",
+        "middle_name": "",
         "last_name": "",
         "preferred_name": "",
         "email": "",
         "phone": "",
+        "phone_country_code": "",
         "current_location": "",
         "linkedin_url": "",
         "github_url": "",
         "portfolio_url": "",
+    },
+    "address": {
+        "address_line_1": "",
+        "address_line_2": "",
+        "city": "",
+        "state_region": "",
+        "postal_code": "",
+        "country": "",
     },
     "work_eligibility": {
         "work_authorization": "",
@@ -55,14 +65,22 @@ APPLICATION_PROFILE_DEFAULTS: dict[str, dict[str, str]] = {
 
 PROFILE_FIELD_LABELS: tuple[tuple[str, str, str], ...] = (
     ("personal", "first_name", "First name"),
+    ("personal", "middle_name", "Middle name"),
     ("personal", "last_name", "Last name"),
     ("personal", "preferred_name", "Preferred name"),
     ("personal", "email", "Email"),
     ("personal", "phone", "Phone"),
+    ("personal", "phone_country_code", "Phone country code"),
     ("personal", "current_location", "Current location"),
     ("personal", "linkedin_url", "LinkedIn"),
     ("personal", "github_url", "GitHub"),
     ("personal", "portfolio_url", "Portfolio"),
+    ("address", "address_line_1", "Address line 1"),
+    ("address", "address_line_2", "Address line 2"),
+    ("address", "city", "City / town"),
+    ("address", "state_region", "State / province / region"),
+    ("address", "postal_code", "Postal / ZIP code"),
+    ("address", "country", "Country / region"),
     ("work_eligibility", "work_authorization", "Work authorization / status"),
     ("work_eligibility", "requires_sponsorship", "Requires sponsorship"),
     ("availability", "notice_period", "Notice period"),
@@ -300,6 +318,7 @@ def build_work_application_markdown(
 
     sections = (
         ("PERSONAL / CONTACT", "personal"),
+        ("ADDRESS", "address"),
         ("WORK ELIGIBILITY", "work_eligibility"),
         ("AVAILABILITY", "availability"),
         ("PREFERENCES", "preferences"),

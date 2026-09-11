@@ -40,6 +40,25 @@
     </section>
 
     <section>
+      <h2>3. Batch prepare open tabs</h2>
+      <p class="hint">
+        Opt-in only. Discover tabs, select the job/application pages you want,
+        then capture JDs or autofill safe fields. No AI/model calls are made.
+      </p>
+      <button id="discoverTabsButton" type="button">Discover open tabs</button>
+      <div id="batchTabList" class="batch-list">
+        <div class="status">No tabs discovered yet.</div>
+      </div>
+      <button id="batchCaptureButton" type="button" disabled>
+        Capture selected JDs to Job AI Helper
+      </button>
+      <button id="batchAutofillButton" type="button" disabled>
+        Autofill safe fields in selected tabs
+      </button>
+      <div id="batchStatus" class="status">Batch actions are local and review-only.</div>
+    </section>
+
+    <section>
       <h2>Result</h2>
       <pre id="result">Ready.</pre>
       <div class="row">
@@ -53,6 +72,7 @@
       This extension never submits an application.
     </p>
   </main>
+  <script src="batch_tabs.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -131,3 +131,77 @@ The complete page remains available under `capture.raw_visible_text`.
 When corrected JD text is saved for the same source URL, older pending captures
 for that URL are marked `superseded`. Streamlit and Tailor Resume show only the
 current pending capture.
+
+
+## v4 adapter framework
+
+Browser behavior is now selected through a small adapter registry rather than
+adding every site-specific rule to `content.js`.
+
+Current adapters:
+
+- `careers_gov`: dedicated Careers@Gov extraction plus SAP/UI5 field hints.
+- `greenhouse`: Greenhouse-hosted job extraction, application-form scoping, and
+  deterministic hints for common contact/profile fields.
+- `generic`: conservative fallback for unknown sites.
+
+Greenhouse can be recognized on `*.greenhouse.io`, on custom pages carrying a
+`gh_jid` parameter, and when a Greenhouse iframe is detected. Cross-origin
+embedded Greenhouse iframes are detected and reported, but v4 intentionally does
+not inject into those frames yet.
+
+The extension still uses `activeTab`; v4 adds no broad website permissions,
+mass-tab access, submission, resume upload, or custom-answer generation.
+
+## Application Profile v2
+
+All adapters consume one platform-neutral profile. New repeat facts are middle
+name, explicit phone country code, and structured postal address fields. Adapters
+translate those canonical facts into site controls.
+
+The profile deliberately does not add government IDs, citizenship/residency,
+demographic answers, employer-specific screening answers, or a context-free
+work-authorization yes/no flag.
+
+
+## v4.1 batch prepare
+
+The adapter framework remains authoritative for site-specific extraction and
+field hints. Batch prepare adds orchestration around those adapters without
+changing their extraction/mapping contracts.
+
+The extension can discover normal web tabs in the current Chrome window and run
+two explicit, review-only batch actions over the user's selected tabs:
+
+1. **Capture selected JDs to Job AI Helper**
+   - processes selected tabs sequentially;
+   - uses the same adapter stack as single-tab capture;
+   - posts each capture to the existing localhost `/api/v1/jd-captures` endpoint;
+   - creates pending browser-source artifacts only;
+   - makes zero model/OpenAI calls.
+
+2. **Autofill safe fields in selected tabs**
+   - reuses Application Profile v2 and the existing deterministic whitelist;
+   - processes tabs sequentially;
+   - does not navigate, upload resumes, generate free-text answers, accept
+     declarations, or click submit;
+   - makes zero model/OpenAI calls.
+
+### Permission model
+
+The extension keeps localhost access as its only always-on host permission.
+Batch mode uses Chrome optional permissions:
+
+- `tabs` is requested only when the user clicks **Discover open tabs**;
+- HTTP(S) host access is requested only for sites represented by the user's
+  selected tabs.
+
+The manifest declares HTTP(S) patterns only as `optional_host_permissions`;
+they are not automatically granted.
+
+### Job AI Helper queue
+
+Multiple captures are stored independently in the existing browser capture
+table. Exact duplicate handling and same-URL supersession remain unchanged.
+The Streamlit Browser JD Queue shows current pending captures, while Tailor
+Resume continues to analyze one explicitly selected JD at a time.
