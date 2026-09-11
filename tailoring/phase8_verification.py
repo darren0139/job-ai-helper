@@ -26,7 +26,7 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v8"
+PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v9"
 PHASE8_BASELINE_RESOLUTION_VERSION = "phase8-current-scorer-baseline-v1"
 PHASE8_PREAPPROVAL_GATE_VERSION = "phase8-preapproval-gate-v1"
 MATCH_RANK = {

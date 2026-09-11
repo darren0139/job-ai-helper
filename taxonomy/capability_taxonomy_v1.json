@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1.2",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.3",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -48,6 +48,68 @@
       ],
       "does_not_prove": [
         "domain experience without an explicit motivation statement"
+      ]
+    },
+    {
+      "capability_id": "credential.certification",
+      "label": "Professional certification",
+      "domain": "credentials",
+      "priority": 8,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "certification",
+          "certifications",
+          "certified",
+          "professional certification",
+          "cloud certification",
+          "kubernetes certification",
+          "cka",
+          "ckad",
+          "cks"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "credential": [
+          "certified",
+          "certification",
+          "cka",
+          "ckad",
+          "cks",
+          "certified kubernetes administrator",
+          "certified kubernetes application developer",
+          "certified kubernetes security specialist",
+          "aws certified",
+          "microsoft certified",
+          "google cloud certified"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "any_terms": [
+            "certified",
+            "certification",
+            "cka",
+            "ckad",
+            "cks",
+            "certified kubernetes administrator",
+            "certified kubernetes application developer",
+            "certified kubernetes security specialist",
+            "aws certified",
+            "microsoft certified",
+            "google cloud certified"
+          ],
+          "reason": "explicit_professional_credential",
+          "concepts": [
+            "credential"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "kubernetes usage without an explicit certification",
+        "cloud platform usage without an explicit certification"
       ]
     },
     {
@@ -1151,6 +1213,160 @@
         }
       ],
       "does_not_prove": []
+    },
+    {
+      "capability_id": "delivery.end_to_end_application",
+      "label": "End-to-end application delivery",
+      "domain": "software_delivery",
+      "priority": 98,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "initial setup",
+          "from scratch",
+          "from setup",
+          "end-to-end delivery",
+          "end to end delivery"
+        ],
+        "all_terms": [
+          "user-facing application"
+        ]
+      },
+      "evidence_concepts": {
+        "setup": [
+          "set up",
+          "setup",
+          "initialized",
+          "initialised",
+          "scaffolded",
+          "project environment"
+        ],
+        "working_application": [
+          "full-stack",
+          "full stack",
+          "user-facing application",
+          "web app",
+          "frontend and backend"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "set up",
+              "setup",
+              "initialized",
+              "initialised",
+              "scaffolded",
+              "project environment"
+            ],
+            [
+              "working user-facing application",
+              "full-stack application",
+              "full stack application",
+              "frontend and backend"
+            ]
+          ],
+          "reason": "explicit_setup_through_working_application_delivery",
+          "concepts": [
+            "setup",
+            "working_application"
+          ]
+        },
+        {
+          "label": "transferable",
+          "any_terms": [
+            "full-stack",
+            "full stack",
+            "user-facing application",
+            "web app",
+            "frontend and backend"
+          ],
+          "reason": "working_application_evidence_without_full_lifecycle_proof",
+          "concepts": [
+            "working_application"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "project setup alone without a working application",
+        "frontend-only implementation as full end-to-end delivery"
+      ]
+    },
+    {
+      "capability_id": "security.ci_cd",
+      "label": "Security integrated into CI/CD",
+      "domain": "cybersecurity",
+      "priority": 99,
+      "explicit_only": false,
+      "requirement": {
+        "any_terms": [
+          "security into ci/cd",
+          "security in ci/cd",
+          "ci/cd security",
+          "secure ci/cd",
+          "pipeline security",
+          "security pipeline",
+          "vulnerability scanning in ci/cd",
+          "integrating security into ci/cd"
+        ],
+        "all_terms": []
+      },
+      "evidence_concepts": {
+        "security_control": [
+          "trivy",
+          "vulnerability scanning",
+          "vulnerability scan",
+          "security scan",
+          "security scanning",
+          "container vulnerabilities",
+          "critical vulnerabilities"
+        ],
+        "ci_cd": [
+          "github actions",
+          "ci/cd",
+          "continuous integration",
+          "pipeline",
+          "ci pipeline",
+          "build pipeline",
+          "ci"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "direct",
+          "all_groups": [
+            [
+              "trivy",
+              "vulnerability scanning",
+              "vulnerability scan",
+              "security scan",
+              "security scanning",
+              "container vulnerabilities",
+              "critical vulnerabilities"
+            ],
+            [
+              "github actions",
+              "ci/cd",
+              "continuous integration",
+              "pipeline",
+              "ci pipeline",
+              "build pipeline",
+              "ci"
+            ]
+          ],
+          "reason": "explicit_security_control_in_ci_cd",
+          "concepts": [
+            "security_control",
+            "ci_cd"
+          ]
+        }
+      ],
+      "does_not_prove": [
+        "generic CI/CD automation without an explicit security control",
+        "GitHub Actions usage without security scanning or enforcement"
+      ]
     },
     {
       "capability_id": "backend.api_development",

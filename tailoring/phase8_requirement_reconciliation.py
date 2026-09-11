@@ -14,12 +14,13 @@ from analysis_stability.evidence_support import (
 from analysis_stability.stable_evidence_scoring import (
     compute_deterministic_alignment,
 )
+from tailoring.capability_taxonomy import evaluate_evidence
 from tailoring.tailoring_generation_fingerprint import (
     get_effective_generation_sections,
 )
 
 
-RECONCILIATION_VERSION = "phase8-final-evidence-reconciliation-v2"
+RECONCILIATION_VERSION = "phase8-final-evidence-reconciliation-v3"
 
 MATCH_RANK = {
     "none": 0,
@@ -321,6 +322,51 @@ def _skill_requirement_support(
     return support
 
 
+def _best_verified_taxonomy_support(
+    *,
+    requirement: dict[str, Any],
+    verified_bullets: list[str],
+    matched_skills: list[str],
+) -> dict[str, Any] | None:
+    """Use the shared capability taxonomy when it recognises the requirement."""
+    best: dict[str, Any] | None = None
+
+    for evidence_text in [*verified_bullets, *matched_skills]:
+        decision = evaluate_evidence(requirement, evidence_text)
+        capability_id = _clean(decision.get("capability_id"))
+        if not capability_id:
+            continue
+
+        label = _label(decision.get("label"))
+        candidate = {
+            "capability_id": capability_id,
+            "label": label,
+            "reason": _clean(decision.get("reason")),
+            "evidence_text": evidence_text,
+            "taxonomy_version": _clean(decision.get("taxonomy_version")),
+        }
+        if (
+            best is None
+            or MATCH_RANK[label] > MATCH_RANK[best["label"]]
+        ):
+            best = candidate
+
+    if best is not None:
+        return best
+
+    decision = evaluate_evidence(requirement, "")
+    capability_id = _clean(decision.get("capability_id"))
+    if not capability_id:
+        return None
+    return {
+        "capability_id": capability_id,
+        "label": _label(decision.get("label")),
+        "reason": _clean(decision.get("reason")),
+        "evidence_text": "",
+        "taxonomy_version": _clean(decision.get("taxonomy_version")),
+    }
+
+
 def _preserved_baseline_evidence(
     before_row: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -423,17 +469,44 @@ def _best_mapping_support(
                 else 0.0
             )
 
-            supported_label = classify_verified_evidence_support(
+            lexical_supported_label = classify_verified_evidence_support(
                 coverage=coverage,
                 best_similarity=best_snippet_similarity,
                 strong_evidence_count=strong_snippet_count,
                 has_matched_skills=bool(matched_skills),
             )
+            # PHASE8_LEXICAL_REQUIREMENT_ANCHOR_V1
+            # best_snippet_similarity proves the generation snippet survived
+            # into the final fitted resume; it does not prove requirement
+            # relevance. Require a minimal requirement anchor before the
+            # taxonomy-unrecognised lexical fallback can preserve credit.
+            lexical_requirement_anchor = bool(
+                coverage >= 0.15 or matched_skills
+            )
+            if not lexical_requirement_anchor:
+                lexical_supported_label = "none"
+
+            taxonomy_support = _best_verified_taxonomy_support(
+                requirement=requirement,
+                verified_bullets=verified_bullets,
+                matched_skills=matched_skills,
+            )
+            supported_label = (
+                taxonomy_support["label"]
+                if taxonomy_support is not None
+                else lexical_supported_label
+            )
             if supported_label == "direct":
-                reason = (
-                    "The final verified bullets and Skills still cover most "
-                    "of this requirement."
-                )
+                if taxonomy_support is not None:
+                    reason = (
+                        "Claim-lineage-verified final evidence independently "
+                        "satisfies the shared capability taxonomy."
+                    )
+                else:
+                    reason = (
+                        "The final verified bullets and Skills still cover most "
+                        "of this requirement."
+                    )
             elif supported_label == "transferable":
                 reason = (
                     "Part of the mapped evidence survived in the final "
@@ -488,6 +561,13 @@ def _best_mapping_support(
                     "project": _project_title(project),
                     "mapping_label": mapping_label,
                     "supported_label": supported_label,
+                    "lexical_supported_label": lexical_supported_label,
+                    "lexical_requirement_anchor": lexical_requirement_anchor,
+                    "semantic_support": (
+                        dict(taxonomy_support)
+                        if taxonomy_support is not None
+                        else None
+                    ),
                     "reconciled_label": reconciled_label,
                     "best_snippet_similarity": round(
                         best_snippet_similarity,
@@ -788,9 +868,9 @@ def reconcile_final_requirement_matches(
         "unresolved_regressions": unresolved,
         "scoring_recalculated": True,
         "method": (
-            "unchanged source-section floor plus verified final project/skill "
-            "mapping reconciliation for regressions and newly added final "
-            "evidence"
+            "unchanged source-section floor plus capability-aware, "
+            "claim-lineage-verified final project/skill mapping reconciliation "
+            "for regressions and newly added final evidence"
         ),
     }
     report["reconciliation_fingerprint"] = hashlib.sha256(

@@ -669,16 +669,60 @@ def recommend_active_blueprint(
     family_id = _clean(classification.get("role_family_id"))
     preferred_requirements = _application_local_preferred_requirements(application_report)
 
-    active = sorted(
-        (
-            validate_active_blueprint(deepcopy(row))
-            for row in active_blueprints
-            if _clean(row.get("status")) == "active"
-            and (
-                (_clean(row.get("availability_status")) != "removed" and row.get("is_reusable") is not False)
-                or (historical_bound_blueprint_id and _clean(row.get("blueprint_id")) == historical_bound_blueprint_id)
+    # Discovery must fail closed per Blueprint, not for unrelated neutral
+    # sources. A Blueprint created under an older scorer/taxonomy is not
+    # eligible for a new binding, but it must not prevent Base Resume or
+    # Original Resume from being ranked and selected.
+    stale_provenance_messages = {
+        "The blueprint scorer provenance is not current.":
+            "stale_scorer_provenance",
+        "The blueprint taxonomy provenance is not current.":
+            "stale_taxonomy_provenance",
+    }
+    active_candidates: list[dict[str, Any]] = []
+    excluded_blueprints: list[dict[str, Any]] = []
+    for row in active_blueprints:
+        if _clean(row.get("status")) != "active":
+            continue
+        if not (
+            (
+                _clean(row.get("availability_status")) != "removed"
+                and row.get("is_reusable") is not False
             )
-        ),
+            or (
+                historical_bound_blueprint_id
+                and _clean(row.get("blueprint_id"))
+                == historical_bound_blueprint_id
+            )
+        ):
+            continue
+
+        candidate = deepcopy(row)
+        try:
+            validated = validate_active_blueprint(candidate)
+        except Phase9EDecisionError as exc:
+            reason = _clean(str(exc))
+            reason_code = stale_provenance_messages.get(reason)
+            if not reason_code:
+                # Corrupt identity, missing snapshots, role-family mismatch,
+                # and other structural failures remain fail-closed.
+                raise
+            excluded_blueprints.append(
+                {
+                    "blueprint_id": _clean(row.get("blueprint_id")),
+                    "display_name": _clean(row.get("display_name")),
+                    "role_family_id": _clean(row.get("role_family_id")),
+                    "variant_id": _clean(row.get("variant_id")) or "primary",
+                    "reason_code": reason_code,
+                    "reason": reason,
+                    "status": "stale_blueprint_provenance_excluded",
+                }
+            )
+            continue
+        active_candidates.append(validated)
+
+    active = sorted(
+        active_candidates,
         key=lambda row: (
             _clean(row.get("role_family_id")),
             _clean(row.get("variant_id")) or "primary",
@@ -862,6 +906,7 @@ def recommend_active_blueprint(
         "best_diagnostic_blueprint": best_diagnostic,
         "reasons": reasons,
         "active_blueprints": active,
+        "excluded_blueprints": excluded_blueprints,
         "blueprint_rankings": diagnostic_rankings,
         "same_family_rankings": same_family_rankings,
         "source_rankings": source_rankings,
