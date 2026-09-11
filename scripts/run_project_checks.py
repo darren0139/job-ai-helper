@@ -28,6 +28,7 @@ QUICK_TEST_MODULES = (
     "tests.test_phase6d_stable_scoring_integration",
     "tests.test_phase8_requirement_reconciliation",
     "tests.test_phase8_verification",
+    "tests.test_phase8_scoring_correctness",
     "tests.test_phase9b_blueprint_candidate",
     "tests.test_phase9b_promotion_scope",
     "tests.test_phase9b_role_family_metadata",

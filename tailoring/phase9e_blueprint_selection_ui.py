@@ -898,6 +898,31 @@ def render_phase9e_blueprint_selection(
             "reasons": [str(exc)],
         }
 
+    excluded_blueprints = recommendation.get("excluded_blueprints") or []
+    if excluded_blueprints:
+        st.warning(
+            f"Excluded {len(excluded_blueprints)} stale Blueprint "
+            "source(s) from this new Tailoring Base selection because their "
+            "scorer or taxonomy provenance is no longer current. Base Resume "
+            "and Original Resume remain available."
+        )
+        with st.expander("Excluded stale Blueprint sources", expanded=False):
+            st.dataframe(
+                [
+                    {
+                        "Blueprint": (
+                            _clean(row.get("display_name"))
+                            or _clean(row.get("blueprint_id"))
+                        ),
+                        "Variant": _clean(row.get("variant_id")) or "primary",
+                        "Reason": _clean(row.get("reason")),
+                    }
+                    for row in excluded_blueprints
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
     classification = recommendation["classification"]
     st.write(
         f"**JD role family:** {_clean(classification.get('role_family'))} "

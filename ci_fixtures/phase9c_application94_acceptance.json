@@ -143,8 +143,8 @@
     },
     "evaluation_metadata": {
       "evaluation_seed_version": "phase9c-seed-v1",
-      "source_scoring_version": "stable-evidence-v1.3-phase6d7",
-      "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.2",
+      "source_scoring_version": "stable-evidence-v1.4-phase6d8",
+      "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.3",
       "source_jd_requirement_summary": [
         {
           "requirement_id": "req_f51254f902b0",
@@ -368,7 +368,7 @@
           "importance": "preferred",
           "match_label": "transferable",
           "evidence_strength": 3,
-          "capability_id": ""
+          "capability_id": "delivery.end_to_end_application"
         }
       ],
       "source_jd_requirement_count": 28

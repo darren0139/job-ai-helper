@@ -239,6 +239,115 @@ class Phase9EBlueprintSelectionTests(unittest.TestCase):
             decision["comparison"]["required_core_requirement_count"], 0
         )
 
+    def test_stale_blueprint_provenance_does_not_block_neutral_sources(self):
+        for field, stale_value, expected_reason_code in (
+            (
+                "scoring_version",
+                "stable-evidence-v0-stale",
+                "stale_scorer_provenance",
+            ),
+            (
+                "taxonomy_version",
+                "phase6d-capability-taxonomy-v0-stale",
+                "stale_taxonomy_provenance",
+            ),
+        ):
+            with self.subTest(field=field):
+                stale = copy.deepcopy(self.blueprint)
+                semantic = stale["blueprint_snapshot"]["semantic_identity"]
+                semantic["evaluation"][field] = stale_value
+                new_fingerprint = fingerprint_value(semantic)
+                stale["blueprint_fingerprint"] = new_fingerprint
+                stale["blueprint_id"] = new_fingerprint[:32]
+                stale["blueprint_snapshot"][
+                    "blueprint_fingerprint"
+                ] = new_fingerprint
+                stale["blueprint_snapshot"][
+                    "blueprint_id"
+                ] = new_fingerprint[:32]
+
+                recommendation = recommend_active_blueprint(
+                    copy.deepcopy(self.jd),
+                    [stale],
+                    application_report=copy.deepcopy(
+                        self.state["application_report"]
+                    ),
+                    base_resume_starting_snapshot=copy.deepcopy(
+                        self.base_resume_snapshot
+                    ),
+                )
+
+                self.assertEqual(
+                    recommendation["active_blueprints"],
+                    [],
+                )
+                self.assertIsNone(
+                    recommendation["recommended_blueprint"]
+                )
+                self.assertEqual(
+                    len(recommendation["excluded_blueprints"]),
+                    1,
+                )
+                excluded = recommendation["excluded_blueprints"][0]
+                self.assertEqual(
+                    excluded["reason_code"],
+                    expected_reason_code,
+                )
+                self.assertEqual(
+                    excluded["status"],
+                    "stale_blueprint_provenance_excluded",
+                )
+
+                source_types = {
+                    row["source_type"]
+                    for row in recommendation["source_rankings"]
+                }
+                self.assertIn("base_resume", source_types)
+                self.assertIn("original_resume", source_types)
+                self.assertNotIn("global_blueprint", source_types)
+                self.assertIn(
+                    recommendation["recommended_source"],
+                    {"base_resume", "original_resume"},
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "explicitly selected blueprint is not active",
+                ):
+                    build_phase9e_decision(
+                        application_id=94,
+                        application_report=copy.deepcopy(
+                            self.state["application_report"]
+                        ),
+                        exact_jd=copy.deepcopy(self.jd),
+                        active_blueprints=[stale],
+                        selected_source="global_blueprint",
+                        selected_blueprint_id=stale["blueprint_id"],
+                        base_resume_starting_snapshot=copy.deepcopy(
+                            self.base_resume_snapshot
+                        ),
+                        selection_mode="manual",
+                    )
+
+    def test_corrupt_blueprint_still_blocks_source_discovery(self):
+        corrupt = copy.deepcopy(self.blueprint)
+        corrupt["blueprint_fingerprint"] = "0" * 64
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "immutable semantic identity do not match",
+        ):
+            recommend_active_blueprint(
+                copy.deepcopy(self.jd),
+                [corrupt],
+                application_report=copy.deepcopy(
+                    self.state["application_report"]
+                ),
+                base_resume_starting_snapshot=copy.deepcopy(
+                    self.base_resume_snapshot
+                ),
+            )
+
     def test_fullstack_integration_prefers_one_complete_queryai_bullet(self):
         requirement = (
             "Build frontend and full-stack application features using React "

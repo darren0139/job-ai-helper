@@ -87,7 +87,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.3-phase6d7")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.4-phase6d8")
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -102,7 +102,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(result["evidence_strength_score"], 100)
         self.assertEqual(
             result["input_fingerprint"],
-            "1f67a2e959641d5d61f7162bff6ac20d652bdfa66d51b3b87856b8a76954b96b",
+            "d6b470a83738011684ee67fe9fd4337a684cb06bd6802aab9678d444e06eccb9",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):
@@ -159,7 +159,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         row = reconciled["canonical_requirements"][0]
-        self.assertEqual(RECONCILIATION_VERSION, "phase8-final-evidence-reconciliation-v2")
+        self.assertEqual(RECONCILIATION_VERSION, "phase8-final-evidence-reconciliation-v3")
         self.assertEqual(row["requirement_id"], "req-access")
         self.assertEqual(row["match_label"], "direct")
         self.assertEqual(row["evidence_strength"], 5)
@@ -169,7 +169,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(reconciled["evidence_strength_score"], 100)
         self.assertEqual(
             report["reconciliation_fingerprint"],
-            "5a151c3e9b47ed4b6eeb5b4adef516012c2a201968c5a4fbe985468f47acd6c1",
+            "3959676907e51ff683a0f2a3b4df1a635a2ca9dd5a021eac4187e98429b6a24e",
         )
 
 

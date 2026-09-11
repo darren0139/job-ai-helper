@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from analysis_stability import stable_evidence_scoring as scoring
+from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     cap_requirement_with_taxonomy,
 )
@@ -57,7 +58,7 @@ class Phase6DStableScoringIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             result["capability_taxonomy_version"],
-            "phase6d-capability-taxonomy-v1.2",
+            get_default_taxonomy().version,
         )
         row = result["canonical_requirements"][0]
         self.assertEqual(

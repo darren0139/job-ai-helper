@@ -33,7 +33,8 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.3-phase6d7"
+SCORING_VERSION = "stable-evidence-v1.4-phase6d8"
+NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v1"
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -498,6 +499,47 @@ def _raw_jd_section_heading_rows(
 
     return rows
 
+
+def _classify_non_requirement_row(value: Any) -> str:
+    """Return a deterministic exclusion reason for recruiting/process boilerplate."""
+    text = _normalise_basic(value)
+    if not text:
+        return ""
+
+    if re.fullmatch(r"#li[- ]?[a-z0-9-]+", text):
+        return "recruiter_tracking_tag"
+
+    if (
+        ("applicant" in text or "applicants" in text)
+        and ("updated" in text or "notified" in text)
+        and "status" in text
+        and ("application" in text or "applications" in text)
+        and ("closing" in text or "advertisement" in text)
+    ):
+        return "application_status_notice"
+
+    if (
+        "shortlisting process" in text
+        and (
+            "medical declaration" in text
+            or "further assessment" in text
+            or "undergo further assessment" in text
+        )
+    ):
+        return "candidate_screening_process"
+
+    if (
+        ("new hire" in text or "new hires" in text)
+        and "contract" in text
+        and (
+            "permanent tenure" in text
+            or "first instance" in text
+            or "appointed" in text
+        )
+    ):
+        return "employment_terms_notice"
+
+    return ""
 
 
 def _split_top_level_commas(value: str) -> list[str]:
@@ -1064,6 +1106,7 @@ def canonicalise_requirements(
     """Build stable atomic requirement rows from the raw JD/profile."""
     source_rows = _requirement_sources(jd_profile, raw_jd_text)
     filtered_section_headings = _raw_jd_section_heading_rows(raw_jd_text)
+    filtered_non_requirement_rows: list[dict[str, str]] = []
 
     clean_source_rows: list[dict[str, Any]] = []
     seen_filtered = {
@@ -1091,6 +1134,19 @@ def canonicalise_requirements(
             if key not in seen_filtered:
                 seen_filtered.add(key)
                 filtered_section_headings.append(diagnostic)
+            continue
+
+        exclusion_reason = _classify_non_requirement_row(
+            source_row.get("text", "")
+        )
+        if exclusion_reason:
+            filtered_non_requirement_rows.append(
+                {
+                    "text": _clean_text(source_row.get("text", "")),
+                    "reason": exclusion_reason,
+                    "source": _clean_text(source_row.get("source", "")),
+                }
+            )
             continue
 
         clean_source_rows.append(source_row)
@@ -1217,6 +1273,8 @@ def canonicalise_requirements(
         "acronym_map": acronym_map,
         "merge_debug": merge_debug,
         "filtered_section_headings": filtered_section_headings,
+        "filtered_non_requirement_rows": filtered_non_requirement_rows,
+        "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
     }
 
 
@@ -2151,6 +2209,17 @@ def build_stable_analysis(
             ),
             "filtered_section_heading_count": len(
                 canonical.get("filtered_section_headings", [])
+            ),
+            "filtered_non_requirement_rows": canonical.get(
+                "filtered_non_requirement_rows",
+                [],
+            ),
+            "filtered_non_requirement_count": len(
+                canonical.get("filtered_non_requirement_rows", [])
+            ),
+            "non_requirement_filter_version": canonical.get(
+                "non_requirement_filter_version",
+                NON_REQUIREMENT_FILTER_VERSION,
             ),
             "atomic_requirement_count": sum(
                 1
