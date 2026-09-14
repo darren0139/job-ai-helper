@@ -7701,6 +7701,166 @@ elif page == "Application Sessions":
 
 
 
+            # Render Phase 8 immediately after the fitted result. Approval
+            # remains a separate explicit action later in the workflow.
+            phase8_result_rendered_above_approval = False
+            score_post_fit_control = get_application_generation_control(
+                current_application_id
+            )
+            score_post_fit_approved = score_post_fit_control.get(
+                "approved_generation"
+            )
+            score_session_fit_result = (
+                fit_result if isinstance(fit_result, dict) else {}
+            )
+            score_approved_fit_result = (
+                (score_post_fit_approved or {}).get("fit_result") or {}
+                if isinstance(score_post_fit_approved, dict)
+                else {}
+            )
+            score_has_fitted_output = bool(
+                score_session_fit_result.get("docx_path")
+                or score_session_fit_result.get("pdf_path")
+                or score_session_fit_result.get("fit_one_page") is not None
+                or score_approved_fit_result.get("docx_path")
+                or score_approved_fit_result.get("pdf_path")
+                or score_approved_fit_result.get("fit_one_page") is not None
+            )
+
+            if score_has_fitted_output and phase9e_ready:
+                score_workspace_context = get_resume_workspace_context(
+                    int(current_application_id)
+                )
+                score_workspace_generation = score_workspace_context.get(
+                    "loaded_generation"
+                )
+                score_workspace_is_draft = bool(
+                    score_workspace_context.get("loaded_mode")
+                    == "working_draft"
+                    and isinstance(score_workspace_generation, dict)
+                )
+                score_previous_scope_approved = score_workspace_context.get(
+                    "previous_scope_approved_generation"
+                )
+
+                score_approved_for_phase8 = score_post_fit_approved
+                score_approved_for_phase8_id = str(
+                    (score_approved_for_phase8 or {}).get("generation_id")
+                    or ""
+                )
+                score_previous_scope_phase8_id = str(
+                    (score_previous_scope_approved or {}).get(
+                        "generation_id"
+                    )
+                    or ""
+                )
+                score_approved_is_current_scope = not bool(
+                    score_previous_scope_phase8_id
+                    and score_approved_for_phase8_id
+                    and score_previous_scope_phase8_id
+                    == score_approved_for_phase8_id
+                )
+
+                score_phase8_jd_record = (
+                    get_exact_job_description_for_application(
+                        int(current_application_id)
+                    )
+                    if current_application_id is not None
+                    else None
+                ) or {}
+                score_phase8_raw_jd_text = str(
+                    score_phase8_jd_record.get("raw_text")
+                    or report.get("raw_jd_text")
+                    or ""
+                )
+
+                score_lifecycle_state = load_blueprint_lifecycle_state(
+                    application_id=int(current_application_id),
+                    current_phase9e_decision_fingerprint=str(
+                        phase9e_binding.get("decision_fingerprint")
+                        or ""
+                    ),
+                )
+                score_lifecycle_stage = str(
+                    (
+                        score_lifecycle_state.get("summary") or {}
+                    ).get("current_stage")
+                    or ""
+                )
+
+                score_preferred_generation_id = str(
+                    (
+                        score_workspace_generation
+                        if score_workspace_is_draft
+                        else score_approved_for_phase8
+                        if (
+                            isinstance(score_approved_for_phase8, dict)
+                            and score_approved_is_current_scope
+                        )
+                        else {}
+                    ).get("generation_id")
+                    or st.session_state.get(
+                        f"tailored_generation_id_{current_application_id}",
+                        "",
+                    )
+                    or ""
+                )
+
+                score_phase8_kwargs = {
+                    "application_id": current_application_id,
+                    "baseline_report": report,
+                    "raw_jd_text": score_phase8_raw_jd_text,
+                    "phase9f_execution": (
+                        phase9f_f_execution
+                        if phase9f_f_active
+                        else None
+                    ),
+                    "required_phase9e_binding": (
+                        phase9e_binding
+                        if phase9e_enforced
+                        else None
+                    ),
+                    "preferred_generation_id": (
+                        score_preferred_generation_id
+                    ),
+                }
+
+                if (
+                    isinstance(score_approved_for_phase8, dict)
+                    and score_approved_is_current_scope
+                    and score_lifecycle_stage in {
+                        "phase9c",
+                        "phase9d",
+                        "phase9e",
+                    }
+                ):
+                    score_force_open = bool(
+                        st.session_state.pop(
+                            f"phase8_force_open_{current_application_id}",
+                            False,
+                        )
+                    )
+                    score_approved_short = str(
+                        score_approved_for_phase8.get("generation_id")
+                        or ""
+                    )[:8]
+                    score_complete_label = (
+                        "Phase 8 — Approved résumé "
+                        f"{score_approved_short or 'result'} · Complete"
+                    )
+                    with st.expander(
+                        score_complete_label,
+                        expanded=score_force_open,
+                    ):
+                        render_phase8_verification(
+                            **score_phase8_kwargs
+                        )
+                else:
+                    render_phase8_verification(**score_phase8_kwargs)
+
+                phase8_result_rendered_above_approval = True
+
+
             if (
                 phase9e_ready
                 and tailored_resume_copy_path
@@ -7764,8 +7924,8 @@ elif page == "Application Sessions":
                             "Visual comparison of the full generated résumé "
                             "before fitting and the selected fitted result."
                         )
-                        before_tab, after_tab = st.tabs(
-                            ["Before fitting", "After fitting"]
+                        after_tab, before_tab = st.tabs(
+                            ["After fitting", "Before fitting"]
                         )
                         with before_tab:
                             st.markdown(
@@ -7833,9 +7993,10 @@ elif page == "Application Sessions":
             st.divider()
             st.subheader("Verify and Approve Résumé")
             st.caption(
-                "Workflow order: build and fit the document, run Phase 8 "
-                "verification on the exact fitted generation, approve that "
-                "verified generation, then continue through Phase 9B, "
+                "Workflow order: build and fit the document; Phase 8 then "
+                "verifies the exact fitted generation automatically. Review "
+                "the score and evidence changes, approve that exact verified "
+                "generation explicitly, then continue through Phase 9B, "
                 "Phase 9C, and Phase 9D."
             )
 
@@ -7971,36 +8132,43 @@ elif page == "Application Sessions":
                             preferred_phase8_generation_id
                         ),
                     }
-                    if (
-                        isinstance(approved_for_phase8, dict)
-                        and approved_for_phase8_is_current_scope
-                        and post_fit_lifecycle_stage in {
-                            "phase9c",
-                            "phase9d",
-                            "phase9e",
-                        }
-                    ):
-                        phase8_force_open = bool(
-                            st.session_state.pop(
-                                f"phase8_force_open_{current_application_id}",
-                                False,
-                            )
-                        )
-                        approved_phase8_short = str(
-                            approved_for_phase8.get("generation_id")
-                            or ""
-                        )[:8]
-                        phase8_complete_label = (
-                            "Phase 8 — Approved résumé "
-                            f"{approved_phase8_short or 'result'} · Complete"
-                        )
-                        with st.expander(
-                            phase8_complete_label,
-                            expanded=phase8_force_open,
+                    if not phase8_result_rendered_above_approval:
+                        if (
+                            isinstance(approved_for_phase8, dict)
+                            and approved_for_phase8_is_current_scope
+                            and post_fit_lifecycle_stage in {
+                                "phase9c",
+                                "phase9d",
+                                "phase9e",
+                            }
                         ):
+                            phase8_force_open = bool(
+                                st.session_state.pop(
+                                    f"phase8_force_open_{current_application_id}",
+                                    False,
+                                )
+                            )
+                            approved_phase8_short = str(
+                                approved_for_phase8.get("generation_id")
+                                or ""
+                            )[:8]
+                            phase8_complete_label = (
+                                "Phase 8 — Approved résumé "
+                                f"{approved_phase8_short or 'result'} · Complete"
+                            )
+                            with st.expander(
+                                phase8_complete_label,
+                                expanded=phase8_force_open,
+                            ):
+                                render_phase8_verification(**phase8_kwargs)
+                        else:
                             render_phase8_verification(**phase8_kwargs)
+
                     else:
-                        render_phase8_verification(**phase8_kwargs)
+                        st.caption(
+                            "Phase 8 verification and score details are "
+                            "shown above with the fitted-result section."
+                        )
 
                     render_tailoring_generation_controls(
                         application_id=current_application_id,

@@ -23,6 +23,13 @@ from tailoring.phase8_verification import (
     build_phase8_verification,
     refresh_phase8_readiness,
 )
+from tailoring.phase8_auto_verification import (
+    phase8_verification_is_current,
+    phase8_verification_refresh_reason,
+)
+from tailoring.phase8_score_explainability_ui import (
+    render_phase8_score_explainability,
+)
 
 
 def _label(state: dict[str, Any]) -> str:
@@ -100,6 +107,8 @@ def _render_result(result: dict[str, Any]) -> None:
         "Claim reviews",
         lineage.get("claim_review_required_count", 0),
     )
+
+    render_phase8_score_explainability(result)
 
     reconciliation = (
         result.get("requirement_reconciliation", {}) or {}
@@ -262,10 +271,11 @@ def render_phase8_verification(
     preferred_generation_id: str = "",
 ) -> None:
     st.divider()
-    st.subheader("Phase 8 — Final Tailored Résumé Verification")
+    st.subheader("Phase 8 — Fitted Résumé Verification")
     st.caption(
-        "Compares the selected fitted résumé with the original résumé "
-        "analysis and verifies evidence lineage. It makes no model ""or embedding calls."
+        "Automatically verifies the exact fitted résumé against the "
+        "baseline and explains the deterministic score. It makes no model "
+        "or embedding calls and never auto-approves."
     )
 
     versions = list_tailoring_generations(application_id)
@@ -326,7 +336,7 @@ def render_phase8_verification(
         for state in eligible
     }
     selected_id = st.selectbox(
-        "Fitted version to verify",
+        "Fitted version",
         options=list(by_id),
         index=default_index,
         format_func=lambda value: _label(by_id[value]),
@@ -351,92 +361,105 @@ def render_phase8_verification(
         "$0.000000",
     )
 
-    if st.button(
-        "Verify Selected Tailored Résumé",
-        type="primary",
-        width="stretch",
-        key=f"phase8_verify_{application_id}_{selected_id}",
-    ):
+    def _execute_selected_verification() -> dict[str, Any]:
+        if phase9f_generation_id and phase9f_legacy_private:
+            from database.phase9f_tailoring_execution_manager import (
+                run_or_reuse_phase9f_tailoring_phase8,
+            )
+            phase9f_result = run_or_reuse_phase9f_tailoring_phase8(
+                application_id=application_id
+            )
+            return {"cache_status": phase9f_result.get("cache_status")}
+
+        if phase9f_execution:
+            from database.phase9f_tailoring_execution_manager import (
+                run_or_reuse_phase9f_normal_generation_phase8,
+            )
+            phase9f_result = run_or_reuse_phase9f_normal_generation_phase8(
+                application_id=application_id,
+                generation_id=selected_id,
+            )
+            return {"cache_status": phase9f_result.get("cache_status")}
+
+        result = build_phase8_verification(
+            baseline_report=baseline_report,
+            generation_state=selected,
+            raw_jd_text=raw_jd_text,
+        )
+        return save_tailoring_verification(
+            application_id=application_id,
+            generation_id=selected_id,
+            result=result,
+        )
+
+    def _cache_message(saved: dict[str, Any], *, automatic: bool) -> str:
+        cache_status = str(saved.get("cache_status") or "")
+        prefix = "Automatic Phase 8 verification" if automatic else "Phase 8 verification"
+        if cache_status == "hit_refreshed":
+            return f"{prefix}: reused the saved analysis and refreshed lifecycle readiness."
+        if cache_status == "hit":
+            return f"{prefix}: reused the current exact-snapshot verification."
+        return f"{prefix}: saved a new zero-cost verification for the exact fitted snapshot."
+
+    latest = get_latest_tailoring_verification(application_id, selected_id)
+    if not phase8_verification_is_current(latest, selected):
+        refresh_reason = phase8_verification_refresh_reason(latest, selected)
+        st.caption(
+            "Automatically verifying the exact fitted résumé because the "
+            f"current Phase 8 status is: {refresh_reason}."
+        )
         try:
             with st.spinner(
-                "Revalidating the final fitted evidence deterministically..."
+                "Automatically verifying the exact fitted résumé deterministically..."
             ):
-                if phase9f_generation_id and phase9f_legacy_private:
-                    # Use the existing Phase 8 presentation, while the F
-                    # ledger supplies its exact frozen baseline and revalidates
-                    # the D-bound JD/generation provenance before accepting it.
-                    from database.phase9f_tailoring_execution_manager import (
-                        run_or_reuse_phase9f_tailoring_phase8,
-                    )
-
-                    phase9f_result = run_or_reuse_phase9f_tailoring_phase8(
-                        application_id=application_id
-                    )
-                    saved = {
-                        "cache_status": phase9f_result.get("cache_status"),
-                    }
-                elif phase9f_execution:
-                    from database.phase9f_tailoring_execution_manager import (
-                        run_or_reuse_phase9f_normal_generation_phase8,
-                    )
-
-                    phase9f_result = (
-                        run_or_reuse_phase9f_normal_generation_phase8(
-                            application_id=application_id,
-                            generation_id=selected_id,
-                        )
-                    )
-                    saved = {
-                        "cache_status": phase9f_result.get("cache_status"),
-                    }
-                else:
-                    result = build_phase8_verification(
-                        baseline_report=baseline_report,
-                        generation_state=selected,
-                        raw_jd_text=raw_jd_text,
-                    )
-                    saved = save_tailoring_verification(
-                        application_id=application_id,
-                        generation_id=selected_id,
-                        result=result,
-                    )
-            cache_status = str(
-                saved.get("cache_status") or ""
-            )
-            if cache_status == "hit_refreshed":
-                flash_message = (
-                    "Reused the saved Phase 8 analysis and refreshed "
-                    "the current readiness status."
-                )
-            elif cache_status == "hit":
-                flash_message = (
-                    "Reused the saved Phase 8 analysis; the current "
-                    "readiness status was already up to date."
-                )
+                auto_saved = _execute_selected_verification()
+            latest = get_latest_tailoring_verification(application_id, selected_id)
+            if phase8_verification_is_current(latest, selected):
+                st.success(_cache_message(auto_saved, automatic=True))
             else:
-                flash_message = (
-                    "Saved a new zero-cost Phase 8 verification."
+                latest = None
+                st.warning(
+                    "Automatic Phase 8 verification completed, but the current exact "
+                    "fitted snapshot could not be confirmed. The stale result is hidden."
                 )
-            st.session_state[
-                f"phase8_flash_{application_id}"
-            ] = flash_message
+        except ValueError as exc:
+            latest = None
+            st.warning(f"Automatic Phase 8 verification could not complete: {exc}")
+        except Exception as exc:
+            latest = None
+            st.error(f"Automatic Phase 8 verification failed: {exc}")
+
+    if phase8_verification_is_current(latest, selected):
+        st.caption(
+            "✓ Phase 8 is current for this exact fitted snapshot. Approval remains "
+            "a separate explicit user action."
+        )
+
+    if st.button(
+        "Re-run Phase 8 verification",
+        width="stretch",
+        key=f"phase8_verify_{application_id}_{selected_id}",
+        help=(
+            "Diagnostic/recovery action. Normal fitted snapshots are verified automatically."
+        ),
+    ):
+        try:
+            with st.spinner("Re-running deterministic Phase 8 verification..."):
+                manual_saved = _execute_selected_verification()
+            st.session_state[f"phase8_flash_{application_id}"] = _cache_message(
+                manual_saved,
+                automatic=False,
+            )
             st.rerun()
         except ValueError as exc:
             st.warning(str(exc))
         except Exception as exc:
             st.error(f"Phase 8 verification failed: {exc}")
 
-    flash = st.session_state.pop(
-        f"phase8_flash_{application_id}",
-        "",
-    )
+    flash = st.session_state.pop(f"phase8_flash_{application_id}", "")
     if flash:
         st.success(flash)
 
-    latest = get_latest_tailoring_verification(
-        application_id,
-        selected_id,
-    )
     if isinstance(latest, dict):
         refreshed_latest = (
             latest
