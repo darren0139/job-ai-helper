@@ -1,0 +1,48 @@
+Job Description: dConstruct is hiring C++ UI/UX Software Engineers who will be building native cross-platform user interfaces using C++ to meet the needs of our clients. You will be working with clients to understand their needs and in turn, implement their requirements accordingly. You will be working alongside industry experts. At the same time, you will be familiarised with the entire robotics development and software workflow.
+
+‍
+Responsibilities
+
+·        Collaborate with product managers, designers, and back-end engineers to understand project requirements and translate them into responsive and intuitive user interfaces.
+
+·        Develop and integrate features and extensions to our software stack to satisfy client requirements.
+
+·        Create and maintain reusable and modular front-end components to facilitate scalability and maintainability of code.
+
+·        Implement and optimize front-end solutions for cross-platform compatibility and responsiveness.
+
+·        Work closely with UX/UI designers to ensure the feasibility and fidelity of design concepts on both desktop and tablet platforms.
+
+·        Troubleshoot and resolve issues related to front-end development, collaborating with cross-functional teams as needed.
+
+·        Occasionally aid in tests and deployment of our robots in real world environments.
+
+
+
+Requirements and Skills
+
+·        Good foundation in modern C/C++ programming
+
+·        Understand fundamental concepts in user interface design and implementation
+
+·        Familiar and comfortable with the Git version control system
+
+·        Able to do technical communication to understand and explain the needs of end-users
+
+·        Able to work independently with some guidance
+
+‍
+
+Bonus Requirements and Skills
+
+·        Experience integrating QML withC++
+
+·        Familiarity with QML or JavaScript
+
+·        Experience with game engines (E.g. Unreal, Unity, Godot, etc.)
+
+·        Exposure to geometric linear algebra
+
+·        Proven record of launched digital products as a front-end engineer
+
+·        Applicants with examples of their work will be prioritised

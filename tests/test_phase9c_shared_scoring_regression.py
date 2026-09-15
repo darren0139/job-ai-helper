@@ -87,7 +87,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.4-phase6d8")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.5-phase6d9")
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -102,7 +102,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(result["evidence_strength_score"], 100)
         self.assertEqual(
             result["input_fingerprint"],
-            "d6b470a83738011684ee67fe9fd4337a684cb06bd6802aab9678d444e06eccb9",
+            "9dc65ecf96492667fc87a082f53bda14f46418c4591ad4cdd58eb2deaf3b9051",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

@@ -306,6 +306,11 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 for row in rows
                 if row.get("text") == requirement
                 or row.get("parent_text") == requirement
+                or any(
+                    isinstance(provenance, dict)
+                    and provenance.get("raw_parent_text") == requirement
+                    for provenance in row.get("source_provenance", []) or []
+                )
             ]
             self.assertTrue(matching_rows, requirement)
             self.assertTrue(
@@ -319,6 +324,21 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 ),
                 requirement,
             )
+
+        repaired_opengl = next(
+            row
+            for row in rows
+            if row.get("text") == "Experience working with OpenGL and/or Vulkan"
+        )
+        self.assertEqual(repaired_opengl["importance"], "preferred")
+        self.assertIn(
+            "Experience working with OpenGLand/or Vulkan",
+            {
+                provenance.get("raw_parent_text")
+                for provenance in repaired_opengl.get("source_provenance", []) or []
+                if isinstance(provenance, dict)
+            },
+        )
 
         baseline = next(row for row in rows if row["text"] == "Build reliable APIs")
         self.assertEqual(baseline["importance"], "required")

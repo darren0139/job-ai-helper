@@ -5,10 +5,13 @@ from tailoring.phase9f_jd_intake import build_transient_exact_jd_snapshot
 
 RAW_JD = """
 AI Full-Stack Software Engineer
-Build secure user-facing applications with Python, React, TypeScript,
-PostgreSQL, API authentication, automated tests, and cloud deployment.
+Responsibilities
+Build secure user-facing applications with Python, React, TypeScript, PostgreSQL, API authentication, automated tests, and cloud deployment.
 Collaborate across engineering and product teams to deliver reliable services.
-Python and React are required. Database design and secure access are core.
+Requirements
+Python and React are required.
+Database design and secure access are core.
+Preferred Qualifications
 Container deployment experience is preferred.
 """.strip()
 

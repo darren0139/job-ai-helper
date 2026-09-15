@@ -33,8 +33,11 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.4-phase6d8"
+SCORING_VERSION = "stable-evidence-v1.5-phase6d9"
 NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v1"
+CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION = (
+    "jd-atomic-requirement-decomposition-v1"
+)
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -80,7 +83,6 @@ _PREFERRED_HINTS = (
     "nice-to-have",
     "plus",
     "advantage",
-    "familiarity",
     "ideally",
 )
 
@@ -130,8 +132,52 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
 
 
+def _normalise_requirement_surface(value: Any) -> str:
+    """Repair unambiguous presentation joins before deterministic tokenisation.
+
+    This is deliberately narrower than a general spelling corrector.  It only
+    separates sentence punctuation and well-known punctuation-adjacent technical
+    tokens that otherwise make a raw-JD fact impossible to ground.  It does not
+    add aliases, infer capabilities, or perform fuzzy matching.
+    """
+    text = _clean_text(value)
+    if not text:
+        return ""
+
+    # A missing space after ordinary terminal punctuation is layout damage, not
+    # a semantic variation (for example: "use cases.You will...").
+    text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+
+    # Keep C/C++, C++, C# and F# intact while separating an adjoining ordinary
+    # word.  The surrounding boundaries prevent generic substring matching.
+    text = re.sub(
+        r"(?i)(C/C\+\+|C\+\+|C#|F#)(?=[a-z])",
+        r"\1 ",
+        text,
+    )
+    text = re.sub(
+        r"(?<=[a-z])(?=(?:C/C\+\+|C\+\+|C#|F#)\b)",
+        " ",
+        text,
+    )
+    # A verb joined to an ordinary requirement object is another unambiguous
+    # line-wrap/OCR seam.  Restrict this to grammatical action/object pairs so
+    # it cannot become a broad dictionary-based word splitter.
+    text = re.sub(
+        r"(?i)\b(integrat(?:e|ing)|develop(?:ing)?|build(?:ing)?|"
+        r"test(?:ing)?|deploy(?:ing)?)(functionality|features|services|"
+        r"applications|software)\b",
+        r"\1 \2",
+        text,
+    )
+    # This catches a common OCR/layout join without treating arbitrary words
+    # containing "and" as separate requirements.
+    text = re.sub(r"(?<=[A-Z])and/or\b", " and/or", text)
+    return _clean_text(text)
+
+
 def _normalise_basic(value: Any) -> str:
-    text = _clean_text(value).lower()
+    text = _normalise_requirement_surface(value).lower()
     text = text.replace("&", " and ")
     text = text.replace("/", " ")
     text = re.sub(r"[^a-z0-9+#.-]+", " ", text)
@@ -354,6 +400,42 @@ def _importance_rank(value: str) -> int:
     return order.get(value, 0)
 
 
+def _importance_sensitive_fuzzy_merge_is_unsafe(
+    left_text: str,
+    left_importance: str,
+    right_text: str,
+    right_importance: str,
+    acronym_map: dict[str, str],
+) -> bool:
+    """Block fuzzy merges that would collapse materially different scope.
+
+    Exact duplicates may still take the strongest importance. For fuzzy
+    matches, however, a high-containment score can hide that one row carries
+    several extra capabilities. If the rows have different importance and one
+    token set is materially broader, keep both rows so stronger importance
+    cannot be transferred onto broader wording.
+    """
+    if _importance_rank(left_importance) == _importance_rank(right_importance):
+        return False
+
+    left_tokens = set(_tokenise(left_text, acronym_map))
+    right_tokens = set(_tokenise(right_text, acronym_map))
+    if not left_tokens or not right_tokens:
+        return False
+
+    overlap = len(left_tokens & right_tokens)
+    left_coverage = overlap / len(left_tokens)
+    right_coverage = overlap / len(right_tokens)
+    narrower_coverage = max(left_coverage, right_coverage)
+    broader_coverage = min(left_coverage, right_coverage)
+
+    return (
+        narrower_coverage >= 0.90
+        and broader_coverage <= 0.75
+        and abs(len(left_tokens) - len(right_tokens)) >= 2
+    )
+
+
 def _classify_raw_importance(text: str, default: str = "core") -> str:
     normalised = _normalise_basic(text)
 
@@ -414,6 +496,7 @@ _RAW_SECTION_HEADINGS = {
     ),
     "preferred": frozenset(
         {
+            "preferred",
             "preferred qualifications",
             "preferred requirements",
             "preferred skills",
@@ -502,9 +585,52 @@ def _raw_jd_section_heading_rows(
 
 def _classify_non_requirement_row(value: Any) -> str:
     """Return a deterministic exclusion reason for recruiting/process boilerplate."""
+    surface = _clean_text(value)
     text = _normalise_basic(value)
     if not text:
         return ""
+
+    if re.search(
+        r"\bwe(?:['’]d| would)\s+love\s+to\s+(?:hear|meet)\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_call_to_action"
+
+    if re.match(
+        r"^\s*(?:excited|interested)\s+about\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_call_to_action"
+
+    if (
+        re.match(
+            r"^\s*we(?:['’]re| are)\s+seeking\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\bto\s+join\b.*\b(?:team|company|organisation|organization)\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+    ):
+        return "recruiting_role_intro"
+
+    if re.match(
+        r"^\s*we(?:['’]re| are)\s+looking\s+for\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_role_intro"
+
+    if re.match(
+        r"^\s*this\s+is\s+(?:an?\s+)?[^.!?]{0,160}\brole\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "role_summary_context"
 
     if re.fullmatch(r"#li[- ]?[a-z0-9-]+", text):
         return "recruiter_tracking_tag"
@@ -575,7 +701,56 @@ def _split_top_level_commas(value: str) -> list[str]:
             flags=re.IGNORECASE,
         ).strip()
 
+        # A final "x and y" item is an ordinary list continuation only when
+        # a preceding top-level comma already established list structure.
+        final_parts = re.split(r"\s+and\s+", parts[-1], maxsplit=1, flags=re.I)
+        if (
+            len(final_parts) == 2
+            and all(len(_tokenise(part)) >= 1 for part in final_parts)
+        ):
+            parts[-1:] = [part.strip(" ,;.-") for part in final_parts]
+
     return parts
+
+
+_EXAMPLE_OR_ALTERNATIVE_INTRODUCER = re.compile(
+    r"\b(?:including(?:\s+but\s+not\s+limited\s+to)?|"
+    r"such\s+as|for\s+example|e\.?\s*g\.?|especially|"
+    r"one\s+or\s+more\s+of)\b",
+    re.IGNORECASE,
+)
+
+
+def _preserves_coherent_parent(value: str) -> bool:
+    """Return whether a top-level example list remains one requirement.
+
+    An example marker nested inside one member of an independently addressable
+    compound requirement (for example, ``live handling (including bugs)``)
+    must not suppress decomposition of the surrounding compound parent.
+    """
+    for match in _EXAMPLE_OR_ALTERNATIVE_INTRODUCER.finditer(value):
+        depth = 0
+        for character in value[: match.start()]:
+            if character == "(":
+                depth += 1
+            elif character == ")" and depth:
+                depth -= 1
+        if depth:
+            continue
+
+        introducer = _normalise_basic(match.group(0))
+        if introducer == "one or more of":
+            return True
+
+        # A preceding top-level comma establishes a larger independent list.
+        # Its later example parent remains coherent, but the whole compound
+        # requirement must still be decomposed at the independently scored
+        # list boundary.
+        prefix = value[: match.start()].strip(" ,;:.-")
+        if len(_split_top_level_commas(prefix)) > 1:
+            continue
+        return True
+    return False
 
 
 def _context_label_from_head(head: str) -> str:
@@ -634,6 +809,7 @@ _SAFE_SECOND_CLAUSE_PREFIXES = (
     "communicate ",
     "coordinate ",
     "develop ",
+    "deploy ",
     "exposure to ",
     "familiarity with ",
     "investigate ",
@@ -643,6 +819,7 @@ _SAFE_SECOND_CLAUSE_PREFIXES = (
     "resolve ",
     "support ",
     "verify ",
+    "write ",
 )
 
 
@@ -677,9 +854,28 @@ def _split_shared_head_and_list(value: str) -> list[str]:
     if re.search(r"(?:,\s*or\s+|\s+or\s+)", value, flags=re.IGNORECASE):
         return []
 
+    # Example and alternative introducers describe a single competency.  The
+    # current scorer has no ANY/one-or-more arithmetic, so preserve the parent
+    # rather than converting examples into separately mandatory requirements.
+    if _preserves_coherent_parent(value):
+        return []
+
+    # A foundation is one coherent competency even when it names several
+    # constituent disciplines.  It is not equivalent to a list of separately
+    # addressable tools or skills, so preserve it as one canonical requirement.
+    # This is deliberately structural rather than subject-specific.
+    if re.match(
+        r"^(?:(?:good|strong|solid|working|basic)\s+)?foundation\s+in\s+",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
     match = re.match(
         r"^(?P<head>"
-        r"(?:experience|familiarity|knowledge|proficiency|skills?)"
+        r"(?:experience|familiarity|knowledge|proficiency|skills?|"
+        r"(?:good|strong|solid|working|basic)\s+foundation|"
+        r"understand(?:ing)?\s+concepts|comfortable)"
         r"\s+(?:using|with|in|of)\s+"
         r")(?P<tail>.+)$",
         value,
@@ -707,6 +903,17 @@ def _split_non_preference_clause(
     """Split clear compound clauses into stable, atomic requirements."""
     group_id = _stable_id("grp", _normalise_basic(parent_text))
 
+    if _preserves_coherent_parent(value):
+        return [
+            _clause_record(
+                text=value,
+                importance=importance,
+                parent_text=parent_text,
+                focus_text=value,
+                atomic_group_id=group_id,
+                is_atomic=False,
+            )
+        ]
 
     shared_head_parts = _split_shared_head_and_list(value)
     if shared_head_parts:
@@ -784,7 +991,7 @@ def _split_non_preference_clause(
             ]
 
     enumeration = re.match(
-        r"^(?P<head>.+?)\s+(?:from|including|such as)\s+(?P<tail>.+)$",
+        r"^(?P<head>.+?)\s+from\s+(?P<tail>.+)$",
         value,
         flags=re.IGNORECASE,
     )
@@ -874,12 +1081,12 @@ def _split_non_preference_clause(
     ]
 
 
-def _split_requirement_clauses(
+def _split_single_requirement_clause(
     text: str,
     default_importance: str,
 ) -> list[dict[str, Any]]:
-    """Split preference, paired-skill and enumerated clauses deterministically."""
-    value = _clean_text(text)
+    """Split one requirement sentence into conservative atomic clauses."""
+    value = _normalise_requirement_surface(text)
     if not value:
         return []
 
@@ -920,51 +1127,677 @@ def _split_requirement_clauses(
     )
 
 
-def _raw_jd_requirement_rows(raw_jd_text: str) -> list[dict[str, Any]]:
-    """Extract stable atomic requirement rows from explicit JD sections."""
-    rows: list[dict[str, Any]] = []
-    active_section = ""
+def _split_requirement_sentences(value: str) -> list[str]:
+    """Split only explicit sentence boundaries; keep abbreviations untouched."""
+    text = _normalise_requirement_surface(value)
+    if not text:
+        return []
 
-    for raw_line in raw_jd_text.splitlines():
-        value = _clean_text(raw_line).strip("-•* \t")
+    parts = [
+        part.strip(" ,;:.-")
+        # ``e.g.`` and ``i.e.`` are inline introducers, not sentence endings.
+        # Keeping them intact also lets the coherent-example guard preserve the
+        # full competency instead of treating the examples as a second row.
+        for part in re.split(
+            r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])",
+            text,
+        )
+        if part.strip(" ,;:.-")
+    ]
+    return parts or [text]
+
+
+def _split_requirement_clauses(
+    text: str,
+    default_importance: str,
+) -> list[dict[str, Any]]:
+    """Split raw/profile wording by explicit sentence and safe clause seams."""
+    records: list[dict[str, Any]] = []
+    for sentence in _split_requirement_sentences(text):
+        records.extend(
+            _split_single_requirement_clause(
+                sentence,
+                default_importance,
+            )
+        )
+    return records
+
+
+def _strip_inline_jd_heading(value: str) -> str:
+    """Remove a presentation-only inline Job Description marker if present."""
+    return re.sub(
+        r"^(?:job|role|position)\s+description\s*:\s*",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    ).strip()
+
+
+def _introductory_list_kind(value: str) -> str:
+    """Return a controlled kind for a multiline example/alternative list."""
+    text = _normalise_requirement_surface(value)
+    if not text or not re.search(r":\s*$", text):
+        return ""
+
+    if re.search(r"\bone\s+or\s+more\s+of\s*:\s*$", text, re.I):
+        return "one_or_more_of"
+
+    if re.search(
+        r"\b(?:including(?:\s+but\s+not\s+limited\s+to)?|"
+        r"such\s+as|for\s+example|e\.?\s*g\.?|especially)\s*:\s*$",
+        text,
+        re.I,
+    ):
+        return "example_list"
+
+    return ""
+
+
+def _looks_like_introductory_list_item(value: str) -> bool:
+    """Conservatively recognise a short item under an explicit list introducer."""
+    text = _normalise_requirement_surface(value).strip(" ,;:.-")
+    tokens = _tokenise(text)
+    if not tokens or len(tokens) > 9:
+        return False
+    if re.search(r"[.!?;:]$", text):
+        return False
+
+    if re.match(
+        r"^(?:we|you|(?:the\s+)?candidate|successful applicant|"
+        r"experience|strong|solid|good|working|proficiency|knowledge|"
+        r"familiarity|ability|comfortable|build|develop|design|implement|"
+        r"work|collaborate|maintain|write|support|diagnose|help|assess|"
+        r"protect|coordinate|investigate|deploy|containerize|containerise|"
+        r"diploma|degree|bachelor|excellent|interest|exposure)\b",
+        text,
+        re.I,
+    ):
+        return False
+
+    return True
+
+
+def _open_introductory_list_header(
+    spans: list[dict[str, Any]],
+    *,
+    section: str,
+    block_index: int,
+) -> dict[str, Any] | None:
+    """Find the active introducer immediately preceding short list items."""
+    for span in reversed(spans):
+        if span.get("section") != section or span.get("block_index") != block_index:
+            break
+
+        kind = _introductory_list_kind(_clean_text(span.get("text", "")))
+        if kind:
+            return span
+
+        if not _looks_like_introductory_list_item(
+            _clean_text(span.get("text", ""))
+        ):
+            break
+
+    return None
+
+
+def _coalesce_one_or_more_alternative_lists(
+    spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep explicit multiline example/alternative lists as one requirement."""
+    coalesced: list[dict[str, Any]] = []
+    index = 0
+    while index < len(spans):
+        header = spans[index]
+        header_text = _clean_text(header.get("text", ""))
+        list_kind = _introductory_list_kind(header_text)
+        if not list_kind:
+            coalesced.append(header)
+            index += 1
+            continue
+
+        item_index = index + 1
+        item_spans: list[dict[str, Any]] = []
+        while item_index < len(spans):
+            item = spans[item_index]
+            if (
+                item.get("section") != header.get("section")
+                or item.get("block_index") != header.get("block_index")
+                or not _looks_like_introductory_list_item(
+                    _clean_text(item.get("text", ""))
+                )
+            ):
+                break
+            item_spans.append(item)
+            item_index += 1
+
+        if not item_spans:
+            coalesced.append(header)
+            index += 1
+            continue
+
+        list_items = [_clean_text(item["text"]) for item in item_spans]
+        text = f"{header_text} " + " ; ".join(list_items)
+        raw_text = "\n".join(
+            [_clean_text(header.get("raw_text", header_text))]
+            + [
+                _clean_text(item.get("raw_text", item["text"]))
+                for item in item_spans
+            ]
+        )
+        coalesced.append(
+            {
+                **header,
+                "span_id": _stable_id(
+                    "jdspan",
+                    f"{header['line_index']}|{_normalise_basic(text)}",
+                ),
+                "text": text,
+                "raw_text": raw_text,
+                "is_bullet": False,
+                "alternative_list": {
+                    "kind": list_kind,
+                    "items": list_items,
+                    "item_span_ids": [item["span_id"] for item in item_spans],
+                },
+            }
+        )
+        index = item_index
+
+    return coalesced
+
+
+def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
+    """Return deterministic, non-heading raw-JD spans with section context."""
+    spans: list[dict[str, Any]] = []
+    active_section = ""
+    pending: dict[str, Any] | None = None
+    block_index = 0
+
+    def flush_pending() -> None:
+        nonlocal pending
+        if not pending:
+            return
+        spans.append(
+            {
+                "span_id": _stable_id(
+                    "jdspan",
+                    f"{pending['line_index']}|{_normalise_basic(pending['text'])}",
+                ),
+                "text": pending["text"],
+                "raw_text": pending["raw_text"],
+                "line_index": pending["line_index"],
+                "section": pending["section"],
+                "is_bullet": pending["is_bullet"],
+                "block_index": pending["block_index"],
+            }
+        )
+        pending = None
+
+    def is_strong_grammatical_continuation(
+        previous: str,
+        current: str,
+    ) -> bool:
+        if re.match(r"^(?:and|or|with|for|to|in|of|using)\b", current, re.I):
+            return True
+        return bool(re.search(r"\b(?:with|using|for|to|in|of)$", previous, re.I))
+
+    def is_unambiguous_continuation(previous: str, current: str) -> bool:
+        if re.search(r"[.!?;:]$", previous):
+            return False
+        if is_strong_grammatical_continuation(previous, current):
+            return True
+        if current[:1].islower():
+            return True
+        return False
+
+    for line_index, raw_line in enumerate(raw_jd_text.splitlines(), start=1):
+        original = _clean_text(raw_line).strip("-•* \t")
+        value = _normalise_requirement_surface(original)
         if not value:
+            flush_pending()
+            block_index += 1
             continue
 
         section = _raw_section_for_heading(value)
         if section:
+            flush_pending()
+            block_index += 1
             active_section = "" if section == "stop" else section
             continue
+
+        value = _strip_inline_jd_heading(value)
+        if not value:
+            flush_pending()
+            block_index += 1
+            continue
+
+        is_bullet = bool(re.match(r"^\s*(?:[-*•]+|\d+[.)])\s*", raw_line))
+        intro_header = _open_introductory_list_header(
+            spans,
+            section=active_section,
+            block_index=block_index,
+        )
+        preserve_list_boundary = bool(
+            intro_header
+            and _looks_like_introductory_list_item(value)
+            and not is_strong_grammatical_continuation(
+                pending["text"] if pending else "",
+                value,
+            )
+        )
+        if (
+            pending
+            and not is_bullet
+            and not preserve_list_boundary
+            and pending["section"] == active_section
+            and is_unambiguous_continuation(pending["text"], value)
+        ):
+            pending["text"] = _normalise_requirement_surface(
+                f"{pending['text']} {value}"
+            )
+            pending["raw_text"] = _clean_text(
+                f"{pending['raw_text']} {original}"
+            )
+            continue
+
+        flush_pending()
+        pending = {
+            "text": value,
+            "raw_text": original,
+            "line_index": line_index,
+            "section": active_section,
+            "is_bullet": is_bullet,
+            "block_index": block_index,
+        }
+
+    flush_pending()
+
+    return _coalesce_one_or_more_alternative_lists(spans)
+
+
+def _raw_jd_requirement_rows(
+    raw_jd_text: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract direct rows from explicit sections and retain raw grounding spans."""
+    rows: list[dict[str, Any]] = []
+    spans = _raw_jd_content_spans(raw_jd_text)
+    unheaded_exclusions: list[dict[str, Any]] = []
+
+    for span in spans:
+        active_section = _clean_text(span.get("section", ""))
+        value = _clean_text(span.get("text", ""))
 
         # Inside an explicitly recognised requirement section, short technical
         # entries such as "C++" are real requirements.  The section marker is
         # already consumed above, so require a meaningful token rather than a
         # presentation-length threshold.
-        if not active_section or not _tokenise(value):
+        if active_section and _tokenise(value):
+            default_importance = {
+                "responsibilities": "core",
+                "requirements": "required",
+                "core": "core",
+                "preferred": "preferred",
+            }[active_section]
+            # A raw span can contain several independently punctuated sentences.
+            # Importance cues such as "plus" or "must" are local to the sentence
+            # that contains them; do not let one sentence reclassify its neighbours.
+            for sentence_index, sentence in enumerate(
+                _split_requirement_sentences(value),
+                start=1,
+            ):
+                sentence_importance = _classify_raw_importance(
+                    sentence,
+                    default_importance,
+                )
+                has_explicit_preference_transition = bool(
+                    re.search(
+                        r"\b(preferably|ideally|nice[- ]to[- ]have|"
+                        r"would be preferred)\b",
+                        sentence,
+                        flags=re.IGNORECASE,
+                    )
+                )
+                split_default_importance = (
+                    default_importance
+                    if has_explicit_preference_transition
+                    else sentence_importance
+                )
+
+                for clause in _split_single_requirement_clause(
+                    sentence,
+                    split_default_importance,
+                ):
+                    grounding = {
+                        "kind": "explicit_raw_section",
+                        "span_id": span["span_id"],
+                        "line_index": span["line_index"],
+                        "section": active_section,
+                        "sentence_index": sentence_index,
+                        "sentence_text": sentence,
+                    }
+                    alternative_list = span.get("alternative_list") or {}
+                    if alternative_list:
+                        grounding.update(
+                            {
+                                "list_structure": alternative_list.get("kind", ""),
+                                "list_item_span_ids": alternative_list.get(
+                                    "item_span_ids",
+                                    [],
+                                ),
+                                "list_item_count": len(
+                                    alternative_list.get("items", [])
+                                ),
+                            }
+                        )
+                    rows.append(
+                        {
+                            **clause,
+                            "importance": clause["importance"],
+                            "source": f"raw_jd.{active_section}",
+                            # Keep the source spelling only as provenance.  The
+                            # canonical display/ID continues to use the repaired
+                            # deterministic surface in ``clause['parent_text']``.
+                            "raw_parent_text": _clean_text(
+                                span.get("raw_text", clause["parent_text"])
+                            ).strip(" ,;:-"),
+                            "source_parent_instance": (
+                                f"raw|{span['span_id']}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": grounding,
+                        }
+                    )
             continue
 
-        default_importance = {
-            "responsibilities": "core",
-            "requirements": "required",
-            "core": "core",
-            "preferred": "preferred",
-        }[active_section]
+        # Unheaded prose is admissible only when a sentence independently
+        # establishes an applicant obligation or explicit qualification.  This
+        # remains true even if formal sections occur later in the same JD.
+        role_rows, diagnostics = _unheaded_role_rows(span)
+        rows.extend(role_rows)
+        unheaded_exclusions.extend(diagnostics)
 
-        for clause in _split_requirement_clauses(
-            value,
-            default_importance,
+    return rows, spans, unheaded_exclusions
+
+
+_UNHEADED_CONTEXTUAL_PATTERNS = (
+    re.compile(r"\bworking alongside (?:industry )?experts\b", re.I),
+    re.compile(r"\bjoin(?:ing)? (?:a|our|the) team\b", re.I),
+    re.compile(r"\babout (?:the )?(?:company|organisation|organization|role)\b", re.I),
+    re.compile(r"\bwe(?:'re| are) (?:a|an|the)\b", re.I),
+)
+
+_RECRUITING_CALL_TO_ACTION_PATTERNS = (
+    re.compile(r"\bapply\s+(?:now|today|here)\b", re.I),
+    re.compile(r"\bwe(?:'d| would)\s+love\s+to\s+(?:hear|meet)\b", re.I),
+    re.compile(r"^\s*(?:excited|interested)\s+about\b", re.I),
+    re.compile(r"^\s*join(?:ing)?\b.*\bteam\b", re.I),
+    re.compile(r"\bwe(?:'re| are)\s+seeking\b", re.I),
+)
+
+_UNHEADED_OBLIGATION_PATTERNS = (
+    re.compile(r"\b(?:you|candidate|successful applicant)\s+(?:will|must|should)\b", re.I),
+    re.compile(r"\bwho\s+will\b", re.I),
+    re.compile(r"\bresponsible\s+for\b", re.I),
+    re.compile(r"\b(?:must|required|minimum)\b", re.I),
+    re.compile(
+        r"^(?:(?:strong|good|solid|working)\s+)?"
+        r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+        re.I,
+    ),
+)
+
+
+_EXPLICIT_APPLICANT_OBLIGATION_PATTERN = re.compile(
+    r"\b(?:you|(?:the\s+)?candidate|successful applicant)\s+"
+    r"(?:will|must|should)\b|"
+    r"\bwho\s+will\b|\bresponsible\s+for\b|"
+    r"\b(?:candidate|successful applicant)\s+must\b",
+    re.I,
+)
+
+
+def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
+    """Classify unheaded prose without treating company context as a requirement."""
+    text = _clean_text(span.get("text", ""))
+    if (
+        any(pattern.search(text) for pattern in _RECRUITING_CALL_TO_ACTION_PATTERNS)
+        and not _EXPLICIT_APPLICANT_OBLIGATION_PATTERN.search(text)
+    ):
+        return False, "recruiting_call_to_action"
+    if any(pattern.search(text) for pattern in _UNHEADED_CONTEXTUAL_PATTERNS):
+        return False, "contextual_company_or_team_prose"
+    if any(pattern.search(text) for pattern in _UNHEADED_OBLIGATION_PATTERNS):
+        return True, "explicit_role_or_qualification_marker"
+    return False, "ambiguous_unheaded_prose"
+
+
+def _unheaded_obligation_content(sentence: str) -> str:
+    """Remove only an explicit applicant-obligation wrapper from one sentence."""
+    value = _normalise_requirement_surface(sentence).strip(" ,;:.-")
+    if not value:
+        return ""
+
+    patterns = (
+        # Employer introductions often establish the applicant obligation via
+        # "who will".  The role/company preamble is context, not the
+        # requirement itself.
+        r"^.*?\bwho\s+will\s+(?:be\s+)?(?P<content>.+)$",
+        # A short discourse preamble (for example, "At the same time") does
+        # not weaken an otherwise explicit applicant obligation.
+        r"^.*?\b(?:you|(?:the\s+)?candidate|successful applicant)\s+will\s+(?:be\s+)?"
+        r"(?P<content>.+)$",
+        r"^(?:you|(?:the\s+)?candidate|successful applicant)\s+(?:must|should)\s+"
+        r"(?P<content>.+)$",
+        r"^(?:you|(?:the\s+)?candidate|successful applicant)\s+(?:are|is)\s+"
+        r"responsible\s+for\s+(?P<content>.+)$",
+        r"^responsible\s+for\s+(?P<content>.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, value, flags=re.IGNORECASE)
+        if match:
+            return _clean_text(match.group("content")).strip(" ,;:.-")
+
+    if re.match(
+        r"^(?:(?:strong|good|solid|working)\s+)?"
+        r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return value
+    return ""
+
+
+def _is_explicit_unheaded_qualification(sentence: str) -> bool:
+    return bool(
+        re.match(
+            r"^(?:(?:strong|good|solid|working)\s+)?"
+            r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+            _normalise_requirement_surface(sentence),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _unheaded_role_importance(sentence: str) -> str:
+    """Keep role-obligation prose core unless it explicitly elevates priority."""
+    if _is_explicit_unheaded_qualification(sentence):
+        return _classify_raw_importance(sentence, "core")
+    if re.search(
+        r"\b(?:must|required|minimum|essential|mandatory)\b",
+        sentence,
+        flags=re.IGNORECASE,
+    ):
+        return "required"
+    return "core"
+
+
+def _unheaded_role_rows(
+    span: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Admit explicit role obligations sentence-by-sentence from raw JD text."""
+    rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    parent_text = _clean_text(
+        span.get("raw_text", span.get("text", ""))
+    ).strip(" ,;:-")
+    sentences = _split_requirement_sentences(_clean_text(span.get("text", "")))
+    # All admitted clauses from one raw span share the source parent's bounded
+    # scoring allocation. Excluded contextual sentences never enter this group.
+    group_id = _stable_id("grp", _normalise_basic(parent_text))
+    parent_instance = (
+        f"raw|{span.get('span_id', '')}|"
+        f"{_normalise_basic(parent_text)}"
+    )
+
+    for sentence_index, sentence in enumerate(sentences, start=1):
+        sentence_span = {**span, "text": sentence}
+        eligible, reason = _unheaded_span_status(sentence_span)
+        if not eligible:
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": reason,
+                }
+            )
+            continue
+
+        content = _unheaded_obligation_content(sentence)
+        minimum_tokens = 1 if _is_explicit_unheaded_qualification(sentence) else 2
+        if len(_tokenise(content)) < minimum_tokens:
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": "explicit_role_marker_without_admissible_content",
+                }
+            )
+            continue
+
+        exclusion_reason = _classify_non_requirement_row(content)
+        if exclusion_reason:
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": f"non_requirement_{exclusion_reason}",
+                }
+            )
+            continue
+
+        for clause in _split_single_requirement_clause(
+            content,
+            _unheaded_role_importance(sentence),
         ):
+            clause["parent_text"] = parent_text
+            clause["atomic_group_id"] = group_id
             rows.append(
                 {
                     **clause,
-                    "importance": _classify_raw_importance(
-                        clause["text"],
-                        clause["importance"],
-                    ),
-                    "source": f"raw_jd.{active_section}",
+                    "source": "raw_jd.unheaded_explicit_role_obligation",
+                    "raw_parent_text": _clean_text(
+                        span.get("raw_text", parent_text)
+                    ).strip(" ,;:-"),
+                    "source_parent_instance": parent_instance,
+                    "grounding": {
+                        "kind": "unheaded_explicit_role_obligation",
+                        "admission_method": "explicit_role_obligation_sentence",
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "sentence_index": sentence_index,
+                        "sentence_text": sentence,
+                        "section": "",
+                    },
                 }
             )
 
-    return rows
+    return rows, diagnostics
+
+
+def _ordered_token_coverage(required: list[str], available: list[str]) -> float:
+    """Return ordered coverage for one raw span without fuzzy synonym matching."""
+    if not required:
+        return 0.0
+    cursor = 0
+    matched = 0
+    for token in required:
+        while cursor < len(available) and available[cursor] != token:
+            cursor += 1
+        if cursor == len(available):
+            break
+        matched += 1
+        cursor += 1
+    return matched / len(required)
+
+
+def _ground_profile_requirement_to_raw_span(
+    value: str,
+    spans: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Ground one structured row to exactly one admissible raw-JD span."""
+    profile_text = _normalise_requirement_surface(value)
+    profile_normalised = _normalise_basic(profile_text)
+    profile_tokens = _tokenise(profile_text)
+    diagnostics: list[dict[str, Any]] = []
+    if len(profile_tokens) < 2:
+        return None, diagnostics
+
+    candidates: list[tuple[int, float, int, dict[str, Any], str]] = []
+    for span in spans:
+        span_text = _clean_text(span.get("text", ""))
+        if not span_text:
+            continue
+        if not span.get("section"):
+            eligible, reason = _unheaded_span_status(span)
+            if not eligible:
+                diagnostics.append(
+                    {
+                        "text": profile_text,
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "reason": reason,
+                    }
+                )
+                continue
+
+        span_normalised = _normalise_basic(span_text)
+        span_tokens = _tokenise(span_text)
+        exact = bool(
+            profile_normalised
+            and profile_normalised in span_normalised
+        )
+        coverage = _ordered_token_coverage(profile_tokens, span_tokens)
+        if not exact and coverage < 1.0:
+            continue
+
+        candidates.append(
+            (
+                1 if exact else 0,
+                coverage,
+                -int(span.get("line_index", 0)),
+                span,
+                "normalised_substring" if exact else "ordered_token_coverage",
+            )
+        )
+
+    if not candidates:
+        return None, diagnostics
+
+    _, coverage, _, span, method = max(candidates, key=lambda item: item[:3])
+    return {
+        "kind": "profile_grounded_to_raw_jd",
+        "span_id": span.get("span_id", ""),
+        "line_index": span.get("line_index", 0),
+        "section": span.get("section", ""),
+        "method": method,
+        "token_coverage": round(coverage, 6),
+    }, diagnostics
 
 
 def _coverage_metrics(
@@ -1030,11 +1863,15 @@ def _reason_limits_requirement(
 def _requirement_sources(
     jd_profile: dict[str, Any],
     raw_jd_text: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-
-    raw_rows = _raw_jd_requirement_rows(raw_jd_text)
+    raw_rows, raw_spans, unheaded_raw_exclusions = _raw_jd_requirement_rows(
+        raw_jd_text
+    )
     rows.extend(raw_rows)
+    rejected_unheaded: list[dict[str, Any]] = []
+    grounded_profile_count = 0
+    ungrounded_profile_rows: list[dict[str, Any]] = []
 
     field_specs = (
         ("deal_breakers", "deal_breaker"),
@@ -1046,7 +1883,9 @@ def _requirement_sources(
     )
 
     for field_name, default_importance in field_specs:
-        for raw_value in jd_profile.get(field_name, []) or []:
+        for profile_index, raw_value in enumerate(
+            jd_profile.get(field_name, []) or []
+        ):
             value = _clean_text(raw_value)
             if not value:
                 continue
@@ -1068,35 +1907,66 @@ def _requirement_sources(
                 value,
                 importance,
             ):
-                if raw_rows:
-                    continue
-
-                rows.append(
-                    {
-                        **clause,
-                        "source": f"jd_profile.{field_name}",
-                    }
+                grounding, rejected = _ground_profile_requirement_to_raw_span(
+                    clause["text"],
+                    raw_spans,
                 )
+                rejected_unheaded.extend(rejected)
+                if grounding:
+                    # An explicit section is already canonicalised directly
+                    # from its raw wording.  Do not let an LLM profile add a
+                    # differently phrased second allocation for that same
+                    # authoritative span.
+                    if grounding.get("section"):
+                        continue
+                    grounded_profile_count += 1
+                    rows.append(
+                        {
+                            **clause,
+                            "source": f"jd_profile.{field_name}",
+                            "profile_field": field_name,
+                            "source_parent_instance": (
+                                f"profile|{field_name}|{profile_index}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": grounding,
+                        }
+                    )
+                elif not raw_spans:
+                    # Existing stored/profile-only inputs have no raw text to
+                    # validate.  Keep the legacy compatibility path explicit
+                    # in provenance; all current JD intake paths provide raw
+                    # text and therefore use the stricter grounded path.
+                    rows.append(
+                        {
+                            **clause,
+                            "source": f"jd_profile.{field_name}",
+                            "profile_field": field_name,
+                            "source_parent_instance": (
+                                f"profile|{field_name}|{profile_index}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": {
+                                "kind": "legacy_profile_only_raw_unavailable",
+                            },
+                        }
+                    )
+                else:
+                    ungrounded_profile_rows.append(
+                        {
+                            "text": clause["text"],
+                            "source": f"jd_profile.{field_name}",
+                            "reason": "not_grounded_to_admissible_raw_jd_span",
+                        }
+                    )
 
-    if not rows:
-        for line in raw_jd_text.splitlines():
-            value = _clean_text(line).strip("-•* ")
-            if _raw_section_for_heading(value):
-                continue
-            if len(value) < 20:
-                continue
-            for clause in _split_requirement_clauses(
-                value,
-                _classify_raw_importance(value, "core"),
-            ):
-                rows.append(
-                    {
-                        **clause,
-                        "source": "raw_jd_fallback",
-                    }
-                )
-
-    return rows
+    return rows, {
+        "raw_span_count": len(raw_spans),
+        "grounded_profile_requirement_count": grounded_profile_count,
+        "ungrounded_profile_requirements": ungrounded_profile_rows,
+        "rejected_unheaded_spans": rejected_unheaded,
+        "unheaded_raw_exclusions": unheaded_raw_exclusions,
+    }
 
 
 def canonicalise_requirements(
@@ -1104,7 +1974,10 @@ def canonicalise_requirements(
     raw_jd_text: str = "",
 ) -> dict[str, Any]:
     """Build stable atomic requirement rows from the raw JD/profile."""
-    source_rows = _requirement_sources(jd_profile, raw_jd_text)
+    source_rows, decomposition_debug = _requirement_sources(
+        jd_profile,
+        raw_jd_text,
+    )
     filtered_section_headings = _raw_jd_section_heading_rows(raw_jd_text)
     filtered_non_requirement_rows: list[dict[str, str]] = []
 
@@ -1156,6 +2029,42 @@ def canonicalise_requirements(
     text_values.append(raw_jd_text)
     acronym_map = learn_acronym_map(text_values)
 
+    # Source parent provenance is intentionally descriptive.  The scorer still
+    # derives group fractions dynamically from the canonical rows below.
+    occurrence_focuses: dict[str, set[str]] = {}
+    for source_row in source_rows:
+        occurrence_base = _clean_text(
+            source_row.get("source_parent_instance", "")
+        ) or "|".join(
+            (
+                _clean_text(source_row.get("source", "")),
+                _clean_text(source_row.get("profile_field", "")),
+                _normalise_basic(source_row.get("parent_text", source_row["text"])),
+            )
+        )
+        source_row["parent_occurrence_id"] = _stable_id(
+            "srcgrp",
+            occurrence_base,
+        )
+        occurrence_focuses.setdefault(
+            source_row["parent_occurrence_id"],
+            set(),
+        ).add(
+            _canonical_key(
+                source_row.get("atomic_focus", source_row["text"]),
+                acronym_map,
+            )
+        )
+
+    for source_row in source_rows:
+        focus_count = len(
+            occurrence_focuses.get(source_row["parent_occurrence_id"], set())
+        )
+        source_row["source_group_fraction"] = round(
+            1.0 / max(1, focus_count),
+            6,
+        )
+
     canonical_rows: list[dict[str, Any]] = []
     merge_debug: list[dict[str, Any]] = []
 
@@ -1198,10 +2107,21 @@ def canonicalise_requirements(
                 source_row.get("is_atomic")
                 or existing.get("is_atomic")
             )
+            importance_sensitive_scope_mismatch = (
+                not exact_key
+                and _importance_sensitive_fuzzy_merge_is_unsafe(
+                    text,
+                    source_row["importance"],
+                    existing["text"],
+                    existing["importance"],
+                    acronym_map,
+                )
+            )
             threshold_met = (
                 exact_key
                 or (
-                    similarity >= (0.94 if either_atomic else 0.86)
+                    not importance_sensitive_scope_mismatch
+                    and similarity >= (0.94 if either_atomic else 0.86)
                     and focus_similarity >= (0.90 if either_atomic else 0.80)
                 )
             )
@@ -1230,6 +2150,28 @@ def canonicalise_requirements(
                         _stable_id("grp", key),
                     ),
                     "is_atomic": bool(source_row.get("is_atomic")),
+                    "scoring_parent_occurrence_id": source_row[
+                        "parent_occurrence_id"
+                    ],
+                    "source_provenance": [
+                        {
+                            "parent_occurrence_id": source_row[
+                                "parent_occurrence_id"
+                            ],
+                            "parent_text": source_row.get("parent_text", text),
+                            "raw_parent_text": source_row.get(
+                                "raw_parent_text",
+                                source_row.get("parent_text", text),
+                            ),
+                            "source": source_row["source"],
+                            "profile_field": source_row.get("profile_field", ""),
+                            "source_group_fraction": source_row[
+                                "source_group_fraction"
+                            ],
+                            "grounding": source_row.get("grounding", {}),
+                            "contributes_scoring_allocation": True,
+                        }
+                    ],
                 }
             )
             continue
@@ -1240,6 +2182,21 @@ def canonicalise_requirements(
         )
         existing["variants"] = list(
             dict.fromkeys(existing["variants"] + [text])
+        )
+        existing.setdefault("source_provenance", []).append(
+            {
+                "parent_occurrence_id": source_row["parent_occurrence_id"],
+                "parent_text": source_row.get("parent_text", text),
+                "raw_parent_text": source_row.get(
+                    "raw_parent_text",
+                    source_row.get("parent_text", text),
+                ),
+                "source": source_row["source"],
+                "profile_field": source_row.get("profile_field", ""),
+                "source_group_fraction": source_row["source_group_fraction"],
+                "grounding": source_row.get("grounding", {}),
+                "contributes_scoring_allocation": False,
+            }
         )
 
         if _importance_rank(source_row["importance"]) > _importance_rank(
@@ -1275,6 +2232,10 @@ def canonicalise_requirements(
         "filtered_section_headings": filtered_section_headings,
         "filtered_non_requirement_rows": filtered_non_requirement_rows,
         "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
+        "canonical_requirement_decomposition_version": (
+            CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION
+        ),
+        "decomposition_debug": decomposition_debug,
     }
 
 
@@ -2221,6 +3182,11 @@ def build_stable_analysis(
                 "non_requirement_filter_version",
                 NON_REQUIREMENT_FILTER_VERSION,
             ),
+            "canonical_requirement_decomposition_version": canonical.get(
+                "canonical_requirement_decomposition_version",
+                CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION,
+            ),
+            "decomposition": canonical.get("decomposition_debug", {}),
             "atomic_requirement_count": sum(
                 1
                 for row in taxonomy_validated

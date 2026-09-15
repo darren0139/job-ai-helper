@@ -1,0 +1,15 @@
+Garena
+Associate, Configuration & QA
+Singapore Game Operations Entry Level
+Job Description
+
+    Operate and maintain the daily operations of the gaming product from configuration, quality assurance, live environment handling (including bugs and hacks), and operational evaluation.
+    Coordinate configuration & QA tasks between different offices.
+    Collaborate with both local and global stakeholders in resolving product-related problems.
+
+Job Requirements
+
+    Minimum 1 year of experience in quality assurance, live operations, or related fields, preferably within tech or gaming companies.
+    Passionate about games with basic knowledge of the gaming industry, preferably being familiar with recent shooting games.
+    Good written and verbal communication skills along with the ability to effectively collaborate with cross-functional teams.
+    Having a track record of working with meticulous works that require high attention to detail would be preferred.

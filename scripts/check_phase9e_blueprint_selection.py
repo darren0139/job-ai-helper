@@ -64,10 +64,10 @@ def main() -> None:
                 decision["role_family_classification"]["role_family_id"]
                 == "ai_fullstack_software_engineering"
             )
-            assert comparison["deterministic_alignment_score"] == 59
-            assert comparison["required_core_coverage_score"] == 59
+            assert comparison["deterministic_alignment_score"] == 60
+            assert comparison["required_core_coverage_score"] == 60
             assert comparison["preferred_coverage_score"] == 53
-            assert comparison["evidence_strength_score"] == 64
+            assert comparison["evidence_strength_score"] == 65
             assert comparison["important_gap_count"] == 0
             assert comparison["deal_breaker_gap_count"] == 0
             assert comparison["required_core_requirement_count"] > 0

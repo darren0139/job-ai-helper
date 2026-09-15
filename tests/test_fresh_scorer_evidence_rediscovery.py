@@ -40,11 +40,14 @@ JD_PROFILE = {
 RAW_JD = "\n".join(
     [
         "Garena Associate, Configuration & QA",
-        *JD_PROFILE["responsibilities"],
-        *JD_PROFILE["deal_breakers"],
-        *JD_PROFILE["required_skills"],
-        *JD_PROFILE["soft_skills"],
-        *JD_PROFILE["preferred_skills"],
+        "Job Description",
+        *(f"- {item}" for item in JD_PROFILE["responsibilities"]),
+        "Job Requirements",
+        *(f"- {item}" for item in JD_PROFILE["deal_breakers"]),
+        *(f"- {item}" for item in JD_PROFILE["required_skills"]),
+        *(f"- {item}" for item in JD_PROFILE["soft_skills"]),
+        "Preferred Qualifications",
+        *(f"- {item}" for item in JD_PROFILE["preferred_skills"]),
     ]
 )
 

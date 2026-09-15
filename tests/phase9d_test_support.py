@@ -18,13 +18,11 @@ from tailoring.phase9c_blueprint_evaluation import (
 from rag.jd_identity import build_job_identity
 
 
-FIXTURE = Path(__file__).resolve().parents[1] / "ci_fixtures" / (
-    "phase9c_application94_acceptance.json"
-)
+from tests.phase9c_fixture_support import load_current_phase9c_fixture
 
 
 def load_phase9d_fixture() -> dict[str, Any]:
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+    return load_current_phase9c_fixture()
 
 
 def _seed_candidate(candidate: dict[str, Any]) -> None:
@@ -190,9 +188,56 @@ def seed_phase9d_database(
     }
     if materialise_jd_text:
         for jd in saved_jds:
-            # A non-empty neutral raw source lets Phase 9E exercise exact raw
-            # identity without changing the fixture's canonical requirements.
-            raw_text = "."
+            # Phase 9E needs non-empty raw JD text so exact raw identity can be
+            # exercised.  Under current atomic decomposition, a placeholder
+            # such as "." is an authoritative raw span and therefore correctly
+            # prevents ungrounded profile-only requirements from becoming
+            # canonical.  Materialise the synthetic fixture's actual structured
+            # requirements instead, preserving its required/core/preferred
+            # semantics while giving every requirement authoritative raw text.
+            profile = jd.get("jd_profile") or {}
+            unsupported_profile_fields = [
+                field_name
+                for field_name in (
+                    "deal_breakers",
+                    "soft_skills",
+                    "tools_technologies",
+                )
+                if profile.get(field_name)
+            ]
+            if unsupported_profile_fields:
+                raise AssertionError(
+                    "Phase 9D/9E synthetic raw-JD materialisation needs an "
+                    "explicit section mapping for: "
+                    + ", ".join(unsupported_profile_fields)
+                )
+
+            raw_lines: list[str] = []
+            for heading, field_name in (
+                ("Requirements", "required_skills"),
+                ("Responsibilities", "responsibilities"),
+                ("Preferred Qualifications", "preferred_skills"),
+            ):
+                raw_values = profile.get(field_name) or []
+                if isinstance(raw_values, str):
+                    raw_values = [raw_values]
+                values = [
+                    str(value).strip()
+                    for value in raw_values
+                    if str(value).strip()
+                ]
+                if not values:
+                    continue
+                raw_lines.append(heading)
+                raw_lines.extend(f"- {value}" for value in values)
+
+            raw_text = "\n".join(raw_lines).strip()
+            if not raw_text:
+                raise AssertionError(
+                    "Phase 9D/9E synthetic JD fixture has no materialisable "
+                    "requirement text."
+                )
+
             identity = build_job_identity(
                 company=str(jd.get("company") or ""),
                 title=str(jd.get("title") or ""),

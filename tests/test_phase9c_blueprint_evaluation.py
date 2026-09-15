@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import sys
 import types
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from analysis_stability.stable_evidence_scoring import (
+    SCORING_VERSION,
+    canonicalise_requirements,
+)
 from tailoring.phase9c_blueprint_evaluation import (
     Phase9CEvaluationError,
     aggregate_portability_metrics,
@@ -19,18 +20,12 @@ from tailoring.phase9c_blueprint_evaluation import (
 )
 
 
-FIXTURE = Path(__file__).resolve().parents[1] / "ci_fixtures" / (
-    "phase9c_application94_acceptance.json"
-)
-
-
-def load_fixture() -> dict:
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+from tests.phase9c_fixture_support import load_current_phase9c_fixture
 
 
 class Phase9CBlueprintEvaluationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture = load_fixture()
+        self.fixture = load_current_phase9c_fixture()
         self.candidate = self.fixture["candidate"]
         self.jds = self.fixture["saved_jds"]
         self.source = self.jds[0]
@@ -55,10 +50,37 @@ class Phase9CBlueprintEvaluationTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_current_fixture_reprojects_historical_seed_to_current_source_identity(self):
+        canonical = canonicalise_requirements(
+            jd_profile=copy.deepcopy(self.source["jd_profile"]),
+            raw_jd_text=str(self.source.get("raw_text") or ""),
+        )
+        current_ids = sorted(
+            row["requirement_id"]
+            for row in canonical["requirements"]
+        )
+        candidate_ids = sorted(self.candidate["canonical_requirement_ids"])
+        seed_rows = self.candidate["evaluation_metadata"][
+            "source_jd_requirement_summary"
+        ]
+        seed_ids = sorted(row["requirement_id"] for row in seed_rows)
+
+        self.assertEqual(candidate_ids, current_ids)
+        self.assertEqual(seed_ids, current_ids)
+        self.assertEqual(
+            self.candidate["evaluation_metadata"]["source_jd_requirement_count"],
+            len(current_ids),
+        )
+        self.assertNotIn("req_f51254f902b0", current_ids)
+        self.assertEqual(
+            self.candidate["score_summary"]["approved_tailored_score"],
+            93,
+        )
+
     def test_application94_source_parity_and_full_snapshot_sections(self):
         result = self.evaluate()
         source = next(row for row in result["per_jd_results"] if row["is_source_jd"])
-        self.assertEqual(source["deterministic_alignment_score"], 92)
+        self.assertEqual(source["deterministic_alignment_score"], 93)
         self.assertTrue(source["source_jd_parity"]["accepted"])
         target = next(row for row in result["per_jd_results"] if not row["is_source_jd"])
         counts = target["evidence_sections_considered"]

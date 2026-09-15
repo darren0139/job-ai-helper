@@ -57,7 +57,7 @@ GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
 PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
-    "phase9f_b_ranking_identity_pinned_v2.json"
+    "phase9f_b_ranking_identity_pinned_v3.json"
 )
 
 
@@ -581,12 +581,13 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        # Fresh evidence rediscovery v2 deliberately changes the numeric
-        # scorer output and the identities derived from it. Pin the complete
-        # new versioned contract instead of preserving the stale v1 scores.
+        # Atomic JD decomposition updates the upstream scorer provenance. It
+        # deliberately invalidates the Blueprint-derived source identity while
+        # retaining this fixture's numeric candidate outcomes and ordering.
+        # Pin the complete v3 identity contract rather than preserving v2 hashes.
         self.assertEqual(
             pinned.get("fixture_version"),
-            "phase9f-b-ranking-identity-pinned-v2",
+            "phase9f-b-ranking-identity-pinned-v3",
         )
         self.assertEqual(
             actual,

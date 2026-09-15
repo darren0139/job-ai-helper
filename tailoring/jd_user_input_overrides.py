@@ -258,12 +258,23 @@ def _apply_canonical_preferred_overrides(
     for row in rows:
         if not isinstance(row, dict):
             continue
+        provenance_parent_values: list[Any] = []
+        for provenance in row.get("source_provenance", []) or []:
+            if not isinstance(provenance, dict):
+                continue
+            provenance_parent_values.extend(
+                (
+                    provenance.get("parent_text"),
+                    provenance.get("raw_parent_text"),
+                )
+            )
         row_keys = {
             key
             for value in (
                 row.get("text") or row.get("requirement_text"),
                 row.get("parent_text"),
                 *(row.get("variants") or []),
+                *provenance_parent_values,
             )
             if (key := _requirement_key(value))
         }

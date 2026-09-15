@@ -1,0 +1,32 @@
+[
+  {
+    "file": "001_dConstruct_Backend_Engineer_jdv_2c73d7a3.txt",
+    "sha256": "9abc7c825955f127593f657fa81d913ca3b76f35f20fb52a47c8f9c3b2468445",
+    "bytes": 2409,
+    "purpose": "Compound backend responsibilities, grouped verbs, tool/example lists, CI/CD, duration requirement, cloud/networking concepts."
+  },
+  {
+    "file": "002_dConstruct_C_UI_UX_Software_Engineer_jdv_a148af2e.txt",
+    "sha256": "ef747df8c053f508bc613d1f18c058ef4d063b4c775d7b19e8a1d05011cbdf26",
+    "bytes": 2187,
+    "purpose": "Client/context prose mixed with responsibilities, C++/QML spacing noise, cross-platform UI requirements, tool alternatives."
+  },
+  {
+    "file": "003_dConstruct_Software_Engineer_jdv_4537aa97.txt",
+    "sha256": "93a0b49825d57df4f0586586a2eed25a774e2830ae71faa573706432c7d7ae37",
+    "bytes": 1601,
+    "purpose": "Known long compound-paragraph regression plus extraction noise such as use cases.You, Atthe, C/C++programming, OpenGLand/or."
+  },
+  {
+    "file": "012_Garena_Associate_Configuration_QA_jdv_6a3987cd.txt",
+    "sha256": "9ece431a641affd350c874840e915d8bf56b6181440aa885e801625ec174bcdc",
+    "bytes": 981,
+    "purpose": "Short clean counterexample with duration, preference wording, collaboration, domain interest, and attention-to-detail language."
+  },
+  {
+    "file": "013_Home_Team_Science_and_Technology_Agency_HTX_Lead_Engineer_Engineer_DevOps_MLOps_AI_Platform_xCloud_jdv_ec880679.txt",
+    "sha256": "24e7be9a6a0123ce93e0a23364ed412f8c5dbce0589017efedf163d95c09cc35",
+    "bytes": 3654,
+    "purpose": "Long real JD with employer prose, nested tool examples, certifications, 1-5 years, security-in-context language, and recruitment boilerplate."
+  }
+]

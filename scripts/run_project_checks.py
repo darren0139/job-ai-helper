@@ -25,6 +25,7 @@ COMPILE_TARGETS = (
 
 QUICK_TEST_MODULES = (
     "tests.test_stable_evidence_scoring",
+    "tests.test_jd_atomic_requirement_decomposition",
     "tests.test_phase6d_stable_scoring_integration",
     "tests.test_phase8_requirement_reconciliation",
     "tests.test_phase8_verification",

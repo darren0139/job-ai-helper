@@ -1,0 +1,54 @@
+Job Description
+
+dConstruct is hiring Backend Engineers who will be performing server software integration for specific use cases on the cloud and with strong Golang fundamentals to develop features for our backend server. You will be working with software engineers to understand the needs of our products and in turn, implement their requirements accordingly. At the same time, you will be familiarized with the entire robotics development and software workflow.
+Responsibilities
+
+· Design, build and maintain scalable backend services and API.
+
+· Design, develop and deploy cloud-based applications with large-scale data processing capabilities.
+
+· Writing clean, efficient, testable and maintainable code following best practices.
+
+· Collaborate with software engineers to build and maintain cloud-hosted backend services.
+
+· Develop and maintain cloud provider-agnostic backend deployment tools.
+
+· Manage and set up automated CI/CD systems.
+
+· Write unit, integrate and load tests for backend services to ensure reliability and performance.
+
+· Build monitoring and logging dashboards to track system health and performance.
+
+· Participate in the complete software development lifecycle various products, from planning and requirements gathering to development and quality assurance.
+Requirements and Skills
+
+· Solid understanding in Golang and modern backend frameworks.
+
+· Strong foundation in Data Structures / Algorithms.
+
+· Experience in designing and handling high-volume data and traffic backend systems.
+
+· Hands-on experience with Amazon Web Services (EC2, Cognito, S3, DynamoDB, etc.).
+
+· Familiarity with CI/CD tools (Terraform, Jenkins, etc).
+
+· Familiarity with containerization technologies (Docker, Kubernetes, etc.).
+
+· Good technical communication skills with the ability to understand and convey end-user needs.
+
+· 3 or more years of experience in architecting, designing, developing and implementing cloud solutions on AWS platforms.
+Bonus Requirements and Skills
+
+· Knowledge of C++, CMake and Shell scripting
+
+· Knowledge of networking concepts, such as IP addressing, DNS and load balancing
+
+· Understanding of data storage and database technologies, such as SQL and NoSQL
+
+· Familiarity with Gradle
+
+· Familiarity with Linux
+
+· Familiarity with WireGuard
+
+· Knowledge of web services, API, REST, and gRPC
