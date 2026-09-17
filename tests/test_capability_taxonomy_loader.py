@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from tailoring.capability_taxonomy import (
+    TAXONOMY_PATH,
     get_default_taxonomy,
     load_taxonomy,
 )
@@ -14,9 +15,18 @@ from tailoring.capability_taxonomy import (
 class CapabilityTaxonomyLoaderTests(unittest.TestCase):
     def test_default_taxonomy_loads_and_is_versioned(self):
         taxonomy = get_default_taxonomy()
+        payload = json.loads(TAXONOMY_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
             taxonomy.version,
             "phase6d-capability-taxonomy-v1.3",
+        )
+        self.assertEqual(
+            taxonomy.version,
+            payload["taxonomy_version"],
+        )
+        self.assertRegex(
+            taxonomy.version,
+            r"^phase6d-capability-taxonomy-v\d+\.\d+$",
         )
         self.assertGreaterEqual(len(taxonomy.capabilities), 20)
 
