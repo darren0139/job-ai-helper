@@ -46,6 +46,13 @@ MATCH_VALUES = {
     "none": 0.0,
 }
 
+# Weak deterministic evidence must show more than a single generic-token
+# collision. Keep the direct keyword builder aligned with the existing weak
+# fallback gate so a one-token overlap cannot bypass the conservative policy.
+_DETERMINISTIC_WEAK_MIN_SCORE = 0.28
+_DETERMINISTIC_WEAK_MIN_COVERAGE = 0.25
+_DETERMINISTIC_WEAK_MIN_OVERLAP = 2
+
 IMPORTANCE_WEIGHTS = {
     "deal_breaker": 5.0,
     "required": 4.0,
@@ -1815,6 +1822,19 @@ def _coverage_metrics(
     return len(intersection) / len(required_tokens), len(intersection)
 
 
+def deterministic_evidence_coverage_metrics(
+    requirement_text: str,
+    candidate_text: str,
+    acronym_map: dict[str, str] | None = None,
+) -> tuple[float, int]:
+    """Expose deterministic requirement coverage for evidence selectors."""
+    return _coverage_metrics(
+        requirement_text,
+        candidate_text,
+        acronym_map,
+    )
+
+
 def _negative_reason_segments(reason: str) -> list[str]:
     value = _clean_text(reason)
     if not value:
@@ -2247,12 +2267,28 @@ def build_resume_evidence_index(
     profile = resume_profile or {}
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    structured_texts: set[str] = set()
 
     def add(section: str, text: Any, source: str) -> None:
         cleaned = _clean_text(text)
         if not cleaned:
             return
-        key = (section, _normalise_basic(cleaned))
+        normalised = _normalise_basic(cleaned)
+
+        if section == "raw_text":
+            if any(
+                normalised == structured
+                or (
+                    len(normalised) >= 8
+                    and normalised in structured
+                )
+                for structured in structured_texts
+            ):
+                return
+        else:
+            structured_texts.add(normalised)
+
+        key = (section, normalised)
         if key in seen:
             return
         seen.add(key)
@@ -2334,6 +2370,20 @@ def build_resume_evidence_index(
     return rows
 
 
+def _deterministic_weak_evidence_is_sufficient(
+    *,
+    score: float,
+    focus_coverage: float,
+    overlap_count: int,
+) -> bool:
+    """Return whether lexical evidence is sufficient for weak credit."""
+    return bool(
+        score >= _DETERMINISTIC_WEAK_MIN_SCORE
+        and focus_coverage >= _DETERMINISTIC_WEAK_MIN_COVERAGE
+        and overlap_count >= _DETERMINISTIC_WEAK_MIN_OVERLAP
+    )
+
+
 def build_deterministic_keyword_match(
     *,
     requirements: list[dict[str, Any]],
@@ -2370,6 +2420,15 @@ def build_deterministic_keyword_match(
         )
         if best is None or overlap <= 0:
             label = "none"
+        elif (
+            label == "weak"
+            and not _deterministic_weak_evidence_is_sufficient(
+                score=similarity,
+                focus_coverage=coverage,
+                overlap_count=overlap,
+            )
+        ):
+            label = "none"
         if label == "none":
             missing.append({"keyword": focus})
             continue
@@ -2390,6 +2449,53 @@ def build_deterministic_keyword_match(
     return {"present": present, "missing": missing}
 
 
+
+_CREDENTIAL_REQUIREMENT_CUES = (
+    "degree",
+    "bachelor",
+    "master",
+    "phd",
+    "doctorate",
+    "diploma",
+    "education",
+    "academic",
+    "qualification",
+    "certification",
+    "certified",
+    "graduate",
+    "university",
+    "college",
+)
+
+
+def _evidence_source_is_requirement_compatible(
+    requirement: dict[str, Any],
+    row: dict[str, str],
+) -> bool:
+    """Reject source/claim combinations that lexical overlap cannot prove.
+
+    Degree headings can prove education/credential requirements, but a degree
+    title containing a generic word such as \"design\" is not evidence of
+    practical design/implementation experience. Explicit course rows remain
+    eligible for subject-matter requirements.
+    """
+    if row.get("section") != "education":
+        return True
+
+    source = _clean_text(row.get("source"))
+    if ".courses[" in source:
+        return True
+
+    focus = _normalise_basic(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or ""
+    )
+    focus_tokens = set(focus.split())
+    return any(cue in focus_tokens for cue in _CREDENTIAL_REQUIREMENT_CUES)
+
+
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -2403,6 +2509,12 @@ def _best_resume_evidence(
     focus = requirement.get("atomic_focus") or requirement.get("text", "")
 
     for row in evidence_index:
+        if not _evidence_source_is_requirement_compatible(
+            requirement,
+            row,
+        ):
+            continue
+
         term_similarity = _token_similarity(
             matched_term,
             row.get("text", ""),
@@ -2444,11 +2556,10 @@ def _fallback_weak_evidence(
         evidence_index,
         acronym_map,
     )
-    if (
-        best is None
-        or score < 0.28
-        or focus_coverage < 0.25
-        or overlap_count < 2
+    if best is None or not _deterministic_weak_evidence_is_sufficient(
+        score=score,
+        focus_coverage=focus_coverage,
+        overlap_count=overlap_count,
     ):
         return None
 
@@ -2799,7 +2910,33 @@ def link_requirement_matches(
                     elif evidence_overlap < 1:
                         match_label = "weak"
 
-                evidence.append(reference)
+                if (
+                    reference is not None
+                    and match_label == "weak"
+                    and evidence_index
+                    and not _deterministic_weak_evidence_is_sufficient(
+                        score=evidence_score,
+                        focus_coverage=evidence_coverage,
+                        overlap_count=evidence_overlap,
+                    )
+                ):
+                    warnings.append(
+                        {
+                            "requirement_id": requirement["requirement_id"],
+                            "code": "insufficient_weak_evidence_context",
+                            "message": (
+                                "Weak credit was removed because the actual "
+                                "resume evidence did not overlap enough of the "
+                                "requirement under the shared deterministic "
+                                "weak-evidence thresholds."
+                            ),
+                        }
+                    )
+                    match_label = "none"
+                    reference = None
+
+                if reference is not None:
+                    evidence.append(reference)
 
         if explicit_only and match_label == "none":
             explicit_evidence = _find_explicit_subjective_evidence(

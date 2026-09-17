@@ -18,10 +18,12 @@ from typing import Any
 
 from analysis_stability import build_stable_analysis
 from analysis_stability.stable_evidence_scoring import (
+    SCORING_VERSION,
     build_deterministic_keyword_match,
     canonicalise_requirements,
     compute_deterministic_alignment,
 )
+from tailoring.capability_taxonomy import get_default_taxonomy
 
 
 JD_USER_OVERRIDE_POLICY_VERSION = "application-session-jd-user-overrides-v2"
@@ -42,10 +44,87 @@ _SOURCE_REQUIREMENT_FIELDS = (
     "soft_skills",
     "tools_technologies",
 )
+APPLICATION_SESSION_STABLE_CURRENTNESS_VERSION = (
+    "application-session-stable-currentness-v1"
+)
 
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _resume_text_from_profile(profile: dict[str, Any] | None) -> str:
+    """Reconstruct deterministic evidence text when an old report lacks raw text."""
+    profile = profile or {}
+    lines: list[str] = []
+
+    summary = _clean(profile.get("summary"))
+    if summary:
+        lines.append(summary)
+
+    for education in profile.get("education", []) or []:
+        if not isinstance(education, dict):
+            continue
+        lines.append(
+            " — ".join(
+                value
+                for value in (
+                    _clean(education.get("degree")),
+                    _clean(education.get("school")),
+                    _clean(education.get("graduation_date")),
+                )
+                if value
+            )
+        )
+        lines.extend(
+            _clean(value)
+            for value in education.get("courses", []) or []
+            if _clean(value)
+        )
+
+    for field_name in ("experience", "projects"):
+        for item in profile.get(field_name, []) or []:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                " — ".join(
+                    value
+                    for value in (
+                        _clean(item.get("title")),
+                        _clean(item.get("company")),
+                        _clean(item.get("date")),
+                    )
+                    if value
+                )
+            )
+            lines.extend(
+                _clean(value)
+                for value in item.get("bullets", []) or []
+                if _clean(value)
+            )
+
+    skills = profile.get("skills", {}) or {}
+    if isinstance(skills, dict):
+        for category, values in skills.items():
+            cleaned = [
+                _clean(value)
+                for value in values or []
+                if _clean(value)
+            ]
+            if cleaned:
+                lines.append(f"{_clean(category)}: {', '.join(cleaned)}")
+
+    return "\n".join(line for line in lines if line)
+
+
+def _stable_analysis_is_current(stable_analysis: dict[str, Any] | None) -> bool:
+    stable = stable_analysis or {}
+    return bool(
+        isinstance(stable, dict)
+        and _clean(stable.get("scoring_version")) == SCORING_VERSION
+        and _clean(stable.get("capability_taxonomy_version"))
+        == _clean(get_default_taxonomy().version)
+    )
 
 
 def _requirement_key(value: Any) -> str:
@@ -207,6 +286,69 @@ def canonical_jd_profile_for_application_session(
     profile = _original_extracted_profile(report)
     profile.pop("user_requirement_importance_overrides", None)
     return profile
+
+
+
+_APPLICATION_SESSION_RAW_JD_NORMALIZATION_VERSION = (
+    "application-session-raw-jd-normalization-v1"
+)
+_RAW_JD_JSON_TEXT_KEYS = (
+    "jd_text",
+    "job_description",
+    "job_description_text",
+    "cleaned_text",
+    "description",
+    "raw_visible_text",
+)
+
+
+def _find_json_text_field(value: Any, key: str) -> str:
+    if isinstance(value, dict):
+        for current_key, current_value in value.items():
+            if (
+                str(current_key).casefold() == key.casefold()
+                and isinstance(current_value, str)
+            ):
+                candidate = _clean(current_value)
+                if candidate:
+                    return candidate
+        for current_value in value.values():
+            candidate = _find_json_text_field(current_value, key)
+            if candidate:
+                return candidate
+    elif isinstance(value, list):
+        for current_value in value:
+            candidate = _find_json_text_field(current_value, key)
+            if candidate:
+                return candidate
+    return ""
+
+
+def _normalise_saved_raw_jd_text(value: Any) -> tuple[str, str, bool]:
+    """Return the actual JD body from a saved plain-text or JSON wrapper.
+
+    Historical browser-extension captures may persist the complete structured
+    capture as ``raw_jd_text``. Scoring must consume the contained JD text, not
+    JSON keys, capture metadata, or site-adapter fields.
+    """
+    text = _clean(value)
+    if not text or text[:1] not in {"{", "["}:
+        return text, "stored_raw_jd_text", False
+
+    try:
+        import json
+
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return text, "stored_raw_jd_text", False
+
+    for key in _RAW_JD_JSON_TEXT_KEYS:
+        candidate = _find_json_text_field(payload, key)
+        if candidate:
+            return candidate, f"json_field:{key}", candidate != text
+
+    return text, "stored_raw_jd_text", False
+
 
 
 def _rebuild_stable_analysis(
@@ -553,6 +695,9 @@ def apply_application_session_jd_user_inputs(
     original_profile = _original_extracted_profile(output)
     original_metadata = _restore_original_metadata(output, original_profile)
     had_prior_override = _had_prior_override(output)
+    stored_stable_is_current = _stable_analysis_is_current(
+        output.get("stable_analysis")
+    )
     # Input order is presentation-only.  Persisted effective requirements and
     # derived stable results must match the order-independent cache identity.
     canonical_input_order = sorted(
@@ -576,7 +721,7 @@ def apply_application_session_jd_user_inputs(
     canonical_matches: list[str] = []
     matched_canonical_rows: list[dict[str, str]] = []
     supplemental_requirements: list[str] = []
-    if overrides or had_prior_override:
+    if overrides or had_prior_override or not stored_stable_is_current:
         rebuilt = _rebuild_stable_analysis(
             output,
             profile,
@@ -682,5 +827,109 @@ def apply_application_session_jd_user_inputs(
             supplemental_requirements
         ),
         "match_policy": _MATCH_POLICY,
+    }
+    return output
+
+
+
+def refresh_application_session_analysis_report(
+    report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a current-facing report without mutating the persisted report.
+
+    Historical Application Sessions may contain a stable-analysis snapshot from
+    an older scorer or capability taxonomy. Current UI/export consumers should
+    see a deterministic rebuild from the saved report inputs, while the
+    historical database payload remains unchanged.
+    """
+    source = deepcopy(report or {})
+    stored = source.get("stable_analysis")
+    stored_stable = stored if isinstance(stored, dict) else {}
+
+    stored_scoring_version = _clean(
+        stored_stable.get("scoring_version")
+    )
+    stored_taxonomy_version = _clean(
+        stored_stable.get("capability_taxonomy_version")
+    )
+    current_taxonomy_version = _clean(
+        get_default_taxonomy().version
+    )
+    (
+        resolved_raw_jd_text,
+        raw_jd_source,
+        raw_jd_normalized,
+    ) = _normalise_saved_raw_jd_text(
+        source.get("raw_jd_text")
+    )
+
+    if (
+        _stable_analysis_is_current(stored_stable)
+        and not raw_jd_normalized
+    ):
+        output = source
+        mode = "reused_current_stable_analysis"
+        rebuilt = False
+        resume_text_source = "not_needed"
+    else:
+        prior_inputs = (
+            (source.get("meta") or {}).get("jd_user_inputs") or {}
+        )
+        raw_resume_text = _clean(source.get("raw_resume_text"))
+        if raw_resume_text:
+            resume_text_source = "stored_raw_resume_text"
+        else:
+            raw_resume_text = _resume_text_from_profile(
+                source.get("resume_profile") or {}
+            )
+            resume_text_source = "reconstructed_from_resume_profile"
+
+        output = apply_application_session_jd_user_inputs(
+            source,
+            raw_jd_text=resolved_raw_jd_text,
+            raw_resume_text=raw_resume_text,
+            company=_clean(prior_inputs.get("company")),
+            job_title=_clean(prior_inputs.get("job_title")),
+            location=_clean(prior_inputs.get("location")),
+            source_url=_clean(prior_inputs.get("source_url")),
+            preferred_requirements=prior_inputs.get(
+                "preferred_requirement_overrides",
+                [],
+            ),
+        )
+        mode = "rebuilt_with_current_scorer"
+        rebuilt = True
+
+    resolved = output.get("stable_analysis")
+    resolved_stable = resolved if isinstance(resolved, dict) else {}
+    output.setdefault("meta", {})[
+        "stable_analysis_currentness"
+    ] = {
+        "resolution_version": (
+            APPLICATION_SESSION_STABLE_CURRENTNESS_VERSION
+        ),
+        "mode": mode,
+        "rebuilt": rebuilt,
+        "stored_scoring_version": stored_scoring_version,
+        "current_scoring_version": SCORING_VERSION,
+        "resolved_scoring_version": _clean(
+            resolved_stable.get("scoring_version")
+        ),
+        "stored_capability_taxonomy_version": (
+            stored_taxonomy_version
+        ),
+        "current_capability_taxonomy_version": (
+            current_taxonomy_version
+        ),
+        "resolved_capability_taxonomy_version": _clean(
+            resolved_stable.get("capability_taxonomy_version")
+        ),
+        "resume_text_source": resume_text_source,
+        "raw_jd_available": bool(resolved_raw_jd_text),
+        "raw_jd_source": raw_jd_source,
+        "raw_jd_normalized": raw_jd_normalized,
+        "raw_jd_normalization_version": (
+            _APPLICATION_SESSION_RAW_JD_NORMALIZATION_VERSION
+        ),
     }
     return output

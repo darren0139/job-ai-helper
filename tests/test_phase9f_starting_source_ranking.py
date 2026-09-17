@@ -57,7 +57,7 @@ GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
 PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
-    "phase9f_b_ranking_identity_pinned_v3.json"
+    "phase9f_b_ranking_identity_pinned_v4.json"
 )
 
 
@@ -581,13 +581,14 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        # Atomic JD decomposition updates the upstream scorer provenance. It
-        # deliberately invalidates the Blueprint-derived source identity while
-        # retaining this fixture's numeric candidate outcomes and ordering.
-        # Pin the complete v3 identity contract rather than preserving v2 hashes.
+        # Atomic JD decomposition and the stricter deterministic weak-evidence
+        # gate intentionally update this pinned identity contract. The strong
+        # Blueprint winner and candidate ordering stay stable, while the weak
+        # Base Resume fixture now receives no lexical credit because its
+        # prior weak evidence no longer passes the shared precision gate.
         self.assertEqual(
             pinned.get("fixture_version"),
-            "phase9f-b-ranking-identity-pinned-v3",
+            "phase9f-b-ranking-identity-pinned-v4",
         )
         self.assertEqual(
             actual,

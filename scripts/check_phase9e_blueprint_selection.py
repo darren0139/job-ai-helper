@@ -64,11 +64,15 @@ def main() -> None:
                 decision["role_family_classification"]["role_family_id"]
                 == "ai_fullstack_software_engineering"
             )
-            assert comparison["deterministic_alignment_score"] == 60
-            assert comparison["required_core_coverage_score"] == 60
+            # Current deterministic precision baseline. The stricter weak-
+            # evidence gate removes one formerly credited required/core row;
+            # evidence selection may improve citation quality but preserves
+            # the preliminary match ceiling.
+            assert comparison["deterministic_alignment_score"] == 59
+            assert comparison["required_core_coverage_score"] == 59
             assert comparison["preferred_coverage_score"] == 53
-            assert comparison["evidence_strength_score"] == 65
-            assert comparison["important_gap_count"] == 0
+            assert comparison["evidence_strength_score"] == 66
+            assert comparison["important_gap_count"] == 1
             assert comparison["deal_breaker_gap_count"] == 0
             assert comparison["required_core_requirement_count"] > 0
             assert comparison["stable_input_fingerprint"]

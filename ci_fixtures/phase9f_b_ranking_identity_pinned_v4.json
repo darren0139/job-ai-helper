@@ -1,7 +1,7 @@
 {
-  "fixture_version": "phase9f-b-ranking-identity-pinned-v3",
+  "fixture_version": "phase9f-b-ranking-identity-pinned-v4",
   "ranking_input_fingerprint": "de13d3aaa9f038f701fd4412f800b3c90e20ff0f6b486ba20f5ade1e3e69019e",
-  "ranking_fingerprint": "98356cc9ac5e31458a7bb99d0b6aa567c726594e0fe70ccc4e00c10c5612d8fb",
+  "ranking_fingerprint": "7b0d74da6c4479051e140429637c640c8671d796e3292a033f30e72cc0d4eb10",
   "winner": "582ed9cf0cbbc68f8bbca789a5ccdd40f3d9f59600e0d2ae8a65e3bcee1d273d",
   "candidate_order": [
     "582ed9cf0cbbc68f8bbca789a5ccdd40f3d9f59600e0d2ae8a65e3bcee1d273d",
@@ -19,16 +19,16 @@
     },
     {
       "normalized_source_fingerprint": "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25",
-      "deterministic_alignment_score": 7,
-      "required_core_coverage_score": 4,
+      "deterministic_alignment_score": 0,
+      "required_core_coverage_score": 0,
       "preferred_coverage_score": 0,
-      "evidence_strength_score": 40,
-      "important_gap_count": 5,
+      "evidence_strength_score": 0,
+      "important_gap_count": 6,
       "deal_breaker_gap_count": 0
     }
   ],
   "comparison_result_fingerprints": [
     "4749aa82974dfeea71ecc04b703aee9c7fdb1d26c0ceb80fb2bef187284e7e2d",
-    "9dd8cae7f86be9ea3428bba4aadd2f01eeb1802b0e4fe3274ee1b2ee22da14df"
+    "9ad92fec46d084a3595f95c360e71fd5889b4a6477bc2cbab09768320ac811f7"
   ]
 }

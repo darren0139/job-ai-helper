@@ -132,6 +132,7 @@ from tailoring.jd_user_input_overrides import (
     canonical_jd_profile_for_application_session,
     normalise_requirement_override_lines,
     preferred_requirement_override_cache_identity,
+    refresh_application_session_analysis_report,
 )
 from database.db_manager import (
     init_db,
@@ -3194,7 +3195,15 @@ elif page == "Application Sessions":
     )
 
 
-    report = st.session_state.get("latest_report")
+    persisted_application_report = st.session_state.get("latest_report")
+    current_analysis_report = (
+        refresh_application_session_analysis_report(
+            persisted_application_report
+        )
+        if isinstance(persisted_application_report, dict)
+        else persisted_application_report
+    )
+    report = current_analysis_report
     current_application_id = st.session_state.get("current_application_id")
 
     if report:
@@ -3226,7 +3235,8 @@ elif page == "Application Sessions":
                 or {}
             )
 
-        persisted_application_report = report
+        # `persisted_application_report` remains the historical DB/session
+        # payload. `current_analysis_report` is the deterministic current view.
         phase9e_context: dict[str, Any] = {
             "status": "unbound",
             "can_generate": False,
@@ -3311,7 +3321,7 @@ elif page == "Application Sessions":
                 )
                 render_evidence_opportunity_analysis(
                     application_id=int(current_application_id),
-                    baseline_report=persisted_application_report,
+                    baseline_report=current_analysis_report,
                     raw_jd_text=phase9a_raw_jd_text,
                     evidence_items=(
                         []
@@ -3336,12 +3346,12 @@ elif page == "Application Sessions":
                     expanded=False,
                 ):
                     render_application_analysis_details(
-                        report=persisted_application_report,
+                        report=current_analysis_report,
                         current_application_id=current_application_id,
                     )
                 render_application_analysis_chat(
                     application_id=int(current_application_id),
-                    analysis_report=persisted_application_report,
+                    analysis_report=current_analysis_report,
                     persisted_report=persisted_application_report,
                 )
                 st.stop()
@@ -3389,7 +3399,7 @@ elif page == "Application Sessions":
             )
             render_evidence_opportunity_analysis(
                 application_id=int(current_application_id),
-                baseline_report=persisted_application_report,
+                baseline_report=current_analysis_report,
                 raw_jd_text=phase9a_raw_jd_text,
                 evidence_items=(
                     []
@@ -3426,7 +3436,7 @@ elif page == "Application Sessions":
             expanded=False,
         ):
             render_application_analysis_details(
-                report=persisted_application_report,
+                report=current_analysis_report,
                 current_application_id=current_application_id,
             )
 
@@ -3543,14 +3553,14 @@ elif page == "Application Sessions":
             else:
                 binding_marker = f"legacy:{current_application_id}"
         elif phase9f_d_execution_waiting:
-            report = deepcopy(persisted_application_report)
+            report = deepcopy(current_analysis_report)
             binding_marker = (
                 "phase9f-d-bound:"
                 + str(phase9e_binding.get("decision_fingerprint") or "")
                 + ":not_started"
             )
         else:
-            report = deepcopy(persisted_application_report)
+            report = deepcopy(current_analysis_report)
             binding_marker = f"blocked:{phase9e_context.get('status', 'unknown')}"
 
         if current_application_id is not None:

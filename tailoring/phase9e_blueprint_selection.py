@@ -13,6 +13,7 @@ from analysis_stability.stable_evidence_scoring import (
     build_resume_evidence_index,
     build_stable_analysis,
     compute_deterministic_alignment,
+    deterministic_evidence_coverage_metrics,
 )
 from tailoring.capability_taxonomy import (
     evaluate_evidence,
@@ -52,7 +53,7 @@ PHASE9E_RECOMMENDATION_POLICY_VERSION = (
     "phase9e-ranked-reusable-blueprint-variants-v3"
 )
 PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION = (
-    "phase9e-capability-aware-single-row-evidence-v1"
+    "phase9e-capability-aware-single-row-evidence-v4"
 )
 PHASE9E_DECISION_POLICY_VERSION = (
     "phase9e-incremental-change-decision-v3"
@@ -1035,13 +1036,16 @@ def build_phase9e_keyword_match(
     resume_profile: dict[str, Any],
     raw_resume_text: str,
 ) -> dict[str, Any]:
-    """Prefer one independently sufficient capability-evidence row.
+    """Prefer the strongest independently sufficient single evidence row.
 
     The shared deterministic matcher supplies the preliminary match label.
-    This Phase 9E policy changes only the cited visible row when the current
-    citation would be capped to ``none`` and another individual resume row
-    satisfies the same recognised capability.  It never joins evidence rows
-    and never changes ``match_type`` or ``evidence_type``.
+    For recognised capabilities, Phase 9E may replace the cited row when
+    another individual row has a strictly stronger taxonomy label. For
+    unrecognised compound requirements, a bare one-token skill citation may
+    be replaced by one broader non-skill row only when that row covers at
+    least half of the requirement and at least two requirement tokens.
+    Evidence rows are never joined and ``match_type`` / ``evidence_type``
+    remain unchanged, so the preliminary score ceiling stays authoritative.
     """
     keyword_match = build_deterministic_keyword_match(
         requirements=deepcopy(requirements),
@@ -1086,26 +1090,76 @@ def build_phase9e_keyword_match(
         )
         capability_id = _clean(current_decision.get("capability_id"))
         current_label = _clean(current_decision.get("label")).lower()
-        if not capability_id or _TAXONOMY_LABEL_ORDER.get(current_label, 0) > 0:
-            continue
-
         selected: tuple[dict[str, str], dict[str, Any]] | None = None
-        selected_rank = 0
-        for evidence_row in evidence_rows:
-            decision = evaluate_evidence(
-                requirement,
-                str(evidence_row.get("text") or ""),
-                taxonomy,
+        selection_basis = ""
+        selected_coverage = 0.0
+        selected_overlap = 0
+
+        if capability_id:
+            current_rank = _TAXONOMY_LABEL_ORDER.get(current_label, 0)
+            selected_rank = current_rank
+            for evidence_row in evidence_rows:
+                decision = evaluate_evidence(
+                    requirement,
+                    str(evidence_row.get("text") or ""),
+                    taxonomy,
+                )
+                if _clean(decision.get("capability_id")) != capability_id:
+                    continue
+                rank = _TAXONOMY_LABEL_ORDER.get(
+                    _clean(decision.get("label")).lower(),
+                    0,
+                )
+                if rank > selected_rank:
+                    selected = (evidence_row, decision)
+                    selected_rank = rank
+                    selection_basis = "stronger_capability_taxonomy_label"
+        else:
+            current_coverage, current_overlap = (
+                deterministic_evidence_coverage_metrics(
+                    focus,
+                    original_term,
+                    acronym_map,
+                )
             )
-            if _clean(decision.get("capability_id")) != capability_id:
-                continue
-            rank = _TAXONOMY_LABEL_ORDER.get(
-                _clean(decision.get("label")).lower(),
-                0,
-            )
-            if rank > selected_rank:
-                selected = (evidence_row, decision)
-                selected_rank = rank
+            if (
+                _clean(keyword_row.get("found_in")) == "skills"
+                and current_overlap == 1
+                and current_coverage <= 0.25
+            ):
+                best_key: tuple[float, int, int] | None = None
+                for evidence_row in evidence_rows:
+                    section = _clean(evidence_row.get("section"))
+                    if section == "skills":
+                        continue
+                    coverage, overlap = (
+                        deterministic_evidence_coverage_metrics(
+                            focus,
+                            str(evidence_row.get("text") or ""),
+                            acronym_map,
+                        )
+                    )
+                    if (
+                        coverage < 0.50
+                        or overlap < 2
+                        or coverage < current_coverage + 0.25
+                    ):
+                        continue
+                    structured_row = 0 if section == "raw_text" else 1
+                    candidate_key = (coverage, overlap, structured_row)
+                    if best_key is None or candidate_key > best_key:
+                        selected = (
+                            evidence_row,
+                            {
+                                "capability_id": None,
+                                "label": None,
+                                "reason": "unrecognised_capability",
+                            },
+                        )
+                        best_key = candidate_key
+                        selected_coverage = coverage
+                        selected_overlap = overlap
+                        selection_basis = "broader_requirement_coverage"
 
         if selected is None:
             continue
@@ -1125,18 +1179,32 @@ def build_phase9e_keyword_match(
             evidence_row.get("text")
         )
         keyword_row["found_in"] = _clean(evidence_row.get("section"))
-        keyword_row["match_reason"] = (
-            "Phase 9E selected one visible resume row that independently "
-            "satisfies the recognised capability taxonomy; the preliminary "
-            "match ceiling was preserved."
-        )
-        keyword_row["evidence_similarity"] = "1.000"
+        if selection_basis == "broader_requirement_coverage":
+            keyword_row["match_reason"] = (
+                "Phase 9E replaced a bare one-token skill citation with one "
+                "broader visible resume row that covers more of the same "
+                "requirement; the preliminary match ceiling was preserved."
+            )
+            keyword_row["evidence_similarity"] = f"{selected_coverage:.3f}"
+        else:
+            keyword_row["match_reason"] = (
+                "Phase 9E selected one visible resume row that independently "
+                "satisfies the recognised capability taxonomy more strongly; "
+                "the preliminary match ceiling was preserved."
+            )
+            keyword_row["evidence_similarity"] = "1.000"
         keyword_row["phase9e_evidence_selection"] = {
             "policy_version": PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION,
             "status": "capability_supporting_row_selected",
             "capability_id": capability_id,
             "taxonomy_label": _clean(selected_decision.get("label")),
+            "original_taxonomy_label": current_label,
+            "selection_basis": selection_basis,
             "original_matched_resume_term": original_term,
+            "selected_requirement_coverage": round(
+                selected_coverage, 6
+            ),
+            "selected_requirement_overlap_count": selected_overlap,
             "selected_evidence_id": _clean(
                 evidence_row.get("evidence_id")
             ),
