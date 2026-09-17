@@ -88,7 +88,7 @@ assert.equal(extracted.identity.company, "Example Co");
 assert.equal(extracted.identity.location, "Singapore");
 assert.equal(
   extracted.isolated.strategy,
-  "greenhouse_job_description_dom_v1"
+  "greenhouse_job_description_dom_v2"
 );
 assert.doesNotMatch(extracted.isolated.jdText, /First Name/);
 

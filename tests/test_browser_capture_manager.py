@@ -90,6 +90,48 @@ class BrowserCaptureManagerTests(unittest.TestCase):
         self.assertEqual(statuses[first["id"]], "superseded")
         self.assertEqual(statuses[second["id"]], "pending")
 
+    def test_clear_pending_queue_preserves_rows_as_cleared(self) -> None:
+        first = manager.save_browser_job_capture(_payload())
+
+        second_payload = _payload()
+        second_payload["source"]["url"] = (
+            "https://jobs.careers.gov.sg/jobs/hrp/example-two"
+        )
+        second_payload["source"]["document_title"] = (
+            "Example Role Two | Careers@Gov"
+        )
+        second_payload["job"]["job_title"] = "Example Role Two"
+        second = manager.save_browser_job_capture(second_payload)
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(
+            len(
+                manager.list_browser_job_captures(
+                    limit=10,
+                    status="pending",
+                )
+            ),
+            2,
+        )
+
+        cleared = manager.clear_pending_browser_job_captures()
+
+        self.assertEqual(cleared, 2)
+        self.assertEqual(
+            manager.list_browser_job_captures(
+                limit=10,
+                status="pending",
+            ),
+            [],
+        )
+
+        all_rows = manager.list_browser_job_captures(limit=10)
+        self.assertEqual(len(all_rows), 2)
+        self.assertEqual(
+            {row["status"] for row in all_rows},
+            {"cleared"},
+        )
+
     def test_exact_capture_is_deduplicated(self) -> None:
         first = manager.save_browser_job_capture(_payload())
         second = manager.save_browser_job_capture(_payload())

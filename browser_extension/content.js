@@ -1,7 +1,9 @@
 (() => {
   "use strict";
 
-  if (self.__JOB_AI_HELPER_CONTENT_V2__) return;
+  const CONTENT_VERSION = "browser-content-v4.2";
+  if (self.__JOB_AI_HELPER_CONTENT_VERSION__ === CONTENT_VERSION) return;
+  self.__JOB_AI_HELPER_CONTENT_VERSION__ = CONTENT_VERSION;
   self.__JOB_AI_HELPER_CONTENT_V2__ = true;
 
   const mapping = self.JobAIFieldMapping;
@@ -149,6 +151,8 @@
   }
 
   function getStandardControls(adapter = currentSiteAdapter()) {
+    if (adapter?.captureOnly === true) return [];
+
     let candidates = null;
     try {
       candidates = adapter?.getControls?.(document);
@@ -238,6 +242,54 @@
     return document.body;
   }
 
+  const GENERIC_SHELL_TITLES = new Set([
+    "career",
+    "careers",
+    "job",
+    "jobs",
+    "job search",
+    "opportunities",
+    "join us",
+  ]);
+
+  function captureQuality(adapter, identity, isolated, availabilityStatus) {
+    if (availabilityStatus === "unavailable") {
+      return {
+        status: "unavailable",
+        reason: "The source site reports that the job is no longer available.",
+      };
+    }
+
+    const title = String(identity?.title || "").trim().toLowerCase();
+    const company = String(identity?.company || "").trim();
+    const jdLength = String(isolated?.jdText || "").trim().length;
+
+    if (
+      adapter?.id === "generic" &&
+      GENERIC_SHELL_TITLES.has(title) &&
+      !company
+    ) {
+      return {
+        status: "needs_review",
+        reason:
+          "Generic extraction found a site-shell title and no company; a site adapter is likely required.",
+      };
+    }
+
+    if (jdLength < 120) {
+      return {
+        status: "needs_review",
+        reason: "Extracted JD text is too short to save confidently.",
+      };
+    }
+
+    return { status: "accepted", reason: "" };
+  }
+
+  function sleep(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
   function extractJobPage() {
     const root = findMainTextRoot();
     const rawText = textOf(root).replace(/\n{3,}/g, "\n\n").trim();
@@ -264,6 +316,12 @@
       adapted = null;
     }
 
+    if (adapted?.notReady) {
+      throw new Error(
+        String(adapted.reason || "Job page is not ready for capture yet.")
+      );
+    }
+
     const identity = adapted?.identity || {
       title: headings[0] || document.title || "",
       company: "",
@@ -276,6 +334,13 @@
       strategy: "generic_visible_main_text",
       confidence: "medium",
     };
+    const availabilityStatus = adapted?.availability || "available";
+    const quality = captureQuality(
+      adapter,
+      identity,
+      isolated,
+      availabilityStatus
+    );
 
     const capturedAt = new Date().toISOString();
 
@@ -309,8 +374,56 @@
           : [],
         cleaning_strategy: isolated.strategy,
         cleaning_confidence: isolated.confidence,
+        availability_status: availabilityStatus,
+        capture_quality: quality.status,
+        capture_quality_reason: quality.reason,
       },
     };
+  }
+
+  async function extractJobPageWhenReady() {
+    const startedAt = Date.now();
+    const initialAdapter = currentSiteAdapter();
+
+    if (!initialAdapter?.dynamic) {
+      const immediate = extractJobPage();
+      immediate.source.extraction_wait_ms = 0;
+      return immediate;
+    }
+
+    let previousSignature = "";
+    let lastCapture = null;
+
+    while (Date.now() - startedAt < 4500) {
+      lastCapture = extractJobPage();
+
+      if (lastCapture?.job?.availability_status === "unavailable") {
+        break;
+      }
+
+      const ready =
+        lastCapture?.job?.capture_quality === "accepted" &&
+        Number(lastCapture?.job?.jd_character_count || 0) >= 300;
+
+      const signature = [
+        lastCapture?.source?.site_adapter || "",
+        lastCapture?.job?.job_title || "",
+        lastCapture?.job?.company || "",
+        lastCapture?.job?.jd_character_count || 0,
+        lastCapture?.job?.cleaning_strategy || "",
+      ].join("|");
+
+      if (ready && signature === previousSignature) {
+        break;
+      }
+
+      previousSignature = signature;
+      await sleep(250);
+    }
+
+    lastCapture = lastCapture || extractJobPage();
+    lastCapture.source.extraction_wait_ms = Date.now() - startedAt;
+    return lastCapture;
   }
 
   function nativeSetValue(element, value) {
@@ -482,9 +595,17 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
-      if (message?.type === "JOB_AI_EXTRACT_PAGE") {
-        sendResponse({ ok: true, data: extractJobPage() });
+      if (message?.type === "JOB_AI_PING") {
+        sendResponse({ ok: true, content_version: CONTENT_VERSION });
         return;
+      }
+      if (message?.type === "JOB_AI_EXTRACT_PAGE") {
+        extractJobPageWhenReady()
+          .then((data) => sendResponse({ ok: true, data }))
+          .catch((error) =>
+            sendResponse({ ok: false, error: String(error?.message || error) })
+          );
+        return true;
       }
       if (message?.type === "JOB_AI_SCAN_FIELDS") {
         sendResponse({ ok: true, data: scanFields() });

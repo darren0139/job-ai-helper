@@ -56,6 +56,21 @@ class BrowserExtensionPocContractTests(unittest.TestCase):
         self.assertIn("batch_autofill_selected_tabs", popup)
         self.assertIn("model_calls: 0", popup)
 
+        self.assertIn("let batchActionInProgress = false;", popup)
+        self.assertIn("setBatchActionState", popup)
+        self.assertIn("Preparing capture for", popup)
+        self.assertIn("Preparing autofill for", popup)
+        self.assertIn("if (batchActionInProgress) return;", popup)
+        self.assertIn("finally {", popup)
+        self.assertIn(
+            "batchCaptureButton.disabled = batchActionInProgress || !hasSelection",
+            popup,
+        )
+        self.assertIn(
+            "batchAutofillButton.disabled = batchActionInProgress || !hasSelection",
+            popup,
+        )
+
     def test_batch_helper_filters_local_and_non_http_tabs(self) -> None:
         helper = (EXTENSION / "batch_tabs.js").read_text(encoding="utf-8")
 
@@ -64,6 +79,7 @@ class BrowserExtensionPocContractTests(unittest.TestCase):
         self.assertIn("isLocalAppUrl", helper)
         self.assertIn("127.0.0.1", helper)
         self.assertIn("localhost", helper)
+        self.assertIn("mapWithConcurrency", helper)
 
     def test_content_script_has_no_submit_navigation_action(self) -> None:
         content = (EXTENSION / "content.js").read_text(encoding="utf-8")
@@ -100,9 +116,17 @@ class BrowserExtensionPocContractTests(unittest.TestCase):
 
         for required_file in (
             '"adapters/registry.js"',
+            '"adapters/job_posting_jsonld.js"',
             '"adapters/generic.js"',
             '"adapters/careers_gov.js"',
             '"adapters/greenhouse.js"',
+            '"adapters/workday.js"',
+            '"adapters/phenom.js"',
+            '"adapters/successfactors.js"',
+            '"adapters/mycareersfuture.js"',
+            '"adapters/smartrecruiters.js"',
+            '"adapters/linkedin.js"',
+            '"adapters/structured_job.js"',
         ):
             self.assertIn(required_file, popup)
         self.assertLess(
@@ -136,6 +160,37 @@ class BrowserExtensionPocContractTests(unittest.TestCase):
         self.assertIn("gh_jid", greenhouse)
         self.assertIn("embedded_application_iframe", greenhouse)
 
+    def test_dynamic_enterprise_adapters_and_quality_guard_exist(self) -> None:
+        workday = (EXTENSION / "adapters" / "workday.js").read_text(
+            encoding="utf-8"
+        )
+        phenom = (EXTENSION / "adapters" / "phenom.js").read_text(
+            encoding="utf-8"
+        )
+        structured = (EXTENSION / "adapters" / "structured_job.js").read_text(
+            encoding="utf-8"
+        )
+        content = (EXTENSION / "content.js").read_text(encoding="utf-8")
+
+        self.assertIn('id: "workday"', workday)
+        self.assertIn("myworkdayjobs.com", workday)
+        self.assertIn('id: "phenom"', phenom)
+        self.assertIn("phenompeople", phenom)
+        self.assertIn("phenom_unavailable_v1", phenom)
+
+        successfactors = (
+            EXTENSION / "adapters" / "successfactors.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn('id: "successfactors"', successfactors)
+        self.assertIn("successfactors.com", successfactors)
+        self.assertIn("successfactors.eu", successfactors)
+        self.assertIn("jobreqcareer", successfactors)
+
+        self.assertIn('id: "structured_job"', structured)
+        self.assertIn("JOB_AI_PING", content)
+        self.assertIn("extractJobPageWhenReady", content)
+        self.assertIn("capture_quality", content)
+
     def test_content_keeps_raw_capture_separate_from_clean_jd(self) -> None:
         content = (EXTENSION / "content.js").read_text(encoding="utf-8")
 
@@ -154,6 +209,9 @@ class BrowserExtensionPocContractTests(unittest.TestCase):
         self.assertIn("v4.1 batch prepare", readme)
         self.assertIn("optional_host_permissions", readme)
         self.assertIn("zero model/OpenAI calls", readme)
+        self.assertIn("v4.2 dynamic ATS extraction", readme)
+        self.assertIn("Workday", readme)
+        self.assertIn("Phenom", readme)
 
 
 if __name__ == "__main__":

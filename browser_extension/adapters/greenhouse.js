@@ -26,6 +26,33 @@
     return String(value || "").replace(/\s+/g, " ").trim();
   }
 
+  function normaliseDescriptionText(value) {
+    return String(value || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\r\n?/g, "\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function trimCompanyPrelude(value) {
+    const original = normaliseDescriptionText(value);
+    if (!original) return "";
+
+    const firmStart = original.search(/^The Firm\s*$/im);
+    const roleStart = original.search(/^The Role\s*$/im);
+
+    if (
+      firmStart === 0 &&
+      roleStart > firmStart &&
+      roleStart < 3500
+    ) {
+      return normaliseDescriptionText(original.slice(roleStart));
+    }
+
+    return original;
+  }
+
   function greenhouseHost(host) {
     const value = String(host || "").toLowerCase();
     return value === "greenhouse.io" || value.endsWith(".greenhouse.io");
@@ -124,7 +151,7 @@
 
   return {
     id: "greenhouse",
-    version: "greenhouse-adapter-v1",
+    version: "greenhouse-adapter-v2",
     priority: 80,
 
     matches(context) {
@@ -148,13 +175,15 @@
 
     extractJob(context) {
       const found = findDescription(context);
-      let jdText = found?.value || "";
-      let strategy = "greenhouse_job_description_dom_v1";
+      let jdText = trimCompanyPrelude(found?.value || "");
+      let strategy = "greenhouse_job_description_dom_v2";
       let confidence = "high";
 
       if (!jdText) {
-        jdText = cutBeforeApplicationForm(context.rawText);
-        strategy = "greenhouse_pre_application_boundary_v1";
+        jdText = trimCompanyPrelude(
+          cutBeforeApplicationForm(context.rawText)
+        );
+        strategy = "greenhouse_pre_application_boundary_v2";
         confidence = jdText ? "medium" : "low";
       }
       if (!jdText) return null;

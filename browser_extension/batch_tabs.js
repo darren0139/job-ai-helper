@@ -13,12 +13,14 @@
     "careers",
     "job",
     "jobs",
+    "linkedin",
     "workday",
     "myworkdayjobs",
     "greenhouse",
     "lever",
     "successfactors",
     "smartrecruiters",
+    "mycareersfuture",
     "oraclecloud",
     "careers.gov.sg",
   ];
@@ -87,6 +89,35 @@
     return host ? `${title} — ${host}` : title;
   }
 
+  async function mapWithConcurrency(items, limit, worker) {
+    const source = Array.isArray(items) ? items : [];
+    if (!source.length) return [];
+    if (typeof worker !== "function") {
+      throw new Error("mapWithConcurrency requires a worker function.");
+    }
+
+    const concurrency = Math.max(
+      1,
+      Math.min(source.length, Math.floor(Number(limit) || 1))
+    );
+    const results = new Array(source.length);
+    let nextIndex = 0;
+
+    async function runWorker() {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= source.length) return;
+        results[index] = await worker(source[index], index);
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: concurrency }, () => runWorker())
+    );
+    return results;
+  }
+
   return {
     isHttpUrl,
     isLocalAppUrl,
@@ -96,5 +127,6 @@
     looksLikeJobTab,
     defaultSelected,
     displayLabel,
+    mapWithConcurrency,
   };
 });

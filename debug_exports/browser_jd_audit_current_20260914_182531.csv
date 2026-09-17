@@ -1,0 +1,88 @@
+﻿id,status,source_host,site_adapter,job_title,company,location,extraction_strategy,extraction_confidence,jd_character_count,raw_character_count,jd_to_raw_ratio,duplicate_line_ratio,highest_severity,issue_count,issue_codes,source_url,jd_start_excerpt
+77,pending,www.mycareersfuture.gov.sg,mycareersfuture,Software Engineer (Technical Support),A-IT INVESTMENT PTE. LTD.,,mycareersfuture_job_description_dom_v3,high,1437,3044,0.4721,0.0,ok,0,,https://www.mycareersfuture.gov.sg/job/information-technology/software-engineer-a-it-investment-a51a64a40dd448041248b3703484c6e1?utm_source=chatgpt.com,"Roles & Responsibilities
+
+Descriptions:
+-Must have at least 6 years experiences in network design and implementation, network hardware configuration, network troubleshooting and network performance tuning network and system administration;
+
+ -Must have at least 6years experiences in managing network products such as Cisco, F5, and etc;
+
+- Must have at least 6 years experiences in administering Windows Server and Linux Operating Systems
+
+
+
+Responsibilities:
+- Must have sound knowledge of various network protocols and topologies, including LAN, WAN, switches, routers and servers;
+
+- Should preferably have experience in managing Network Access Control (NAC) System such as ClearPass, SolarWinds, and Infoblox.
+
+The Programmer shall be required to:
+
+a. Administer and troubleshoot network system "
+44,pending,jobs.sap.com,successfactors,SAP Intern - Full Stack Developer - SAP Build Mobile and Agentic Qualities,SAP,"Singapore, SG, 117440",successfactors_job_description_dom_v2,high,5848,6299,0.9284,0.0,ok,0,,https://jobs.sap.com/job/Singapore-SAP-Intern-Full-Stack-Developer-SAP-Build-Mobile-and-Agentic-Qualities-117440/1434449133/?utm_source=chatgpt.com,"We help the world run better
+At SAP, we keep it simple: you bring your best to us, and we'll bring out the best in you. We're builders touching over 20 industries and 80% of global commerce, and we need your unique talents to help shape what's next. The work is challenging – but it matters. You'll find a place where you can be yourself, prioritize your wellbeing, and truly belong. What's in it for you? Constant learning, skill growth, great benefits, and a team that wants you to grow and succeed.
+
+ 
+
+ 
+
+Location: Singapore
+
+Duration: 5-6 months
+
+Start Date: January 2027
+
+ 
+
+SAP's Autonomous Enterprise is an AI-native operating model where governed AI agents orchestrate end-to-end business processes, with humans setting direction and AI executing the work. It provides the Business AI Platfo"
+76,pending,jobs.smartrecruiters.com,smartrecruiters,Software Engineer [Java Core],NCS,,smartrecruiters_sections_v2,high,2725,4637,0.5877,0.0,warning,1,leading_single_character,https://jobs.smartrecruiters.com/NCS3/6000000001045727-software-engineer-java-core-?utm_source=chatgpt.com,"n
+
+We are seeking a detail-oriented and analytical Software Engineer with expertise in Java Core to join our engineering team in Singapore. In this role, you will design, develop, and maintain robust Java applications while adhering to best practices in software architecture and code quality. You will work collaboratively with cross-functional teams to deliver efficient, scalable solutions that meet our business objectives.
+
+What will you do? 
+
+Develop, test, and maintain high-quality Java applications using core Java technologies and frameworks
+Design and implement efficient algorithms and data structures to solve complex technical problems
+Write clean, well-documented code following established coding standards and design patterns
+Conduct code reviews and provide constructive feedback to"
+43,pending,careers.gi-de.com,successfactors,Supply Chain Analyst,Giesecke+Devrient,"Singapore, SG",successfactors_job_description_dom_v2,high,2596,4649,0.5584,0.0,ok,0,,https://careers.gi-de.com/GieseckeDevrientMS/job/Singapore-Supply-Chain-Analyst/1408155433/?utm_source=chatgpt.com,"Job Summary:
+
+The Supply Chain Analyst is responsible to provide support for the end-to-end hardware (HW) supply chain operations within the company. As part of the Supply Chain Management team, this role contributes to fulfilling the complete ordering process with external suppliers, ensuring efficient material flow, compliance with export control regulations, and timely delivery of products. The analyst works cross-functionally with procurement, logistics, and manufacturing teams to enhance operational performance and supply reliability.
+
+ 
+
+Responsibilities:
+Manage the end-to-end ordering process, ensuring all artwork/design forms are complete and aligned with global templates.
+Create Purchase Orders and process invoicing within required timelines.
+Coordinate with freight forwarders to "
+28,pending,careers.thalesgroup.com,phenom,Software DevOps Engineer (IFE DCC),Thales,"Singapore, Singapore",phenom_job_posting_jsonld_v1,high,4506,7470,0.6032,0.0,ok,0,,https://careers.thalesgroup.com/global/en/job/R0321445/Software-DevOps-Engineer-IFE-DCC,"Location: Singapore - Suntec, Singapore
+Thales is a global technology leader trusted by governments, institutions, and enterprises to tackle their most demanding challenges. From quantum applications and artificial intelligence to cybersecurity and 6G innovation, our solutions empower critical decisions rooted in human intelligence. Operating at the forefront of aerospace and space, cybersecurity and digital identity, we’re driven by a mission to build a future we can all trust.
+In Singapore, Thales has been a trusted partner since 1973, originally focused on aerospace activities in the Asia-Pacific region. With 2,000 employees across three local sites, we deliver cutting-edge solutions across aerospace (including air traffic management), defence and security, and digital identity and cybe"
+27,pending,razer.wd3.myworkdayjobs.com,workday,Applied AI Intern,Razer (Asia-Pacific) Pte. Ltd,"Singapore Razer AI Center, Singapore",workday_job_posting_jsonld_v1,high,5087,5963,0.8531,0.0,ok,0,,https://razer.wd3.myworkdayjobs.com/en-US/Careers/job/Singapore/Applied-AI-Intern_JR2026007785,"Joining Razer will place you on a global mission to revolutionize the way the world games. Razer is a place to do great work, offering you the opportunity to make an impact globally while working across a global team located across 5 continents. Razer is also a great place to work, providing you the unique, gamer-centric #LifeAtRazer experience that will put you in an accelerated growth, both personally and professionally. Job Responsibilities : Applied AI Intern to support QAC Vision and Agentic AI features, focusing on evaluating multimodal models and agentic workflows for gaming use cases. Intern will work with AI, Software Engineering, and Product teams to experiment with emerging approaches, understand failure modes, and validate solutions for product adoption. Job Scope Support the e"
+9,pending,jobs.careers.gov.sg,careers_gov,"Engineer / Lead Engineer - Embodied AI Research & Development, RAUS COE",Home Team Science and Technology Agency (HTX),,careers_gov_sections_v2,high,3539,5642,0.6273,0.0,ok,0,,https://jobs.careers.gov.sg/jobs/hrp/17968619/005056a3-53e2-1fd1-a7a0-7b2b513ed403,"What the role is
+HTX is Singapore's Science and Technology agency that brings together diverse scientific and engineering capabilities to develop transformative, operationally ready solutions for public safety. As a statutory board under the Ministry of Home Affairs, HTX works at the forefront of science and technology to empower the Home Team with cutting-edge capabilities. Guided by our mission to amplify, augment and accelerate the Home Team's advantage, we are committed to keeping Singapore the safest place on planet Earth.
+Being part of 3i, they are the technology development domain of RAUS CoE focuses on advancing robotics and unmanned systems through innovative research, design, and development. Within this domain, the embodied AI R&D pillar integrates cutting-edge AI models into ro"
+7,pending,jobs.careers.gov.sg,careers_gov,"Lead Engineer/ Engineer, DevOps & MLOps (AI Platform), xCloud",Home Team Science and Technology Agency (HTX),,careers_gov_sections_v2,high,2972,5065,0.5868,0.0,ok,0,,https://jobs.careers.gov.sg/jobs/hrp/18013157/005056a3-d347-1fe1-a9d5-5276a49342bb,"What the role is
+HTX is Singapore's Science and Technology agency that brings together diverse scientific and engineering capabilities to develop transformative, operationally ready solutions for public safety. As a statutory board under the Ministry of Home Affairs, HTX works at the forefront of science and technology to empower the Home Team with cutting-edge capabilities. Guided by our mission to amplify, augment and accelerate the Home Team's advantage, we are committed to keeping Singapore the safest place on planet Earth.
+xCloud is dedicated to elevating the enterprise experience through cutting-edge cloud capabilities, including:
+• Sustainable enterprise data centres
+• Hybrid cloud platforms
+• Advanced cloud security measures
+• Integrated Development, Security, and Operations (DevSe"
+4,pending,job-boards.greenhouse.io,greenhouse,C++ Software Engineer,XTX Markets,,greenhouse_job_description_dom_v1,high,4934,5615,0.8787,0.0,ok,0,,https://job-boards.greenhouse.io/xtxmarketstechnologies/jobs/7831489003?gh_src=my.greenhouse.search&utm_source=chatgpt.com,"The Firm
+
+XTX Markets is a leading algorithmic trading firm which uses state-of-the-art machine learning technology to produce price forecasts for over 50,000 financial instruments across equities, fixed income, currencies, commodities, and crypto. It uses those forecasts to trade on exchanges and alternative trading venues, and to offer differentiated liquidity directly to clients worldwide. The firm trades over USD $250bn a day across 35 countries and has over 300 employees based in London, Singapore, New York, Paris, Bristol, Mumbai, Yerevan and Kajaani.
+
+We leverage the talent of our team, modern computational techniques, and state-of-the-art research infrastructure to analyse large data sets across markets quickly and efficiently, maximizing the effectiveness of our proprietary tradin"
+8,pending,jobs.careers.gov.sg,careers_gov,"Lead Engineer/Engineer, AI & Data Engineering, xData",Home Team Science and Technology Agency (HTX),,careers_gov_sections_v2,high,3928,6011,0.6535,0.0,ok,0,,https://jobs.careers.gov.sg/jobs/hrp/18037478/005056a3-d347-1fe1-aafe-3ce797f482bc,"What the role is
+HTX is Singapore's Science and Technology agency that brings together diverse scientific and engineering capabilities to develop transformative, operationally ready solutions for public safety. As a statutory board under the Ministry of Home Affairs, HTX works at the forefront of science and technology to empower the Home Team with cutting-edge capabilities. Guided by our mission to amplify, augment and accelerate the Home Team's advantage, we are committed to keeping Singapore the safest place on planet Earth.
+From data to decisions, from insight to action — we harness data, AI and technology for public safety. By applying data science, AI, and engineering, we build enterprise data and exchange platforms, innovative products, and sensor-driven systems that transform compl"
+5,pending,careers.thalesgroup.com,generic,OpenSky DevSecOps Engineer,,,generic_visible_main_text,medium,7810,7810,1.0,0.0741,warning,3,"missing_company,generic_extraction,generic_nearly_full_page",https://careers.thalesgroup.com/global/en/job/R0308244/OpenSky-DevSecOps-Engineer,"OpenSky DevSecOps Engineer
+Location  Singapore, 498788Posted Date  2026-03-26Job Id  R0308244Hiring Type  Full timeCategory  Software  Singapore
+ 
+ Save
+ Apply Now 
+Location: Singapore, Singapore
+
+Thales is a global technology leader trusted by governments, institutions, and enterprises to tackle their most demanding challenges. From quantum applications and artificial intelligence to cybersecurity and 6G innovation, our solutions empower critical decisions rooted in human intelligence. Operating at the forefront of aerospace and space, cybersecurity and digital identity, we’re driven by a mission to build a future we can all trust.
+
+In Singapore, Thales has been a trusted partner since 1973, originally focused on aerospace activities in the Asia-Pacific region. With 2,000 employees across"

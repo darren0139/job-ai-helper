@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 DB_PATH = Path("data/applications.db")
@@ -37,8 +39,88 @@ def _normalise_capture_text(value: str) -> str:
     )
 
 
+_TRACKING_QUERY_KEYS = {
+    "gh_src",
+    "lipi",
+    "midsig",
+    "midtoken",
+    "refid",
+    "trackingid",
+    "trk",
+    "trkemail",
+}
+
+
+def _linkedin_job_id(parsed: Any) -> str:
+    host = str(parsed.hostname or "").lower()
+    if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+        return ""
+
+    direct_match = re.search(
+        r"/jobs/view/[^/?#]*?(\d{5,})/?$",
+        str(parsed.path or ""),
+        re.IGNORECASE,
+    )
+    if direct_match:
+        return direct_match.group(1)
+
+    for key, query_value in parse_qsl(
+        parsed.query,
+        keep_blank_values=True,
+    ):
+        if key.strip().lower() != "currentjobid":
+            continue
+        candidate = str(query_value or "").strip()
+        if re.fullmatch(r"\d{5,}", candidate):
+            return candidate
+
+    return ""
+
+
+def canonicalize_browser_source_url(value: str) -> str:
+    """Return a deterministic job URL while preserving job-identifying params."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return raw
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return raw
+
+    linkedin_job_id = _linkedin_job_id(parsed)
+    if linkedin_job_id:
+        return f"https://www.linkedin.com/jobs/view/{linkedin_job_id}"
+
+    filtered_query = []
+    for key, query_value in parse_qsl(
+        parsed.query,
+        keep_blank_values=True,
+    ):
+        lowered = key.strip().lower()
+        if lowered.startswith("utm_"):
+            continue
+        if lowered in _TRACKING_QUERY_KEYS:
+            continue
+        filtered_query.append((key, query_value))
+
+    return urlunsplit(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path,
+            urlencode(filtered_query, doseq=True),
+            "",
+        )
+    )
+
+
 def _capture_hash(source_url: str, jd_text: str) -> str:
-    material = f"{source_url.strip()}\n{_normalise_capture_text(jd_text)}"
+    canonical_url = canonicalize_browser_source_url(source_url)
+    material = f"{canonical_url}\n{_normalise_capture_text(jd_text)}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -100,10 +182,49 @@ def init_browser_capture_schema() -> None:
             "discarded_tracking_tags_json",
             "TEXT",
         )
+        _ensure_column(
+            connection,
+            "browser_job_captures",
+            "canonical_source_url",
+            "TEXT",
+        )
+
+        existing_urls = connection.execute(
+            """
+            SELECT id, source_url, canonical_source_url
+            FROM browser_job_captures
+            """
+        ).fetchall()
+        canonical_updates = []
+        for row in existing_urls:
+            canonical_url = canonicalize_browser_source_url(
+                str(row["source_url"] or "")
+            )
+            if str(row["canonical_source_url"] or "") != canonical_url:
+                canonical_updates.append((canonical_url, int(row["id"])))
+        if canonical_updates:
+            connection.executemany(
+                """
+                UPDATE browser_job_captures
+                SET canonical_source_url = ?
+                WHERE id = ?
+                """,
+                canonical_updates,
+            )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_browser_job_captures_status_received
             ON browser_job_captures(status, last_received_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_browser_job_captures_canonical_status
+            ON browser_job_captures(
+                canonical_source_url,
+                status,
+                last_received_at DESC
+            )
             """
         )
         connection.commit()
@@ -181,7 +302,10 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
     item = _validated_capture(payload)
     init_browser_capture_schema()
 
-    digest = _capture_hash(item["source_url"], item["jd_text"])
+    canonical_source_url = canonicalize_browser_source_url(
+        item["source_url"]
+    )
+    digest = _capture_hash(canonical_source_url, item["jd_text"])
     now = _now()
 
     connection = _connect()
@@ -192,6 +316,7 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 capture_hash,
                 status,
                 source_url,
+                canonical_source_url,
                 document_title,
                 source_host,
                 site_adapter,
@@ -210,8 +335,9 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 posting_notes_json,
                 discarded_tracking_tags_json
             )
-            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(capture_hash) DO UPDATE SET
+                canonical_source_url = excluded.canonical_source_url,
                 document_title = excluded.document_title,
                 source_host = excluded.source_host,
                 site_adapter = excluded.site_adapter,
@@ -232,6 +358,7 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
             (
                 digest,
                 item["source_url"],
+                canonical_source_url,
                 item["document_title"],
                 item["source_host"],
                 item["site_adapter"],
@@ -260,11 +387,11 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
             UPDATE browser_job_captures
             SET status = 'superseded',
                 last_received_at = ?
-            WHERE source_url = ?
+            WHERE canonical_source_url = ?
               AND capture_hash <> ?
               AND status = 'pending'
             """,
-            (now, item["source_url"], digest),
+            (now, canonical_source_url, digest),
         )
         connection.commit()
 
@@ -280,6 +407,28 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
         connection.close()
 
     return dict(row) if row is not None else {}
+
+
+def clear_pending_browser_job_captures() -> int:
+    """Hide all pending browser captures while preserving local history."""
+    init_browser_capture_schema()
+    now = _now()
+
+    connection = _connect()
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE browser_job_captures
+            SET status = 'cleared',
+                last_received_at = ?
+            WHERE status = 'pending'
+            """,
+            (now,),
+        )
+        connection.commit()
+        return max(0, int(cursor.rowcount or 0))
+    finally:
+        connection.close()
 
 
 def list_browser_job_captures(

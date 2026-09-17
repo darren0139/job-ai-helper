@@ -11,7 +11,10 @@ from browser_integration.streamlit_runtime import (
 from browser_integration.tailor_resume_handoff import (
     apply_browser_capture_tailor_resume_handoff,
 )
-from database.browser_capture_manager import list_browser_job_captures
+from database.browser_capture_manager import (
+    clear_pending_browser_job_captures,
+    list_browser_job_captures,
+)
 
 
 def _capture_label(item: dict) -> str:
@@ -71,7 +74,42 @@ def render_browser_capture_inbox() -> None:
         "happens explicitly through the existing Tailor Resume workflow."
     )
 
+    st.button(
+        "Refresh Browser JD Queue",
+        key="browser_jd_queue_refresh",
+        help=(
+            "Reload this Streamlit page so captures written by the Chrome "
+            "extension appear immediately."
+        ),
+    )
+
     captures = list_browser_job_captures(limit=20, status="pending")
+
+    if captures:
+        with st.expander("Queue maintenance", expanded=False):
+            st.caption(
+                "Clear pending captures from this queue without deleting their "
+                "local audit/history rows. Cleared rows are retained with status "
+                "'cleared'. New captures will continue using new database IDs."
+            )
+            clear_confirmed = st.checkbox(
+                "I understand this will clear every pending browser capture.",
+                key="browser_jd_clear_pending_queue_confirm",
+            )
+            if st.button(
+                "Clear pending queue",
+                disabled=not clear_confirmed,
+                key="browser_jd_clear_pending_queue",
+            ):
+                cleared_count = clear_pending_browser_job_captures()
+                st.session_state.pop(
+                    "browser_jd_capture_inbox_selection",
+                    None,
+                )
+                st.success(
+                    f"Cleared {cleared_count} pending browser capture(s)."
+                )
+                st.rerun()
     if not captures:
         st.info(
             "No browser JD captures yet. Extract a job page with the Chrome "

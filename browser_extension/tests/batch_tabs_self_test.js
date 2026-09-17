@@ -56,4 +56,30 @@ assert.equal(batch.looksLikeJobTab(tabs[1]), true);
 assert.equal(batch.defaultSelected(tabs[2]), true);
 assert.match(batch.displayLabel(tabs[0]), /jobs\.careers\.gov\.sg/);
 
-console.log("batch_tabs_self_test_v4: passed");
+async function testConcurrency() {
+  let active = 0;
+  let maxActive = 0;
+
+  const result = await batch.mapWithConcurrency(
+    [1, 2, 3, 4, 5],
+    2,
+    async (value) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return value * 10;
+    }
+  );
+
+  assert.deepEqual(result, [10, 20, 30, 40, 50]);
+  assert.ok(maxActive <= 2);
+  assert.ok(maxActive >= 1);
+}
+
+testConcurrency()
+  .then(() => console.log("batch_tabs_self_test_v42: passed"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

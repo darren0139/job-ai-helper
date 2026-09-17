@@ -26,6 +26,9 @@ const downloadButton = document.getElementById("downloadButton");
 let latestResult = null;
 let latestJobCapture = null;
 const batchTabsById = new Map();
+let batchActionInProgress = false;
+const batchCaptureDefaultLabel = batchCaptureButton.textContent;
+const batchAutofillDefaultLabel = batchAutofillButton.textContent;
 
 function showResult(value) {
   latestResult = value;
@@ -77,19 +80,47 @@ async function getActiveTab() {
   return tab;
 }
 
+const CONTENT_SCRIPT_VERSION = "browser-content-v4.2";
+const BATCH_CONCURRENCY = 3;
+
+async function hasCurrentContentScript(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: "JOB_AI_PING",
+    });
+    return (
+      response?.ok &&
+      response?.content_version === CONTENT_SCRIPT_VERSION
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function ensureInjected(tabId) {
+  if (await hasCurrentContentScript(tabId)) return false;
+
   await chrome.scripting.executeScript({
     target: { tabId },
     files: [
       "mapping.js",
       "jd_cleaning.js",
       "adapters/registry.js",
+      "adapters/job_posting_jsonld.js",
       "adapters/generic.js",
       "adapters/careers_gov.js",
       "adapters/greenhouse.js",
+      "adapters/workday.js",
+      "adapters/phenom.js",
+      "adapters/successfactors.js",
+      "adapters/mycareersfuture.js",
+      "adapters/smartrecruiters.js",
+      "adapters/linkedin.js",
+      "adapters/structured_job.js",
       "content.js",
     ],
   });
+  return true;
 }
 
 async function sendToActiveTab(message) {
@@ -111,8 +142,29 @@ function selectedBatchTabs() {
 
 function refreshBatchButtons() {
   const hasSelection = selectedBatchTabs().length > 0;
-  batchCaptureButton.disabled = !hasSelection;
-  batchAutofillButton.disabled = !hasSelection;
+  batchCaptureButton.disabled = batchActionInProgress || !hasSelection;
+  batchAutofillButton.disabled = batchActionInProgress || !hasSelection;
+  discoverTabsButton.disabled = batchActionInProgress;
+
+  for (const input of batchTabList.querySelectorAll('input[type="checkbox"]')) {
+    input.disabled = batchActionInProgress;
+  }
+}
+
+function setBatchActionState(action, inProgress, selectedCount = 0) {
+  batchActionInProgress = Boolean(inProgress);
+
+  batchCaptureButton.textContent =
+    batchActionInProgress && action === "capture"
+      ? `Capturing… ${selectedCount} selected`
+      : batchCaptureDefaultLabel;
+
+  batchAutofillButton.textContent =
+    batchActionInProgress && action === "autofill"
+      ? `Autofilling… ${selectedCount} selected`
+      : batchAutofillDefaultLabel;
+
+  refreshBatchButtons();
 }
 
 function renderBatchTabs(tabs) {
@@ -205,70 +257,123 @@ async function batchCaptureSelectedTabs() {
 
   await requestSelectedHostAccess(tabs);
 
-  const items = [];
-  for (let index = 0; index < tabs.length; index += 1) {
-    const tab = tabs[index];
-    batchStatus.textContent =
-      `Capturing ${index + 1}/${tabs.length}: ${tab.title || tab.url}`;
+  let completedCount = 0;
+  const items = await self.JobAIBatchTabs.mapWithConcurrency(
+    tabs,
+    BATCH_CONCURRENCY,
+    async (tab) => {
+      const startedAt = performance.now();
+      try {
+        const extracted = await sendToTab(tab.id, {
+          type: "JOB_AI_EXTRACT_PAGE",
+        });
+        if (!extracted?.ok) {
+          throw new Error(extracted?.error || "Page extraction failed.");
+        }
 
-    try {
-      const extracted = await sendToTab(tab.id, {
-        type: "JOB_AI_EXTRACT_PAGE",
-      });
-      if (!extracted?.ok) {
-        throw new Error(extracted?.error || "Page extraction failed.");
+        const capture = extracted?.data;
+        const baseResult = {
+          tab_id: tab.id,
+          title: tab.title || "",
+          url: tab.url || "",
+          job_title: capture?.job?.job_title || "",
+          company: capture?.job?.company || "",
+          extraction_strategy: capture?.job?.cleaning_strategy || "",
+          site_adapter: capture?.source?.site_adapter || "",
+          extraction_wait_ms: Number(
+            capture?.source?.extraction_wait_ms || 0
+          ),
+        };
+
+        if (capture?.job?.availability_status === "unavailable") {
+          return {
+            ...baseResult,
+            status: "skipped_unavailable",
+            reason:
+              capture?.job?.capture_quality_reason ||
+              "The source site reports that this job is unavailable.",
+            elapsed_ms: Math.round(performance.now() - startedAt),
+          };
+        }
+
+        if (capture?.job?.capture_quality === "needs_review") {
+          return {
+            ...baseResult,
+            status: "needs_review",
+            reason:
+              capture?.job?.capture_quality_reason ||
+              "Capture quality needs review before saving.",
+            elapsed_ms: Math.round(performance.now() - startedAt),
+          };
+        }
+
+        if (!capture?.job?.jd_text) {
+          throw new Error("No clean JD text was extracted.");
+        }
+
+        const saved = await bridgeFetch("/api/v1/jd-captures", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(capture),
+        });
+
+        return {
+          ...baseResult,
+          status: "saved",
+          capture_id: saved?.capture?.id || null,
+          job_title:
+            saved?.capture?.job_title || capture?.job?.job_title || "",
+          company: saved?.capture?.company || capture?.job?.company || "",
+          extraction_strategy:
+            saved?.capture?.extraction_strategy ||
+            capture?.job?.cleaning_strategy ||
+            "",
+          elapsed_ms: Math.round(performance.now() - startedAt),
+        };
+      } catch (error) {
+        return {
+          tab_id: tab.id,
+          title: tab.title || "",
+          url: tab.url || "",
+          status: "error",
+          error: String(error?.message || error),
+          elapsed_ms: Math.round(performance.now() - startedAt),
+        };
+      } finally {
+        completedCount += 1;
+        batchStatus.textContent =
+          `Capturing: ${completedCount}/${tabs.length} tab(s) completed...`;
       }
-
-      const capture = extracted?.data;
-      if (!capture?.job?.jd_text) {
-        throw new Error("No clean JD text was extracted.");
-      }
-
-      const saved = await bridgeFetch("/api/v1/jd-captures", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(capture),
-      });
-
-      items.push({
-        tab_id: tab.id,
-        title: tab.title || "",
-        url: tab.url || "",
-        status: "saved",
-        capture_id: saved?.capture?.id || null,
-        job_title: saved?.capture?.job_title || capture?.job?.job_title || "",
-        company: saved?.capture?.company || capture?.job?.company || "",
-        extraction_strategy:
-          saved?.capture?.extraction_strategy ||
-          capture?.job?.cleaning_strategy ||
-          "",
-      });
-    } catch (error) {
-      items.push({
-        tab_id: tab.id,
-        title: tab.title || "",
-        url: tab.url || "",
-        status: "error",
-        error: String(error?.message || error),
-      });
     }
-  }
+  );
 
   const savedCount = items.filter((item) => item.status === "saved").length;
-  const errorCount = items.length - savedCount;
+  const unavailableCount = items.filter(
+    (item) => item.status === "skipped_unavailable"
+  ).length;
+  const reviewCount = items.filter(
+    (item) => item.status === "needs_review"
+  ).length;
+  const errorCount = items.filter((item) => item.status === "error").length;
+
   batchStatus.textContent =
-    `Batch capture finished: ${savedCount} saved, ${errorCount} error(s).`;
+    `Batch capture finished: ${savedCount} saved, ` +
+    `${unavailableCount} unavailable, ${reviewCount} need review, ` +
+    `${errorCount} error(s).`;
 
   return {
-    ok: errorCount === 0,
+    ok: errorCount === 0 && reviewCount === 0,
     action: "batch_capture_selected_tabs",
     selected_count: tabs.length,
     saved_count: savedCount,
+    unavailable_count: unavailableCount,
+    needs_review_count: reviewCount,
     error_count: errorCount,
+    concurrency: BATCH_CONCURRENCY,
     model_calls: 0,
     items,
     note:
-      "Captures were sent to the local Job AI Helper inbox only. No JD analysis or model call was triggered.",
+      "Captures were extracted locally and saved to the localhost inbox only. No JD analysis or model call was triggered.",
   };
 }
 
@@ -286,40 +391,47 @@ async function batchAutofillSelectedTabs() {
 
   await requestSelectedHostAccess(tabs);
 
-  const items = [];
-  for (let index = 0; index < tabs.length; index += 1) {
-    const tab = tabs[index];
-    batchStatus.textContent =
-      `Autofilling ${index + 1}/${tabs.length}: ${tab.title || tab.url}`;
+  let completedCount = 0;
+  const items = await self.JobAIBatchTabs.mapWithConcurrency(
+    tabs,
+    BATCH_CONCURRENCY,
+    async (tab) => {
+      const startedAt = performance.now();
+      try {
+        const response = await sendToTab(tab.id, {
+          type: "JOB_AI_AUTOFILL",
+          profilePayload: payload,
+        });
+        if (!response?.ok) {
+          throw new Error(response?.error || "Autofill failed.");
+        }
 
-    try {
-      const response = await sendToTab(tab.id, {
-        type: "JOB_AI_AUTOFILL",
-        profilePayload: payload,
-      });
-      if (!response?.ok) {
-        throw new Error(response?.error || "Autofill failed.");
+        return {
+          tab_id: tab.id,
+          title: tab.title || "",
+          url: tab.url || "",
+          status: "completed",
+          filled_count: Number(response.filled_count || 0),
+          skipped_unknown_count: Number(response.skipped_unknown_count || 0),
+          not_filled_count: Number(response.not_filled_count || 0),
+          elapsed_ms: Math.round(performance.now() - startedAt),
+        };
+      } catch (error) {
+        return {
+          tab_id: tab.id,
+          title: tab.title || "",
+          url: tab.url || "",
+          status: "error",
+          error: String(error?.message || error),
+          elapsed_ms: Math.round(performance.now() - startedAt),
+        };
+      } finally {
+        completedCount += 1;
+        batchStatus.textContent =
+          `Autofilling: ${completedCount}/${tabs.length} tab(s) completed...`;
       }
-
-      items.push({
-        tab_id: tab.id,
-        title: tab.title || "",
-        url: tab.url || "",
-        status: "completed",
-        filled_count: Number(response.filled_count || 0),
-        skipped_unknown_count: Number(response.skipped_unknown_count || 0),
-        not_filled_count: Number(response.not_filled_count || 0),
-      });
-    } catch (error) {
-      items.push({
-        tab_id: tab.id,
-        title: tab.title || "",
-        url: tab.url || "",
-        status: "error",
-        error: String(error?.message || error),
-      });
     }
-  }
+  );
 
   const completed = items.filter((item) => item.status === "completed");
   const filledCount = completed.reduce(
@@ -444,7 +556,11 @@ extractButton.addEventListener("click", async () => {
   try {
     const response = await sendToActiveTab({ type: "JOB_AI_EXTRACT_PAGE" });
     latestJobCapture = response?.data || null;
-    saveCaptureButton.disabled = !latestJobCapture?.job?.jd_text;
+    const latestJob = latestJobCapture?.job || {};
+    saveCaptureButton.disabled =
+      !latestJob.jd_text ||
+      latestJob.availability_status === "unavailable" ||
+      latestJob.capture_quality === "needs_review";
     showResult(response);
   } catch (error) {
     showResult({ ok: false, error: String(error?.message || error) });
@@ -455,6 +571,15 @@ saveCaptureButton.addEventListener("click", async () => {
   try {
     if (!latestJobCapture?.job?.jd_text) {
       throw new Error("Extract the current job page before saving it.");
+    }
+    if (latestJobCapture?.job?.availability_status === "unavailable") {
+      throw new Error("This job is no longer available and will not be saved.");
+    }
+    if (latestJobCapture?.job?.capture_quality === "needs_review") {
+      throw new Error(
+        latestJobCapture?.job?.capture_quality_reason ||
+          "This capture needs review and will not be saved automatically."
+      );
     }
 
     const response = await bridgeFetch("/api/v1/jd-captures", {
@@ -516,20 +641,42 @@ discoverTabsButton.addEventListener("click", async () => {
 });
 
 batchCaptureButton.addEventListener("click", async () => {
+  if (batchActionInProgress) return;
+
+  const selectedCount = selectedBatchTabs().length;
+  if (!selectedCount) return;
+
+  setBatchActionState("capture", true, selectedCount);
+  batchStatus.textContent =
+    `Preparing capture for ${selectedCount} selected tab(s)…`;
+
   try {
     showResult(await batchCaptureSelectedTabs());
   } catch (error) {
     batchStatus.textContent = String(error?.message || error);
     showResult({ ok: false, error: String(error?.message || error) });
+  } finally {
+    setBatchActionState("", false);
   }
 });
 
 batchAutofillButton.addEventListener("click", async () => {
+  if (batchActionInProgress) return;
+
+  const selectedCount = selectedBatchTabs().length;
+  if (!selectedCount) return;
+
+  setBatchActionState("autofill", true, selectedCount);
+  batchStatus.textContent =
+    `Preparing autofill for ${selectedCount} selected tab(s)…`;
+
   try {
     showResult(await batchAutofillSelectedTabs());
   } catch (error) {
     batchStatus.textContent = String(error?.message || error);
     showResult({ ok: false, error: String(error?.message || error) });
+  } finally {
+    setBatchActionState("", false);
   }
 });
 
