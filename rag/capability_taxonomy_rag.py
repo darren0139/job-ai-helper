@@ -7,6 +7,8 @@ weak/none; the deterministic taxonomy matcher still owns that decision.
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -111,45 +113,39 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     ]
 
 
-def _collection():
+def _index_identity(taxonomy):
+    # Includes predicates, priority and model, not just the rendered documents.
+    material = {"version": taxonomy.version, "capabilities": taxonomy.capabilities,
+                "embedding_model": EMBEDDING_MODEL}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _collection(taxonomy, *, create=False):
     import chromadb
-
-    CHROMA_PATH.mkdir(parents=True, exist_ok=True)
+    identity = _index_identity(taxonomy)
+    if create:
+        CHROMA_PATH.mkdir(parents=True, exist_ok=True)
+    elif not CHROMA_PATH.is_dir():
+        raise ValueError("Taxonomy index missing; administrative rebuild required")
     client = chromadb.PersistentClient(path=str(CHROMA_PATH))
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"description": "Phase 6D capability taxonomy"},
-    )
+    name = f"{COLLECTION_NAME}_{identity[:24]}"
+    if create:
+        return client.get_or_create_collection(name=name, metadata={"index_identity": identity, "taxonomy_version": taxonomy.version})
+    return client.get_collection(name=name)
 
 
-def rebuild_taxonomy_index(
-    taxonomy: CapabilityTaxonomy | None = None,
-) -> int:
+def rebuild_taxonomy_index(taxonomy=None, *, administrative=False):
+    if not administrative:
+        raise PermissionError("Taxonomy indexing requires explicit administrative mode")
     taxonomy = taxonomy or get_default_taxonomy()
     rows = taxonomy_documents(taxonomy)
-    collection = _collection()
-
-    try:
-        existing = collection.get(include=[])
-        ids = existing.get("ids", []) if isinstance(existing, dict) else []
-        if ids:
-            collection.delete(ids=ids)
-    except Exception:
-        pass
-
     documents = [row["document"] for row in rows]
     embeddings = _embed_texts(documents)
     if len(embeddings) != len(rows):
-        raise RuntimeError(
-            f"Embedding count mismatch: expected {len(rows)}, got {len(embeddings)}"
-        )
-
-    collection.upsert(
-        ids=[row["id"] for row in rows],
-        documents=documents,
-        embeddings=embeddings,
-        metadatas=[row["metadata"] for row in rows],
-    )
+        raise RuntimeError("Embedding count mismatch")
+    collection = _collection(taxonomy, create=True)
+    collection.upsert(ids=[row["id"] for row in rows], documents=documents,
+                      embeddings=embeddings, metadatas=[row["metadata"] for row in rows])
     return len(rows)
 
 
@@ -158,6 +154,7 @@ def retrieve_taxonomy_candidates(
     *,
     top_k: int = 5,
     use_embeddings: bool = True,
+    administrative: bool = False,
 ) -> list[dict[str, Any]]:
     cleaned = query.strip()
     if not cleaned:
@@ -166,9 +163,13 @@ def retrieve_taxonomy_candidates(
     if not use_embeddings:
         return lexical_retrieve(cleaned, top_k=top_k)
 
-    collection = _collection()
-    if int(collection.count()) == 0:
-        rebuild_taxonomy_index()
+    if not administrative:
+        raise PermissionError("Vector taxonomy retrieval requires explicit administrative mode")
+    taxonomy = get_default_taxonomy()
+    collection = _collection(taxonomy, create=False)
+    expected = _index_identity(taxonomy)
+    if (collection.metadata or {}).get("index_identity") != expected or not int(collection.count()):
+        raise ValueError("Taxonomy index is stale/missing; rebuild explicitly in administrative mode")
 
     vector = _embed_texts([cleaned])[0]
     result = collection.query(
@@ -179,6 +180,8 @@ def retrieve_taxonomy_candidates(
     docs = result.get("documents", [[]])[0]
     metas = result.get("metadatas", [[]])[0]
     distances = result.get("distances", [[]])[0]
+    if any((meta or {}).get("taxonomy_version") != taxonomy.version for meta in metas):
+        raise ValueError("Stale taxonomy index row")
     return [
         {
             "id": (meta or {}).get("capability_id", ""),

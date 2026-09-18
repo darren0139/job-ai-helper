@@ -16,7 +16,7 @@ class CapabilityTaxonomyLoaderTests(unittest.TestCase):
         taxonomy = get_default_taxonomy()
         self.assertEqual(
             taxonomy.version,
-            "phase6d-capability-taxonomy-v1.3",
+            "phase6d-capability-taxonomy-v1.4",
         )
         self.assertGreaterEqual(len(taxonomy.capabilities), 20)
 

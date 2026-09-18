@@ -439,8 +439,8 @@ class ApplicationBlueprintManagerTests(unittest.TestCase):
             "deal_breakers": [],
         }
         resume_text = (
-            "Workout Buddy: Experience working with Android app development "
-            "and Kotlin, including mobile application delivery."
+            "Workout Buddy: Built and delivered an Android application "
+            "using Kotlin, including mobile application delivery."
         )
         original_report = {
             "resume_profile": {

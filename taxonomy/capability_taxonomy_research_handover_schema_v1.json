@@ -1,0 +1,387 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "capability-taxonomy-research-handover-v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 40
+    },
+    "taxonomy_base_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "research_provider": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "status": {
+      "const": "proposed"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "intent": {
+            "enum": [
+              "create",
+              "update"
+            ]
+          },
+          "observed_term": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "normalised_concept": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "proposed_capability_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "proposed_family": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z0-9_.-]+$"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150
+            },
+            "minItems": 0,
+            "maxItems": 50
+          },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "relationship_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[a-z0-9_.-]+$"
+                },
+                "target_capability_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[a-z0-9_.-]+$"
+                },
+                "target_resolution": {
+                  "enum": [
+                    "existing",
+                    "proposed",
+                    "unresolved"
+                  ]
+                },
+                "direction": {
+                  "enum": [
+                    "candidate_to_target"
+                  ]
+                },
+                "relationship": {
+                  "enum": [
+                    "alias_of",
+                    "narrower_than",
+                    "broader_than",
+                    "related_to",
+                    "commonly_used_technology",
+                    "transferable_to",
+                    "non_equivalent_to"
+                  ]
+                },
+                "runtime_support_level": {
+                  "enum": [
+                    "none",
+                    "weak",
+                    "transferable",
+                    "direct"
+                  ]
+                },
+                "support_conditions": {
+                  "type": "string",
+                  "minLength": 10,
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "relationship_id",
+                "target_capability_id",
+                "target_resolution",
+                "direction",
+                "relationship",
+                "runtime_support_level",
+                "support_conditions"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 50
+          },
+          "positive_examples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requirement": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "evidence": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "expected_outcome": {
+                  "enum": [
+                    "direct"
+                  ]
+                }
+              },
+              "required": [
+                "requirement",
+                "evidence",
+                "expected_outcome"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "transferable_examples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requirement": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "evidence": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "expected_outcome": {
+                  "enum": [
+                    "transferable"
+                  ]
+                }
+              },
+              "required": [
+                "requirement",
+                "evidence",
+                "expected_outcome"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "negative_examples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requirement": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "evidence": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "expected_outcome": {
+                  "enum": [
+                    "none"
+                  ]
+                }
+              },
+              "required": [
+                "requirement",
+                "evidence",
+                "expected_outcome"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "research": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120,
+                      "pattern": "^[a-z0-9_.-]+$"
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    },
+                    "publisher": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "source_type": {
+                      "enum": [
+                        "official_documentation",
+                        "standards_body",
+                        "vendor_documentation",
+                        "reputable_reference"
+                      ]
+                    },
+                    "supports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relationship_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120,
+                            "pattern": "^[a-z0-9_.-]+$"
+                          },
+                          "claim": {
+                            "type": "string",
+                            "minLength": 10,
+                            "maxLength": 2000
+                          }
+                        },
+                        "required": [
+                          "relationship_id",
+                          "claim"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 50
+                    }
+                  },
+                  "required": [
+                    "source_id",
+                    "url",
+                    "title",
+                    "publisher",
+                    "source_type",
+                    "supports"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "query",
+              "sources"
+            ],
+            "additionalProperties": false
+          },
+          "assessment": {
+            "type": "object",
+            "properties": {
+              "relationship_confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source_quality": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              "ambiguity": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            },
+            "required": [
+              "relationship_confidence",
+              "source_quality",
+              "ambiguity"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "candidate_id",
+          "intent",
+          "observed_term",
+          "normalised_concept",
+          "proposed_capability_id",
+          "proposed_family",
+          "aliases",
+          "relationships",
+          "positive_examples",
+          "transferable_examples",
+          "negative_examples",
+          "research",
+          "assessment"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 50
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_at",
+    "taxonomy_base_version",
+    "research_provider",
+    "status",
+    "candidates"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Untrusted research proposal; human approval is separate"
+}

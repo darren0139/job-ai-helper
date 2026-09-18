@@ -65,7 +65,10 @@ class Phase9ESingleRowEvidenceSelectionV4Tests(unittest.TestCase):
         self.assertEqual(baseline_row["matched_resume_term"], "Kotlin")
         self.assertEqual(corrected_row["matched_resume_term"], strong_bullet)
 
-        # Citation quality changes; scoring semantics do not.
+        # Citation quality changes; scoring semantics do not. Under taxonomy
+        # v1.4 Android is now a recognised capability, so the same stronger
+        # single project row is selected via the capability-aware reason rather
+        # than the older unrecognised-requirement coverage fallback.
         self.assertEqual(
             corrected_row["match_type"],
             baseline_row["match_type"],
@@ -82,17 +85,13 @@ class Phase9ESingleRowEvidenceSelectionV4Tests(unittest.TestCase):
         )
         self.assertEqual(
             audit["selection_basis"],
-            "broader_requirement_coverage",
+            "stronger_capability_taxonomy_label",
         )
         self.assertEqual(audit["original_matched_resume_term"], "Kotlin")
-        self.assertGreaterEqual(
-            audit["selected_requirement_coverage"],
-            0.50,
-        )
-        self.assertGreaterEqual(
-            audit["selected_requirement_overlap_count"],
-            2,
-        )
+        # Taxonomy v1.4 selects this evidence through the recognised Android
+        # capability path. The older lexical coverage/overlap thresholds apply
+        # only to the broader_requirement_coverage fallback; the invariants
+        # here are one selected project row and unchanged scoring semantics.
         self.assertFalse(audit["combined_evidence_rows"])
 
     def test_broader_fallback_does_not_replace_a_multi_token_skill_match(self):

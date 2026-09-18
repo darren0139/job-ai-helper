@@ -433,14 +433,14 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 {
                     "name": "Android graphics application",
                     "bullets": [
-                        "Experience working with Android app development and Kotlin."
+                        "Built and delivered an Android application using Kotlin."
                     ],
                 }
             ],
             "skills": ["Android", "Kotlin"],
         }
         android_resume_text = (
-            "Experience working with Android app development and Kotlin, "
+            "Built and delivered an Android application using Kotlin, "
             "including mobile user-interface testing."
         )
         with _forbid_paid_calls():
@@ -626,7 +626,7 @@ class JDUserInputOverrideCanonicalIsolationTests(unittest.TestCase):
         """
         raw_jd = "Job Requirements\nBuild reliable APIs\n"
         raw_resume = (
-            "Experience working with Android app development and Kotlin, "
+            "Built and delivered an Android application using Kotlin, "
             "including mobile user-interface testing."
         )
         report = _report()

@@ -45,6 +45,7 @@ class Phase6D5FinalTopKTests(unittest.TestCase):
             trace = build_capability_retrieval_trace(
                 {"text": "low confidence test requirement"},
                 exact_capability_id=None,
+                administrative=True,
             )
 
         self.assertTrue(trace["vector_attempted"])

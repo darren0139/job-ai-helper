@@ -167,13 +167,11 @@ class TQ1ProjectRankingTests(unittest.TestCase):
         )
 
         self.assertEqual("Workout Buddy", ranked[0]["title"])
-        # The bullet explicitly establishes Android and Kotlin, but it does
-        # not itself state the complete experience/development requirement.
-        # This is therefore the same conservative transferable label used by
-        # stable evidence scoring for incomplete atomic-focus coverage.
-        self.assertEqual("transferable", ranked[0]["requirement_matches"][0]["match_label"])
+        # v1.4 treats one concrete row showing Android application
+        # implementation with Kotlin as direct Android-development evidence.
+        self.assertEqual("direct", ranked[0]["requirement_matches"][0]["match_label"])
         self.assertEqual(
-            "python_unrecognised_single_record_evidence",
+            "python_phase6d_capability_taxonomy",
             ranked[0]["requirement_matches"][0]["source"],
         )
         self.assertIn("Android app development and Kotlin", ranked[0]["reason"])
@@ -380,7 +378,7 @@ class TQ1ProjectRankingTests(unittest.TestCase):
             ["Workout Buddy", "QueryAI"],
             [row["title"] for row in first_ranked],
         )
-        self.assertEqual("transferable", first_ranked[0]["requirement_matches"][0]["match_label"])
+        self.assertEqual("direct", first_ranked[0]["requirement_matches"][0]["match_label"])
         self.assertEqual([], first_ranked[1]["requirement_matches"])
         self.assertNotEqual(
             first_ranked[0]["ai_diagnostic_final_score"],
@@ -508,13 +506,15 @@ class TQ1SkillRankingTests(unittest.TestCase):
             stable_analysis={"canonical_requirements": requirements},
         )
         rows = {row["skill"]: row for row in result["deterministic_skill_ranking"]}
-        direct_priorities = [
+        matched_priorities = [
             rows[skill]["deterministic_priority_score"]
-            for skill in ("Kotlin", "Android", "C++")
+            for skill in ("Kotlin", "C++")
         ]
 
-        self.assertTrue(all(rows[skill]["required_match"] for skill in ("Kotlin", "Android", "C++")))
-        self.assertTrue(all(score > rows["Data"]["deterministic_priority_score"] for score in direct_priorities))
+        self.assertTrue(all(rows[skill]["required_match"] for skill in ("Kotlin", "C++")))
+        self.assertFalse(rows["Android"]["required_match"])
+        self.assertEqual([], rows["Android"]["matched_requirement_ids"])
+        self.assertTrue(all(score > rows["Data"]["deterministic_priority_score"] for score in matched_priorities))
         self.assertEqual([], rows["Data"]["matched_requirement_ids"])
         self.assertIn("No direct canonical JD requirement", rows["Data"]["reason"])
         self.assertIn("Kotlin", rows["Kotlin"]["reason"])

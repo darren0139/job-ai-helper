@@ -24,6 +24,13 @@ COMPILE_TARGETS = (
 )
 
 QUICK_TEST_MODULES = (
+    "tests.test_capability_taxonomy_loader",
+    "tests.test_capability_taxonomy_v1_4",
+    "tests.test_capability_taxonomy_research",
+    "tests.test_capability_taxonomy_v1_4_boundaries",
+    "tests.test_application_session_analysis_currentness",
+    "tests.test_phase9e_deterministic_evidence_precision",
+    "tests.test_cross_user_evidence_context_precision",
     "tests.test_stable_evidence_scoring",
     "tests.test_jd_atomic_requirement_decomposition",
     "tests.test_phase6d_stable_scoring_integration",
@@ -91,6 +98,7 @@ QUICK_TEST_MODULES = (
 )
 
 SAFE_SMOKE_MODULES = (
+    "scripts.check_capability_taxonomy_v1_4",
     "scripts.check_phase8_new_evidence_reconciliation",
     "scripts.check_jd_section_heading_filter",
     "scripts.check_phase8_current_baseline_rebuild",

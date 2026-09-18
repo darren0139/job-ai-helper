@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1.3",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -1658,6 +1658,7 @@
       "domain": "cloud_devops",
       "priority": 105,
       "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
       "requirement": {
         "any_terms": [
           "docker",
@@ -1707,6 +1708,7 @@
       "domain": "cloud_devops",
       "priority": 106,
       "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
       "requirement": {
         "any_terms": [
           "ci/cd",
@@ -1754,6 +1756,7 @@
       "domain": "cloud_devops",
       "priority": 107,
       "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
       "requirement": {
         "any_terms": [
           "kubernetes",
@@ -2205,6 +2208,371 @@
         }
       ],
       "does_not_prove": []
+    },
+    {
+      "capability_id": "language.modern_cpp",
+      "label": "C and C++ programming",
+      "domain": "systems_programming",
+      "priority": 120,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "c",
+          "c programming",
+          "programming in c",
+          "modern c",
+          "c language",
+          "c11",
+          "c17",
+          "c23",
+          "c++",
+          "c++11",
+          "c++14",
+          "c++17",
+          "c++20",
+          "c++23"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "c_cpp_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "c",
+          "c programming",
+          "programming in c",
+          "modern c",
+          "c language",
+          "c11",
+          "c17",
+          "c23",
+          "c++",
+          "c++11",
+          "c++14",
+          "c++17",
+          "c++20",
+          "c++23"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "C# is not C/C++",
+        "C++ alone is not modern C++ proficiency"
+      ]
+    },
+    {
+      "capability_id": "mobile.android_development",
+      "label": "Android application development",
+      "domain": "mobile_software_engineering",
+      "priority": 97,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "android"
+        ],
+        "all_terms": [],
+        "all_groups": [
+          [
+            "development",
+            "develop",
+            "application",
+            "applications",
+            "app",
+            "apps",
+            "software",
+            "feature",
+            "features",
+            "frontend"
+          ]
+        ]
+      },
+      "evidence_policy": "android_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "android"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "Kotlin alone",
+        "Android Studio installation",
+        "tutorial-only wording"
+      ]
+    },
+    {
+      "capability_id": "graphics.opengl_vulkan",
+      "label": "Explicit OpenGL / Vulkan",
+      "domain": "graphics_programming",
+      "priority": 97,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "opengl",
+          "vulkan"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "graphics_api_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "opengl",
+          "vulkan"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "generic graphics",
+        "Unity/Unreal alone",
+        "OpenGL is not Vulkan"
+      ]
+    },
+    {
+      "capability_id": "systems.memory_cache_performance",
+      "label": "Memory allocation and cache performance",
+      "domain": "systems_programming",
+      "priority": 96,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "memory allocation",
+          "memory management",
+          "memory allocator",
+          "cache performance",
+          "cache locality",
+          "cache optimization",
+          "cache optimisation",
+          "memory performance"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "memory_cache_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "memory allocation",
+          "memory management",
+          "memory allocator",
+          "cache performance",
+          "cache locality",
+          "cache optimization",
+          "cache optimisation",
+          "memory performance"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "generic performance",
+        "generic runtime"
+      ]
+    },
+    {
+      "capability_id": "systems.data_oriented_programming",
+      "label": "Data-oriented programming",
+      "domain": "systems_programming",
+      "priority": 110,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "data oriented programming",
+          "data-oriented programming",
+          "data oriented design",
+          "data-oriented design"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "data_oriented_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "data oriented programming",
+          "data-oriented programming",
+          "data oriented design",
+          "data-oriented design"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "generic data",
+        "ETL",
+        "database work",
+        "analytics"
+      ]
+    },
+    {
+      "capability_id": "algorithms.data_structures_algorithms",
+      "label": "Data structures and algorithms",
+      "domain": "computer_science_fundamentals",
+      "priority": 119,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "data structures",
+          "algorithms",
+          "algorithmic complexity",
+          "runtime analysis",
+          "running time of algorithms",
+          "a* pathfinding",
+          "dijkstra",
+          "binary search"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "algorithms_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "data structures",
+          "algorithms",
+          "algorithmic complexity",
+          "runtime analysis",
+          "running time of algorithms",
+          "a* pathfinding",
+          "dijkstra",
+          "binary search"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "generic data",
+        "one algorithm is not broad DSA or complexity knowledge"
+      ]
+    },
+    {
+      "capability_id": "integration.client_software",
+      "label": "Client-facing software integration",
+      "domain": "software_integration",
+      "priority": 39,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "software integration",
+          "system integration",
+          "systems integration",
+          "integrate software",
+          "integrating software",
+          "integrate systems",
+          "integrate functionality"
+        ],
+        "all_terms": [],
+        "all_groups": [
+          [
+            "client",
+            "clients",
+            "customer",
+            "customers"
+          ]
+        ]
+      },
+      "evidence_policy": "client_integration_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "software integration",
+          "system integration",
+          "systems integration",
+          "integrate software",
+          "integrating software",
+          "integrate systems",
+          "integrate functionality"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "generic customer collaboration",
+        "integrating a team"
+      ]
+    },
+    {
+      "capability_id": "realtime.messaging_streaming",
+      "label": "Real-time messaging and streaming",
+      "domain": "distributed_systems",
+      "priority": 97,
+      "explicit_only": false,
+      "allow_stronger_single_row_reselection": true,
+      "requirement": {
+        "any_terms": [
+          "real-time messaging",
+          "real time messaging",
+          "real-time communication",
+          "real time communication",
+          "streaming systems",
+          "real-time streaming",
+          "event-driven communication",
+          "websocket messaging",
+          "real-time telemetry",
+          "event-driven streaming"
+        ],
+        "all_terms": [],
+        "all_groups": []
+      },
+      "evidence_policy": "realtime_v1",
+      "evidence_concepts": {
+        "explicit_concepts": [
+          "real-time messaging",
+          "real time messaging",
+          "real-time communication",
+          "real time communication",
+          "streaming systems",
+          "real-time streaming",
+          "event-driven communication",
+          "websocket messaging",
+          "real-time telemetry",
+          "event-driven streaming"
+        ]
+      },
+      "evidence_tiers": [
+        {
+          "label": "none",
+          "reason": "v14_policy_unsupported"
+        }
+      ],
+      "does_not_prove": [
+        "REST alone",
+        "generic communication",
+        "technology co-occurrence without implementation"
+      ]
     }
   ]
 }

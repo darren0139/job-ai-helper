@@ -25,7 +25,7 @@ from typing import Any
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
-from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
 )
@@ -33,7 +33,8 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.5-phase6d9"
+SCORING_VERSION = "stable-evidence-v1.5-phase6d10"
+CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
 NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v1"
 CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION = (
     "jd-atomic-requirement-decomposition-v1"
@@ -2496,6 +2497,182 @@ def _evidence_source_is_requirement_compatible(
 
 
 
+
+_LABEL_ORDER_FOR_RESELECTION = {
+    "none": 0,
+    "weak": 1,
+    "transferable": 2,
+    "direct": 3,
+}
+
+
+def _single_row_taxonomy_evidence_text(row: dict[str, Any]) -> str:
+    return "\n".join(
+        _clean_text(item.get("text", ""))
+        for item in row.get("evidence", []) or []
+        if isinstance(item, dict) and _clean_text(item.get("text", ""))
+    )
+
+
+def _apply_capability_single_row_reselection(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_index: list[dict[str, str]],
+    acronym_map: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Repair taxonomy-caused under-credit with one stronger compatible row.
+
+    This policy never promotes a preliminary ``none`` match, never combines
+    evidence rows, and never exceeds the preliminary match label. It only runs
+    for capabilities that explicitly opt in through the taxonomy.
+    """
+    taxonomy = get_default_taxonomy()
+    capabilities = taxonomy.by_id()
+    output = deepcopy(rows)
+    audit_rows: list[dict[str, Any]] = []
+
+    for row in output:
+        preliminary_label = _clean_text(row.get("match_label")).lower()
+        preliminary_rank = _LABEL_ORDER_FOR_RESELECTION.get(
+            preliminary_label,
+            0,
+        )
+        if preliminary_rank <= 0:
+            continue
+
+        original_evidence_text = _single_row_taxonomy_evidence_text(row)
+        original_decision = evaluate_evidence(
+            row,
+            original_evidence_text,
+            taxonomy,
+        )
+        capability_id = _clean_text(original_decision.get("capability_id"))
+        taxonomy_label = _clean_text(
+            original_decision.get("label")
+        ).lower()
+
+        if not capability_id or taxonomy_label not in _LABEL_ORDER_FOR_RESELECTION:
+            continue
+
+        capability = capabilities.get(capability_id) or {}
+        if capability.get("allow_stronger_single_row_reselection") is not True:
+            continue
+
+        original_taxonomy_rank = _LABEL_ORDER_FOR_RESELECTION[taxonomy_label]
+        if original_taxonomy_rank >= preliminary_rank:
+            continue
+
+        baseline_final_rank = min(
+            preliminary_rank,
+            original_taxonomy_rank,
+        )
+        best_final_rank = baseline_final_rank
+        selected_row: dict[str, str] | None = None
+        selected_decision: dict[str, Any] | None = None
+        selected_coverage = 0.0
+        selected_overlap = 0
+
+        focus = _clean_text(
+            row.get("atomic_focus") or row.get("text")
+        )
+
+        for evidence_row in evidence_index:
+            if not _evidence_source_is_requirement_compatible(
+                row,
+                evidence_row,
+            ):
+                continue
+
+            decision = evaluate_evidence(
+                row,
+                str(evidence_row.get("text") or ""),
+                taxonomy,
+            )
+            if _clean_text(decision.get("capability_id")) != capability_id:
+                continue
+
+            candidate_taxonomy_label = _clean_text(
+                decision.get("label")
+            ).lower()
+            candidate_taxonomy_rank = _LABEL_ORDER_FOR_RESELECTION.get(
+                candidate_taxonomy_label,
+                0,
+            )
+            candidate_final_rank = min(
+                preliminary_rank,
+                candidate_taxonomy_rank,
+            )
+            if candidate_final_rank <= best_final_rank:
+                continue
+
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                focus,
+                str(evidence_row.get("text") or ""),
+                acronym_map,
+            )
+            best_final_rank = candidate_final_rank
+            selected_row = evidence_row
+            selected_decision = decision
+            selected_coverage = coverage
+            selected_overlap = overlap
+
+            if candidate_final_rank == preliminary_rank:
+                break
+
+        if selected_row is None or selected_decision is None:
+            continue
+
+        original_evidence = [
+            deepcopy(item)
+            for item in row.get("evidence", []) or []
+            if isinstance(item, dict)
+        ]
+        selected_evidence = {
+            **deepcopy(selected_row),
+            "reason": (
+                "One existing resume row independently supports the same "
+                "recognised capability more strongly after the originally "
+                "linked evidence would have been taxonomy-capped; evidence "
+                "rows were not combined."
+            ),
+            "evidence_similarity": f"{selected_coverage:.3f}",
+        }
+        row["evidence"] = [selected_evidence]
+        row["capability_evidence_reselection"] = {
+            "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
+            "status": "stronger_single_row_selected",
+            "capability_id": capability_id,
+            "preliminary_match_ceiling": preliminary_label,
+            "original_taxonomy_label": taxonomy_label,
+            "selected_taxonomy_label": _clean_text(
+                selected_decision.get("label")
+            ).lower(),
+            "original_evidence": original_evidence,
+            "selected_evidence_id": _clean_text(
+                selected_row.get("evidence_id")
+            ),
+            "selected_evidence_source": _clean_text(
+                selected_row.get("source")
+            ),
+            "selected_requirement_coverage": round(
+                selected_coverage,
+                6,
+            ),
+            "selected_requirement_overlap_count": selected_overlap,
+            "combined_evidence_rows": False,
+        }
+        audit_rows.append(
+            {
+                "requirement_id": _clean_text(
+                    row.get("requirement_id")
+                ),
+                **deepcopy(row["capability_evidence_reselection"]),
+            }
+        )
+
+    return output, audit_rows
+
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -3261,9 +3438,21 @@ def build_stable_analysis(
         structured_linked
     )
 
+    evidence_index = build_resume_evidence_index(
+        resume_profile,
+        raw_resume_text,
+    )
+    reselected, evidence_reselection_audit = (
+        _apply_capability_single_row_reselection(
+            validated,
+            evidence_index=evidence_index,
+            acronym_map=canonical["acronym_map"],
+        )
+    )
+
     taxonomy_version = get_default_taxonomy().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
-        validated,
+        reselected,
         retrieval_mode_override=retrieval_mode_override,
     )
     taxonomy_warnings: list[dict[str, Any]] = []
@@ -3298,6 +3487,11 @@ def build_stable_analysis(
             input_material.encode("utf-8")
         ).hexdigest(),
         "canonical_requirements": taxonomy_validated,
+        "capability_evidence_reselection": {
+            "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
+            "selection_count": len(evidence_reselection_audit),
+            "audit": evidence_reselection_audit,
+        },
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],
             "merged_requirements": canonical["merge_debug"],
