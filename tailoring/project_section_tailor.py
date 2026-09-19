@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from typing import Any
 
 from llm import ask_json
@@ -36,6 +37,7 @@ from tailoring.deterministic_project_rules import (
     apply_deterministic_evidence_floors,
 )
 from tailoring.stable_tailoring_ranking import (
+    PROJECT_RELEVANCE_METADATA_VERSION,
     apply_low_confidence_project_override,
     build_bullet_evidence_priorities,
     rank_projects_deterministically,
@@ -1326,6 +1328,9 @@ def _build_project_from_writer_plan(
         "project_fit_score": ranking_row.get("final_score", 0),
         "project_id": ranking_row.get("project_id", ""),
         "requirement_matches": ranking_row.get("requirement_matches", []),
+        "project_relevance": deepcopy(
+            ranking_row.get("project_relevance", {}) or {}
+        ),
         "bullet_evidence_priorities": bullet_evidence_priorities,
         "protected_bullet_indexes": [
             item["bullet_index"]
@@ -1998,44 +2003,6 @@ IMPORTANT:
 
 
 
-    all_projects_zero = (
-        bool(ranked_rows)
-        and all(
-            int(
-                row.get(
-                    "final_score",
-                    0,
-                )
-                or 0
-            )
-            == 0
-            for row in ranked_rows
-        )
-    )
-
-    if all_projects_zero:
-        candidate_titles = [
-            str(
-                row.get(
-                    "display_title",
-                    row.get(
-                        "title",
-                        "Untitled Project",
-                    ),
-                )
-            )
-            for row in ranked_rows
-        ]
-
-        raise RuntimeError(
-            "Every project candidate received zero JD relevance. "
-            "Project selection was stopped because selecting by "
-            "evidence strength alone could produce an unrelated "
-            "ranking. Review the extracted JD profile, raw JD text, "
-            "and project evidence before retrying. "
-            f"Candidates evaluated: {candidate_titles}"
-        )
-
     selected_count = _resolve_selected_project_count(
         scoring_result=scoring_result,
         ranked_rows=ranked_rows,
@@ -2306,6 +2273,9 @@ IMPORTANT:
 
 
     result = {
+        "project_relevance_metadata_version": (
+            PROJECT_RELEVANCE_METADATA_VERSION
+        ),
         "recommended_projects": recommended_projects,
         "bullet_validation_warnings": bullet_validation_warnings,
         "candidate_project_ranking": ranked_rows,

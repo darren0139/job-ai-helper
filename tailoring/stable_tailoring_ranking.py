@@ -38,6 +38,9 @@ from tailoring.phase6d_ranking_adapter import (
 PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v4"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v4"
 EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
+PROJECT_RELEVANCE_METADATA_VERSION = (
+    "phase6b1-capability-aware-project-relevance-v1"
+)
 LOW_CONFIDENCE_SELECTION_VERSION = (
     "phase6b1-low-confidence-project-selection-v1"
 )
@@ -1399,6 +1402,190 @@ def _coverage_points(
     return total, by_requirement
 
 
+def _build_requirement_relationships(
+    *,
+    requirements: dict[str, dict[str, Any]],
+    matches: list[dict[str, Any]],
+    mapping_debug: list[dict[str, Any]],
+    coverage_by_requirement: dict[str, float],
+) -> list[dict[str, Any]]:
+    """Expose every canonical requirement without creating new evidence.
+
+    The existing taxonomy/single-record mapping remains authoritative. This
+    helper only projects its final decisions into a complete explainability
+    table, including explicit ``none`` rows that never contribute to ranking.
+    """
+    match_by_requirement = {
+        _clean_text(match.get("requirement_id")): match
+        for match in matches
+        if isinstance(match, dict)
+        and _clean_text(match.get("requirement_id"))
+    }
+    final_debug_by_requirement: dict[str, dict[str, Any]] = {}
+    for item in mapping_debug:
+        if not isinstance(item, dict):
+            continue
+        if item.get("action") not in {
+            "deterministic_requirement_override",
+            "deterministic_unrecognised_requirement_selection",
+        }:
+            continue
+        requirement_id = _clean_text(item.get("requirement_id"))
+        if requirement_id:
+            final_debug_by_requirement[requirement_id] = item
+
+    relationships: list[dict[str, Any]] = []
+    for requirement_id in sorted(requirements):
+        requirement = requirements[requirement_id]
+        match = match_by_requirement.get(requirement_id, {})
+        rule_debug = final_debug_by_requirement.get(requirement_id, {})
+        label = _normalise_match_label(
+            match.get("match_label")
+            or rule_debug.get("final_label")
+            or "none"
+        )
+        recognised = bool(rule_debug.get("recognised"))
+        source = _clean_text(match.get("source"))
+        if not source:
+            source = (
+                "python_phase6d_capability_taxonomy"
+                if recognised
+                else "python_unrecognised_single_record_evidence"
+            )
+
+        evidence_ids = sorted(
+            {
+                _clean_text(value)
+                for value in match.get("evidence_ids", []) or []
+                if _clean_text(value)
+            }
+        )
+        snippets = sorted(
+            {
+                _clean_text(value)
+                for value in match.get("evidence_snippets", []) or []
+                if _clean_text(value)
+            }
+        )
+        coverage_points = float(
+            coverage_by_requirement.get(requirement_id, 0.0) or 0.0
+        )
+        relationships.append(
+            {
+                "requirement_id": requirement_id,
+                "requirement_text": _clean_text(requirement.get("text")),
+                "importance": _normalise_key(requirement.get("importance")),
+                "capability_id": _clean_text(
+                    match.get("capability_id")
+                    or rule_debug.get("capability_id")
+                ),
+                "match_label": label,
+                "supporting_evidence_ids": evidence_ids,
+                "supporting_evidence_snippets": snippets,
+                "deterministic_source": source,
+                "deterministic_rule": _clean_text(
+                    rule_debug.get("rule")
+                    or (
+                        "authoritative_match_projection"
+                        if label != "none"
+                        else "no_proven_single_project_support"
+                    )
+                ),
+                "capability_taxonomy_version": _clean_text(
+                    match.get("capability_taxonomy_version")
+                    or rule_debug.get("taxonomy_version")
+                ),
+                "group_weight_fraction": float(
+                    requirement.get("group_weight_fraction", 1.0) or 1.0
+                ),
+                "coverage_points": round(coverage_points, 4),
+                "contributes_to_ranking": bool(coverage_points > 0.0),
+            }
+        )
+
+    return relationships
+
+
+def _build_project_relevance_summary(
+    *,
+    relationships: list[dict[str, Any]],
+    project_profile: dict[str, Any],
+) -> dict[str, Any]:
+    covered = [
+        item
+        for item in relationships
+        if item.get("match_label") in {"direct", "transferable", "weak"}
+    ]
+    evidence_ids = {
+        evidence_id
+        for item in covered
+        for evidence_id in item.get("supporting_evidence_ids", []) or []
+        if evidence_id
+    }
+    evidence_records = [
+        deepcopy(record)
+        for record in project_profile.get("evidence_records", []) or []
+        if _clean_text(record.get("evidence_id")) in evidence_ids
+    ]
+    evidence_records.sort(key=lambda item: _clean_text(item.get("evidence_id")))
+
+    def _ids(
+        *,
+        labels: set[str] | None = None,
+        importance: set[str] | None = None,
+    ) -> list[str]:
+        return sorted(
+            _clean_text(item.get("requirement_id"))
+            for item in relationships
+            if (labels is None or item.get("match_label") in labels)
+            and (importance is None or item.get("importance") in importance)
+            and _clean_text(item.get("requirement_id"))
+        )
+
+    has_proven_coverage = bool(covered)
+    return {
+        "metadata_version": PROJECT_RELEVANCE_METADATA_VERSION,
+        "relevance_basis": (
+            "supported_canonical_jd_coverage"
+            if has_proven_coverage
+            else "deterministic_fallback_suitability_only"
+        ),
+        "has_proven_jd_coverage": has_proven_coverage,
+        "requirement_relationships": deepcopy(relationships),
+        "required_core_requirement_ids_covered": _ids(
+            labels={"direct", "transferable", "weak"},
+            importance={"core", "deal_breaker", "required"},
+        ),
+        "preferred_requirement_ids_covered": _ids(
+            labels={"direct", "transferable", "weak"},
+            importance={"preferred"},
+        ),
+        "direct_requirement_ids": _ids(labels={"direct"}),
+        "transferable_requirement_ids": _ids(labels={"transferable"}),
+        "weak_requirement_ids": _ids(labels={"weak"}),
+        "uncovered_requirement_ids": _ids(labels={"none"}),
+        "recognized_requirement_capability_ids": sorted(
+            {
+                _clean_text(item.get("capability_id"))
+                for item in relationships
+                if _clean_text(item.get("capability_id"))
+            }
+        ),
+        "supported_capability_ids": sorted(
+            {
+                _clean_text(item.get("capability_id"))
+                for item in covered
+                if _clean_text(item.get("capability_id"))
+            }
+        ),
+        "supporting_evidence_records": evidence_records,
+        "unique_coverage_requirement_ids": [],
+        "overlapping_coverage_requirement_ids": [],
+        "coverage_comparison_scope": "not_yet_selected",
+        "selected_by_complementary_policy": False,
+    }
+
+
 def _project_ranking_explanation(
     matches: list[dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
@@ -1614,6 +1801,16 @@ def rank_projects_deterministically(
         ranking_reason, explanation_debug = _project_ranking_explanation(
             enriched_matches
         )
+        requirement_relationships = _build_requirement_relationships(
+            requirements=requirements,
+            matches=enriched_matches,
+            mapping_debug=mapping_debug,
+            coverage_by_requirement=coverage_by_requirement,
+        )
+        project_relevance = _build_project_relevance_summary(
+            relationships=requirement_relationships,
+            project_profile=project_profile,
+        )
 
         row.update(
             {
@@ -1631,6 +1828,7 @@ def rank_projects_deterministically(
                 "ranking_version": PROJECT_RANKING_VERSION,
                 "ranking_owner": "python_deterministic_evidence_mapping",
                 "mapping_debug": mapping_debug,
+                "project_relevance": project_relevance,
             }
         )
 
@@ -1656,6 +1854,7 @@ def rank_projects_deterministically(
                 "coverage_score": round(coverage, 4),
                 "support_score": support_score,
                 "requirement_matches": enriched_matches,
+                "project_relevance": deepcopy(project_relevance),
                 "ranking_explanation": explanation_debug,
                 "mapping_debug": mapping_debug,
             }
@@ -1736,13 +1935,24 @@ def select_complementary_projects(
         chosen["unique_coverage_bonus"] = round(unique_bonus, 4)
         chosen["overlap_penalty"] = round(overlap_penalty, 4)
         chosen["selection_rank"] = len(selected) + 1
+        chosen_match_ids = {
+            _clean_text(match.get("requirement_id"))
+            for match in chosen.get("requirement_matches", []) or []
+            if _clean_text(match.get("requirement_id"))
+        }
+        chosen_relevance = chosen.get("project_relevance")
+        if isinstance(chosen_relevance, dict):
+            chosen_relevance["unique_coverage_requirement_ids"] = sorted(
+                chosen_match_ids - covered_requirements
+            )
+            chosen_relevance["overlapping_coverage_requirement_ids"] = sorted(
+                chosen_match_ids & covered_requirements
+            )
+            chosen_relevance["coverage_comparison_scope"] = "selection_step"
+            chosen_relevance["selected_by_complementary_policy"] = True
         selected.append(chosen)
 
-        newly_covered = {
-            match.get("requirement_id")
-            for match in chosen.get("requirement_matches", []) or []
-            if match.get("requirement_id")
-        }
+        newly_covered = chosen_match_ids
         covered_requirements.update(newly_covered)
 
         selection_debug.append(
@@ -1765,9 +1975,28 @@ def select_complementary_projects(
         remaining = [row for row in remaining if row.get("project_id") != chosen_id]
 
     selected_ids = {row.get("project_id") for row in selected}
-    final_order = selected + [
-        row for row in ranked_rows if row.get("project_id") not in selected_ids
+    unselected = [
+        deepcopy(row)
+        for row in ranked_rows
+        if row.get("project_id") not in selected_ids
     ]
+    for row in unselected:
+        match_ids = {
+            _clean_text(match.get("requirement_id"))
+            for match in row.get("requirement_matches", []) or []
+            if _clean_text(match.get("requirement_id"))
+        }
+        relevance = row.get("project_relevance")
+        if isinstance(relevance, dict):
+            relevance["unique_coverage_requirement_ids"] = sorted(
+                match_ids - covered_requirements
+            )
+            relevance["overlapping_coverage_requirement_ids"] = sorted(
+                match_ids & covered_requirements
+            )
+            relevance["coverage_comparison_scope"] = "final_selected_set"
+            relevance["selected_by_complementary_policy"] = False
+    final_order = selected + unselected
 
     return final_order, selection_debug
 
@@ -1885,6 +2114,8 @@ def build_low_confidence_project_selection(
                     else None
                 ),
                 "jd_coverage": "none",
+                "selection_basis": "deterministic_fallback_suitability_only",
+                "has_proven_jd_coverage": False,
                 "fallback_suitability": (
                     _fallback_suitability_label(support_score)
                 ),
@@ -2215,6 +2446,9 @@ def build_project_selection_preview(
                 "best_match_label": best_label,
                 "deterministic_coverage_score": float(row.get("deterministic_coverage_score", 0.0) or 0.0),
                 "final_score": int(row.get("final_score", 0) or 0),
+                "project_relevance": deepcopy(
+                    row.get("project_relevance", {}) or {}
+                ),
             }
         )
 
@@ -2247,6 +2481,9 @@ def build_project_selection_preview(
 
     return {
         "preview_version": "phase6b1-pre-generation-project-selection-v1",
+        "project_relevance_metadata_version": (
+            PROJECT_RELEVANCE_METADATA_VERSION
+        ),
         "preview_fingerprint": preview_fingerprint,
         "selected_count": bounded_count,
         "system_selected_projects": selected_projects,
