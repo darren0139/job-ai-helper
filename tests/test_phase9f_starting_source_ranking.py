@@ -57,7 +57,7 @@ GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
 PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
-    "phase9f_b_ranking_identity_pinned_v6.json"
+    "phase9f_b_ranking_identity_pinned_v7.json"
 )
 
 
@@ -581,14 +581,13 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        # Atomic JD decomposition and the stricter deterministic weak-evidence
-        # gate intentionally update this pinned identity contract. The strong
-        # Blueprint winner and candidate ordering stay stable, while the weak
-        # Base Resume fixture now receives no lexical credit because its
-        # prior weak evidence no longer passes the shared precision gate.
+        # Semantic JD eligibility v1.1 and non-requirement filtering v2
+        # intentionally refresh identity fingerprints under scoring v1.7.
+        # The Blueprint winner, candidate ordering, comparison fingerprints,
+        # and all pinned ranking metrics remain unchanged.
         self.assertEqual(
             pinned.get("fixture_version"),
-            "phase9f-b-ranking-identity-pinned-v6",
+            "phase9f-b-ranking-identity-pinned-v7",
         )
         self.assertEqual(
             actual,

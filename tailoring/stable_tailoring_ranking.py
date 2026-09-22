@@ -23,6 +23,10 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import Any, Iterable
 
+from analysis_stability.stable_evidence_scoring import (
+    requirement_is_tailoring_eligible,
+)
+
 from tailoring.project_identity import (
     PROJECT_IDENTITY_VERSION,
     build_selected_project_identity_index,
@@ -475,7 +479,9 @@ def _requirement_index(stable_analysis: dict[str, Any]) -> dict[str, dict[str, A
     return {
         _clean_text(item.get("requirement_id")): item
         for item in requirements
-        if isinstance(item, dict) and _clean_text(item.get("requirement_id"))
+        if isinstance(item, dict)
+        and _clean_text(item.get("requirement_id"))
+        and requirement_is_tailoring_eligible(item)
     }
 
 

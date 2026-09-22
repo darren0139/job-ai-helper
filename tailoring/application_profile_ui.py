@@ -18,6 +18,8 @@ from database.application_profile_manager import (
     save_application_profile,
 )
 from database.user_profile_manager import get_evidence_items
+from database.user_profile_manager import get_all_evidence_items_for_snapshot
+from tailoring.candidate_context import candidate_context_downloads
 
 
 _UNKNOWN_OPTION = "Unknown / ask me"
@@ -278,6 +280,17 @@ def render_application_profile() -> None:
             )
             st.success("Application Profile saved.")
             st.rerun()
+
+    with st.expander("Candidate Profile / Evidence Library exports", expanded=False):
+        downloads = candidate_context_downloads(
+            get_application_profile(), get_all_evidence_items_for_snapshot()
+        )
+        for name, content in downloads.items():
+            st.download_button(
+                "Download " + name, data=content, file_name=name,
+                mime="application/json" if name.endswith(".json") else "text/markdown",
+                key="candidate_context_download_" + name,
+            )
 
     with st.expander("Copy / export for ChatGPT Work", expanded=False):
         st.caption(

@@ -4,6 +4,7 @@ from copy import deepcopy
 import unittest
 
 from tailoring.stable_tailoring_ranking import (
+    _requirement_index,
     build_bullet_evidence_priorities,
     build_candidate_evidence_profile,
     build_deterministic_skills_result,
@@ -234,6 +235,35 @@ def _rows(ai_score: int = 5) -> list[dict]:
 
 
 class StableTailoringRankingTests(unittest.TestCase):
+    def test_requirement_index_excludes_legacy_non_tailoring_context_rows(self):
+        analysis = {
+            "canonical_requirements": [
+                {
+                    "requirement_id": "req_context",
+                    "text": "You will be working alongside industry experts",
+                    "atomic_focus": "You will be working alongside industry experts",
+                    "importance": "core",
+                },
+                {
+                    "requirement_id": "req_training",
+                    "text": (
+                        "At the same time, you will be familiarised with the entire "
+                        "robotics development and software workflow"
+                    ),
+                    "importance": "core",
+                },
+                {
+                    "requirement_id": "req_cpp",
+                    "text": "Good foundation in modern C/C++ programming",
+                    "importance": "required",
+                },
+            ]
+        }
+
+        indexed = _requirement_index(analysis)
+
+        self.assertEqual(set(indexed), {"req_cpp"})
+
     def test_candidate_ids_and_fingerprint_are_stable(self) -> None:
         first = build_candidate_evidence_profile(_candidates())
         second = build_candidate_evidence_profile(list(reversed(_candidates())))

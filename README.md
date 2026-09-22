@@ -65,6 +65,11 @@ This workflow compares **one resume against many analysed job descriptions**.
 
 RAG is used because the job-description library grows over time. Instead of sending every saved JD into one prompt, the app retrieves relevant job-description chunks from ChromaDB before asking the LLM to answer.
 
+
+### 3. To use Copilot (In Progress)
+1. winget install GitHub.Copilot
+2. copilot login
+
 ---
 
 ## Tech Stack

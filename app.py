@@ -285,6 +285,7 @@ from tailoring.phase9e_application_result_ui import (
 from tailoring.phase9e1_resume_workspace_ui import (
     get_resume_workspace_context,
     should_clear_phase9e_session_state,
+    start_new_resume_from_current_tailoring_base,
     workspace_requires_edit_draft,
 )
 from tailoring.phase9e1_workflow_ui import (
@@ -2408,9 +2409,10 @@ with st.sidebar:
         index=_model_default_index(current_rephrase_model),
         key="rephrase_model_selector",
         help=(
-            "Used only to propose JD-specific project-bullet wording. "
-            "Deterministic evidence and claim-lineage checks remain "
-            "authoritative. Defaults to the configured local Ollama model."
+            "Used when Step 2 polish provider is Current Rephrase model. "
+            "GitHub Copilot is selected separately inside Step 2 and uses its "
+            "own signed-in Copilot account. Deterministic evidence, scoring, "
+            "claim-lineage checks, and Apply remain authoritative."
         ),
     )
 
@@ -2468,8 +2470,27 @@ with st.sidebar:
 
         st.subheader("Application Sessions")
 
-        recent_applications = get_recent_applications(limit=15)
+        show_all_application_sessions = st.checkbox(
+            "Show all stored sessions",
+            value=False,
+            key="show_all_application_sessions",
+            help=(
+                "Normally the sidebar shows only the 15 most recently updated sessions. "
+                "Enable this to expose older sessions that are still stored in applications.db."
+            ),
+        )
+
+        application_session_limit = 1000 if show_all_application_sessions else 15
+        recent_applications = get_recent_applications(limit=application_session_limit)
         current_application_id = st.session_state.get("current_application_id")
+
+        if show_all_application_sessions:
+            st.caption(f"Showing {len(recent_applications)} stored application sessions.")
+        elif len(recent_applications) >= 15:
+            st.caption(
+                "Showing the 15 most recently updated sessions. "
+                "Enable **Show all stored sessions** to access older sessions."
+            )
 
         if not recent_applications:
             st.caption("No application sessions yet.")
@@ -2492,6 +2513,9 @@ with st.sidebar:
                 else:
                     display_name = session_name or f"Application {app_id}"
                     label = f"✅ {display_name} (Draft)" if is_current else f"📝 {display_name} (Draft)"
+
+                if show_all_application_sessions:
+                    label = f"App #{app_id} · {label}"
 
                 row_col, menu_col = st.columns([0.82, 0.18])
 
@@ -3620,18 +3644,47 @@ elif page == "Application Sessions":
 
         if workspace_edit_required:
             if isinstance(previous_scope_message_approved, dict):
-                previous_scope_id = str(
+                previous_scope_generation_id = str(
                     previous_scope_message_approved.get("generation_id")
                     or ""
-                )[:8]
+                )
+                previous_scope_short_id = previous_scope_generation_id[:8]
                 st.info(
                     "Approved résumé "
-                    f"{previous_scope_id or 'result'} belongs to a previous "
-                    "Tailoring Base and is read-only. Use Start new résumé "
-                    "from current Tailoring Base in the Résumé Workspace "
-                    "before generating new Projects or Skills. The existing "
-                    "approved result and its earlier lineage remain preserved."
+                    f"{previous_scope_short_id or 'result'} belongs to a previous "
+                    "Tailoring Base and is read-only. Its approved result and "
+                    "earlier Phase 8 / Blueprint lineage remain preserved. "
+                    "Start a new résumé from the current Tailoring Base below "
+                    "before generating new Projects or Skills."
                 )
+                if st.button(
+                    "Start new résumé from current Tailoring Base",
+                    key=(
+                        "phase9e1_inline_start_current_base_"
+                        f"{current_application_id}_{previous_scope_short_id}"
+                    ),
+                    type="primary",
+                    width="stretch",
+                ):
+                    transition = start_new_resume_from_current_tailoring_base(
+                        application_id=int(current_application_id),
+                        previous_scope_generation_id=previous_scope_generation_id,
+                    )
+                    if not transition.get("ok"):
+                        st.error(
+                            str(
+                                transition.get("message")
+                                or "Could not start from the current Tailoring Base."
+                            )
+                        )
+                    else:
+                        st.success(
+                            str(
+                                transition.get("message")
+                                or "Current Tailoring Base is ready."
+                            )
+                        )
+                        st.rerun()
             else:
                 st.info(
                     "The current approved résumé is read-only. Use "
@@ -5481,6 +5534,45 @@ elif page == "Application Sessions":
                         or []
                     )
                     if rephrase_projects:
+                        from tailoring.evidence_grounded_bullet_ui import render_grounded_bullet_tailoring
+
+                        def _record_grounded_bullet_usage() -> None:
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="suggest_grounded_bullet",
+                                report=persisted_application_report,
+                            )
+                            if isinstance(persisted_application_report, dict):
+                                st.session_state["latest_report"] = persisted_application_report
+                                update_application_report(
+                                    application_id=current_application_id,
+                                    resume_filename=st.session_state.get(
+                                        "resume_filename",
+                                        "",
+                                    ),
+                                    report=persisted_application_report,
+                                )
+
+                        grounded_result = render_grounded_bullet_tailoring(
+                            application_id=current_application_id,
+                            generation=current_rephrase_generation,
+                            report=report,
+                            model=get_active_model("rephrase"),
+                            before_model_call=reset_call_ledger,
+                            after_model_call=_record_grounded_bullet_usage,
+                        )
+                        if grounded_result:
+                            grounded_generation = grounded_result["generation"]
+                            st.session_state[tailored_generation_id_key] = grounded_generation["generation_id"]
+                            st.session_state[f"tailored_projects_result_{current_application_id}"] = grounded_generation["projects"]
+                            st.session_state[f"tailored_skills_result_{current_application_id}"] = grounded_generation["skills"]
+                            st.success("Created an unfitted draft with the accepted bullet.")
+                            st.rerun()
+                        render_ai_action_subtotal(
+                            application_id=current_application_id,
+                            actions=["suggest_grounded_bullet"],
+                            label="Grounded bullet subtotal",
+                        )
                         # jd_score_optimizer_enabled_guard_v2_2q
                         if bool(
                             st.session_state.get(
@@ -6917,9 +7009,10 @@ elif page == "Application Sessions":
                     st.info(
                         "Approved résumé "
                         f"{previous_scope_id or 'result'} belongs to a previous "
-                        "Tailoring Base and is read-only. Use Start new résumé "
-                        "from current Tailoring Base in the Résumé Workspace "
-                        "before generating or fitting a replacement document."
+                        "Tailoring Base and is read-only. Use the "
+                        "'Start new résumé from current Tailoring Base' action "
+                        "in Tailor Résumé Content above before generating or "
+                        "fitting a replacement document."
                     )
                 else:
                     active_approved = get_application_generation_control(
@@ -7362,6 +7455,13 @@ elif page == "Application Sessions":
                         "Changing spacing only affects DOCX formatting. "
                         "You can regenerate the DOCX without re-tailoring the projects or skills."
                     )
+
+                st.info(
+                    "Step 3 — Generate & Fit uses the current application draft. "
+                    "If you want to improve grounded project bullets, use Step 2 above and Apply "
+                    "the changes first. Bullet tailoring is optional; Generate & Fit will not "
+                    "silently create or apply bullet rewrites."
+                )
 
                 if st.button(
                     "Generate and Fit Tailored Resume DOCX",

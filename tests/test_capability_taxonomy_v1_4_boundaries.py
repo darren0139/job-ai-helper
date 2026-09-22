@@ -63,7 +63,7 @@ class CapabilityV14BoundaryTests(unittest.TestCase):
         with patch.object(scoring, "get_default_taxonomy", return_value=replace(get_default_taxonomy(), version="phase6d-capability-taxonomy-v1.3")):
             old = scoring.build_stable_analysis(**kwargs)
         self.assertNotEqual(new["input_fingerprint"], old["input_fingerprint"])
-        self.assertEqual(new["scoring_version"], "stable-evidence-v1.5-phase6d10")
+        self.assertEqual(new["scoring_version"], "stable-evidence-v1.7-phase6d12")
         self.assertEqual(kwargs, before)
 
     def test_phase9e_does_not_combine_android_and_kotlin_rows(self):

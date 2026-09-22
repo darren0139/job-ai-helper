@@ -33,9 +33,10 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.5-phase6d10"
+SCORING_VERSION = "stable-evidence-v1.7-phase6d12"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
-NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v1"
+NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v2"
+JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.1"
 CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION = (
     "jd-atomic-requirement-decomposition-v1"
 )
@@ -155,6 +156,11 @@ def _normalise_requirement_surface(value: Any) -> str:
     # A missing space after ordinary terminal punctuation is layout damage, not
     # a semantic variation (for example: "use cases.You will...").
     text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+
+    # Repair the exact discourse-preamble join observed in the dConstruct PDF
+    # extraction. This is intentionally narrow: it restores a missing layout
+    # space in "At the same time" without becoming a general word splitter.
+    text = re.sub(r"(?i)\bAtthe(?=\s+same\s+time\b)", "At the", text)
 
     # Keep C/C++, C++, C# and F# intact while separating an adjoining ordinary
     # word.  The surrounding boundaries prevent generic substring matching.
@@ -591,12 +597,184 @@ def _raw_jd_section_heading_rows(
     return rows
 
 
+def classify_jd_statement_semantics(
+    value: Any,
+    *,
+    source: str = "",
+    importance: str = "",
+) -> dict[str, Any]:
+    """Classify whether one JD statement is evidence-bearing for the candidate.
+
+    This is deliberately conservative: only narrow, high-confidence role-context
+    and future-training statements are excluded. Ordinary qualifications and
+    demonstrable responsibilities remain evidence-bearing.
+    """
+    surface = _normalise_requirement_surface(value).strip(" ,;:.-")
+    normalised = _normalise_basic(surface)
+    source_value = _clean_text(source).casefold()
+
+    metadata = {
+        "semantic_type": "candidate_requirement",
+        "evidence_eligible": True,
+        "score_eligible": True,
+        "tailoring_eligible": True,
+        "eligibility_rule": "eligible_candidate_requirement",
+        "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
+    }
+    if not normalised:
+        return metadata
+
+    role_context_patterns = (
+        re.compile(
+            r"^(?:at\s+the\s+same\s+time[, ]+)?"
+            r"(?:(?:you|the candidate)\s+will\s+(?:be\s+)?)?"
+            r"work(?:ing)?\s+alongside\s+(?:industry\s+)?experts$",
+            re.IGNORECASE,
+        ),
+    )
+    if any(pattern.match(surface) for pattern in role_context_patterns):
+        return {
+            **metadata,
+            "semantic_type": "role_context",
+            "evidence_eligible": False,
+            "score_eligible": False,
+            "tailoring_eligible": False,
+            "eligibility_rule": "role_context_working_environment",
+        }
+
+    training_patterns = (
+        re.compile(
+            r"^(?:at\s+the\s+same\s+time[, ]+)?"
+            r"(?:(?:you|the candidate)\s+will\s+(?:be\s+)?)?"
+            r"familiari[sz]ed\s+with\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"^(?:(?:you|the candidate)\s+will\s+)?"
+            r"(?:learn|be\s+trained(?:\s+(?:in|on))?|receive\s+training|"
+            r"gain\s+exposure\s+to|be\s+exposed\s+to)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"^(?:(?:you|the candidate)\s+will\s+have\s+)?"
+            r"(?:the\s+)?opportunity\s+to\s+(?:learn|gain\s+exposure)\b",
+            re.IGNORECASE,
+        ),
+    )
+    if any(pattern.match(surface) for pattern in training_patterns):
+        return {
+            **metadata,
+            "semantic_type": "training_outcome",
+            "evidence_eligible": False,
+            "score_eligible": False,
+            "tailoring_eligible": False,
+            "eligibility_rule": "training_outcome_future_learning",
+        }
+
+    role_source = (
+        "responsibilities" in source_value
+        or "unheaded_explicit_role_obligation" in source_value
+    )
+    explicit_role_surface = bool(
+        re.search(
+            r"\b(?:you|the candidate|successful applicant)\s+will\b|"
+            r"\bwho\s+will\b|\bresponsible\s+for\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+    )
+    if role_source or explicit_role_surface:
+        metadata.update(
+            {
+                "semantic_type": "role_responsibility",
+                "eligibility_rule": "eligible_role_responsibility",
+            }
+        )
+    return metadata
+
+
+def _semantic_metadata_for_exclusion(
+    value: Any,
+    reason: str,
+    *,
+    source: str = "",
+    importance: str = "",
+) -> dict[str, Any]:
+    metadata = classify_jd_statement_semantics(
+        value,
+        source=source,
+        importance=importance,
+    )
+    if not metadata["score_eligible"]:
+        return metadata
+
+    semantic_type = "company_context"
+    if reason in {
+        "candidate_screening_process",
+        "employment_terms_notice",
+        "application_status_notice",
+        "role_summary_context",
+    }:
+        semantic_type = "role_context"
+
+    return {
+        **metadata,
+        "semantic_type": semantic_type,
+        "evidence_eligible": False,
+        "score_eligible": False,
+        "tailoring_eligible": False,
+        "eligibility_rule": reason or "non_evidence_bearing_context",
+    }
+
+
+def requirement_is_score_eligible(requirement: dict[str, Any]) -> bool:
+    """Return score eligibility, including deterministic legacy-row fallback."""
+    if not isinstance(requirement, dict):
+        return False
+    if "score_eligible" in requirement:
+        return bool(requirement.get("score_eligible"))
+    source = " ".join(
+        _clean_text(item) for item in requirement.get("sources", []) or []
+    )
+    metadata = classify_jd_statement_semantics(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or requirement.get("parent_text"),
+        source=source,
+        importance=_clean_text(requirement.get("importance")),
+    )
+    return bool(metadata["score_eligible"])
+
+
+def requirement_is_tailoring_eligible(requirement: dict[str, Any]) -> bool:
+    """Return tailoring eligibility, including deterministic legacy-row fallback."""
+    if not isinstance(requirement, dict):
+        return False
+    if "tailoring_eligible" in requirement:
+        return bool(requirement.get("tailoring_eligible"))
+    source = " ".join(
+        _clean_text(item) for item in requirement.get("sources", []) or []
+    )
+    metadata = classify_jd_statement_semantics(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or requirement.get("parent_text"),
+        source=source,
+        importance=_clean_text(requirement.get("importance")),
+    )
+    return bool(metadata["tailoring_eligible"])
+
+
 def _classify_non_requirement_row(value: Any) -> str:
-    """Return a deterministic exclusion reason for recruiting/process boilerplate."""
+    """Return a deterministic exclusion reason for non-evidence-bearing JD text."""
     surface = _clean_text(value)
     text = _normalise_basic(value)
     if not text:
         return ""
+
+    semantic = classify_jd_statement_semantics(surface)
+    if not semantic["score_eligible"]:
+        return _clean_text(semantic.get("eligibility_rule"))
 
     if re.search(
         r"\bwe(?:['’]d| would)\s+love\s+to\s+(?:hear|meet)\b",
@@ -1661,6 +1839,7 @@ def _unheaded_role_rows(
         sentence_span = {**span, "text": sentence}
         eligible, reason = _unheaded_span_status(sentence_span)
         if not eligible:
+            semantic = _semantic_metadata_for_exclusion(sentence, reason)
             diagnostics.append(
                 {
                     "text": sentence,
@@ -1668,6 +1847,7 @@ def _unheaded_role_rows(
                     "line_index": span.get("line_index", 0),
                     "sentence_index": sentence_index,
                     "reason": reason,
+                    **semantic,
                 }
             )
             continue
@@ -1688,6 +1868,12 @@ def _unheaded_role_rows(
 
         exclusion_reason = _classify_non_requirement_row(content)
         if exclusion_reason:
+            semantic = _semantic_metadata_for_exclusion(
+                content,
+                exclusion_reason,
+                source="raw_jd.unheaded_explicit_role_obligation",
+                importance=_unheaded_role_importance(sentence),
+            )
             diagnostics.append(
                 {
                     "text": sentence,
@@ -1695,6 +1881,7 @@ def _unheaded_role_rows(
                     "line_index": span.get("line_index", 0),
                     "sentence_index": sentence_index,
                     "reason": f"non_requirement_{exclusion_reason}",
+                    **semantic,
                 }
             )
             continue
@@ -2034,11 +2221,18 @@ def canonicalise_requirements(
             source_row.get("text", "")
         )
         if exclusion_reason:
+            semantic = _semantic_metadata_for_exclusion(
+                source_row.get("text", ""),
+                exclusion_reason,
+                source=_clean_text(source_row.get("source", "")),
+                importance=_clean_text(source_row.get("importance", "")),
+            )
             filtered_non_requirement_rows.append(
                 {
                     "text": _clean_text(source_row.get("text", "")),
                     "reason": exclusion_reason,
                     "source": _clean_text(source_row.get("source", "")),
+                    **semantic,
                 }
             )
             continue
@@ -2245,6 +2439,15 @@ def canonicalise_requirements(
             1.0 / group_counts[group_id],
             6,
         )
+        semantic = classify_jd_statement_semantics(
+            row.get("atomic_focus") or row.get("text"),
+            source=" ".join(row.get("sources", []) or []),
+            importance=_clean_text(row.get("importance")),
+        )
+        # Non-evidence-bearing statements were filtered before canonical merging.
+        # Keep eligibility explicit on survivors so importance never doubles as
+        # a semantic-type flag downstream.
+        row.update(semantic)
 
     return {
         "requirements": canonical_rows,
@@ -2253,6 +2456,7 @@ def canonicalise_requirements(
         "filtered_section_headings": filtered_section_headings,
         "filtered_non_requirement_rows": filtered_non_requirement_rows,
         "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
+        "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
         "canonical_requirement_decomposition_version": (
             CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION
         ),
@@ -3254,7 +3458,8 @@ def _weighted_coverage(
     eligible_rows = [
         row
         for row in rows
-        if _clean_text(row.get("importance")).lower() in accepted_importance
+        if requirement_is_score_eligible(row)
+        and _clean_text(row.get("importance")).lower() in accepted_importance
     ]
     group_counts: dict[str, int] = {}
     for row in eligible_rows:
@@ -3302,18 +3507,23 @@ def compute_deterministic_alignment(
     structure_score: int | float = 0,
 ) -> dict[str, Any]:
     """Compute role alignment without mixing in document-quality scores."""
+    scoring_rows = [
+        row for row in linked_requirements if requirement_is_score_eligible(row)
+    ]
+    excluded_non_scoring_count = len(linked_requirements) - len(scoring_rows)
+
     required_score, _, required_denominator = _weighted_coverage(
-        linked_requirements,
+        scoring_rows,
         {"deal_breaker", "required", "core"},
     )
     preferred_score, _, preferred_denominator = _weighted_coverage(
-        linked_requirements,
+        scoring_rows,
         {"preferred"},
     )
 
     evidence_values = [
         min(5, max(0, int(row.get("evidence_strength", 0))))
-        for row in linked_requirements
+        for row in scoring_rows
         if row.get("match_label") != "none"
     ]
     evidence_score = (
@@ -3341,7 +3551,7 @@ def compute_deterministic_alignment(
 
     group_ids = {
         row.get("atomic_group_id") or row.get("requirement_id")
-        for row in linked_requirements
+        for row in scoring_rows
     }
 
     return {
@@ -3360,36 +3570,37 @@ def compute_deterministic_alignment(
             "structure": 0.0,
         },
         "quality_components_excluded_from_role_alignment": True,
-        "requirement_count": len(linked_requirements),
+        "requirement_count": len(scoring_rows),
+        "excluded_non_scoring_requirement_count": excluded_non_scoring_count,
         "requirement_group_count": len(group_ids),
         "credited_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") != "none"
         ),
         "direct_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "direct"
         ),
         "transferable_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "transferable"
         ),
         "weak_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "weak"
         ),
         "required_core_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("importance") in {"deal_breaker", "required", "core"}
         ),
         "preferred_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("importance") == "preferred"
         ),
         "boundary_status": _boundary_margin(overall),
@@ -3512,6 +3723,10 @@ def build_stable_analysis(
             "non_requirement_filter_version": canonical.get(
                 "non_requirement_filter_version",
                 NON_REQUIREMENT_FILTER_VERSION,
+            ),
+            "semantic_eligibility_version": canonical.get(
+                "semantic_eligibility_version",
+                JD_SEMANTIC_ELIGIBILITY_VERSION,
             ),
             "canonical_requirement_decomposition_version": canonical.get(
                 "canonical_requirement_decomposition_version",
