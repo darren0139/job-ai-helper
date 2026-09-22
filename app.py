@@ -350,6 +350,9 @@ from tailoring.canonical_bullet_suggester import (
 )
 
 
+from database.job_discovery_manager import init_job_discovery_schema
+from job_discovery.ui import render_job_finder
+
 from report import render_markdown
 from api_cost import (
     summarise_api_calls,
@@ -2300,6 +2303,7 @@ init_phase9f_application_execution_schema()
 
 init_jd_library()
 init_chat_history()
+init_job_discovery_schema()
 init_session_state()
 init_user_profile_library()
 
@@ -2352,6 +2356,7 @@ with st.sidebar:
             "Blueprint Library",
             "Tag Library",
             "Profile & Evidence",
+            "Job Finder",
             "Job Market Insights",
         ],
         key="navigation_page",
@@ -2652,6 +2657,11 @@ with st.sidebar:
         st.subheader("Tailor Resume")
         st.caption(
             "Analyse a job description without creating an Application Session."
+        )
+    elif page == "Job Finder":
+        st.subheader("Job Finder")
+        st.caption(
+            "Fetch and search normalized Singapore job postings, then hand a selected JD into a new Application Session."
         )
     elif page == "Job Market Insights":
         st.subheader("Job Market Insights")
@@ -8463,6 +8473,9 @@ elif page == "Application Sessions":
         )
     else:
         st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
+
+elif page == "Job Finder":
+    render_job_finder()
 
 elif page == "Blueprint Library":
     st.divider()
