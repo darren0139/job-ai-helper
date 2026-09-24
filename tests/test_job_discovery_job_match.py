@@ -11,7 +11,11 @@ from job_discovery.matching import (
     build_profile_evidence_context,
     fingerprint_evidence_items,
     inspect_job_match,
+    summarize_stable_match,
+    _default_stable_builder,
 )
+from tailoring.candidate_context import build_candidate_context
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 
 
 class JobMatchSnapshotTests(unittest.TestCase):
@@ -92,6 +96,44 @@ class JobMatchSnapshotTests(unittest.TestCase):
         self.assertIn("Python", skill_values)
         self.assertIn("PostgreSQL", skill_values)
         self.assertIn("Built REST APIs with FastAPI.", context["raw_resume_text"])
+
+    def test_context_preserves_canonical_evidence_and_bullets(self) -> None:
+        self.items[0]["canonical_bullets"] = ["Implemented Kubernetes deployments."]
+        self.items[0]["provenance"] = {"source": "user-confirmed"}
+        context = build_profile_evidence_context(self.items)
+        self.assertEqual(context["candidate_context"], build_candidate_context({}, self.items))
+        self.assertEqual(context["evidence_items"], context["candidate_context"]["evidence_library"])
+        self.assertIn("Implemented Kubernetes deployments.", context["resume_profile"]["projects"][0]["bullets"])
+        self.assertIn("Implemented Kubernetes deployments.", context["raw_resume_text"])
+
+    def test_canonical_bullet_change_invalidates_match_identity(self) -> None:
+        before = fingerprint_evidence_items(self.items)
+        self.items[0]["canonical_bullets"] = ["Implemented Kubernetes deployments."]
+        self.assertNotEqual(before, fingerprint_evidence_items(self.items))
+        self.assertEqual(fingerprint_evidence_items(self.items), fingerprint_evidence_items(list(reversed(self.items))))
+
+    def test_summary_excludes_context_from_counts_and_gaps(self) -> None:
+        summary = summarize_stable_match({"requirement_count": 99, "canonical_requirements": [
+            {"text": "Python", "importance": "required", "match_label": "direct", "score_eligible": True},
+            {"text": "Docker", "importance": "required", "match_label": "none", "score_eligible": True},
+            {"text": "Company culture", "importance": "required", "match_label": "none", "score_eligible": False},
+            {"text": "You will receive training in Docker", "importance": "required", "match_label": "none"},
+        ]})
+        self.assertEqual(summary["requirement_count"], 2)
+        self.assertEqual(summary["direct_requirement_count"], 1)
+        self.assertEqual(summary["unmatched_requirement_count"], 1)
+        self.assertEqual(summary["important_gap_count"], 1)
+        self.assertEqual([row["text"] for row in summary["all_gaps"]], ["Docker"])
+
+    def test_default_builder_uses_current_master_scoring(self) -> None:
+        analysis = _default_stable_builder(
+            raw_jd_text="Experience building REST APIs. Docker experience.",
+            jd_profile={"required_skills": ["Experience building REST APIs", "Docker experience"]},
+            context=build_profile_evidence_context(self.items),
+        )
+        self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
+        self.assertGreater(len(analysis["canonical_requirements"]), 0)
+        self.assertTrue(all("score_eligible" in row for row in analysis["canonical_requirements"]))
 
     def test_analyze_match_caches_by_job_and_evidence_identity(self) -> None:
         calls = {"extract": 0, "build": 0}

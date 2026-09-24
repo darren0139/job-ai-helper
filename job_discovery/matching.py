@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from copy import deepcopy
 from typing import Any, Callable
+
+from tailoring.candidate_context import build_candidate_context, context_fingerprint
 
 from database.job_match_manager import (
     get_job_match_snapshot,
@@ -14,22 +13,12 @@ from database.job_match_manager import (
 )
 
 
-MATCH_VERSION = "job-match-snapshot-v2.0"
+MATCH_VERSION = "job-match-snapshot-v2.0.1"
 IMPORTANT_IMPORTANCE = {"deal_breaker", "required", "core"}
 
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
 
 
 def fingerprint_evidence_items(
@@ -40,26 +29,14 @@ def fingerprint_evidence_items(
     Presentation-only fields and updated_at are intentionally excluded so
     cosmetic edits do not invalidate a cached match.
     """
-    rows: list[dict[str, Any]] = []
-    for item in sorted(
-        [row for row in (evidence_items or []) if isinstance(row, dict)],
-        key=lambda row: (int(row.get("id", 0) or 0), _clean(row.get("title")).casefold()),
-    ):
-        rows.append(
-            {
-                "id": int(item.get("id", 0) or 0),
-                "category": _clean(item.get("category")),
-                "title": _clean(item.get("title")),
-                "subtitle": _clean(item.get("subtitle")),
-                "description": str(item.get("description") or "").strip(),
-                "period": _clean(item.get("period")),
-                "skills": [_clean(v) for v in item.get("skills", []) or [] if _clean(v)],
-                "tools": [_clean(v) for v in item.get("tools", []) or [] if _clean(v)],
-                "impact": str(item.get("impact") or "").strip(),
-                "source_type": _clean(item.get("source_type")),
-            }
-        )
-    return hashlib.sha256(_canonical_json(rows).encode("utf-8")).hexdigest()
+    # Keep the canonical supported-field boundary and provenance. Timestamp
+    # edits alone must still leave Job Match snapshots current.
+    rows = [
+        {key: value for key, value in item.items()
+         if key not in {"created_at", "updated_at", "display_title"}}
+        for item in (evidence_items or []) if isinstance(item, dict)
+    ]
+    return context_fingerprint(build_candidate_context({}, rows))
 
 
 def _description_lines(value: Any) -> list[str]:
@@ -81,10 +58,12 @@ def build_profile_evidence_context(
     represented in raw_resume_text so coursework/certifications/other truthful
     evidence remains eligible without pretending it was employment.
     """
-    items = sorted(
-        [deepcopy(row) for row in (evidence_items or []) if isinstance(row, dict)],
-        key=lambda row: (int(row.get("id", 0) or 0), _clean(row.get("title")).casefold()),
+    candidate_context = build_candidate_context(
+        {}, [row for row in (evidence_items or []) if isinstance(row, dict)]
     )
+    # This is only a scorer input projection of canonical evidence, not a
+    # separate source of candidate truth or an inferred employment history.
+    items = candidate_context["evidence_library"]
     resume_profile: dict[str, Any] = {
         "education": [],
         "experience": [],
@@ -100,6 +79,11 @@ def build_profile_evidence_context(
         subtitle = _clean(item.get("subtitle"))
         period = _clean(item.get("period"))
         description_lines = _description_lines(item.get("description"))
+        for field in ("canonical_bullets", "bullets"):
+            for bullet in item.get(field, []) or []:
+                for line in _description_lines(bullet):
+                    if line not in description_lines:
+                        description_lines.append(line)
         impact_lines = _description_lines(item.get("impact"))
         bullets = list(description_lines)
         for line in impact_lines:
@@ -155,6 +139,7 @@ def build_profile_evidence_context(
             deduped_raw.append(cleaned)
 
     return {
+        "candidate_context": candidate_context,
         "evidence_items": items,
         "evidence_item_count": len(items),
         "evidence_fingerprint": fingerprint_evidence_items(items),
@@ -227,10 +212,12 @@ def _default_stable_builder(
 def summarize_stable_match(
     stable_analysis: dict[str, Any],
 ) -> dict[str, Any]:
+    from analysis_stability.stable_evidence_scoring import requirement_is_score_eligible
+
     rows = [
         row
         for row in stable_analysis.get("canonical_requirements", []) or []
-        if isinstance(row, dict)
+        if isinstance(row, dict) and requirement_is_score_eligible(row)
     ]
     important_gaps: list[dict[str, Any]] = []
     all_gaps: list[dict[str, Any]] = []
@@ -274,9 +261,7 @@ def summarize_stable_match(
         "evidence_strength_score": int(
             stable_analysis.get("evidence_strength_score", 0) or 0
         ),
-        "requirement_count": int(
-            stable_analysis.get("requirement_count", len(rows)) or len(rows)
-        ),
+        "requirement_count": len(rows),
         "direct_requirement_count": counts["direct"],
         "transferable_requirement_count": counts["transferable"],
         "weak_requirement_count": counts["weak"],
