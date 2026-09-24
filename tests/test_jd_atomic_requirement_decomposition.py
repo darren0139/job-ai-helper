@@ -6,8 +6,10 @@ from pathlib import Path
 
 from analysis_stability.stable_evidence_scoring import (
     CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION,
+    JD_SEMANTIC_ELIGIBILITY_VERSION,
     MATCH_VALUES,
     SCORING_VERSION,
+    classify_jd_statement_semantics,
     _weighted_coverage,
     build_stable_analysis,
     canonicalise_requirements,
@@ -34,7 +36,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
         result = _canonical(raw)
         texts = [row["text"] for row in result["requirements"]]
 
-        self.assertEqual(len(texts), 21)
+        self.assertEqual(len(texts), 20)
         self.assertIn("Good foundation in modern C/C++ programming", texts)
         self.assertIn("Experience working with OpenGL and/or Vulkan", texts)
         self.assertEqual(
@@ -122,20 +124,17 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
                     "working with clients to understand their needs and in turn, "
                     "implement their requirements accordingly"
                 ),
-                "familiarised with the entire robotics development and software workflow",
             ],
         )
         self.assertEqual(len({row["atomic_group_id"] for row in rows}), 1)
         for expected_sentence_index, row in enumerate(rows, start=1):
-            if expected_sentence_index == 4:
-                expected_sentence_index = 5
             provenance = row["source_provenance"]
             self.assertEqual(len(provenance), 1)
             source = provenance[0]
             self.assertEqual(row["importance"], "core")
-            self.assertEqual(row["group_weight_fraction"], 0.25)
+            self.assertAlmostEqual(row["group_weight_fraction"], 1 / 3, places=6)
             self.assertEqual(source["source"], "raw_jd.unheaded_explicit_role_obligation")
-            self.assertEqual(source["source_group_fraction"], 0.25)
+            self.assertAlmostEqual(source["source_group_fraction"], 1 / 3, places=6)
             self.assertTrue(source["contributes_scoring_allocation"])
             self.assertEqual(source["parent_text"], raw.splitlines()[0])
             self.assertEqual(
@@ -153,18 +152,27 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
             "working alongside industry experts",
             [row["text"] for row in result["requirements"]],
         )
+        exclusions = result["decomposition_debug"]["unheaded_raw_exclusions"]
         self.assertEqual(
-            result["decomposition_debug"]["unheaded_raw_exclusions"],
+            [(row["text"], row["reason"]) for row in exclusions],
             [
-                {
-                    "text": "You will be working alongside industry experts",
-                    "span_id": "jdspan_efd1502032e2",
-                    "line_index": 1,
-                    "sentence_index": 4,
-                    "reason": "contextual_company_or_team_prose",
-                }
+                (
+                    "You will be working alongside industry experts",
+                    "contextual_company_or_team_prose",
+                ),
+                (
+                    "At the same time, you will be familiarised with the entire "
+                    "robotics development and software workflow",
+                    "non_requirement_training_outcome_future_learning",
+                ),
             ],
         )
+        self.assertEqual(
+            [row["semantic_type"] for row in exclusions],
+            ["role_context", "training_outcome"],
+        )
+        self.assertTrue(all(not row["score_eligible"] for row in exclusions))
+        self.assertTrue(all(not row["tailoring_eligible"] for row in exclusions))
 
     def test_fixture_003_unheaded_parent_group_conserves_core_weight(self):
         raw = (FIXTURE_ROOT / "003_dConstruct_Software_Engineer_jdv_4537aa97.txt").read_text(
@@ -176,7 +184,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
             for row in result["requirements"]
             if row["sources"] == ["raw_jd.unheaded_explicit_role_obligation"]
         ]
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), 3)
         self.assertEqual(len({row["atomic_group_id"] for row in rows}), 1)
 
         for row in rows:
@@ -717,6 +725,142 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
         self.assertAlmostEqual(numerator, 4.0)
         self.assertAlmostEqual(denominator, 4.0)
 
+    def test_semantic_eligibility_separates_context_training_and_real_responsibilities(self):
+        cases = (
+            (
+                "You will be working alongside industry experts",
+                "role_context",
+                False,
+            ),
+            (
+                "At the same time, you will be familiarised with the entire robotics "
+                "development and software workflow",
+                "training_outcome",
+                False,
+            ),
+            (
+                "Develop and integrate functionality from our software stack for external clients",
+                "role_responsibility",
+                True,
+            ),
+            (
+                "Experience working with Android app development and Kotlin",
+                "candidate_requirement",
+                True,
+            ),
+        )
+        for text, expected_type, expected_eligible in cases:
+            with self.subTest(text=text):
+                metadata = classify_jd_statement_semantics(
+                    text,
+                    source=(
+                        "jd_profile.responsibilities"
+                        if expected_type == "role_responsibility"
+                        else ""
+                    ),
+                    importance=(
+                        "core" if expected_type == "role_responsibility" else "required"
+                    ),
+                )
+                self.assertEqual(metadata["semantic_type"], expected_type)
+                self.assertEqual(metadata["score_eligible"], expected_eligible)
+                self.assertEqual(metadata["tailoring_eligible"], expected_eligible)
+                self.assertEqual(
+                    metadata["semantic_eligibility_version"],
+                    JD_SEMANTIC_ELIGIBILITY_VERSION,
+                )
+
+
+    def test_training_outcome_british_and_american_spelling_are_equivalent(self):
+        variants = (
+            "At the same time, you will be familiarised with the entire robotics "
+            "development and software workflow",
+            "At the same time, you will be familiarized with the entire robotics "
+            "development and software workflow",
+        )
+        for text in variants:
+            with self.subTest(text=text):
+                metadata = classify_jd_statement_semantics(
+                    text,
+                    source="jd_profile.responsibilities",
+                    importance="core",
+                )
+                self.assertEqual(metadata["semantic_type"], "training_outcome")
+                self.assertFalse(metadata["evidence_eligible"])
+                self.assertFalse(metadata["score_eligible"])
+                self.assertFalse(metadata["tailoring_eligible"])
+                self.assertEqual(
+                    metadata["eligibility_rule"],
+                    "training_outcome_future_learning",
+                )
+
+                result = _canonical(
+                    "",
+                    {
+                        "responsibilities": [
+                            text,
+                            "Develop and integrate functionality from our software stack "
+                            "for external clients",
+                        ]
+                    },
+                )
+                surviving = [row["text"] for row in result["requirements"]]
+                self.assertEqual(
+                    surviving,
+                    [
+                        "Develop and integrate functionality from our software stack "
+                        "for external clients"
+                    ],
+                )
+                filtered = {
+                    row["text"]: row
+                    for row in result["filtered_non_requirement_rows"]
+                }
+                self.assertIn(text, filtered)
+                self.assertEqual(filtered[text]["semantic_type"], "training_outcome")
+                self.assertFalse(filtered[text]["score_eligible"])
+                self.assertFalse(filtered[text]["tailoring_eligible"])
+
+    def test_profile_only_context_and_training_are_excluded_from_canonical_requirements(self):
+        result = _canonical(
+            "",
+            {
+                "responsibilities": [
+                    "You will be working alongside industry experts",
+                    "At the same time, you will be familiarised with the entire robotics "
+                    "development and software workflow",
+                    "Develop and integrate functionality from our software stack for external clients",
+                ]
+            },
+        )
+        self.assertEqual(
+            [row["text"] for row in result["requirements"]],
+            [
+                "Develop and integrate functionality from our software stack for external clients"
+            ],
+        )
+        surviving = result["requirements"][0]
+        self.assertEqual(surviving["semantic_type"], "role_responsibility")
+        self.assertTrue(surviving["score_eligible"])
+        self.assertTrue(surviving["tailoring_eligible"])
+
+        filtered = {
+            row["text"]: row
+            for row in result["filtered_non_requirement_rows"]
+        }
+        self.assertEqual(
+            filtered["You will be working alongside industry experts"]["semantic_type"],
+            "role_context",
+        )
+        self.assertEqual(
+            filtered[
+                "At the same time, you will be familiarised with the entire robotics "
+                "development and software workflow"
+            ]["semantic_type"],
+            "training_outcome",
+        )
+        self.assertTrue(all(not row["score_eligible"] for row in filtered.values()))
+
     def test_formatting_variants_keep_ids_groups_and_source_fractions_stable(self):
         first = _canonical(
             "Requirements\nBuild backend APIs and write automated tests\n"
@@ -739,7 +883,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
             retrieval_mode_override="off",
         )
 
-        self.assertEqual(analysis["scoring_version"], "stable-evidence-v1.5-phase6d10")
+        self.assertEqual(analysis["scoring_version"], "stable-evidence-v1.7-phase6d12")
         self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
         self.assertEqual(
             analysis["canonicalisation_debug"][

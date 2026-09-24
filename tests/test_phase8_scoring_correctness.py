@@ -5,6 +5,7 @@ import unittest
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
     canonicalise_requirements,
+    compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
 from tailoring.fresh_target_evidence_scoring import build_fresh_target_analysis
@@ -230,6 +231,36 @@ def _phase8_mock_analysis(
 
 
 class Phase8ScoringCorrectnessTests(unittest.TestCase):
+    def test_non_evidence_bearing_role_context_is_excluded_from_score_denominator(self):
+        eligible = _row(
+            "req_real",
+            "Good foundation in modern C/C++ programming",
+            "direct",
+            importance="core",
+        )
+        role_context = _row(
+            "req_context",
+            "You will be working alongside industry experts",
+            "none",
+            importance="core",
+        )
+        training = _row(
+            "req_training",
+            "At the same time, you will be familiarised with the entire robotics "
+            "development and software workflow",
+            "none",
+            importance="core",
+        )
+
+        result = compute_deterministic_alignment(
+            [eligible, role_context, training]
+        )
+
+        self.assertEqual(result["required_core_coverage_score"], 100)
+        self.assertEqual(result["requirement_count"], 1)
+        self.assertEqual(result["excluded_non_scoring_requirement_count"], 2)
+        self.assertEqual(result["required_core_requirement_count"], 1)
+
     def test_non_requirement_boilerplate_is_filtered_but_real_contract_skill_survives(self):
         raw_jd = """
 What we are looking for
@@ -745,7 +776,7 @@ All applicants will be updated on the status of their applications within 4 week
         self.assertEqual(result["verdict"], "regression_detected")
 
     def test_versions_are_bumped_for_saved_result_invalidation(self):
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.5-phase6d10")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.7-phase6d12")
         self.assertEqual(
             get_default_taxonomy().version,
             "phase6d-capability-taxonomy-v1.4",

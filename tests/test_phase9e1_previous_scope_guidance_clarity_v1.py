@@ -16,11 +16,15 @@ class PreviousScopeGuidanceClarityTests(unittest.TestCase):
 
         self.assertIn("belongs to a previous ", text)
         self.assertIn(
-            "Tailoring Base and is read-only. Use Start new résumé ",
+            "Start a new résumé from the current Tailoring Base below ",
             text,
         )
         self.assertIn(
-            "from current Tailoring Base in the Résumé Workspace ",
+            '"phase9e1_inline_start_current_base_"',
+            text,
+        )
+        self.assertIn(
+            "start_new_resume_from_current_tailoring_base(",
             text,
         )
 
@@ -43,11 +47,15 @@ class PreviousScopeGuidanceClarityTests(unittest.TestCase):
         self.assertIn("previous_scope_message_approved", block)
         self.assertIn("belongs to a previous ", block)
         self.assertIn(
-            "Tailoring Base and is read-only. Use Start new résumé ",
+            "Tailoring Base and is read-only. Use the ",
             block,
         )
         self.assertIn(
-            "from current Tailoring Base in the Résumé Workspace ",
+            "'Start new résumé from current Tailoring Base' action ",
+            block,
+        )
+        self.assertIn(
+            "in Tailor Résumé Content above ",
             block,
         )
 
@@ -69,7 +77,7 @@ class PreviousScopeGuidanceClarityTests(unittest.TestCase):
             text,
         )
         self.assertIn(
-            "in the Résumé Workspace. The previous approved result remains ",
+            "in Tailor Résumé Content. The previous approved result remains ",
             text,
         )
         self.assertIn(
