@@ -16,8 +16,11 @@ class _VisibleTextParser(HTMLParser):
         lowered = tag.lower()
         if lowered in {"script", "style", "noscript"}:
             self._skip_depth += 1
+        elif self._skip_depth == 0 and lowered == "li":
+            self.parts.append("\n- ")
         elif self._skip_depth == 0 and lowered in {
-            "p", "div", "br", "li", "ul", "ol", "section", "h1", "h2", "h3", "h4"
+            "p", "div", "br", "ul", "ol", "section",
+            "h1", "h2", "h3", "h4", "h5", "h6",
         }:
             self.parts.append("\n")
 
