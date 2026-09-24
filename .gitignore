@@ -41,3 +41,5 @@ data/chroma_capability_taxonomy/
 
 # Blueprint-owned immutable resume artifacts
 data/blueprint_artifacts/
+debug_exports/*
+
