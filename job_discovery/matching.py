@@ -11,9 +11,12 @@ from database.job_match_manager import (
     get_latest_job_match_snapshot,
     save_job_match_snapshot,
 )
+from taxonomy_discovery.observations import (
+    build_taxonomy_resolution_diagnostics,
+)
 
 
-MATCH_VERSION = "job-match-snapshot-v2.0.1"
+MATCH_VERSION = "job-match-snapshot-v2.1.0"
 IMPORTANT_IMPORTANCE = {"deal_breaker", "required", "core"}
 
 
@@ -247,7 +250,12 @@ def summarize_stable_match(
         for label in ("direct", "transferable", "weak", "none")
     }
 
+    taxonomy_resolution = build_taxonomy_resolution_diagnostics(
+        stable_analysis
+    )
+
     return {
+        "taxonomy_resolution": taxonomy_resolution,
         "deterministic_alignment_score": int(
             stable_analysis.get("deterministic_alignment_score", 0) or 0
         ),

@@ -148,6 +148,51 @@ def get_latest_job_match_snapshot(
         connection.close()
 
 
+def list_latest_compatible_job_match_snapshots(
+    *,
+    match_version: str,
+    scoring_version: str,
+    taxonomy_version: str,
+) -> list[dict[str, Any]]:
+    """Return one latest compatible Job Match snapshot per discovered job.
+
+    A job may have multiple snapshots because its evidence fingerprint changed.
+    Taxonomy discovery must not count historical snapshots from the same job as
+    independent market observations.
+    """
+    init_job_match_schema()
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT current.*
+            FROM job_match_snapshots AS current
+            JOIN (
+                SELECT discovered_job_id, MAX(id) AS latest_id
+                FROM job_match_snapshots
+                WHERE match_version = ?
+                  AND scoring_version = ?
+                  AND taxonomy_version = ?
+                GROUP BY discovered_job_id
+            ) AS latest
+              ON latest.latest_id = current.id
+            ORDER BY current.discovered_job_id ASC, current.id ASC
+            """,
+            (
+                str(match_version or ""),
+                str(scoring_version or ""),
+                str(taxonomy_version or ""),
+            ),
+        ).fetchall()
+        return [
+            decoded
+            for decoded in (_decode_row(row) for row in rows)
+            if decoded is not None
+        ]
+    finally:
+        connection.close()
+
+
 def save_job_match_snapshot(
     *,
     discovered_job_id: int,

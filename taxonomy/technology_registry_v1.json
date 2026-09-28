@@ -1,0 +1,454 @@
+{
+  "description": "Approved technology/terminology registry for deterministic taxonomy resolution. Only approved maps_to_capability relationships can automatically resolve a TQ-D2 discovery candidate. Recognized-but-unmapped entries remain available as known technologies without forcing an unsafe canonical capability mapping.",
+  "entries": [
+    {
+      "aliases": [
+        "Angular",
+        "AngularJS"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "frontend.ui_development",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "framework",
+      "label": "Angular",
+      "notes": "Bootstrap relationship to the existing frontend/UI capability.",
+      "status": "approved",
+      "technology_id": "angular"
+    },
+    {
+      "aliases": [
+        "Kafka",
+        "Apache Kafka"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "platform",
+      "label": "Apache Kafka",
+      "notes": "Messaging/streaming technology mapped to the existing real-time messaging capability.",
+      "status": "approved",
+      "technology_id": "apache.kafka"
+    },
+    {
+      "aliases": [
+        "Apache Pulsar",
+        "Pulsar"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "platform",
+      "label": "Apache Pulsar",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_595c511d7639369779b4 in tranche 1.",
+      "status": "approved",
+      "technology_id": "apache.pulsar"
+    },
+    {
+      "aliases": [
+        "Circle CI",
+        "CircleCI"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.ci_cd",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "CircleCI",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_ffbbfa49606896cc76bd in tranche 1.",
+      "status": "approved",
+      "technology_id": "circleci"
+    },
+    {
+      "aliases": [
+        "C#",
+        "C Sharp"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "language",
+      "label": "C#",
+      "notes": "Recognized language; explicitly distinct from the existing C/C++ capability.",
+      "status": "approved",
+      "technology_id": "csharp"
+    },
+    {
+      "aliases": [
+        "Docker"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.containerisation",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Docker",
+      "notes": "Mirrors an already-established canonical taxonomy relationship.",
+      "status": "approved",
+      "technology_id": "docker"
+    },
+    {
+      "aliases": [
+        "Docker Compose",
+        "docker compose"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.containerisation",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Docker Compose",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_c4b9391e9c8a55b928e1 in tranche 1.",
+      "status": "approved",
+      "technology_id": "docker.compose"
+    },
+    {
+      "aliases": [
+        ".NET",
+        "Dotnet",
+        "Dot Net"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "platform",
+      "label": ".NET",
+      "notes": "Recognized platform; no conservative one-to-one capability target in the current taxonomy.",
+      "status": "approved",
+      "technology_id": "dotnet"
+    },
+    {
+      "aliases": [
+        "GitHub Actions",
+        "Github Actions"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.ci_cd",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "GitHub Actions",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_04a938d8a564acf8d80b in tranche 1.",
+      "status": "approved",
+      "technology_id": "github.actions"
+    },
+    {
+      "aliases": [
+        "GitLab CI",
+        "GitLab CI/CD",
+        "Gitlab CI",
+        "Gitlab CI/CD"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.ci_cd",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "GitLab CI/CD",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_019d19ba2314918c35c9 in tranche 1.",
+      "status": "approved",
+      "technology_id": "gitlab.ci_cd"
+    },
+    {
+      "aliases": [
+        "Grafana"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.observability",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Grafana",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_b308e425d95dc42e2c30 in tranche 1.",
+      "status": "approved",
+      "technology_id": "grafana"
+    },
+    {
+      "aliases": [
+        "IBM MQ",
+        "WebSphere MQ"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "product",
+      "label": "IBM MQ",
+      "notes": "Enterprise messaging product mapped to the existing messaging capability.",
+      "status": "approved",
+      "technology_id": "ibm.mq"
+    },
+    {
+      "aliases": [
+        "Jenkins"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.ci_cd",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Jenkins",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_5f1ff618e680f1adc966 in tranche 1.",
+      "status": "approved",
+      "technology_id": "jenkins"
+    },
+    {
+      "aliases": [
+        "Keycloak"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "product",
+      "label": "Keycloak",
+      "notes": "Recognized IAM product; current capability taxonomy has no approved IAM capability target.",
+      "status": "approved",
+      "technology_id": "keycloak"
+    },
+    {
+      "aliases": [
+        "Kubernetes",
+        "K8s"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.kubernetes",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "platform",
+      "label": "Kubernetes",
+      "notes": "Mirrors an already-established canonical taxonomy relationship.",
+      "status": "approved",
+      "technology_id": "kubernetes"
+    },
+    {
+      "aliases": [
+        "Microservices",
+        "Microservice architecture"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "architecture_pattern",
+      "label": "Microservices",
+      "notes": "Recognized architecture term; no approved canonical capability target yet.",
+      "status": "approved",
+      "technology_id": "microservices"
+    },
+    {
+      "aliases": [
+        "MongoDB"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "product",
+      "label": "MongoDB",
+      "notes": "Recognized technology; database.design would overstate a bare MongoDB requirement.",
+      "status": "approved",
+      "technology_id": "mongodb"
+    },
+    {
+      "aliases": [
+        "MQTT",
+        "Message Queuing Telemetry Transport"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "protocol",
+      "label": "MQTT",
+      "notes": "Messaging protocol mapped to the existing real-time messaging capability.",
+      "status": "approved",
+      "technology_id": "mqtt"
+    },
+    {
+      "aliases": [
+        "NATS",
+        "NATS.io"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "platform",
+      "label": "NATS",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_5181b2a6bec3c8e49bda in tranche 1.",
+      "status": "approved",
+      "technology_id": "nats"
+    },
+    {
+      "aliases": [
+        "Node.js",
+        "NodeJS",
+        "Node JS"
+      ],
+      "capability_relationships": [],
+      "entry_kind": "runtime",
+      "label": "Node.js",
+      "notes": "Recognized technology; no sufficiently narrow approved canonical capability mapping yet.",
+      "status": "approved",
+      "technology_id": "node.js"
+    },
+    {
+      "aliases": [
+        "OTel",
+        "Open Telemetry",
+        "OpenTelemetry"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.observability",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "OpenTelemetry",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_26b7038c8db53d2f31b0 in tranche 1.",
+      "status": "approved",
+      "technology_id": "opentelemetry"
+    },
+    {
+      "aliases": [
+        "Podman"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.containerisation",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Podman",
+      "notes": "Container-engine technology mapped conservatively to containerisation.",
+      "status": "approved",
+      "technology_id": "podman"
+    },
+    {
+      "aliases": [
+        "Prometheus"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "devops.observability",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "tool",
+      "label": "Prometheus",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_d306645098f70ef0a24f in tranche 1.",
+      "status": "approved",
+      "technology_id": "prometheus"
+    },
+    {
+      "aliases": [
+        "RabbitMQ"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "realtime.messaging_streaming",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "product",
+      "label": "RabbitMQ",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_6ddbce0cab7a29d4e30e in tranche 1.",
+      "status": "approved",
+      "technology_id": "rabbitmq"
+    },
+    {
+      "aliases": [
+        "React",
+        "React.js",
+        "ReactJS"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "frontend.ui_development",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "framework",
+      "label": "React",
+      "notes": "Bootstrap relationship to the existing frontend/UI capability.",
+      "status": "approved",
+      "technology_id": "react"
+    },
+    {
+      "aliases": [
+        "Svelte"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "frontend.ui_development",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "framework",
+      "label": "Svelte",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_4d8a74029cfe7475c922 in tranche 1.",
+      "status": "approved",
+      "technology_id": "svelte"
+    },
+    {
+      "aliases": [
+        "Vue",
+        "Vue.js",
+        "VueJS"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "frontend.ui_development",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "framework",
+      "label": "Vue.js",
+      "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_35e71ca183cd98faae69 in tranche 1.",
+      "status": "approved",
+      "technology_id": "vue.js"
+    }
+  ],
+  "registry_version": "technology-registry-v1.1"
+}
