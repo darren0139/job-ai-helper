@@ -43,8 +43,9 @@ def _render_browser_bridge_status() -> None:
 
     with st.expander("Extension pairing", expanded=False):
         st.caption(
-            "Pair once by copying this local token into the Chrome extension. "
-            "The token remains stable across Streamlit restarts."
+            "Pair once by copying this local token into the Job AI Helper "
+            "browser extension. The token remains stable across Streamlit "
+            "restarts. Chrome, Edge, and Firefox store their pairing separately."
         )
         st.code(runtime.token)
         st.warning(
@@ -78,7 +79,7 @@ def render_browser_capture_inbox() -> None:
         "Refresh Browser JD Queue",
         key="browser_jd_queue_refresh",
         help=(
-            "Reload this Streamlit page so captures written by the Chrome "
+            "Reload this Streamlit page so captures written by the browser "
             "extension appear immediately."
         ),
     )
@@ -112,8 +113,8 @@ def render_browser_capture_inbox() -> None:
                 st.rerun()
     if not captures:
         st.info(
-            "No browser JD captures yet. Extract a job page with the Chrome "
-            "extension, then choose 'Save JD to Job AI Helper'."
+            "No browser JD captures yet. Extract a job page with the Job AI "
+            "Helper browser extension, then choose 'Save JD to Job AI Helper'."
         )
         return
 
