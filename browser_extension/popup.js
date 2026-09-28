@@ -9,6 +9,8 @@ const profileStatus = document.getElementById("profileStatus");
 const bridgeUrl = document.getElementById("bridgeUrl");
 const bridgeToken = document.getElementById("bridgeToken");
 const bridgeStatus = document.getElementById("bridgeStatus");
+const showBridgeTokenButton = document.getElementById("showBridgeTokenButton");
+const clearPairingButton = document.getElementById("clearPairingButton");
 const connectButton = document.getElementById("connectButton");
 const extractButton = document.getElementById("extractButton");
 const saveCaptureButton = document.getElementById("saveCaptureButton");
@@ -41,6 +43,17 @@ function cleanedBridgeUrl() {
   return String(bridgeUrl.value || "").trim().replace(/\/+$/, "");
 }
 
+function refreshBridgeTokenControls() {
+  const hasToken = Boolean(String(bridgeToken.value || "").trim());
+  showBridgeTokenButton.disabled = !hasToken;
+  clearPairingButton.disabled = !hasToken;
+
+  if (!hasToken) {
+    bridgeToken.type = "password";
+    showBridgeTokenButton.textContent = "Show token";
+  }
+}
+
 async function bridgeFetch(path, options = {}) {
   const base = cleanedBridgeUrl();
   const token = String(bridgeToken.value || "").trim();
@@ -59,6 +72,13 @@ async function bridgeFetch(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
+    if (response.status === 401) {
+      throw new Error(
+        "Pairing token was rejected by Job AI Helper on this computer. " +
+          "Firefox, Chrome, and Edge store extension pairing separately. " +
+          "Paste the bridge token from this computer and connect again."
+      );
+    }
     throw new Error(payload.error || `Bridge request failed (${response.status}).`);
   }
   return payload;
@@ -481,13 +501,16 @@ async function restoreBridgeSettings() {
 
   bridgeUrl.value = stored[BRIDGE_URL_KEY] || "http://127.0.0.1:8765";
   bridgeToken.value = stored[BRIDGE_TOKEN_KEY] || "";
+  refreshBridgeTokenControls();
+
+  bridgeStatus.textContent = bridgeToken.value
+    ? "Saved pairing found in this browser. Reconnecting..."
+    : "No pairing token stored in this browser. Paste this computer's bridge token.";
 }
 
 async function connectAndLoadProfile({ showConnectionResult = true } = {}) {
-  await chrome.storage.local.set({
-    [BRIDGE_URL_KEY]: cleanedBridgeUrl(),
-    [BRIDGE_TOKEN_KEY]: String(bridgeToken.value || "").trim(),
-  });
+  const bridgeUrlValue = cleanedBridgeUrl();
+  const bridgeTokenValue = String(bridgeToken.value || "").trim();
 
   const health = await bridgeFetch("/health");
   const profileResponse = await bridgeFetch("/api/v1/application-profile");
@@ -495,7 +518,12 @@ async function connectAndLoadProfile({ showConnectionResult = true } = {}) {
     application_profile: profileResponse.application_profile,
   };
 
-  await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: payload });
+  await chrome.storage.local.set({
+    [BRIDGE_URL_KEY]: bridgeUrlValue,
+    [BRIDGE_TOKEN_KEY]: bridgeTokenValue,
+    [PROFILE_STORAGE_KEY]: payload,
+  });
+  refreshBridgeTokenControls();
   await loadStoredProfileStatus();
 
   bridgeStatus.textContent = `Connected to ${health.service || "Job AI Helper bridge"}.`;
@@ -509,6 +537,29 @@ async function connectAndLoadProfile({ showConnectionResult = true } = {}) {
   }
   return health;
 }
+
+showBridgeTokenButton.addEventListener("click", () => {
+  if (!String(bridgeToken.value || "").trim()) return;
+
+  const reveal = bridgeToken.type === "password";
+  bridgeToken.type = reveal ? "text" : "password";
+  showBridgeTokenButton.textContent = reveal ? "Hide token" : "Show token";
+});
+
+bridgeToken.addEventListener("input", refreshBridgeTokenControls);
+
+clearPairingButton.addEventListener("click", async () => {
+  await chrome.storage.local.remove(BRIDGE_TOKEN_KEY);
+  bridgeToken.value = "";
+  refreshBridgeTokenControls();
+  bridgeStatus.textContent =
+    "Saved bridge pairing cleared for this browser. Paste this computer's token to reconnect.";
+  showResult({
+    ok: true,
+    action: "clear_browser_bridge_pairing",
+    note: "Only the saved bridge token was cleared. No profile or JD data was deleted.",
+  });
+});
 
 connectButton.addEventListener("click", async () => {
   try {

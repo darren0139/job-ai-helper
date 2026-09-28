@@ -19,10 +19,18 @@
       </label>
       <label>
         Bridge token
-        <input id="bridgeToken" type="password" placeholder="Paste token printed by bridge">
+        <input id="bridgeToken" type="password" placeholder="Paste this computer's bridge token">
       </label>
+      <div class="row">
+        <button id="showBridgeTokenButton" type="button" disabled>Show token</button>
+        <button id="clearPairingButton" type="button" disabled>Clear saved pairing</button>
+      </div>
+      <p class="hint">
+        Pairing is stored separately in each browser. Firefox does not inherit
+        a token previously saved in Chrome or Edge.
+      </p>
       <button id="connectButton" type="button">Connect + load profile</button>
-      <div id="bridgeStatus" class="status">Not connected.</div>
+      <div id="bridgeStatus" class="status">No pairing token stored in this browser.</div>
     </section>
 
     <section>

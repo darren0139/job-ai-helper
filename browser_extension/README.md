@@ -45,7 +45,7 @@ The bridge exposes only:
 - pending browser JD capture save/read operations
 
 Browser requests require the random bridge token. CORS responses are provided
-only to Chrome-extension origins, not ordinary webpages.
+only to Chrome/Edge or Firefox extension origins, not ordinary webpages.
 
 ## Careers@Gov improvements
 
@@ -504,3 +504,69 @@ While either batch action is running:
 The capture pipeline itself is unchanged: batch capture still sends
 `JOB_AI_EXTRACT_PAGE` to each selected tab and then POSTs the resulting clean
 capture to `/api/v1/jd-captures`.
+
+## v4.6.8 Firefox build target
+
+v4.6.8 keeps one shared browser-extension implementation and adds a Firefox
+Manifest V3 build target. The JD adapters, cleaning rules, batch capture logic,
+safe autofill whitelist, and localhost API calls are not forked by browser.
+
+Source manifests:
+
+- `manifest.json`: Chrome / Edge
+- `manifest.firefox.json`: Firefox
+
+Build both packages from the repository root:
+
+```bat
+python scripts\build_browser_extension.py --target all
+```
+
+The generated packages are local build artifacts:
+
+```text
+dist/browser_extension/chrome/
+dist/browser_extension/firefox/
+```
+
+For Firefox development testing:
+
+1. Build the Firefox target.
+2. Open `about:debugging`.
+3. Choose **This Firefox**.
+4. Choose **Load Temporary Add-on**.
+5. Select `dist/browser_extension/firefox/manifest.json`.
+
+The Firefox manifest preserves the same least-privilege permission model as the
+Chromium manifest and adds only Firefox-specific Gecko metadata. The extension
+continues to request `tabs` and selected HTTP(S) origins at runtime rather than
+using `<all_urls>`.
+
+The localhost bridge accepts both `chrome-extension://` and
+`moz-extension://` origins. Ordinary web-page origins remain rejected.
+
+The Firefox package still uses the same deterministic safety boundary: no model
+calls, no login automation, no application navigation, no resume upload, no
+generated screening answers, no declarations, and no submit action.
+
+## v4.6.9 Browser pairing UX
+
+Chrome, Edge, and Firefox keep separate extension-local storage. A token saved
+in one browser is therefore not automatically available in another browser,
+even on the same computer.
+
+v4.6.9 makes that state explicit:
+
+- a stored token can be revealed temporarily with **Show token**;
+- **Clear saved pairing** removes only the browser's saved bridge token;
+- clearing pairing does not delete the cached Application Profile, JD captures,
+  or Job AI Helper database data;
+- a missing token is reported as browser-local pairing state;
+- HTTP 401 now explains that the token was rejected by Job AI Helper on this
+  computer and that each browser stores pairing separately;
+- a newly entered token is persisted only after `/health` and
+  `/api/v1/application-profile` both succeed, so a rejected token is not saved
+  as the browser's next automatic reconnect credential.
+
+The token remains masked by default. This patch does not add an unauthenticated
+token-discovery endpoint and does not weaken the localhost bridge's token check.

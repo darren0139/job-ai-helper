@@ -27,7 +27,7 @@ TOKEN_HEADER = "X-Job-AI-Bridge-Token"
 
 def _allowed_extension_origin(origin: str) -> bool:
     value = str(origin or "").strip().lower()
-    return value.startswith("chrome-extension://")
+    return value.startswith(("chrome-extension://", "moz-extension://"))
 
 
 class JobAIBridgeServer(ThreadingHTTPServer):
