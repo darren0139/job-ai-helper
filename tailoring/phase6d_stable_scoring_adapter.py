@@ -9,9 +9,17 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
+from tailoring.capability_taxonomy import (
+    evaluate_capability_evidence,
+    evaluate_evidence,
+    get_default_taxonomy,
+)
 from tailoring.phase6d5_retrieval import (
     build_capability_retrieval_trace,
+)
+
+from taxonomy_discovery.technology_registry import (
+    resolve_requirement_text,
 )
 
 _LABEL_ORDER = {"none": 0, "weak": 1, "transferable": 2, "direct": 3}
@@ -29,18 +37,18 @@ def cap_requirement_with_taxonomy(
     *,
     retrieval_mode_override: str | None = None,
 ) -> dict[str, Any]:
-    """Cap an existing stable requirement label using its own cited evidence."""
+    """Cap evidence using canonical taxonomy, then approved registry fallback.
+
+    Registry resolution can make a JD requirement understandable, but it never
+    upgrades candidate evidence. Existing match labels may only stay the same
+    or be capped downward by the capability evidence policy.
+    """
     row = deepcopy(requirement)
     evidence_text = "\n".join(
         str(item.get("text", ""))
         for item in row.get("evidence", []) or []
         if isinstance(item, dict)
     )
-    # Phase 6D.6 can deterministically prove an ANY programming-language
-    # requirement from the structured language list. A single-capability
-    # taxonomy entry (for example modern C++) must not then reinterpret the
-    # whole OR-group through one member and cap that independently verified
-    # direct result.
     structured_any_language_group = bool(
         row.get("structured_match_kind") == "programming_language_group"
         and row.get("structured_match_group_mode") == "any"
@@ -49,8 +57,7 @@ def cap_requirement_with_taxonomy(
     )
     if structured_any_language_group:
         row["capability_retrieval"] = build_capability_retrieval_trace(
-            row,
-            exact_capability_id=None,
+            row, exact_capability_id=None,
             mode_override=retrieval_mode_override,
         )
         row["capability_taxonomy_cap_status"] = (
@@ -58,36 +65,49 @@ def cap_requirement_with_taxonomy(
         )
         return row
 
-    decision = evaluate_evidence(
-        row,
-        evidence_text,
-        get_default_taxonomy(),
-    )
+    taxonomy = get_default_taxonomy()
+    decision = evaluate_evidence(row, evidence_text, taxonomy)
+    resolution_source = "canonical_taxonomy"
+    registry_resolution: dict[str, Any] | None = None
 
-    row["capability_retrieval"] = (
-        build_capability_retrieval_trace(
-            row,
-            exact_capability_id=decision.get(
-                "capability_id"
-            ),
-            mode_override=retrieval_mode_override,
-        )
+    if decision.get("capability_id") is None:
+        focus = str(row.get("atomic_focus") or row.get("text") or "")
+        registry_resolution = resolve_requirement_text(focus)
+        row["technology_registry_resolution"] = deepcopy(registry_resolution)
+        if (
+            registry_resolution.get("status") == "resolved"
+            and registry_resolution.get("capability_id")
+        ):
+            decision = evaluate_capability_evidence(
+                str(registry_resolution["capability_id"]),
+                row, evidence_text, taxonomy,
+            )
+            resolution_source = "technology_registry"
+        else:
+            resolution_source = "unresolved"
+
+    row["capability_retrieval"] = build_capability_retrieval_trace(
+        row,
+        exact_capability_id=decision.get("capability_id"),
+        mode_override=retrieval_mode_override,
     )
 
     taxonomy_label = decision.get("label")
     current_label = str(row.get("match_label") or "none")
     if taxonomy_label is None:
         row["capability_taxonomy_cap_status"] = "unrecognised"
+        row["capability_resolution_source"] = resolution_source
         return row
 
     row["capability_id"] = decision.get("capability_id")
     row["capability_taxonomy_version"] = decision.get("taxonomy_version")
     row["capability_does_not_prove"] = decision.get("does_not_prove", [])
+    row["capability_resolution_source"] = resolution_source
 
-    # Canonicalisation uses is_atomic=True for clauses created by splitting,
-    # but a standalone one-capability requirement can legitimately retain
-    # is_atomic=False. Phase 6A performs compound-clause splitting before this
-    # adapter runs, so do not skip a row solely because is_atomic is false.
+    if registry_resolution is not None and resolution_source == "technology_registry":
+        row["technology_registry_version"] = registry_resolution.get("registry_version")
+        row["technology_registry_technology_id"] = registry_resolution.get("technology_id")
+        row["technology_registry_relationship_type"] = registry_resolution.get("relationship_type")
 
     if _LABEL_ORDER.get(taxonomy_label, 0) < _LABEL_ORDER.get(current_label, 0):
         row["match_label"] = taxonomy_label
@@ -109,9 +129,7 @@ def cap_requirement_with_taxonomy(
         )
     else:
         row["capability_taxonomy_cap_status"] = "not_needed"
-
     return row
-
 
 def apply_taxonomy_caps_to_requirements(
     requirements: list[dict[str, Any]],

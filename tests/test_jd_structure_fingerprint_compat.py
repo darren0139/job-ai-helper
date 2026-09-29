@@ -10,7 +10,7 @@ from analysis_stability.stable_evidence_scoring import (
 
 
 class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
-    def test_phase6d_legacy_fingerprint_contract_is_preserved(self) -> None:
+    def test_combined_structure_and_scoring_currentness_contract(self) -> None:
         jd = {
             "responsibilities": [
                 "Build Python APIs and collaborate in a software team"
@@ -79,10 +79,13 @@ class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.7-phase6d12")
+        # Capability discovery intentionally advances scorer/registry
+        # currentness. Pin the merged structure-and-scoring contract instead
+        # of treating the older Phase 6D fingerprint as current.
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d15")
         self.assertEqual(
             result["input_fingerprint"],
-            "ad230d29a8c1f2417d4ca83203a78642500936be19f31f7fee8a156340523a3b",
+            "f74ad3408f047c3c2dfd2a99859c8b946c5b09fa767b04aa598c3a67418e7805",
         )
         self.assertEqual(
             JD_STRUCTURE_INFERENCE_VERSION,

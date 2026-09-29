@@ -24,6 +24,7 @@ from analysis_stability.stable_evidence_scoring import (
     compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
 
 
 JD_USER_OVERRIDE_POLICY_VERSION = "application-session-jd-user-overrides-v2"
@@ -45,7 +46,7 @@ _SOURCE_REQUIREMENT_FIELDS = (
     "tools_technologies",
 )
 APPLICATION_SESSION_STABLE_CURRENTNESS_VERSION = (
-    "application-session-stable-currentness-v1"
+    "application-session-stable-currentness-v2"
 )
 
 
@@ -124,6 +125,8 @@ def _stable_analysis_is_current(stable_analysis: dict[str, Any] | None) -> bool:
         and _clean(stable.get("scoring_version")) == SCORING_VERSION
         and _clean(stable.get("capability_taxonomy_version"))
         == _clean(get_default_taxonomy().version)
+        and _clean(stable.get("technology_registry_version"))
+        == _clean(get_default_registry().version)
     )
 
 
@@ -855,6 +858,12 @@ def refresh_application_session_analysis_report(
     current_taxonomy_version = _clean(
         get_default_taxonomy().version
     )
+    stored_registry_version = _clean(
+        stored_stable.get("technology_registry_version")
+    )
+    current_registry_version = _clean(
+        get_default_registry().version
+    )
     (
         resolved_raw_jd_text,
         raw_jd_source,
@@ -923,6 +932,11 @@ def refresh_application_session_analysis_report(
         ),
         "resolved_capability_taxonomy_version": _clean(
             resolved_stable.get("capability_taxonomy_version")
+        ),
+        "stored_technology_registry_version": stored_registry_version,
+        "current_technology_registry_version": current_registry_version,
+        "resolved_technology_registry_version": _clean(
+            resolved_stable.get("technology_registry_version")
         ),
         "resume_text_source": resume_text_source,
         "raw_jd_available": bool(resolved_raw_jd_text),
