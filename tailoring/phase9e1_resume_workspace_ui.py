@@ -28,7 +28,7 @@ from tailoring.tailoring_generation_fingerprint import (
 )
 
 
-PHASE9E1_RESUME_WORKSPACE_UI_VERSION = "phase9e1-resume-workspace-v8"
+PHASE9E1_RESUME_WORKSPACE_UI_VERSION = "phase9e1-resume-workspace-v9"
 
 
 def _clean(value: Any) -> str:
@@ -423,6 +423,34 @@ def _clear_generation_session_state(application_id: int) -> None:
         st.session_state.pop(key, None)
 
 
+def start_new_resume_from_current_tailoring_base(
+    *,
+    application_id: int,
+    previous_scope_generation_id: str,
+) -> dict[str, Any]:
+    # Archive the previous-scope approval and unlock current-base generation.
+    previous_scope_id = _clean(previous_scope_generation_id)
+    if not previous_scope_id:
+        return {
+            "ok": False,
+            "message": "Approved generation identity is missing.",
+        }
+
+    archive_tailoring_generation(
+        int(application_id),
+        previous_scope_id,
+    )
+    _clear_generation_session_state(int(application_id))
+    return {
+        "ok": True,
+        "message": (
+            "Moved the previous-scope approved résumé to history. "
+            "The current Tailoring Base is now ready for a new generated "
+            "working résumé; the previous approved result remains preserved."
+        ),
+    }
+
+
 def _delete_generation_and_recover(
     *,
     application_id: int,
@@ -650,18 +678,21 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
             type="primary",
             width="stretch",
         ):
-            if not previous_scope_id:
-                st.error("Approved generation identity is missing.")
-            else:
-                archive_tailoring_generation(
-                    int(application_id),
-                    previous_scope_id,
+            transition = start_new_resume_from_current_tailoring_base(
+                application_id=int(application_id),
+                previous_scope_generation_id=previous_scope_id,
+            )
+            if not transition.get("ok"):
+                st.error(
+                    str(
+                        transition.get("message")
+                        or "Could not start a résumé from the current Tailoring Base."
+                    )
                 )
-                _clear_generation_session_state(int(application_id))
-                st.session_state[flash_key] = (
-                    "Moved the previous-scope approved résumé to history. "
-                    "Generate and fit a replacement from the current "
-                    "Tailoring Base, then approve it and run Phase 8."
+            else:
+                st.session_state[flash_key] = str(
+                    transition.get("message")
+                    or "Current Tailoring Base is ready for a new working résumé."
                 )
                 st.rerun()
 

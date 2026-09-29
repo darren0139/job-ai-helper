@@ -41,3 +41,7 @@ data/chroma_capability_taxonomy/
 
 # Blueprint-owned immutable resume artifacts
 data/blueprint_artifacts/
+
+# Local audit exports and accidental command-output artifact
+debug_exports/
+/python

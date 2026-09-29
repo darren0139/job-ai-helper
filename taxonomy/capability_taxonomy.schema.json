@@ -41,6 +41,9 @@
           "explicit_only": {
             "type": "boolean"
           },
+          "allow_stronger_single_row_reselection": {
+            "type": "boolean"
+          },
           "requirement": {
             "type": "object",
             "required": [
@@ -57,6 +60,17 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "all_groups": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 }
               }
             }
@@ -119,6 +133,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "evidence_policy": {
+            "enum": [
+              "c_cpp_v1",
+              "android_v1",
+              "graphics_api_v1",
+              "memory_cache_v1",
+              "data_oriented_v1",
+              "algorithms_v1",
+              "client_integration_v1",
+              "realtime_v1"
+            ]
           }
         }
       }

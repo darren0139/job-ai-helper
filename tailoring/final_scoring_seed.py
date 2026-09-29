@@ -11,6 +11,7 @@ from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
     SCORING_VERSION,
     compute_deterministic_alignment,
+    requirement_is_score_eligible,
 )
 
 FINAL_SCORING_SEED_VERSION = "phase8-final-scoring-seed-v1"
@@ -69,6 +70,8 @@ def canonical_scoring_rows(
     rows: list[dict[str, Any]] = []
     for raw in raw_rows:
         if not isinstance(raw, dict):
+            continue
+        if not requirement_is_score_eligible(raw):
             continue
         row = {
             field: deepcopy(raw.get(field))

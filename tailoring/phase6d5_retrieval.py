@@ -13,7 +13,7 @@ from rag.capability_taxonomy_rag import (
 # Load local .env values without overriding real process variables.
 load_dotenv()
 
-RETRIEVAL_VERSION = "phase6d5-shadow-retrieval-v1"
+RETRIEVAL_VERSION = "phase6d5-shadow-retrieval-v2-local-runtime"
 _ALLOWED_MODES = {"off", "lexical", "vector", "hybrid"}
 
 
@@ -152,6 +152,7 @@ def build_capability_retrieval_trace(
     *,
     exact_capability_id: str | None,
     mode_override: str | None = None,
+    administrative: bool = False,
 ) -> dict[str, Any]:
     # Phase 6D.5 is shadow retrieval: candidates are diagnostics only.
     # The stable label and score remain owned by deterministic Phase 6D.4.
@@ -196,6 +197,14 @@ def build_capability_retrieval_trace(
     if not query:
         base["status"] = "empty_query"
         return base
+
+    base["administrative"] = administrative
+    base["effective_mode"] = mode
+    if mode in {"vector", "hybrid"} and not administrative:
+        # Environment settings alone cannot enable network/index side effects.
+        mode = "lexical"
+        base["effective_mode"] = mode
+        base["vector_fallback_reason"] = "administrative_retrieval_required"
 
     lexical_rows: list[dict[str, Any]] = []
     vector_rows: list[dict[str, Any]] = []
@@ -244,6 +253,7 @@ def build_capability_retrieval_trace(
                     query,
                     top_k=top_k,
                     use_embeddings=True,
+                    administrative=True,
                 )
                 base["used_modes"].append("vector")
             except Exception as exc:

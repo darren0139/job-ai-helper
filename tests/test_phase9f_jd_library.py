@@ -118,8 +118,14 @@ class Phase9FJDLibraryTests(unittest.TestCase):
     def test_exact_saved_version_rebuilds_without_model_provenance(self):
         saved = manager.save_job_description_to_library(
             raw_text=(
-                "AI Full-Stack Engineer. Build Python and React applications "
-                "with PostgreSQL, authentication, tests, and secure deployment."
+                "Responsibilities\n"
+                "- Build and maintain reliable software services.\n"
+                "Requirements\n"
+                "- Python\n"
+                "- REST APIs\n"
+                "- Collaboration\n"
+                "Preferred Qualifications\n"
+                "- Docker"
             ),
             jd_profile=profile("AI Full-Stack Engineer", "Company A"),
         )

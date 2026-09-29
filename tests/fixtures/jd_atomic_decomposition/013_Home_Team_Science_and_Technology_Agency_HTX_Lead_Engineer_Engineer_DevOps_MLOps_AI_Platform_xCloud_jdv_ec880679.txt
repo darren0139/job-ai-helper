@@ -1,0 +1,46 @@
+Home Team Science and Technology Agency (HTX)
+Lead Engineer/ Engineer, DevOps & MLOps (AI Platform), xCloud
+Permanent/Contract
+Closing on 18 Sep 2026
+What the role is
+HTX is Singapore's Science and Technology agency that brings together diverse scientific and engineering capabilities to develop transformative, operationally ready solutions for public safety. As a statutory board under the Ministry of Home Affairs, HTX works at the forefront of science and technology to empower the Home Team with cutting-edge capabilities. Guided by our mission to amplify, augment and accelerate the Home Team's advantage, we are committed to keeping Singapore the safest place on planet Earth.
+
+xCloud is dedicated to elevating the enterprise experience through cutting-edge cloud capabilities, including:
+•	Sustainable enterprise data centres
+•	Hybrid cloud platforms
+•	Advanced cloud security measures
+•	Integrated Development, Security, and Operations (DevSecOps)
+•	Innovative enterprise Software-as-a-Service (SaaS) solutions
+•	AI-powered enterprise applications
+
+We are looking for a DevOps & ML Engineer to develop our AI platform, automate the deployment of AI workloads, and build robust DevSecOps pipelines.
+What you will be working on
+•	Design, build, and maintain scalable ML infrastructure using tools like Kubeflow, MLflow, RunAI, GitLab etc
+•	Automate the setup and maintenance of CI/CD and ML environments and pipelines to ensure consistency and reliability.
+•	Ensure automated testing and validation of AI/ML models before deployment.
+•	Monitor and optimise CI/CD pipeline performance to reduce build and deployment times.
+•	Monitor model performance and health, using tools for logging, monitoring, and alerting.
+•	Implement strategies for model retraining and updating based on performance metrics.
+•	Develop infrastructure as Code (IaC) scripts to automate the provisioning and management of ML and Infrastructure.
+•	Participate actively in agile ceremonies such as sprint planning, daily stand-ups, retrospectives, and backlog grooming.
+What we are looking for
+•	Skilled in Linux and Python; knowledge of JavaScript or other scripting languages is a plus.
+•	Experience with developing and deploying applications as containers using Docker and Kubernetes and ML infrastructure tools such as Kubeflow, MLflow, RunAI and ArgoCD/FluxCD.
+•	Experience with full-stack agile software development practices and managing CI/CD pipelines (e.g., GitLab CI).
+•	Solid understanding of DevSecOps practices, including container security, vulnerability scanning, and integrating security into CI/CD pipelines.
+•	Familiarity with cloud or on-premise security best practices, threat modeling, and relevant compliance frameworks.
+•	Relevant Cloud or Kubernetes certifications (e.g., CKA, CKAD, CKS) are highly preferred.
+•	Strong problem-solving skills and ability to troubleshoot complex issues.
+•	Excellent communication and collaboration skills.
+•	Ability to work in a fast-paced, dynamic environment.
+•	Continuous learning mindset to keep up with technological advancements.
+•	Preferably 1-5 years of relevant working experience.
+
+
+All new hires are appointed on a two-year contract in the first instance and will be assessed and considered for permanent tenure over time, based on performance.
+
+As part of the shortlisting process for this role, you may be required to complete a medical declaration and/or undergo further assessment.
+
+All applicants will be updated on the status of their applications within 4 weeks upon closing of the advertisement.
+
+#LI-HL1

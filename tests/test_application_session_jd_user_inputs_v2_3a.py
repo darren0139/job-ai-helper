@@ -306,6 +306,11 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 for row in rows
                 if row.get("text") == requirement
                 or row.get("parent_text") == requirement
+                or any(
+                    isinstance(provenance, dict)
+                    and provenance.get("raw_parent_text") == requirement
+                    for provenance in row.get("source_provenance", []) or []
+                )
             ]
             self.assertTrue(matching_rows, requirement)
             self.assertTrue(
@@ -319,6 +324,21 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 ),
                 requirement,
             )
+
+        repaired_opengl = next(
+            row
+            for row in rows
+            if row.get("text") == "Experience working with OpenGL and/or Vulkan"
+        )
+        self.assertEqual(repaired_opengl["importance"], "preferred")
+        self.assertIn(
+            "Experience working with OpenGLand/or Vulkan",
+            {
+                provenance.get("raw_parent_text")
+                for provenance in repaired_opengl.get("source_provenance", []) or []
+                if isinstance(provenance, dict)
+            },
+        )
 
         baseline = next(row for row in rows if row["text"] == "Build reliable APIs")
         self.assertEqual(baseline["importance"], "required")
@@ -413,14 +433,14 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
                 {
                     "name": "Android graphics application",
                     "bullets": [
-                        "Experience working with Android app development and Kotlin."
+                        "Built and delivered an Android application using Kotlin."
                     ],
                 }
             ],
             "skills": ["Android", "Kotlin"],
         }
         android_resume_text = (
-            "Experience working with Android app development and Kotlin, "
+            "Built and delivered an Android application using Kotlin, "
             "including mobile user-interface testing."
         )
         with _forbid_paid_calls():
@@ -606,7 +626,7 @@ class JDUserInputOverrideCanonicalIsolationTests(unittest.TestCase):
         """
         raw_jd = "Job Requirements\nBuild reliable APIs\n"
         raw_resume = (
-            "Experience working with Android app development and Kotlin, "
+            "Built and delivered an Android application using Kotlin, "
             "including mobile user-interface testing."
         )
         report = _report()

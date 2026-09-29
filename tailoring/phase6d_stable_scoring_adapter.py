@@ -36,6 +36,28 @@ def cap_requirement_with_taxonomy(
         for item in row.get("evidence", []) or []
         if isinstance(item, dict)
     )
+    # Phase 6D.6 can deterministically prove an ANY programming-language
+    # requirement from the structured language list. A single-capability
+    # taxonomy entry (for example modern C++) must not then reinterpret the
+    # whole OR-group through one member and cap that independently verified
+    # direct result.
+    structured_any_language_group = bool(
+        row.get("structured_match_kind") == "programming_language_group"
+        and row.get("structured_match_group_mode") == "any"
+        and row.get("structured_match_status")
+        in {"applied", "confirmed_existing_direct"}
+    )
+    if structured_any_language_group:
+        row["capability_retrieval"] = build_capability_retrieval_trace(
+            row,
+            exact_capability_id=None,
+            mode_override=retrieval_mode_override,
+        )
+        row["capability_taxonomy_cap_status"] = (
+            "not_applicable_structured_any_language_group"
+        )
+        return row
+
     decision = evaluate_evidence(
         row,
         evidence_text,

@@ -25,7 +25,11 @@ from typing import Any
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
-from tailoring.capability_taxonomy import get_default_taxonomy
+from analysis_stability.jd_section_inference import (
+    JD_STRUCTURE_INFERENCE_VERSION,
+    infer_semantic_list_heading,
+)
+from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
 )
@@ -33,8 +37,13 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.4-phase6d8"
-NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v1"
+SCORING_VERSION = "stable-evidence-v1.7-phase6d12"
+CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
+NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v2"
+JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.1"
+CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION = (
+    "jd-atomic-requirement-decomposition-v1"
+)
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -42,6 +51,13 @@ MATCH_VALUES = {
     "weak": 0.20,
     "none": 0.0,
 }
+
+# Weak deterministic evidence must show more than a single generic-token
+# collision. Keep the direct keyword builder aligned with the existing weak
+# fallback gate so a one-token overlap cannot bypass the conservative policy.
+_DETERMINISTIC_WEAK_MIN_SCORE = 0.28
+_DETERMINISTIC_WEAK_MIN_COVERAGE = 0.25
+_DETERMINISTIC_WEAK_MIN_OVERLAP = 2
 
 IMPORTANCE_WEIGHTS = {
     "deal_breaker": 5.0,
@@ -80,8 +96,9 @@ _PREFERRED_HINTS = (
     "nice-to-have",
     "plus",
     "advantage",
-    "familiarity",
     "ideally",
+    "desired",
+    "highly desired",
 )
 
 _MATCH_TYPE_MAP = {
@@ -130,8 +147,57 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
 
 
+def _normalise_requirement_surface(value: Any) -> str:
+    """Repair unambiguous presentation joins before deterministic tokenisation.
+
+    This is deliberately narrower than a general spelling corrector.  It only
+    separates sentence punctuation and well-known punctuation-adjacent technical
+    tokens that otherwise make a raw-JD fact impossible to ground.  It does not
+    add aliases, infer capabilities, or perform fuzzy matching.
+    """
+    text = _clean_text(value)
+    if not text:
+        return ""
+
+    # A missing space after ordinary terminal punctuation is layout damage, not
+    # a semantic variation (for example: "use cases.You will...").
+    text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+
+    # Repair the exact discourse-preamble join observed in the dConstruct PDF
+    # extraction. This is intentionally narrow: it restores a missing layout
+    # space in "At the same time" without becoming a general word splitter.
+    text = re.sub(r"(?i)\bAtthe(?=\s+same\s+time\b)", "At the", text)
+
+    # Keep C/C++, C++, C# and F# intact while separating an adjoining ordinary
+    # word.  The surrounding boundaries prevent generic substring matching.
+    text = re.sub(
+        r"(?i)(C/C\+\+|C\+\+|C#|F#)(?=[a-z])",
+        r"\1 ",
+        text,
+    )
+    text = re.sub(
+        r"(?<=[a-z])(?=(?:C/C\+\+|C\+\+|C#|F#)\b)",
+        " ",
+        text,
+    )
+    # A verb joined to an ordinary requirement object is another unambiguous
+    # line-wrap/OCR seam.  Restrict this to grammatical action/object pairs so
+    # it cannot become a broad dictionary-based word splitter.
+    text = re.sub(
+        r"(?i)\b(integrat(?:e|ing)|develop(?:ing)?|build(?:ing)?|"
+        r"test(?:ing)?|deploy(?:ing)?)(functionality|features|services|"
+        r"applications|software)\b",
+        r"\1 \2",
+        text,
+    )
+    # This catches a common OCR/layout join without treating arbitrary words
+    # containing "and" as separate requirements.
+    text = re.sub(r"(?<=[A-Z])and/or\b", " and/or", text)
+    return _clean_text(text)
+
+
 def _normalise_basic(value: Any) -> str:
-    text = _clean_text(value).lower()
+    text = _normalise_requirement_surface(value).lower()
     text = text.replace("&", " and ")
     text = text.replace("/", " ")
     text = re.sub(r"[^a-z0-9+#.-]+", " ", text)
@@ -354,6 +420,42 @@ def _importance_rank(value: str) -> int:
     return order.get(value, 0)
 
 
+def _importance_sensitive_fuzzy_merge_is_unsafe(
+    left_text: str,
+    left_importance: str,
+    right_text: str,
+    right_importance: str,
+    acronym_map: dict[str, str],
+) -> bool:
+    """Block fuzzy merges that would collapse materially different scope.
+
+    Exact duplicates may still take the strongest importance. For fuzzy
+    matches, however, a high-containment score can hide that one row carries
+    several extra capabilities. If the rows have different importance and one
+    token set is materially broader, keep both rows so stronger importance
+    cannot be transferred onto broader wording.
+    """
+    if _importance_rank(left_importance) == _importance_rank(right_importance):
+        return False
+
+    left_tokens = set(_tokenise(left_text, acronym_map))
+    right_tokens = set(_tokenise(right_text, acronym_map))
+    if not left_tokens or not right_tokens:
+        return False
+
+    overlap = len(left_tokens & right_tokens)
+    left_coverage = overlap / len(left_tokens)
+    right_coverage = overlap / len(right_tokens)
+    narrower_coverage = max(left_coverage, right_coverage)
+    broader_coverage = min(left_coverage, right_coverage)
+
+    return (
+        narrower_coverage >= 0.90
+        and broader_coverage <= 0.75
+        and abs(len(left_tokens) - len(right_tokens)) >= 2
+    )
+
+
 def _classify_raw_importance(text: str, default: str = "core") -> str:
     normalised = _normalise_basic(text)
 
@@ -414,6 +516,7 @@ _RAW_SECTION_HEADINGS = {
     ),
     "preferred": frozenset(
         {
+            "preferred",
             "preferred qualifications",
             "preferred requirements",
             "preferred skills",
@@ -474,15 +577,22 @@ def _raw_section_for_heading(value: Any) -> str:
 def _raw_jd_section_heading_rows(
     raw_jd_text: str,
 ) -> list[dict[str, str]]:
-    """Collect recognised section markers for deterministic diagnostics."""
+    """Collect exact/inferred structural headings with legacy public shape."""
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    raw_lines = raw_jd_text.splitlines()
 
-    for raw_line in raw_jd_text.splitlines():
+    for line_offset, raw_line in enumerate(raw_lines):
         value = _clean_text(raw_line).strip("-•* \t")
         section = _raw_section_for_heading(value)
+
         if not section:
-            continue
+            inferred = infer_semantic_list_heading(raw_lines, line_offset)
+            if not inferred.get("is_heading_candidate"):
+                continue
+            section = _clean_text(inferred.get("section"))
+            if not section:
+                continue
 
         key = (section, _normalise_jd_section_heading(value))
         if key in seen:
@@ -499,12 +609,226 @@ def _raw_jd_section_heading_rows(
 
     return rows
 
+def classify_jd_statement_semantics(
+    value: Any,
+    *,
+    source: str = "",
+    importance: str = "",
+) -> dict[str, Any]:
+    """Classify whether one JD statement is evidence-bearing for the candidate.
+
+    This is deliberately conservative: only narrow, high-confidence role-context
+    and future-training statements are excluded. Ordinary qualifications and
+    demonstrable responsibilities remain evidence-bearing.
+    """
+    surface = _normalise_requirement_surface(value).strip(" ,;:.-")
+    normalised = _normalise_basic(surface)
+    source_value = _clean_text(source).casefold()
+
+    metadata = {
+        "semantic_type": "candidate_requirement",
+        "evidence_eligible": True,
+        "score_eligible": True,
+        "tailoring_eligible": True,
+        "eligibility_rule": "eligible_candidate_requirement",
+        "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
+    }
+    if not normalised:
+        return metadata
+
+    role_context_patterns = (
+        re.compile(
+            r"^(?:at\s+the\s+same\s+time[, ]+)?"
+            r"(?:(?:you|the candidate)\s+will\s+(?:be\s+)?)?"
+            r"work(?:ing)?\s+alongside\s+(?:industry\s+)?experts$",
+            re.IGNORECASE,
+        ),
+    )
+    if any(pattern.match(surface) for pattern in role_context_patterns):
+        return {
+            **metadata,
+            "semantic_type": "role_context",
+            "evidence_eligible": False,
+            "score_eligible": False,
+            "tailoring_eligible": False,
+            "eligibility_rule": "role_context_working_environment",
+        }
+
+    training_patterns = (
+        re.compile(
+            r"^(?:at\s+the\s+same\s+time[, ]+)?"
+            r"(?:(?:you|the candidate)\s+will\s+(?:be\s+)?)?"
+            r"familiari[sz]ed\s+with\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"^(?:(?:you|the candidate)\s+will\s+)?"
+            r"(?:learn|be\s+trained(?:\s+(?:in|on))?|receive\s+training|"
+            r"gain\s+exposure\s+to|be\s+exposed\s+to)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"^(?:(?:you|the candidate)\s+will\s+have\s+)?"
+            r"(?:the\s+)?opportunity\s+to\s+(?:learn|gain\s+exposure)\b",
+            re.IGNORECASE,
+        ),
+    )
+    if any(pattern.match(surface) for pattern in training_patterns):
+        return {
+            **metadata,
+            "semantic_type": "training_outcome",
+            "evidence_eligible": False,
+            "score_eligible": False,
+            "tailoring_eligible": False,
+            "eligibility_rule": "training_outcome_future_learning",
+        }
+
+    role_source = (
+        "responsibilities" in source_value
+        or "unheaded_explicit_role_obligation" in source_value
+    )
+    explicit_role_surface = bool(
+        re.search(
+            r"\b(?:you|the candidate|successful applicant)\s+will\b|"
+            r"\bwho\s+will\b|\bresponsible\s+for\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+    )
+    if role_source or explicit_role_surface:
+        metadata.update(
+            {
+                "semantic_type": "role_responsibility",
+                "eligibility_rule": "eligible_role_responsibility",
+            }
+        )
+    return metadata
+
+
+def _semantic_metadata_for_exclusion(
+    value: Any,
+    reason: str,
+    *,
+    source: str = "",
+    importance: str = "",
+) -> dict[str, Any]:
+    metadata = classify_jd_statement_semantics(
+        value,
+        source=source,
+        importance=importance,
+    )
+    if not metadata["score_eligible"]:
+        return metadata
+
+    semantic_type = "company_context"
+    if reason in {
+        "candidate_screening_process",
+        "employment_terms_notice",
+        "application_status_notice",
+        "role_summary_context",
+    }:
+        semantic_type = "role_context"
+
+    return {
+        **metadata,
+        "semantic_type": semantic_type,
+        "evidence_eligible": False,
+        "score_eligible": False,
+        "tailoring_eligible": False,
+        "eligibility_rule": reason or "non_evidence_bearing_context",
+    }
+
+
+def requirement_is_score_eligible(requirement: dict[str, Any]) -> bool:
+    """Return score eligibility, including deterministic legacy-row fallback."""
+    if not isinstance(requirement, dict):
+        return False
+    if "score_eligible" in requirement:
+        return bool(requirement.get("score_eligible"))
+    source = " ".join(
+        _clean_text(item) for item in requirement.get("sources", []) or []
+    )
+    metadata = classify_jd_statement_semantics(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or requirement.get("parent_text"),
+        source=source,
+        importance=_clean_text(requirement.get("importance")),
+    )
+    return bool(metadata["score_eligible"])
+
+
+def requirement_is_tailoring_eligible(requirement: dict[str, Any]) -> bool:
+    """Return tailoring eligibility, including deterministic legacy-row fallback."""
+    if not isinstance(requirement, dict):
+        return False
+    if "tailoring_eligible" in requirement:
+        return bool(requirement.get("tailoring_eligible"))
+    source = " ".join(
+        _clean_text(item) for item in requirement.get("sources", []) or []
+    )
+    metadata = classify_jd_statement_semantics(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or requirement.get("parent_text"),
+        source=source,
+        importance=_clean_text(requirement.get("importance")),
+    )
+    return bool(metadata["tailoring_eligible"])
+
 
 def _classify_non_requirement_row(value: Any) -> str:
-    """Return a deterministic exclusion reason for recruiting/process boilerplate."""
+    """Return a deterministic exclusion reason for non-evidence-bearing JD text."""
+    surface = _clean_text(value)
     text = _normalise_basic(value)
     if not text:
         return ""
+
+    semantic = classify_jd_statement_semantics(surface)
+    if not semantic["score_eligible"]:
+        return _clean_text(semantic.get("eligibility_rule"))
+
+    if re.search(
+        r"\bwe(?:['’]d| would)\s+love\s+to\s+(?:hear|meet)\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_call_to_action"
+
+    if re.match(
+        r"^\s*(?:excited|interested)\s+about\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_call_to_action"
+
+    if (
+        re.match(
+            r"^\s*we(?:['’]re| are)\s+seeking\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\bto\s+join\b.*\b(?:team|company|organisation|organization)\b",
+            surface,
+            flags=re.IGNORECASE,
+        )
+    ):
+        return "recruiting_role_intro"
+
+    if re.match(
+        r"^\s*we(?:['’]re| are)\s+looking\s+for\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "recruiting_role_intro"
+
+    if re.match(
+        r"^\s*this\s+is\s+(?:an?\s+)?[^.!?]{0,160}\brole\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "role_summary_context"
 
     if re.fullmatch(r"#li[- ]?[a-z0-9-]+", text):
         return "recruiter_tracking_tag"
@@ -575,7 +899,56 @@ def _split_top_level_commas(value: str) -> list[str]:
             flags=re.IGNORECASE,
         ).strip()
 
+        # A final "x and y" item is an ordinary list continuation only when
+        # a preceding top-level comma already established list structure.
+        final_parts = re.split(r"\s+and\s+", parts[-1], maxsplit=1, flags=re.I)
+        if (
+            len(final_parts) == 2
+            and all(len(_tokenise(part)) >= 1 for part in final_parts)
+        ):
+            parts[-1:] = [part.strip(" ,;.-") for part in final_parts]
+
     return parts
+
+
+_EXAMPLE_OR_ALTERNATIVE_INTRODUCER = re.compile(
+    r"\b(?:including(?:\s+but\s+not\s+limited\s+to)?|"
+    r"such\s+as|for\s+example|e\.?\s*g\.?|especially|"
+    r"one\s+or\s+more\s+of)\b",
+    re.IGNORECASE,
+)
+
+
+def _preserves_coherent_parent(value: str) -> bool:
+    """Return whether a top-level example list remains one requirement.
+
+    An example marker nested inside one member of an independently addressable
+    compound requirement (for example, ``live handling (including bugs)``)
+    must not suppress decomposition of the surrounding compound parent.
+    """
+    for match in _EXAMPLE_OR_ALTERNATIVE_INTRODUCER.finditer(value):
+        depth = 0
+        for character in value[: match.start()]:
+            if character == "(":
+                depth += 1
+            elif character == ")" and depth:
+                depth -= 1
+        if depth:
+            continue
+
+        introducer = _normalise_basic(match.group(0))
+        if introducer == "one or more of":
+            return True
+
+        # A preceding top-level comma establishes a larger independent list.
+        # Its later example parent remains coherent, but the whole compound
+        # requirement must still be decomposed at the independently scored
+        # list boundary.
+        prefix = value[: match.start()].strip(" ,;:.-")
+        if len(_split_top_level_commas(prefix)) > 1:
+            continue
+        return True
+    return False
 
 
 def _context_label_from_head(head: str) -> str:
@@ -634,6 +1007,7 @@ _SAFE_SECOND_CLAUSE_PREFIXES = (
     "communicate ",
     "coordinate ",
     "develop ",
+    "deploy ",
     "exposure to ",
     "familiarity with ",
     "investigate ",
@@ -643,6 +1017,7 @@ _SAFE_SECOND_CLAUSE_PREFIXES = (
     "resolve ",
     "support ",
     "verify ",
+    "write ",
 )
 
 
@@ -677,9 +1052,28 @@ def _split_shared_head_and_list(value: str) -> list[str]:
     if re.search(r"(?:,\s*or\s+|\s+or\s+)", value, flags=re.IGNORECASE):
         return []
 
+    # Example and alternative introducers describe a single competency.  The
+    # current scorer has no ANY/one-or-more arithmetic, so preserve the parent
+    # rather than converting examples into separately mandatory requirements.
+    if _preserves_coherent_parent(value):
+        return []
+
+    # A foundation is one coherent competency even when it names several
+    # constituent disciplines.  It is not equivalent to a list of separately
+    # addressable tools or skills, so preserve it as one canonical requirement.
+    # This is deliberately structural rather than subject-specific.
+    if re.match(
+        r"^(?:(?:good|strong|solid|working|basic)\s+)?foundation\s+in\s+",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
     match = re.match(
         r"^(?P<head>"
-        r"(?:experience|familiarity|knowledge|proficiency|skills?)"
+        r"(?:experience|familiarity|knowledge|proficiency|skills?|"
+        r"(?:good|strong|solid|working|basic)\s+foundation|"
+        r"understand(?:ing)?\s+concepts|comfortable)"
         r"\s+(?:using|with|in|of)\s+"
         r")(?P<tail>.+)$",
         value,
@@ -707,6 +1101,17 @@ def _split_non_preference_clause(
     """Split clear compound clauses into stable, atomic requirements."""
     group_id = _stable_id("grp", _normalise_basic(parent_text))
 
+    if _preserves_coherent_parent(value):
+        return [
+            _clause_record(
+                text=value,
+                importance=importance,
+                parent_text=parent_text,
+                focus_text=value,
+                atomic_group_id=group_id,
+                is_atomic=False,
+            )
+        ]
 
     shared_head_parts = _split_shared_head_and_list(value)
     if shared_head_parts:
@@ -784,7 +1189,7 @@ def _split_non_preference_clause(
             ]
 
     enumeration = re.match(
-        r"^(?P<head>.+?)\s+(?:from|including|such as)\s+(?P<tail>.+)$",
+        r"^(?P<head>.+?)\s+from\s+(?P<tail>.+)$",
         value,
         flags=re.IGNORECASE,
     )
@@ -874,12 +1279,12 @@ def _split_non_preference_clause(
     ]
 
 
-def _split_requirement_clauses(
+def _split_single_requirement_clause(
     text: str,
     default_importance: str,
 ) -> list[dict[str, Any]]:
-    """Split preference, paired-skill and enumerated clauses deterministically."""
-    value = _clean_text(text)
+    """Split one requirement sentence into conservative atomic clauses."""
+    value = _normalise_requirement_surface(text)
     if not value:
         return []
 
@@ -920,51 +1325,742 @@ def _split_requirement_clauses(
     )
 
 
-def _raw_jd_requirement_rows(raw_jd_text: str) -> list[dict[str, Any]]:
-    """Extract stable atomic requirement rows from explicit JD sections."""
-    rows: list[dict[str, Any]] = []
-    active_section = ""
+def _split_requirement_sentences(value: str) -> list[str]:
+    """Split only explicit sentence boundaries; keep abbreviations untouched."""
+    text = _normalise_requirement_surface(value)
+    if not text:
+        return []
 
-    for raw_line in raw_jd_text.splitlines():
-        value = _clean_text(raw_line).strip("-•* \t")
+    parts = [
+        part.strip(" ,;:.-")
+        # ``e.g.`` and ``i.e.`` are inline introducers, not sentence endings.
+        # Keeping them intact also lets the coherent-example guard preserve the
+        # full competency instead of treating the examples as a second row.
+        for part in re.split(
+            r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])",
+            text,
+        )
+        if part.strip(" ,;:.-")
+    ]
+    return parts or [text]
+
+
+def _split_requirement_clauses(
+    text: str,
+    default_importance: str,
+) -> list[dict[str, Any]]:
+    """Split raw/profile wording by explicit sentence and safe clause seams."""
+    records: list[dict[str, Any]] = []
+    for sentence in _split_requirement_sentences(text):
+        records.extend(
+            _split_single_requirement_clause(
+                sentence,
+                default_importance,
+            )
+        )
+    return records
+
+
+def _strip_inline_jd_heading(value: str) -> str:
+    """Remove a presentation-only inline Job Description marker if present."""
+    return re.sub(
+        r"^(?:job|role|position)\s+description\s*:\s*",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    ).strip()
+
+
+def _introductory_list_kind(value: str) -> str:
+    """Return a controlled kind for a multiline example/alternative list."""
+    text = _normalise_requirement_surface(value)
+    if not text or not re.search(r":\s*$", text):
+        return ""
+
+    if re.search(r"\bone\s+or\s+more\s+of\s*:\s*$", text, re.I):
+        return "one_or_more_of"
+
+    if re.search(
+        r"\b(?:including(?:\s+but\s+not\s+limited\s+to)?|"
+        r"such\s+as|for\s+example|e\.?\s*g\.?|especially)\s*:\s*$",
+        text,
+        re.I,
+    ):
+        return "example_list"
+
+    return ""
+
+
+def _looks_like_introductory_list_item(value: str) -> bool:
+    """Conservatively recognise a short item under an explicit list introducer."""
+    text = _normalise_requirement_surface(value).strip(" ,;:.-")
+    tokens = _tokenise(text)
+    if not tokens or len(tokens) > 9:
+        return False
+    if re.search(r"[.!?;:]$", text):
+        return False
+
+    if re.match(
+        r"^(?:we|you|(?:the\s+)?candidate|successful applicant|"
+        r"experience|strong|solid|good|working|proficiency|knowledge|"
+        r"familiarity|ability|comfortable|build|develop|design|implement|"
+        r"work|collaborate|maintain|write|support|diagnose|help|assess|"
+        r"protect|coordinate|investigate|deploy|containerize|containerise|"
+        r"diploma|degree|bachelor|excellent|interest|exposure)\b",
+        text,
+        re.I,
+    ):
+        return False
+
+    return True
+
+
+def _open_introductory_list_header(
+    spans: list[dict[str, Any]],
+    *,
+    section: str,
+    block_index: int,
+) -> dict[str, Any] | None:
+    """Find the active introducer immediately preceding short list items."""
+    for span in reversed(spans):
+        if span.get("section") != section or span.get("block_index") != block_index:
+            break
+
+        kind = _introductory_list_kind(_clean_text(span.get("text", "")))
+        if kind:
+            return span
+
+        if not _looks_like_introductory_list_item(
+            _clean_text(span.get("text", ""))
+        ):
+            break
+
+    return None
+
+
+def _coalesce_one_or_more_alternative_lists(
+    spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep explicit multiline example/alternative lists as one requirement."""
+    coalesced: list[dict[str, Any]] = []
+    index = 0
+    while index < len(spans):
+        header = spans[index]
+        header_text = _clean_text(header.get("text", ""))
+        list_kind = _introductory_list_kind(header_text)
+        if not list_kind:
+            coalesced.append(header)
+            index += 1
+            continue
+
+        item_index = index + 1
+        item_spans: list[dict[str, Any]] = []
+        while item_index < len(spans):
+            item = spans[item_index]
+            if (
+                item.get("section") != header.get("section")
+                or item.get("block_index") != header.get("block_index")
+                or not _looks_like_introductory_list_item(
+                    _clean_text(item.get("text", ""))
+                )
+            ):
+                break
+            item_spans.append(item)
+            item_index += 1
+
+        if not item_spans:
+            coalesced.append(header)
+            index += 1
+            continue
+
+        list_items = [_clean_text(item["text"]) for item in item_spans]
+        text = f"{header_text} " + " ; ".join(list_items)
+        raw_text = "\n".join(
+            [_clean_text(header.get("raw_text", header_text))]
+            + [
+                _clean_text(item.get("raw_text", item["text"]))
+                for item in item_spans
+            ]
+        )
+        coalesced.append(
+            {
+                **header,
+                "span_id": _stable_id(
+                    "jdspan",
+                    f"{header['line_index']}|{_normalise_basic(text)}",
+                ),
+                "text": text,
+                "raw_text": raw_text,
+                "is_bullet": False,
+                "alternative_list": {
+                    "kind": list_kind,
+                    "items": list_items,
+                    "item_span_ids": [item["span_id"] for item in item_spans],
+                },
+            }
+        )
+        index = item_index
+
+    return coalesced
+
+
+def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
+    """Return deterministic non-heading spans with explicit section provenance."""
+    spans: list[dict[str, Any]] = []
+    active_section = ""
+    active_section_heading = ""
+    active_section_detection = ""
+    active_section_reason = ""
+    pending: dict[str, Any] | None = None
+    block_index = 0
+    raw_lines = raw_jd_text.splitlines()
+
+    def flush_pending() -> None:
+        nonlocal pending
+        if not pending:
+            return
+        spans.append(
+            {
+                "span_id": _stable_id(
+                    "jdspan",
+                    f"{pending['line_index']}|{_normalise_basic(pending['text'])}",
+                ),
+                "text": pending["text"],
+                "raw_text": pending["raw_text"],
+                "line_index": pending["line_index"],
+                "section": pending["section"],
+                "section_heading": pending.get("section_heading", ""),
+                "section_detection": pending.get("section_detection", ""),
+                "section_reason": pending.get("section_reason", ""),
+                "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
+                "is_bullet": pending["is_bullet"],
+                "block_index": pending["block_index"],
+            }
+        )
+        pending = None
+
+    def is_strong_grammatical_continuation(previous: str, current: str) -> bool:
+        if re.match(r"^(?:and|or|with|for|to|in|of|using)\b", current, re.I):
+            return True
+        return bool(re.search(r"\b(?:with|using|for|to|in|of)$", previous, re.I))
+
+    def is_unambiguous_continuation(previous: str, current: str) -> bool:
+        if re.search(r"[.!?;:]$", previous):
+            return False
+        if is_strong_grammatical_continuation(previous, current):
+            return True
+        return bool(current[:1].islower())
+
+    for line_offset, raw_line in enumerate(raw_lines):
+        line_index = line_offset + 1
+        original = _clean_text(raw_line).strip("-•* \t")
+        value = _normalise_requirement_surface(original)
         if not value:
+            flush_pending()
+            block_index += 1
             continue
 
         section = _raw_section_for_heading(value)
+
+        is_bullet = bool(re.match(r"^\s*(?:[-*•]+|\d+[.)])\s*", raw_line))
+        continues_pending = bool(
+            pending
+            and not is_bullet
+            and pending["section"] == active_section
+            and is_unambiguous_continuation(pending["text"], value)
+        )
+        is_requirement_list_intro = bool(_introductory_list_kind(value))
+
+        if (
+            not section
+            and not continues_pending
+            and not is_requirement_list_intro
+        ):
+            inferred = infer_semantic_list_heading(raw_lines, line_offset)
+            if inferred.get("is_heading_candidate"):
+                flush_pending()
+                block_index += 1
+                active_section = _clean_text(inferred.get("section"))
+                active_section_heading = value
+                active_section_detection = (
+                    "inferred_child_list"
+                    if active_section
+                    else "ambiguous_child_list_boundary"
+                )
+                active_section_reason = _clean_text(inferred.get("reason"))
+                continue
+
         if section:
-            active_section = "" if section == "stop" else section
+            flush_pending()
+            block_index += 1
+            active_section = section
+            active_section_heading = value
+            active_section_detection = "exact"
+            active_section_reason = "controlled_exact_heading"
+            continue
+
+        value = _strip_inline_jd_heading(value)
+        if not value:
+            flush_pending()
+            block_index += 1
+            continue
+
+        intro_header = _open_introductory_list_header(
+            spans,
+            section=active_section,
+            block_index=block_index,
+        )
+        preserve_list_boundary = bool(
+            intro_header
+            and _looks_like_introductory_list_item(value)
+            and not is_strong_grammatical_continuation(
+                pending["text"] if pending else "",
+                value,
+            )
+        )
+        if (
+            pending
+            and not is_bullet
+            and not preserve_list_boundary
+            and pending["section"] == active_section
+            and is_unambiguous_continuation(pending["text"], value)
+        ):
+            pending["text"] = _normalise_requirement_surface(
+                f"{pending['text']} {value}"
+            )
+            pending["raw_text"] = _clean_text(
+                f"{pending['raw_text']} {original}"
+            )
+            continue
+
+        flush_pending()
+        pending = {
+            "text": value,
+            "raw_text": original,
+            "line_index": line_index,
+            "section": active_section,
+            "section_heading": active_section_heading,
+            "section_detection": active_section_detection,
+            "section_reason": active_section_reason,
+            "is_bullet": is_bullet,
+            "block_index": block_index,
+        }
+
+    flush_pending()
+    return _coalesce_one_or_more_alternative_lists(spans)
+
+def _raw_jd_requirement_rows(
+    raw_jd_text: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract direct rows from explicit sections and retain raw grounding spans."""
+    rows: list[dict[str, Any]] = []
+    spans = _raw_jd_content_spans(raw_jd_text)
+    unheaded_exclusions: list[dict[str, Any]] = []
+
+    for span in spans:
+        active_section = _clean_text(span.get("section", ""))
+        value = _clean_text(span.get("text", ""))
+
+        if active_section == "stop":
+            if value:
+                unheaded_exclusions.append(
+                    {
+                        "text": value,
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "section": "stop",
+                        "section_heading": span.get("section_heading", ""),
+                        "section_detection": span.get("section_detection", ""),
+                        "reason": "explicit_non_scoring_section",
+                        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
+                    }
+                )
             continue
 
         # Inside an explicitly recognised requirement section, short technical
         # entries such as "C++" are real requirements.  The section marker is
         # already consumed above, so require a meaningful token rather than a
         # presentation-length threshold.
-        if not active_section or not _tokenise(value):
+        if active_section and _tokenise(value):
+            default_importance = {
+                "responsibilities": "core",
+                "requirements": "required",
+                "core": "core",
+                "preferred": "preferred",
+            }[active_section]
+            # A raw span can contain several independently punctuated sentences.
+            # Importance cues such as "plus" or "must" are local to the sentence
+            # that contains them; do not let one sentence reclassify its neighbours.
+            for sentence_index, sentence in enumerate(
+                _split_requirement_sentences(value),
+                start=1,
+            ):
+                sentence_importance = _classify_raw_importance(
+                    sentence,
+                    default_importance,
+                )
+                has_explicit_preference_transition = bool(
+                    re.search(
+                        r"\b(preferably|ideally|nice[- ]to[- ]have|"
+                        r"would be preferred)\b",
+                        sentence,
+                        flags=re.IGNORECASE,
+                    )
+                )
+                split_default_importance = (
+                    default_importance
+                    if has_explicit_preference_transition
+                    else sentence_importance
+                )
+
+                for clause in _split_single_requirement_clause(
+                    sentence,
+                    split_default_importance,
+                ):
+                    grounding = {
+                        "kind": "explicit_raw_section",
+                        "span_id": span["span_id"],
+                        "line_index": span["line_index"],
+                        "section": active_section,
+                        "section_heading": span.get("section_heading", ""),
+                        "section_detection": span.get("section_detection", ""),
+                        "section_reason": span.get("section_reason", ""),
+                        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
+                        "sentence_index": sentence_index,
+                        "sentence_text": sentence,
+                    }
+                    alternative_list = span.get("alternative_list") or {}
+                    if alternative_list:
+                        grounding.update(
+                            {
+                                "list_structure": alternative_list.get("kind", ""),
+                                "list_item_span_ids": alternative_list.get(
+                                    "item_span_ids",
+                                    [],
+                                ),
+                                "list_item_count": len(
+                                    alternative_list.get("items", [])
+                                ),
+                            }
+                        )
+                    rows.append(
+                        {
+                            **clause,
+                            "importance": clause["importance"],
+                            "source": f"raw_jd.{active_section}",
+                            # Keep the source spelling only as provenance.  The
+                            # canonical display/ID continues to use the repaired
+                            # deterministic surface in ``clause['parent_text']``.
+                            "raw_parent_text": _clean_text(
+                                span.get("raw_text", clause["parent_text"])
+                            ).strip(" ,;:-"),
+                            "source_parent_instance": (
+                                f"raw|{span['span_id']}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": grounding,
+                        }
+                    )
             continue
 
-        default_importance = {
-            "responsibilities": "core",
-            "requirements": "required",
-            "core": "core",
-            "preferred": "preferred",
-        }[active_section]
+        # Unheaded prose is admissible only when a sentence independently
+        # establishes an applicant obligation or explicit qualification.  This
+        # remains true even if formal sections occur later in the same JD.
+        role_rows, diagnostics = _unheaded_role_rows(span)
+        rows.extend(role_rows)
+        unheaded_exclusions.extend(diagnostics)
 
-        for clause in _split_requirement_clauses(
-            value,
-            default_importance,
+    return rows, spans, unheaded_exclusions
+
+
+_UNHEADED_CONTEXTUAL_PATTERNS = (
+    re.compile(r"\bworking alongside (?:industry )?experts\b", re.I),
+    re.compile(r"\bjoin(?:ing)? (?:a|our|the) team\b", re.I),
+    re.compile(r"\babout (?:the )?(?:company|organisation|organization|role)\b", re.I),
+    re.compile(r"\bwe(?:'re| are) (?:a|an|the)\b", re.I),
+)
+
+_RECRUITING_CALL_TO_ACTION_PATTERNS = (
+    re.compile(r"\bapply\s+(?:now|today|here)\b", re.I),
+    re.compile(r"\bwe(?:'d| would)\s+love\s+to\s+(?:hear|meet)\b", re.I),
+    re.compile(r"^\s*(?:excited|interested)\s+about\b", re.I),
+    re.compile(r"^\s*join(?:ing)?\b.*\bteam\b", re.I),
+    re.compile(r"\bwe(?:'re| are)\s+seeking\b", re.I),
+)
+
+_UNHEADED_OBLIGATION_PATTERNS = (
+    re.compile(r"\b(?:you|candidate|successful applicant)\s+(?:will|must|should)\b", re.I),
+    re.compile(r"\bwho\s+will\b", re.I),
+    re.compile(r"\bresponsible\s+for\b", re.I),
+    re.compile(r"\b(?:must|required|minimum)\b", re.I),
+    re.compile(
+        r"^(?:(?:strong|good|solid|working)\s+)?"
+        r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+        re.I,
+    ),
+)
+
+
+_EXPLICIT_APPLICANT_OBLIGATION_PATTERN = re.compile(
+    r"\b(?:you|(?:the\s+)?candidate|successful applicant)\s+"
+    r"(?:will|must|should)\b|"
+    r"\bwho\s+will\b|\bresponsible\s+for\b|"
+    r"\b(?:candidate|successful applicant)\s+must\b",
+    re.I,
+)
+
+
+def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
+    """Classify unheaded prose without treating company context as a requirement."""
+    text = _clean_text(span.get("text", ""))
+    if (
+        any(pattern.search(text) for pattern in _RECRUITING_CALL_TO_ACTION_PATTERNS)
+        and not _EXPLICIT_APPLICANT_OBLIGATION_PATTERN.search(text)
+    ):
+        return False, "recruiting_call_to_action"
+    if any(pattern.search(text) for pattern in _UNHEADED_CONTEXTUAL_PATTERNS):
+        return False, "contextual_company_or_team_prose"
+    if any(pattern.search(text) for pattern in _UNHEADED_OBLIGATION_PATTERNS):
+        return True, "explicit_role_or_qualification_marker"
+    return False, "ambiguous_unheaded_prose"
+
+
+def _unheaded_obligation_content(sentence: str) -> str:
+    """Remove only an explicit applicant-obligation wrapper from one sentence."""
+    value = _normalise_requirement_surface(sentence).strip(" ,;:.-")
+    if not value:
+        return ""
+
+    patterns = (
+        # Employer introductions often establish the applicant obligation via
+        # "who will".  The role/company preamble is context, not the
+        # requirement itself.
+        r"^.*?\bwho\s+will\s+(?:be\s+)?(?P<content>.+)$",
+        # A short discourse preamble (for example, "At the same time") does
+        # not weaken an otherwise explicit applicant obligation.
+        r"^.*?\b(?:you|(?:the\s+)?candidate|successful applicant)\s+will\s+(?:be\s+)?"
+        r"(?P<content>.+)$",
+        r"^(?:you|(?:the\s+)?candidate|successful applicant)\s+(?:must|should)\s+"
+        r"(?P<content>.+)$",
+        r"^(?:you|(?:the\s+)?candidate|successful applicant)\s+(?:are|is)\s+"
+        r"responsible\s+for\s+(?P<content>.+)$",
+        r"^responsible\s+for\s+(?P<content>.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, value, flags=re.IGNORECASE)
+        if match:
+            return _clean_text(match.group("content")).strip(" ,;:.-")
+
+    if re.match(
+        r"^(?:(?:strong|good|solid|working)\s+)?"
+        r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return value
+    return ""
+
+
+def _is_explicit_unheaded_qualification(sentence: str) -> bool:
+    return bool(
+        re.match(
+            r"^(?:(?:strong|good|solid|working)\s+)?"
+            r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b",
+            _normalise_requirement_surface(sentence),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _unheaded_role_importance(sentence: str) -> str:
+    """Keep role-obligation prose core unless it explicitly elevates priority."""
+    if _is_explicit_unheaded_qualification(sentence):
+        return _classify_raw_importance(sentence, "core")
+    if re.search(
+        r"\b(?:must|required|minimum|essential|mandatory)\b",
+        sentence,
+        flags=re.IGNORECASE,
+    ):
+        return "required"
+    return "core"
+
+
+def _unheaded_role_rows(
+    span: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Admit explicit role obligations sentence-by-sentence from raw JD text."""
+    rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    parent_text = _clean_text(
+        span.get("raw_text", span.get("text", ""))
+    ).strip(" ,;:-")
+    sentences = _split_requirement_sentences(_clean_text(span.get("text", "")))
+    # All admitted clauses from one raw span share the source parent's bounded
+    # scoring allocation. Excluded contextual sentences never enter this group.
+    group_id = _stable_id("grp", _normalise_basic(parent_text))
+    parent_instance = (
+        f"raw|{span.get('span_id', '')}|"
+        f"{_normalise_basic(parent_text)}"
+    )
+
+    for sentence_index, sentence in enumerate(sentences, start=1):
+        sentence_span = {**span, "text": sentence}
+        eligible, reason = _unheaded_span_status(sentence_span)
+        if not eligible:
+            semantic = _semantic_metadata_for_exclusion(sentence, reason)
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": reason,
+                    **semantic,
+                }
+            )
+            continue
+
+        content = _unheaded_obligation_content(sentence)
+        minimum_tokens = 1 if _is_explicit_unheaded_qualification(sentence) else 2
+        if len(_tokenise(content)) < minimum_tokens:
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": "explicit_role_marker_without_admissible_content",
+                }
+            )
+            continue
+
+        exclusion_reason = _classify_non_requirement_row(content)
+        if exclusion_reason:
+            semantic = _semantic_metadata_for_exclusion(
+                content,
+                exclusion_reason,
+                source="raw_jd.unheaded_explicit_role_obligation",
+                importance=_unheaded_role_importance(sentence),
+            )
+            diagnostics.append(
+                {
+                    "text": sentence,
+                    "span_id": span.get("span_id", ""),
+                    "line_index": span.get("line_index", 0),
+                    "sentence_index": sentence_index,
+                    "reason": f"non_requirement_{exclusion_reason}",
+                    **semantic,
+                }
+            )
+            continue
+
+        for clause in _split_single_requirement_clause(
+            content,
+            _unheaded_role_importance(sentence),
         ):
+            clause["parent_text"] = parent_text
+            clause["atomic_group_id"] = group_id
             rows.append(
                 {
                     **clause,
-                    "importance": _classify_raw_importance(
-                        clause["text"],
-                        clause["importance"],
-                    ),
-                    "source": f"raw_jd.{active_section}",
+                    "source": "raw_jd.unheaded_explicit_role_obligation",
+                    "raw_parent_text": _clean_text(
+                        span.get("raw_text", parent_text)
+                    ).strip(" ,;:-"),
+                    "source_parent_instance": parent_instance,
+                    "grounding": {
+                        "kind": "unheaded_explicit_role_obligation",
+                        "admission_method": "explicit_role_obligation_sentence",
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "sentence_index": sentence_index,
+                        "sentence_text": sentence,
+                        "section": "",
+                    },
                 }
             )
 
-    return rows
+    return rows, diagnostics
+
+
+def _ordered_token_coverage(required: list[str], available: list[str]) -> float:
+    """Return ordered coverage for one raw span without fuzzy synonym matching."""
+    if not required:
+        return 0.0
+    cursor = 0
+    matched = 0
+    for token in required:
+        while cursor < len(available) and available[cursor] != token:
+            cursor += 1
+        if cursor == len(available):
+            break
+        matched += 1
+        cursor += 1
+    return matched / len(required)
+
+
+def _ground_profile_requirement_to_raw_span(
+    value: str,
+    spans: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Ground one structured row to exactly one admissible raw-JD span."""
+    profile_text = _normalise_requirement_surface(value)
+    profile_normalised = _normalise_basic(profile_text)
+    profile_tokens = _tokenise(profile_text)
+    diagnostics: list[dict[str, Any]] = []
+    if len(profile_tokens) < 2:
+        return None, diagnostics
+
+    candidates: list[tuple[int, float, int, dict[str, Any], str]] = []
+    for span in spans:
+        span_text = _clean_text(span.get("text", ""))
+        if not span_text:
+            continue
+        if not span.get("section"):
+            eligible, reason = _unheaded_span_status(span)
+            if not eligible:
+                diagnostics.append(
+                    {
+                        "text": profile_text,
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "reason": reason,
+                    }
+                )
+                continue
+
+        span_normalised = _normalise_basic(span_text)
+        span_tokens = _tokenise(span_text)
+        exact = bool(
+            profile_normalised
+            and profile_normalised in span_normalised
+        )
+        coverage = _ordered_token_coverage(profile_tokens, span_tokens)
+        if not exact and coverage < 1.0:
+            continue
+
+        candidates.append(
+            (
+                1 if exact else 0,
+                coverage,
+                -int(span.get("line_index", 0)),
+                span,
+                "normalised_substring" if exact else "ordered_token_coverage",
+            )
+        )
+
+    if not candidates:
+        return None, diagnostics
+
+    _, coverage, _, span, method = max(candidates, key=lambda item: item[:3])
+    return {
+        "kind": "profile_grounded_to_raw_jd",
+        "span_id": span.get("span_id", ""),
+        "line_index": span.get("line_index", 0),
+        "section": span.get("section", ""),
+        "method": method,
+        "token_coverage": round(coverage, 6),
+    }, diagnostics
 
 
 def _coverage_metrics(
@@ -980,6 +2076,19 @@ def _coverage_metrics(
 
     intersection = required_tokens & candidate_tokens
     return len(intersection) / len(required_tokens), len(intersection)
+
+
+def deterministic_evidence_coverage_metrics(
+    requirement_text: str,
+    candidate_text: str,
+    acronym_map: dict[str, str] | None = None,
+) -> tuple[float, int]:
+    """Expose deterministic requirement coverage for evidence selectors."""
+    return _coverage_metrics(
+        requirement_text,
+        candidate_text,
+        acronym_map,
+    )
 
 
 def _negative_reason_segments(reason: str) -> list[str]:
@@ -1030,11 +2139,15 @@ def _reason_limits_requirement(
 def _requirement_sources(
     jd_profile: dict[str, Any],
     raw_jd_text: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-
-    raw_rows = _raw_jd_requirement_rows(raw_jd_text)
+    raw_rows, raw_spans, unheaded_raw_exclusions = _raw_jd_requirement_rows(
+        raw_jd_text
+    )
     rows.extend(raw_rows)
+    rejected_unheaded: list[dict[str, Any]] = []
+    grounded_profile_count = 0
+    ungrounded_profile_rows: list[dict[str, Any]] = []
 
     field_specs = (
         ("deal_breakers", "deal_breaker"),
@@ -1046,7 +2159,9 @@ def _requirement_sources(
     )
 
     for field_name, default_importance in field_specs:
-        for raw_value in jd_profile.get(field_name, []) or []:
+        for profile_index, raw_value in enumerate(
+            jd_profile.get(field_name, []) or []
+        ):
             value = _clean_text(raw_value)
             if not value:
                 continue
@@ -1068,35 +2183,89 @@ def _requirement_sources(
                 value,
                 importance,
             ):
-                if raw_rows:
-                    continue
-
-                rows.append(
-                    {
-                        **clause,
-                        "source": f"jd_profile.{field_name}",
-                    }
+                grounding, rejected = _ground_profile_requirement_to_raw_span(
+                    clause["text"],
+                    raw_spans,
                 )
+                rejected_unheaded.extend(rejected)
+                if grounding:
+                    # An explicit section is already canonicalised directly
+                    # from its raw wording.  Do not let an LLM profile add a
+                    # differently phrased second allocation for that same
+                    # authoritative span.
+                    if grounding.get("section"):
+                        continue
+                    grounded_profile_count += 1
+                    rows.append(
+                        {
+                            **clause,
+                            "source": f"jd_profile.{field_name}",
+                            "profile_field": field_name,
+                            "source_parent_instance": (
+                                f"profile|{field_name}|{profile_index}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": grounding,
+                        }
+                    )
+                elif not raw_spans:
+                    # Existing stored/profile-only inputs have no raw text to
+                    # validate.  Keep the legacy compatibility path explicit
+                    # in provenance; all current JD intake paths provide raw
+                    # text and therefore use the stricter grounded path.
+                    rows.append(
+                        {
+                            **clause,
+                            "source": f"jd_profile.{field_name}",
+                            "profile_field": field_name,
+                            "source_parent_instance": (
+                                f"profile|{field_name}|{profile_index}|"
+                                f"{_normalise_basic(clause['parent_text'])}"
+                            ),
+                            "grounding": {
+                                "kind": "legacy_profile_only_raw_unavailable",
+                            },
+                        }
+                    )
+                else:
+                    ungrounded_profile_rows.append(
+                        {
+                            "text": clause["text"],
+                            "source": f"jd_profile.{field_name}",
+                            "reason": "not_grounded_to_admissible_raw_jd_span",
+                        }
+                    )
 
-    if not rows:
-        for line in raw_jd_text.splitlines():
-            value = _clean_text(line).strip("-•* ")
-            if _raw_section_for_heading(value):
-                continue
-            if len(value) < 20:
-                continue
-            for clause in _split_requirement_clauses(
-                value,
-                _classify_raw_importance(value, "core"),
-            ):
-                rows.append(
-                    {
-                        **clause,
-                        "source": "raw_jd_fallback",
-                    }
-                )
+    section_inference = []
+    seen_section_inference: set[tuple[str, str, str]] = set()
+    for span in raw_spans:
+        heading = _clean_text(span.get("section_heading", ""))
+        detection = _clean_text(span.get("section_detection", ""))
+        section = _clean_text(span.get("section", ""))
+        if not heading or not detection:
+            continue
+        key = (heading, section, detection)
+        if key in seen_section_inference:
+            continue
+        seen_section_inference.add(key)
+        section_inference.append(
+            {
+                "heading": heading,
+                "section": section,
+                "detection": detection,
+                "reason": _clean_text(span.get("section_reason", "")),
+            }
+        )
 
-    return rows
+    return rows, {
+        "raw_span_count": len(raw_spans),
+        "grounded_profile_requirement_count": grounded_profile_count,
+        "ungrounded_profile_requirements": ungrounded_profile_rows,
+        "rejected_unheaded_spans": rejected_unheaded,
+        "unheaded_raw_exclusions": unheaded_raw_exclusions,
+        "section_inference": section_inference,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
+    }
 
 
 def canonicalise_requirements(
@@ -1104,7 +2273,10 @@ def canonicalise_requirements(
     raw_jd_text: str = "",
 ) -> dict[str, Any]:
     """Build stable atomic requirement rows from the raw JD/profile."""
-    source_rows = _requirement_sources(jd_profile, raw_jd_text)
+    source_rows, decomposition_debug = _requirement_sources(
+        jd_profile,
+        raw_jd_text,
+    )
     filtered_section_headings = _raw_jd_section_heading_rows(raw_jd_text)
     filtered_non_requirement_rows: list[dict[str, str]] = []
 
@@ -1140,11 +2312,18 @@ def canonicalise_requirements(
             source_row.get("text", "")
         )
         if exclusion_reason:
+            semantic = _semantic_metadata_for_exclusion(
+                source_row.get("text", ""),
+                exclusion_reason,
+                source=_clean_text(source_row.get("source", "")),
+                importance=_clean_text(source_row.get("importance", "")),
+            )
             filtered_non_requirement_rows.append(
                 {
                     "text": _clean_text(source_row.get("text", "")),
                     "reason": exclusion_reason,
                     "source": _clean_text(source_row.get("source", "")),
+                    **semantic,
                 }
             )
             continue
@@ -1155,6 +2334,42 @@ def canonicalise_requirements(
     text_values = [row["text"] for row in source_rows]
     text_values.append(raw_jd_text)
     acronym_map = learn_acronym_map(text_values)
+
+    # Source parent provenance is intentionally descriptive.  The scorer still
+    # derives group fractions dynamically from the canonical rows below.
+    occurrence_focuses: dict[str, set[str]] = {}
+    for source_row in source_rows:
+        occurrence_base = _clean_text(
+            source_row.get("source_parent_instance", "")
+        ) or "|".join(
+            (
+                _clean_text(source_row.get("source", "")),
+                _clean_text(source_row.get("profile_field", "")),
+                _normalise_basic(source_row.get("parent_text", source_row["text"])),
+            )
+        )
+        source_row["parent_occurrence_id"] = _stable_id(
+            "srcgrp",
+            occurrence_base,
+        )
+        occurrence_focuses.setdefault(
+            source_row["parent_occurrence_id"],
+            set(),
+        ).add(
+            _canonical_key(
+                source_row.get("atomic_focus", source_row["text"]),
+                acronym_map,
+            )
+        )
+
+    for source_row in source_rows:
+        focus_count = len(
+            occurrence_focuses.get(source_row["parent_occurrence_id"], set())
+        )
+        source_row["source_group_fraction"] = round(
+            1.0 / max(1, focus_count),
+            6,
+        )
 
     canonical_rows: list[dict[str, Any]] = []
     merge_debug: list[dict[str, Any]] = []
@@ -1198,10 +2413,21 @@ def canonicalise_requirements(
                 source_row.get("is_atomic")
                 or existing.get("is_atomic")
             )
+            importance_sensitive_scope_mismatch = (
+                not exact_key
+                and _importance_sensitive_fuzzy_merge_is_unsafe(
+                    text,
+                    source_row["importance"],
+                    existing["text"],
+                    existing["importance"],
+                    acronym_map,
+                )
+            )
             threshold_met = (
                 exact_key
                 or (
-                    similarity >= (0.94 if either_atomic else 0.86)
+                    not importance_sensitive_scope_mismatch
+                    and similarity >= (0.94 if either_atomic else 0.86)
                     and focus_similarity >= (0.90 if either_atomic else 0.80)
                 )
             )
@@ -1230,6 +2456,28 @@ def canonicalise_requirements(
                         _stable_id("grp", key),
                     ),
                     "is_atomic": bool(source_row.get("is_atomic")),
+                    "scoring_parent_occurrence_id": source_row[
+                        "parent_occurrence_id"
+                    ],
+                    "source_provenance": [
+                        {
+                            "parent_occurrence_id": source_row[
+                                "parent_occurrence_id"
+                            ],
+                            "parent_text": source_row.get("parent_text", text),
+                            "raw_parent_text": source_row.get(
+                                "raw_parent_text",
+                                source_row.get("parent_text", text),
+                            ),
+                            "source": source_row["source"],
+                            "profile_field": source_row.get("profile_field", ""),
+                            "source_group_fraction": source_row[
+                                "source_group_fraction"
+                            ],
+                            "grounding": source_row.get("grounding", {}),
+                            "contributes_scoring_allocation": True,
+                        }
+                    ],
                 }
             )
             continue
@@ -1240,6 +2488,21 @@ def canonicalise_requirements(
         )
         existing["variants"] = list(
             dict.fromkeys(existing["variants"] + [text])
+        )
+        existing.setdefault("source_provenance", []).append(
+            {
+                "parent_occurrence_id": source_row["parent_occurrence_id"],
+                "parent_text": source_row.get("parent_text", text),
+                "raw_parent_text": source_row.get(
+                    "raw_parent_text",
+                    source_row.get("parent_text", text),
+                ),
+                "source": source_row["source"],
+                "profile_field": source_row.get("profile_field", ""),
+                "source_group_fraction": source_row["source_group_fraction"],
+                "grounding": source_row.get("grounding", {}),
+                "contributes_scoring_allocation": False,
+            }
         )
 
         if _importance_rank(source_row["importance"]) > _importance_rank(
@@ -1267,6 +2530,15 @@ def canonicalise_requirements(
             1.0 / group_counts[group_id],
             6,
         )
+        semantic = classify_jd_statement_semantics(
+            row.get("atomic_focus") or row.get("text"),
+            source=" ".join(row.get("sources", []) or []),
+            importance=_clean_text(row.get("importance")),
+        )
+        # Non-evidence-bearing statements were filtered before canonical merging.
+        # Keep eligibility explicit on survivors so importance never doubles as
+        # a semantic-type flag downstream.
+        row.update(semantic)
 
     return {
         "requirements": canonical_rows,
@@ -1274,7 +2546,13 @@ def canonicalise_requirements(
         "merge_debug": merge_debug,
         "filtered_section_headings": filtered_section_headings,
         "filtered_non_requirement_rows": filtered_non_requirement_rows,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
+        "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
+        "canonical_requirement_decomposition_version": (
+            CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION
+        ),
+        "decomposition_debug": decomposition_debug,
     }
 
 
@@ -1286,12 +2564,28 @@ def build_resume_evidence_index(
     profile = resume_profile or {}
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    structured_texts: set[str] = set()
 
     def add(section: str, text: Any, source: str) -> None:
         cleaned = _clean_text(text)
         if not cleaned:
             return
-        key = (section, _normalise_basic(cleaned))
+        normalised = _normalise_basic(cleaned)
+
+        if section == "raw_text":
+            if any(
+                normalised == structured
+                or (
+                    len(normalised) >= 8
+                    and normalised in structured
+                )
+                for structured in structured_texts
+            ):
+                return
+        else:
+            structured_texts.add(normalised)
+
+        key = (section, normalised)
         if key in seen:
             return
         seen.add(key)
@@ -1373,6 +2667,20 @@ def build_resume_evidence_index(
     return rows
 
 
+def _deterministic_weak_evidence_is_sufficient(
+    *,
+    score: float,
+    focus_coverage: float,
+    overlap_count: int,
+) -> bool:
+    """Return whether lexical evidence is sufficient for weak credit."""
+    return bool(
+        score >= _DETERMINISTIC_WEAK_MIN_SCORE
+        and focus_coverage >= _DETERMINISTIC_WEAK_MIN_COVERAGE
+        and overlap_count >= _DETERMINISTIC_WEAK_MIN_OVERLAP
+    )
+
+
 def build_deterministic_keyword_match(
     *,
     requirements: list[dict[str, Any]],
@@ -1409,6 +2717,15 @@ def build_deterministic_keyword_match(
         )
         if best is None or overlap <= 0:
             label = "none"
+        elif (
+            label == "weak"
+            and not _deterministic_weak_evidence_is_sufficient(
+                score=similarity,
+                focus_coverage=coverage,
+                overlap_count=overlap,
+            )
+        ):
+            label = "none"
         if label == "none":
             missing.append({"keyword": focus})
             continue
@@ -1429,6 +2746,229 @@ def build_deterministic_keyword_match(
     return {"present": present, "missing": missing}
 
 
+
+_CREDENTIAL_REQUIREMENT_CUES = (
+    "degree",
+    "bachelor",
+    "master",
+    "phd",
+    "doctorate",
+    "diploma",
+    "education",
+    "academic",
+    "qualification",
+    "certification",
+    "certified",
+    "graduate",
+    "university",
+    "college",
+)
+
+
+def _evidence_source_is_requirement_compatible(
+    requirement: dict[str, Any],
+    row: dict[str, str],
+) -> bool:
+    """Reject source/claim combinations that lexical overlap cannot prove.
+
+    Degree headings can prove education/credential requirements, but a degree
+    title containing a generic word such as \"design\" is not evidence of
+    practical design/implementation experience. Explicit course rows remain
+    eligible for subject-matter requirements.
+    """
+    if row.get("section") != "education":
+        return True
+
+    source = _clean_text(row.get("source"))
+    if ".courses[" in source:
+        return True
+
+    focus = _normalise_basic(
+        requirement.get("atomic_focus")
+        or requirement.get("text")
+        or ""
+    )
+    focus_tokens = set(focus.split())
+    return any(cue in focus_tokens for cue in _CREDENTIAL_REQUIREMENT_CUES)
+
+
+
+
+_LABEL_ORDER_FOR_RESELECTION = {
+    "none": 0,
+    "weak": 1,
+    "transferable": 2,
+    "direct": 3,
+}
+
+
+def _single_row_taxonomy_evidence_text(row: dict[str, Any]) -> str:
+    return "\n".join(
+        _clean_text(item.get("text", ""))
+        for item in row.get("evidence", []) or []
+        if isinstance(item, dict) and _clean_text(item.get("text", ""))
+    )
+
+
+def _apply_capability_single_row_reselection(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_index: list[dict[str, str]],
+    acronym_map: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Repair taxonomy-caused under-credit with one stronger compatible row.
+
+    This policy never promotes a preliminary ``none`` match, never combines
+    evidence rows, and never exceeds the preliminary match label. It only runs
+    for capabilities that explicitly opt in through the taxonomy.
+    """
+    taxonomy = get_default_taxonomy()
+    capabilities = taxonomy.by_id()
+    output = deepcopy(rows)
+    audit_rows: list[dict[str, Any]] = []
+
+    for row in output:
+        preliminary_label = _clean_text(row.get("match_label")).lower()
+        preliminary_rank = _LABEL_ORDER_FOR_RESELECTION.get(
+            preliminary_label,
+            0,
+        )
+        if preliminary_rank <= 0:
+            continue
+
+        original_evidence_text = _single_row_taxonomy_evidence_text(row)
+        original_decision = evaluate_evidence(
+            row,
+            original_evidence_text,
+            taxonomy,
+        )
+        capability_id = _clean_text(original_decision.get("capability_id"))
+        taxonomy_label = _clean_text(
+            original_decision.get("label")
+        ).lower()
+
+        if not capability_id or taxonomy_label not in _LABEL_ORDER_FOR_RESELECTION:
+            continue
+
+        capability = capabilities.get(capability_id) or {}
+        if capability.get("allow_stronger_single_row_reselection") is not True:
+            continue
+
+        original_taxonomy_rank = _LABEL_ORDER_FOR_RESELECTION[taxonomy_label]
+        if original_taxonomy_rank >= preliminary_rank:
+            continue
+
+        baseline_final_rank = min(
+            preliminary_rank,
+            original_taxonomy_rank,
+        )
+        best_final_rank = baseline_final_rank
+        selected_row: dict[str, str] | None = None
+        selected_decision: dict[str, Any] | None = None
+        selected_coverage = 0.0
+        selected_overlap = 0
+
+        focus = _clean_text(
+            row.get("atomic_focus") or row.get("text")
+        )
+
+        for evidence_row in evidence_index:
+            if not _evidence_source_is_requirement_compatible(
+                row,
+                evidence_row,
+            ):
+                continue
+
+            decision = evaluate_evidence(
+                row,
+                str(evidence_row.get("text") or ""),
+                taxonomy,
+            )
+            if _clean_text(decision.get("capability_id")) != capability_id:
+                continue
+
+            candidate_taxonomy_label = _clean_text(
+                decision.get("label")
+            ).lower()
+            candidate_taxonomy_rank = _LABEL_ORDER_FOR_RESELECTION.get(
+                candidate_taxonomy_label,
+                0,
+            )
+            candidate_final_rank = min(
+                preliminary_rank,
+                candidate_taxonomy_rank,
+            )
+            if candidate_final_rank <= best_final_rank:
+                continue
+
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                focus,
+                str(evidence_row.get("text") or ""),
+                acronym_map,
+            )
+            best_final_rank = candidate_final_rank
+            selected_row = evidence_row
+            selected_decision = decision
+            selected_coverage = coverage
+            selected_overlap = overlap
+
+            if candidate_final_rank == preliminary_rank:
+                break
+
+        if selected_row is None or selected_decision is None:
+            continue
+
+        original_evidence = [
+            deepcopy(item)
+            for item in row.get("evidence", []) or []
+            if isinstance(item, dict)
+        ]
+        selected_evidence = {
+            **deepcopy(selected_row),
+            "reason": (
+                "One existing resume row independently supports the same "
+                "recognised capability more strongly after the originally "
+                "linked evidence would have been taxonomy-capped; evidence "
+                "rows were not combined."
+            ),
+            "evidence_similarity": f"{selected_coverage:.3f}",
+        }
+        row["evidence"] = [selected_evidence]
+        row["capability_evidence_reselection"] = {
+            "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
+            "status": "stronger_single_row_selected",
+            "capability_id": capability_id,
+            "preliminary_match_ceiling": preliminary_label,
+            "original_taxonomy_label": taxonomy_label,
+            "selected_taxonomy_label": _clean_text(
+                selected_decision.get("label")
+            ).lower(),
+            "original_evidence": original_evidence,
+            "selected_evidence_id": _clean_text(
+                selected_row.get("evidence_id")
+            ),
+            "selected_evidence_source": _clean_text(
+                selected_row.get("source")
+            ),
+            "selected_requirement_coverage": round(
+                selected_coverage,
+                6,
+            ),
+            "selected_requirement_overlap_count": selected_overlap,
+            "combined_evidence_rows": False,
+        }
+        audit_rows.append(
+            {
+                "requirement_id": _clean_text(
+                    row.get("requirement_id")
+                ),
+                **deepcopy(row["capability_evidence_reselection"]),
+            }
+        )
+
+    return output, audit_rows
+
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -1442,6 +2982,12 @@ def _best_resume_evidence(
     focus = requirement.get("atomic_focus") or requirement.get("text", "")
 
     for row in evidence_index:
+        if not _evidence_source_is_requirement_compatible(
+            requirement,
+            row,
+        ):
+            continue
+
         term_similarity = _token_similarity(
             matched_term,
             row.get("text", ""),
@@ -1483,11 +3029,10 @@ def _fallback_weak_evidence(
         evidence_index,
         acronym_map,
     )
-    if (
-        best is None
-        or score < 0.28
-        or focus_coverage < 0.25
-        or overlap_count < 2
+    if best is None or not _deterministic_weak_evidence_is_sufficient(
+        score=score,
+        focus_coverage=focus_coverage,
+        overlap_count=overlap_count,
     ):
         return None
 
@@ -1838,7 +3383,33 @@ def link_requirement_matches(
                     elif evidence_overlap < 1:
                         match_label = "weak"
 
-                evidence.append(reference)
+                if (
+                    reference is not None
+                    and match_label == "weak"
+                    and evidence_index
+                    and not _deterministic_weak_evidence_is_sufficient(
+                        score=evidence_score,
+                        focus_coverage=evidence_coverage,
+                        overlap_count=evidence_overlap,
+                    )
+                ):
+                    warnings.append(
+                        {
+                            "requirement_id": requirement["requirement_id"],
+                            "code": "insufficient_weak_evidence_context",
+                            "message": (
+                                "Weak credit was removed because the actual "
+                                "resume evidence did not overlap enough of the "
+                                "requirement under the shared deterministic "
+                                "weak-evidence thresholds."
+                            ),
+                        }
+                    )
+                    match_label = "none"
+                    reference = None
+
+                if reference is not None:
+                    evidence.append(reference)
 
         if explicit_only and match_label == "none":
             explicit_evidence = _find_explicit_subjective_evidence(
@@ -1979,7 +3550,8 @@ def _weighted_coverage(
     eligible_rows = [
         row
         for row in rows
-        if _clean_text(row.get("importance")).lower() in accepted_importance
+        if requirement_is_score_eligible(row)
+        and _clean_text(row.get("importance")).lower() in accepted_importance
     ]
     group_counts: dict[str, int] = {}
     for row in eligible_rows:
@@ -2027,18 +3599,23 @@ def compute_deterministic_alignment(
     structure_score: int | float = 0,
 ) -> dict[str, Any]:
     """Compute role alignment without mixing in document-quality scores."""
+    scoring_rows = [
+        row for row in linked_requirements if requirement_is_score_eligible(row)
+    ]
+    excluded_non_scoring_count = len(linked_requirements) - len(scoring_rows)
+
     required_score, _, required_denominator = _weighted_coverage(
-        linked_requirements,
+        scoring_rows,
         {"deal_breaker", "required", "core"},
     )
     preferred_score, _, preferred_denominator = _weighted_coverage(
-        linked_requirements,
+        scoring_rows,
         {"preferred"},
     )
 
     evidence_values = [
         min(5, max(0, int(row.get("evidence_strength", 0))))
-        for row in linked_requirements
+        for row in scoring_rows
         if row.get("match_label") != "none"
     ]
     evidence_score = (
@@ -2066,7 +3643,7 @@ def compute_deterministic_alignment(
 
     group_ids = {
         row.get("atomic_group_id") or row.get("requirement_id")
-        for row in linked_requirements
+        for row in scoring_rows
     }
 
     return {
@@ -2085,36 +3662,37 @@ def compute_deterministic_alignment(
             "structure": 0.0,
         },
         "quality_components_excluded_from_role_alignment": True,
-        "requirement_count": len(linked_requirements),
+        "requirement_count": len(scoring_rows),
+        "excluded_non_scoring_requirement_count": excluded_non_scoring_count,
         "requirement_group_count": len(group_ids),
         "credited_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") != "none"
         ),
         "direct_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "direct"
         ),
         "transferable_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "transferable"
         ),
         "weak_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("match_label") == "weak"
         ),
         "required_core_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("importance") in {"deal_breaker", "required", "core"}
         ),
         "preferred_requirement_count": sum(
             1
-            for row in linked_requirements
+            for row in scoring_rows
             if row.get("importance") == "preferred"
         ),
         "boundary_status": _boundary_margin(overall),
@@ -2163,9 +3741,21 @@ def build_stable_analysis(
         structured_linked
     )
 
+    evidence_index = build_resume_evidence_index(
+        resume_profile,
+        raw_resume_text,
+    )
+    reselected, evidence_reselection_audit = (
+        _apply_capability_single_row_reselection(
+            validated,
+            evidence_index=evidence_index,
+            acronym_map=canonical["acronym_map"],
+        )
+    )
+
     taxonomy_version = get_default_taxonomy().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
-        validated,
+        reselected,
         retrieval_mode_override=retrieval_mode_override,
     )
     taxonomy_warnings: list[dict[str, Any]] = []
@@ -2196,10 +3786,16 @@ def build_stable_analysis(
     return {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": taxonomy_version,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")
         ).hexdigest(),
         "canonical_requirements": taxonomy_validated,
+        "capability_evidence_reselection": {
+            "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
+            "selection_count": len(evidence_reselection_audit),
+            "audit": evidence_reselection_audit,
+        },
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],
             "merged_requirements": canonical["merge_debug"],
@@ -2221,6 +3817,15 @@ def build_stable_analysis(
                 "non_requirement_filter_version",
                 NON_REQUIREMENT_FILTER_VERSION,
             ),
+            "semantic_eligibility_version": canonical.get(
+                "semantic_eligibility_version",
+                JD_SEMANTIC_ELIGIBILITY_VERSION,
+            ),
+            "canonical_requirement_decomposition_version": canonical.get(
+                "canonical_requirement_decomposition_version",
+                CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION,
+            ),
+            "decomposition": canonical.get("decomposition_debug", {}),
             "atomic_requirement_count": sum(
                 1
                 for row in taxonomy_validated

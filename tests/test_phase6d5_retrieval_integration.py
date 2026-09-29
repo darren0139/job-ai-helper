@@ -94,6 +94,7 @@ class Phase6D5RetrievalIntegrationTests(unittest.TestCase):
                     ),
                 },
                 exact_capability_id=None,
+                administrative=True,
             )
 
         vector.assert_not_called()
@@ -117,6 +118,7 @@ class Phase6D5RetrievalIntegrationTests(unittest.TestCase):
                     ),
                 },
                 exact_capability_id=None,
+                administrative=True,
             )
 
         self.assertIn(

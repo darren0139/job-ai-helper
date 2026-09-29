@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tailoring.phase9e1_resume_workspace_ui import (
     build_resume_workspace_state,
+    start_new_resume_from_current_tailoring_base,
     workspace_state_requires_edit_draft,
 )
 
@@ -79,6 +81,36 @@ class PreviousScopeApprovedTransitionTests(unittest.TestCase):
             )
         )
 
+    @patch(
+        "tailoring.phase9e1_resume_workspace_ui._clear_generation_session_state"
+    )
+    @patch(
+        "tailoring.phase9e1_resume_workspace_ui.archive_tailoring_generation"
+    )
+    def test_start_current_base_transition_reuses_existing_lifecycle(
+        self,
+        archive_mock,
+        clear_mock,
+    ):
+        result = start_new_resume_from_current_tailoring_base(
+            application_id=94,
+            previous_scope_generation_id="approved-old",
+        )
+
+        self.assertTrue(result["ok"])
+        archive_mock.assert_called_once_with(94, "approved-old")
+        clear_mock.assert_called_once_with(94)
+        self.assertIn("current Tailoring Base", result["message"])
+        self.assertIn("remains preserved", result["message"])
+
+    def test_start_current_base_transition_rejects_missing_generation_id(self):
+        result = start_new_resume_from_current_tailoring_base(
+            application_id=94,
+            previous_scope_generation_id="",
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("identity is missing", result["message"])
+
     def test_transition_ui_and_debug_contract(self):
         workspace = (ROOT / "tailoring/phase9e1_resume_workspace_ui.py").read_text(
             encoding="utf-8"
@@ -93,6 +125,30 @@ class PreviousScopeApprovedTransitionTests(unittest.TestCase):
             workspace,
         )
         self.assertIn("Start new résumé from current Tailoring Base", workspace)
+        self.assertIn(
+            "start_new_resume_from_current_tailoring_base",
+            app,
+        )
+        self.assertIn(
+            "phase9e1_inline_start_current_base_",
+            app,
+        )
+        self.assertIn(
+            "previous_scope_generation_id = str(",
+            app,
+        )
+        self.assertIn(
+            "previous_scope_short_id = previous_scope_generation_id[:8]",
+            app,
+        )
+        self.assertIn(
+            "previous_scope_generation_id=previous_scope_generation_id",
+            app,
+        )
+        self.assertNotIn(
+            "previous_scope_generation_id=previous_scope_id",
+            app,
+        )
         self.assertIn("belongs to a previous ", lifecycle)
         self.assertIn(
             "Tailoring Base. Its old Phase 8 / Blueprint lineage remains ",

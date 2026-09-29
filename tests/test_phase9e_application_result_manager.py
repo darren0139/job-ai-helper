@@ -264,7 +264,12 @@ class Phase9EApplicationResultManagerTests(unittest.TestCase):
         )
         set_application_blueprint_workflow_action(
             application_id=94,
-            workflow_action="use_blueprint_unchanged",
+            workflow_action="use_blueprint_unchanged_override",
+            acknowledgement=True,
+            reason=(
+                "Regression fixture intentionally verifies the audited "
+                "unchanged-use override path."
+            ),
             actor_label="Result test",
         )
         self._create()

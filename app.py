@@ -100,6 +100,10 @@ from database.user_profile_manager import (
     migrate_legacy_project_titles_to_structured_metadata,
 )
 
+from tailoring.application_profile_ui import render_application_profile
+from tailoring.browser_capture_ui import render_browser_capture_inbox
+from browser_integration.streamlit_runtime import ensure_streamlit_browser_bridge
+
 from tailoring.project_section_tailor import (
     tailor_projects_section,
     estimate_project_section_length,
@@ -132,6 +136,7 @@ from tailoring.jd_user_input_overrides import (
     canonical_jd_profile_for_application_session,
     normalise_requirement_override_lines,
     preferred_requirement_override_cache_identity,
+    refresh_application_session_analysis_report,
 )
 from database.db_manager import (
     init_db,
@@ -284,6 +289,7 @@ from tailoring.phase9e_application_result_ui import (
 from tailoring.phase9e1_resume_workspace_ui import (
     get_resume_workspace_context,
     should_clear_phase9e_session_state,
+    start_new_resume_from_current_tailoring_base,
     workspace_requires_edit_draft,
 )
 from tailoring.phase9e1_workflow_ui import (
@@ -350,6 +356,9 @@ from tailoring.canonical_bullet_suggester import (
 )
 
 
+from database.job_discovery_manager import init_job_discovery_schema
+from job_discovery.ui import render_job_finder
+
 from report import render_markdown
 from api_cost import (
     summarise_api_calls,
@@ -367,6 +376,9 @@ from llm import (
 from prompts import COVER_LETTER_PROMPT, COVER_LETTER_REVISION_PROMPT
 from tailoring.ollama_performance_settings import is_local_ollama_model as _ollama_perf_is_local_model
 
+
+# Start/reuse the localhost browser bridge only under Streamlit.
+_browser_bridge_resource = ensure_streamlit_browser_bridge()
 
 VALID_DEGREES = ["RTIS", "IMGD", "UXGD", "BFA"]
 ATS_PASS_THRESHOLD = 60
@@ -2298,6 +2310,7 @@ init_phase9f_application_execution_schema()
 
 init_jd_library()
 init_chat_history()
+init_job_discovery_schema()
 init_session_state()
 init_user_profile_library()
 
@@ -2351,6 +2364,7 @@ with st.sidebar:
             "Blueprint Library",
             "Tag Library",
             "Profile & Evidence",
+            "Job Finder",
             "Job Market Insights",
         ],
         key="navigation_page",
@@ -2407,9 +2421,10 @@ with st.sidebar:
         index=_model_default_index(current_rephrase_model),
         key="rephrase_model_selector",
         help=(
-            "Used only to propose JD-specific project-bullet wording. "
-            "Deterministic evidence and claim-lineage checks remain "
-            "authoritative. Defaults to the configured local Ollama model."
+            "Used when Step 2 polish provider is Current Rephrase model. "
+            "GitHub Copilot is selected separately inside Step 2 and uses its "
+            "own signed-in Copilot account. Deterministic evidence, scoring, "
+            "claim-lineage checks, and Apply remain authoritative."
         ),
     )
 
@@ -2467,8 +2482,27 @@ with st.sidebar:
 
         st.subheader("Application Sessions")
 
-        recent_applications = get_recent_applications(limit=15)
+        show_all_application_sessions = st.checkbox(
+            "Show all stored sessions",
+            value=False,
+            key="show_all_application_sessions",
+            help=(
+                "Normally the sidebar shows only the 15 most recently updated sessions. "
+                "Enable this to expose older sessions that are still stored in applications.db."
+            ),
+        )
+
+        application_session_limit = 1000 if show_all_application_sessions else 15
+        recent_applications = get_recent_applications(limit=application_session_limit)
         current_application_id = st.session_state.get("current_application_id")
+
+        if show_all_application_sessions:
+            st.caption(f"Showing {len(recent_applications)} stored application sessions.")
+        elif len(recent_applications) >= 15:
+            st.caption(
+                "Showing the 15 most recently updated sessions. "
+                "Enable **Show all stored sessions** to access older sessions."
+            )
 
         if not recent_applications:
             st.caption("No application sessions yet.")
@@ -2491,6 +2525,9 @@ with st.sidebar:
                 else:
                     display_name = session_name or f"Application {app_id}"
                     label = f"✅ {display_name} (Draft)" if is_current else f"📝 {display_name} (Draft)"
+
+                if show_all_application_sessions:
+                    label = f"App #{app_id} · {label}"
 
                 row_col, menu_col = st.columns([0.82, 0.18])
 
@@ -2657,6 +2694,11 @@ with st.sidebar:
         st.subheader("Application Tracker")
         st.caption(
             "Review submission status, progress charts, and Excel export."
+        )
+    elif page == "Job Finder":
+        st.subheader("Job Finder")
+        st.caption(
+            "Fetch and search normalized Singapore job postings, then hand a selected JD into a new Application Session."
         )
     elif page == "Job Market Insights":
         st.subheader("Job Market Insights")
@@ -3210,7 +3252,15 @@ elif page == "Application Sessions":
     )
 
 
-    report = st.session_state.get("latest_report")
+    persisted_application_report = st.session_state.get("latest_report")
+    current_analysis_report = (
+        refresh_application_session_analysis_report(
+            persisted_application_report
+        )
+        if isinstance(persisted_application_report, dict)
+        else persisted_application_report
+    )
+    report = current_analysis_report
     current_application_id = st.session_state.get("current_application_id")
 
     if report:
@@ -3242,7 +3292,8 @@ elif page == "Application Sessions":
                 or {}
             )
 
-        persisted_application_report = report
+        # `persisted_application_report` remains the historical DB/session
+        # payload. `current_analysis_report` is the deterministic current view.
         phase9e_context: dict[str, Any] = {
             "status": "unbound",
             "can_generate": False,
@@ -3327,7 +3378,7 @@ elif page == "Application Sessions":
                 )
                 render_evidence_opportunity_analysis(
                     application_id=int(current_application_id),
-                    baseline_report=persisted_application_report,
+                    baseline_report=current_analysis_report,
                     raw_jd_text=phase9a_raw_jd_text,
                     evidence_items=(
                         []
@@ -3352,12 +3403,12 @@ elif page == "Application Sessions":
                     expanded=False,
                 ):
                     render_application_analysis_details(
-                        report=persisted_application_report,
+                        report=current_analysis_report,
                         current_application_id=current_application_id,
                     )
                 render_application_analysis_chat(
                     application_id=int(current_application_id),
-                    analysis_report=persisted_application_report,
+                    analysis_report=current_analysis_report,
                     persisted_report=persisted_application_report,
                 )
                 st.stop()
@@ -3405,7 +3456,7 @@ elif page == "Application Sessions":
             )
             render_evidence_opportunity_analysis(
                 application_id=int(current_application_id),
-                baseline_report=persisted_application_report,
+                baseline_report=current_analysis_report,
                 raw_jd_text=phase9a_raw_jd_text,
                 evidence_items=(
                     []
@@ -3442,7 +3493,7 @@ elif page == "Application Sessions":
             expanded=False,
         ):
             render_application_analysis_details(
-                report=persisted_application_report,
+                report=current_analysis_report,
                 current_application_id=current_application_id,
             )
 
@@ -3559,14 +3610,14 @@ elif page == "Application Sessions":
             else:
                 binding_marker = f"legacy:{current_application_id}"
         elif phase9f_d_execution_waiting:
-            report = deepcopy(persisted_application_report)
+            report = deepcopy(current_analysis_report)
             binding_marker = (
                 "phase9f-d-bound:"
                 + str(phase9e_binding.get("decision_fingerprint") or "")
                 + ":not_started"
             )
         else:
-            report = deepcopy(persisted_application_report)
+            report = deepcopy(current_analysis_report)
             binding_marker = f"blocked:{phase9e_context.get('status', 'unknown')}"
 
         if current_application_id is not None:
@@ -3619,18 +3670,47 @@ elif page == "Application Sessions":
 
         if workspace_edit_required:
             if isinstance(previous_scope_message_approved, dict):
-                previous_scope_id = str(
+                previous_scope_generation_id = str(
                     previous_scope_message_approved.get("generation_id")
                     or ""
-                )[:8]
+                )
+                previous_scope_short_id = previous_scope_generation_id[:8]
                 st.info(
                     "Approved résumé "
-                    f"{previous_scope_id or 'result'} belongs to a previous "
-                    "Tailoring Base and is read-only. Use Start new résumé "
-                    "from current Tailoring Base in the Résumé Workspace "
-                    "before generating new Projects or Skills. The existing "
-                    "approved result and its earlier lineage remain preserved."
+                    f"{previous_scope_short_id or 'result'} belongs to a previous "
+                    "Tailoring Base and is read-only. Its approved result and "
+                    "earlier Phase 8 / Blueprint lineage remain preserved. "
+                    "Start a new résumé from the current Tailoring Base below "
+                    "before generating new Projects or Skills."
                 )
+                if st.button(
+                    "Start new résumé from current Tailoring Base",
+                    key=(
+                        "phase9e1_inline_start_current_base_"
+                        f"{current_application_id}_{previous_scope_short_id}"
+                    ),
+                    type="primary",
+                    width="stretch",
+                ):
+                    transition = start_new_resume_from_current_tailoring_base(
+                        application_id=int(current_application_id),
+                        previous_scope_generation_id=previous_scope_generation_id,
+                    )
+                    if not transition.get("ok"):
+                        st.error(
+                            str(
+                                transition.get("message")
+                                or "Could not start from the current Tailoring Base."
+                            )
+                        )
+                    else:
+                        st.success(
+                            str(
+                                transition.get("message")
+                                or "Current Tailoring Base is ready."
+                            )
+                        )
+                        st.rerun()
             else:
                 st.info(
                     "The current approved résumé is read-only. Use "
@@ -5480,6 +5560,45 @@ elif page == "Application Sessions":
                         or []
                     )
                     if rephrase_projects:
+                        from tailoring.evidence_grounded_bullet_ui import render_grounded_bullet_tailoring
+
+                        def _record_grounded_bullet_usage() -> None:
+                            append_api_usage(
+                                application_id=current_application_id,
+                                action="suggest_grounded_bullet",
+                                report=persisted_application_report,
+                            )
+                            if isinstance(persisted_application_report, dict):
+                                st.session_state["latest_report"] = persisted_application_report
+                                update_application_report(
+                                    application_id=current_application_id,
+                                    resume_filename=st.session_state.get(
+                                        "resume_filename",
+                                        "",
+                                    ),
+                                    report=persisted_application_report,
+                                )
+
+                        grounded_result = render_grounded_bullet_tailoring(
+                            application_id=current_application_id,
+                            generation=current_rephrase_generation,
+                            report=report,
+                            model=get_active_model("rephrase"),
+                            before_model_call=reset_call_ledger,
+                            after_model_call=_record_grounded_bullet_usage,
+                        )
+                        if grounded_result:
+                            grounded_generation = grounded_result["generation"]
+                            st.session_state[tailored_generation_id_key] = grounded_generation["generation_id"]
+                            st.session_state[f"tailored_projects_result_{current_application_id}"] = grounded_generation["projects"]
+                            st.session_state[f"tailored_skills_result_{current_application_id}"] = grounded_generation["skills"]
+                            st.success("Created an unfitted draft with the accepted bullet.")
+                            st.rerun()
+                        render_ai_action_subtotal(
+                            application_id=current_application_id,
+                            actions=["suggest_grounded_bullet"],
+                            label="Grounded bullet subtotal",
+                        )
                         # jd_score_optimizer_enabled_guard_v2_2q
                         if bool(
                             st.session_state.get(
@@ -6916,9 +7035,10 @@ elif page == "Application Sessions":
                     st.info(
                         "Approved résumé "
                         f"{previous_scope_id or 'result'} belongs to a previous "
-                        "Tailoring Base and is read-only. Use Start new résumé "
-                        "from current Tailoring Base in the Résumé Workspace "
-                        "before generating or fitting a replacement document."
+                        "Tailoring Base and is read-only. Use the "
+                        "'Start new résumé from current Tailoring Base' action "
+                        "in Tailor Résumé Content above before generating or "
+                        "fitting a replacement document."
                     )
                 else:
                     active_approved = get_application_generation_control(
@@ -7361,6 +7481,13 @@ elif page == "Application Sessions":
                         "Changing spacing only affects DOCX formatting. "
                         "You can regenerate the DOCX without re-tailoring the projects or skills."
                     )
+
+                st.info(
+                    "Step 3 — Generate & Fit uses the current application draft. "
+                    "If you want to improve grounded project bullets, use Step 2 above and Apply "
+                    "the changes first. Bullet tailoring is optional; Generate & Fit will not "
+                    "silently create or apply bullet rewrites."
+                )
 
                 if st.button(
                     "Generate and Fit Tailored Resume DOCX",
@@ -8463,6 +8590,9 @@ elif page == "Application Sessions":
     else:
         st.info("Click **New Application Session**, or upload a resume and paste a job description to begin.")
 
+elif page == "Job Finder":
+    render_job_finder()
+
 elif page == "Blueprint Library":
     st.divider()
     global_blueprint_application_id = st.session_state.get(
@@ -8759,6 +8889,9 @@ elif page == "Profile & Evidence":
         "The app can use this later to recommend which projects or skills to include "
         "without inventing experience."
     )
+
+    render_application_profile()
+    render_browser_capture_inbox()
 
     render_phase9f_master_resume()
 

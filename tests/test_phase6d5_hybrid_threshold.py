@@ -47,6 +47,7 @@ class Phase6D5HybridThresholdTests(unittest.TestCase):
             trace = build_capability_retrieval_trace(
                 {"text": "clustered container workloads"},
                 exact_capability_id=None,
+                administrative=True,
             )
 
         vector.assert_not_called()
@@ -71,6 +72,7 @@ class Phase6D5HybridThresholdTests(unittest.TestCase):
             trace = build_capability_retrieval_trace(
                 {"text": "restore service after an outage"},
                 exact_capability_id=None,
+                administrative=True,
             )
 
         vector.assert_called_once()
@@ -103,6 +105,7 @@ class Phase6D5HybridThresholdTests(unittest.TestCase):
             trace = build_capability_retrieval_trace(
                 {"text": "backend service integration"},
                 exact_capability_id=None,
+                administrative=True,
             )
 
         vector.assert_called_once()
@@ -129,6 +132,7 @@ class Phase6D5HybridThresholdTests(unittest.TestCase):
             trace = build_capability_retrieval_trace(
                 {"text": "restore service after an outage"},
                 exact_capability_id=None,
+                administrative=True,
             )
 
         self.assertEqual(

@@ -1,0 +1,34 @@
+dConstruct is hiring Software Engineers who will be performing software integration for specific use cases.You will be coding, calling into our software stack and creating applications which utilise our software stack to meet the needs of clients. You will be working with clients to understand their needs and in turn, implement their requirements accordingly. You will be working alongside industry experts. Atthe same time, you will be familiarised with the entire robotics development and software workflow.
+‍Responsibilities
+
+• Develop and integratefunctionality from our software stack for external clients.
+
+• Lead the test of applications and software integration works you create.
+
+• Occasionally aid in tests and deployment of our robots in real world environments.
+Requirements and Skills
+
+• Good foundation in modern C/C++programming
+
+• Strong foundation in Data Structures/Algorithms
+
+• Understand concepts in memory allocation, cache performance, data oriented programming
+
+• Comfortable in writing and debugging high performance native code
+
+• Comfortable working on large code bases
+
+• Able to do technical communication to understand and explain the needs of end-users
+
+• Able to work independently with some guidance
+Bonus Requirements and Skills
+
+• Good foundation in linear algebra, calculus and geometry
+
+• Understanding and familiarity with 3D Data Structures/Algorithms
+
+• Experience working with OpenGLand/or Vulkan
+
+• Experience working with Android app development and Kotlin
+
+• Familiarity with Nvidia CUDA

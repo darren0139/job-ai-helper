@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import sqlite3
 import tempfile
 import unittest
@@ -16,9 +15,7 @@ from database.blueprint_evaluation_manager import (
 from tailoring.phase9c_blueprint_evaluation import evaluate_blueprint_candidate
 
 
-FIXTURE = Path(__file__).resolve().parents[1] / "ci_fixtures" / (
-    "phase9c_application94_acceptance.json"
-)
+from tests.phase9c_fixture_support import load_current_phase9c_fixture
 
 
 class BlueprintEvaluationManagerTests(unittest.TestCase):
@@ -31,7 +28,7 @@ class BlueprintEvaluationManagerTests(unittest.TestCase):
             side_effect=lambda: sqlite3.connect(database_path),
         )
         self.connection_patch.start()
-        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        fixture = load_current_phase9c_fixture()
         self.evaluation = evaluate_blueprint_candidate(
             candidate=fixture["candidate"],
             selected_jds=fixture["saved_jds"][1:2],

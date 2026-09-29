@@ -562,7 +562,7 @@ def _render_active_original_source_guidance(
             "The current Tailoring Base is ready, but approved résumé "
             f"{previous_scope_id} belongs to a previous Tailoring Base. "
             "Before generating, use Start new résumé from current Tailoring Base "
-            "in the Résumé Workspace. The previous approved result remains "
+            "in Tailor Résumé Content. The previous approved result remains "
             "preserved until you make that explicit transition."
         )
         return
