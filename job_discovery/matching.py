@@ -13,7 +13,7 @@ from database.job_match_manager import (
 )
 
 
-MATCH_VERSION = "job-match-snapshot-v2.0.1"
+MATCH_VERSION = "job-match-snapshot-v2.0.4"
 IMPORTANT_IMPORTANCE = {"deal_breaker", "required", "core"}
 
 

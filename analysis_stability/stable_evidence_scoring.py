@@ -25,6 +25,10 @@ from typing import Any
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
+from analysis_stability.jd_section_inference import (
+    JD_STRUCTURE_INFERENCE_VERSION,
+    infer_semantic_list_heading,
+)
 from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
@@ -93,6 +97,8 @@ _PREFERRED_HINTS = (
     "plus",
     "advantage",
     "ideally",
+    "desired",
+    "highly desired",
 )
 
 _MATCH_TYPE_MAP = {
@@ -571,15 +577,22 @@ def _raw_section_for_heading(value: Any) -> str:
 def _raw_jd_section_heading_rows(
     raw_jd_text: str,
 ) -> list[dict[str, str]]:
-    """Collect recognised section markers for deterministic diagnostics."""
+    """Collect exact/inferred structural headings with legacy public shape."""
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    raw_lines = raw_jd_text.splitlines()
 
-    for raw_line in raw_jd_text.splitlines():
+    for line_offset, raw_line in enumerate(raw_lines):
         value = _clean_text(raw_line).strip("-•* \t")
         section = _raw_section_for_heading(value)
+
         if not section:
-            continue
+            inferred = infer_semantic_list_heading(raw_lines, line_offset)
+            if not inferred.get("is_heading_candidate"):
+                continue
+            section = _clean_text(inferred.get("section"))
+            if not section:
+                continue
 
         key = (section, _normalise_jd_section_heading(value))
         if key in seen:
@@ -595,7 +608,6 @@ def _raw_jd_section_heading_rows(
         )
 
     return rows
-
 
 def classify_jd_statement_semantics(
     value: Any,
@@ -1493,11 +1505,15 @@ def _coalesce_one_or_more_alternative_lists(
 
 
 def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
-    """Return deterministic, non-heading raw-JD spans with section context."""
+    """Return deterministic non-heading spans with explicit section provenance."""
     spans: list[dict[str, Any]] = []
     active_section = ""
+    active_section_heading = ""
+    active_section_detection = ""
+    active_section_reason = ""
     pending: dict[str, Any] | None = None
     block_index = 0
+    raw_lines = raw_jd_text.splitlines()
 
     def flush_pending() -> None:
         nonlocal pending
@@ -1513,16 +1529,17 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
                 "raw_text": pending["raw_text"],
                 "line_index": pending["line_index"],
                 "section": pending["section"],
+                "section_heading": pending.get("section_heading", ""),
+                "section_detection": pending.get("section_detection", ""),
+                "section_reason": pending.get("section_reason", ""),
+                "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
                 "is_bullet": pending["is_bullet"],
                 "block_index": pending["block_index"],
             }
         )
         pending = None
 
-    def is_strong_grammatical_continuation(
-        previous: str,
-        current: str,
-    ) -> bool:
+    def is_strong_grammatical_continuation(previous: str, current: str) -> bool:
         if re.match(r"^(?:and|or|with|for|to|in|of|using)\b", current, re.I):
             return True
         return bool(re.search(r"\b(?:with|using|for|to|in|of)$", previous, re.I))
@@ -1532,11 +1549,10 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             return False
         if is_strong_grammatical_continuation(previous, current):
             return True
-        if current[:1].islower():
-            return True
-        return False
+        return bool(current[:1].islower())
 
-    for line_index, raw_line in enumerate(raw_jd_text.splitlines(), start=1):
+    for line_offset, raw_line in enumerate(raw_lines):
+        line_index = line_offset + 1
         original = _clean_text(raw_line).strip("-•* \t")
         value = _normalise_requirement_surface(original)
         if not value:
@@ -1545,10 +1561,42 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             continue
 
         section = _raw_section_for_heading(value)
+
+        is_bullet = bool(re.match(r"^\s*(?:[-*•]+|\d+[.)])\s*", raw_line))
+        continues_pending = bool(
+            pending
+            and not is_bullet
+            and pending["section"] == active_section
+            and is_unambiguous_continuation(pending["text"], value)
+        )
+        is_requirement_list_intro = bool(_introductory_list_kind(value))
+
+        if (
+            not section
+            and not continues_pending
+            and not is_requirement_list_intro
+        ):
+            inferred = infer_semantic_list_heading(raw_lines, line_offset)
+            if inferred.get("is_heading_candidate"):
+                flush_pending()
+                block_index += 1
+                active_section = _clean_text(inferred.get("section"))
+                active_section_heading = value
+                active_section_detection = (
+                    "inferred_child_list"
+                    if active_section
+                    else "ambiguous_child_list_boundary"
+                )
+                active_section_reason = _clean_text(inferred.get("reason"))
+                continue
+
         if section:
             flush_pending()
             block_index += 1
-            active_section = "" if section == "stop" else section
+            active_section = section
+            active_section_heading = value
+            active_section_detection = "exact"
+            active_section_reason = "controlled_exact_heading"
             continue
 
         value = _strip_inline_jd_heading(value)
@@ -1557,7 +1605,6 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             block_index += 1
             continue
 
-        is_bullet = bool(re.match(r"^\s*(?:[-*•]+|\d+[.)])\s*", raw_line))
         intro_header = _open_introductory_list_header(
             spans,
             section=active_section,
@@ -1592,14 +1639,15 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             "raw_text": original,
             "line_index": line_index,
             "section": active_section,
+            "section_heading": active_section_heading,
+            "section_detection": active_section_detection,
+            "section_reason": active_section_reason,
             "is_bullet": is_bullet,
             "block_index": block_index,
         }
 
     flush_pending()
-
     return _coalesce_one_or_more_alternative_lists(spans)
-
 
 def _raw_jd_requirement_rows(
     raw_jd_text: str,
@@ -1612,6 +1660,22 @@ def _raw_jd_requirement_rows(
     for span in spans:
         active_section = _clean_text(span.get("section", ""))
         value = _clean_text(span.get("text", ""))
+
+        if active_section == "stop":
+            if value:
+                unheaded_exclusions.append(
+                    {
+                        "text": value,
+                        "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "section": "stop",
+                        "section_heading": span.get("section_heading", ""),
+                        "section_detection": span.get("section_detection", ""),
+                        "reason": "explicit_non_scoring_section",
+                        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
+                    }
+                )
+            continue
 
         # Inside an explicitly recognised requirement section, short technical
         # entries such as "C++" are real requirements.  The section marker is
@@ -1658,6 +1722,10 @@ def _raw_jd_requirement_rows(
                         "span_id": span["span_id"],
                         "line_index": span["line_index"],
                         "section": active_section,
+                        "section_heading": span.get("section_heading", ""),
+                        "section_detection": span.get("section_detection", ""),
+                        "section_reason": span.get("section_reason", ""),
+                        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
                         "sentence_index": sentence_index,
                         "sentence_text": sentence,
                     }
@@ -2168,12 +2236,35 @@ def _requirement_sources(
                         }
                     )
 
+    section_inference = []
+    seen_section_inference: set[tuple[str, str, str]] = set()
+    for span in raw_spans:
+        heading = _clean_text(span.get("section_heading", ""))
+        detection = _clean_text(span.get("section_detection", ""))
+        section = _clean_text(span.get("section", ""))
+        if not heading or not detection:
+            continue
+        key = (heading, section, detection)
+        if key in seen_section_inference:
+            continue
+        seen_section_inference.add(key)
+        section_inference.append(
+            {
+                "heading": heading,
+                "section": section,
+                "detection": detection,
+                "reason": _clean_text(span.get("section_reason", "")),
+            }
+        )
+
     return rows, {
         "raw_span_count": len(raw_spans),
         "grounded_profile_requirement_count": grounded_profile_count,
         "ungrounded_profile_requirements": ungrounded_profile_rows,
         "rejected_unheaded_spans": rejected_unheaded,
         "unheaded_raw_exclusions": unheaded_raw_exclusions,
+        "section_inference": section_inference,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
     }
 
 
@@ -2455,6 +2546,7 @@ def canonicalise_requirements(
         "merge_debug": merge_debug,
         "filtered_section_headings": filtered_section_headings,
         "filtered_non_requirement_rows": filtered_non_requirement_rows,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
         "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
         "canonical_requirement_decomposition_version": (
@@ -3694,6 +3786,7 @@ def build_stable_analysis(
     return {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": taxonomy_version,
+        "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")
         ).hexdigest(),
