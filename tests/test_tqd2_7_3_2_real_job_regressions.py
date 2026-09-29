@@ -25,13 +25,13 @@ def _clean(value: object) -> str:
 
 
 class TQD2732RealJobRegressionTests(unittest.TestCase):
-    """Real-snapshot characterization before JD-structure integration.
+    """Real-snapshot characterization of structure and recovery contracts.
 
     Gemini is a permanent evidence-recovery invariant.
 
-    ST Engineering and TESCOM Maintenance intentionally characterize known
-    pre-merge behavior. If JD-structure integration changes those tests, inspect
-    the semantic diff first; do not blindly update the expected values.
+    ST Engineering captures the approved post-integration structure result.
+    TESCOM Maintenance remains a characterization of known decomposition
+    behavior. Any change still requires a semantic diff before updating it.
     """
 
     @classmethod
@@ -120,7 +120,7 @@ class TQD2732RealJobRegressionTests(unittest.TestCase):
         self.assertEqual(cpp.get("match_source"), baseline["cpp_expected_source"])
         self.assertGreater(result.get("deterministic_alignment_score", 0), 0)
 
-    def test_st_engineering_premerge_structure_characterization(self) -> None:
+    def test_st_engineering_structure_integration_characterization(self) -> None:
         case = self.fixture["fixtures"]["st_engineering"]
         baseline = case["baseline"]
         result = self._analyze("st_engineering")
@@ -130,16 +130,15 @@ class TQD2732RealJobRegressionTests(unittest.TestCase):
             for row in rows
         ]
 
-        # This is a characterization of the current problem, not the desired
-        # final behavior. The JD-structure branch is expected to invalidate
-        # some/all of these assertions; inspect that diff before updating them.
+        # The custom responsibility heading is now inferred from its coherent
+        # child list, while the later employer-offer section remains excluded.
         self.assertEqual(
             result.get("deterministic_alignment_score"),
             baseline["deterministic_alignment_score"],
         )
         self.assertEqual(len(rows), baseline["requirement_count"])
-        self.assertNotIn(baseline["known_missing_requirement"], texts)
-        self.assertIn(baseline["known_included_non_requirement"], texts)
+        self.assertIn(baseline["known_missing_requirement"], texts)
+        self.assertNotIn(baseline["known_included_non_requirement"], texts)
 
     def test_maintenance_atomic_split_and_zero_overlap_weak_recovery_is_blocked(
         self,

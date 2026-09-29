@@ -295,12 +295,12 @@
     },
     "st_engineering": {
       "baseline": {
-        "deterministic_alignment_score": 0,
+          "deterministic_alignment_score": 10,
         "known_included_non_requirement": "working on cutting-edge technologies and architectures",
         "known_missing_requirement": "Perform software implementation and testing",
-        "purpose": "Pre-merge structure characterization. This is expected to change when feat/jd-structure-inference-v1 is integrated; inspect the diff before updating this baseline.",
-        "requirement_count": 5,
-        "resolved_count": 0
+          "purpose": "Post-integration characterization: the inferred responsibility heading grounds real profile obligations, while the employer-offer section remains excluded.",
+          "requirement_count": 17,
+          "resolved_count": 3
       },
       "company": "ST ENGINEERING MISSION SOFTWARE & SERVICES PTE. LTD.",
       "discovered_job_id": 493,
