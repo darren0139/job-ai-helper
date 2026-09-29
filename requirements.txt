@@ -9,3 +9,4 @@ python-docx
 chromadb
 PyMuPDF
 github-copilot-sdk==1.0.14
+altair
