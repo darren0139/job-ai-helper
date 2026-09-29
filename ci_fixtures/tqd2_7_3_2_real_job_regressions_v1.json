@@ -1,0 +1,476 @@
+{
+  "captured_match_version": "job-match-snapshot-v2.2.0|registry=technology-registry-v1.1",
+  "captured_scoring_version": "stable-evidence-v1.9-phase6d14",
+  "captured_taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+  "common_evidence_items": [
+    {
+      "category": "Project",
+      "created_at": "2026-06-16T16:23:33",
+      "description": "Built gameplay and UI features in a small team, contributing to a completed mobile game released on Google Play.\nScripted Unity gameplay features including power-ups, environmental hazards, and high-score tracking for a published mobile game.\nImplemented user-facing UI features such as sliders and level-locking screens to support player progression.",
+      "id": 1,
+      "impact": "Built gameplay and UI features for a published mobile game project",
+      "period": "Jan 2018 - Feb 2018",
+      "resume_header_context": [
+        "Published on Google Play",
+        "Team of 2"
+      ],
+      "resume_header_tools": [
+        "C#",
+        "Unity Engine"
+      ],
+      "skills": [
+        "Gameplay scripting",
+        "UI implementation",
+        "game systems",
+        "player progression"
+      ],
+      "source_type": "manual",
+      "subtitle": "Shooter Game",
+      "title": "CyberSphere",
+      "tools": [
+        "Unity Engine",
+        "C#"
+      ],
+      "updated_at": "2026-08-19T14:52:31"
+    },
+    {
+      "category": "Project",
+      "created_at": "2026-06-16T16:48:14",
+      "description": "Built full-stack help-desk workflows in a 4-person team using React and Supabase/PostgreSQL, connecting frontend ticket-management features with a secure database-backed service.\nImplemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations.\nSet up the React and Supabase project environment and connected the frontend to the PostgreSQL-backed service.",
+      "id": 2,
+      "impact": "Built full-stack application features in a team project, connecting frontend workflows with secure database access and real-time backend queries.",
+      "period": "Mar 2025 - Apr 2025",
+      "resume_header_context": [
+        "Team of 4"
+      ],
+      "resume_header_tools": [
+        "JavaScript",
+        "React",
+        "Supabase/PostgreSQL",
+        "PostgREST"
+      ],
+      "skills": [
+        "Frontend development",
+        "backend integration",
+        "database design",
+        "authentication workflows",
+        "access control",
+        "team collaboration"
+      ],
+      "source_type": "manual",
+      "subtitle": "AI-Powered Help Desk App",
+      "title": "QueryAI",
+      "tools": [
+        "React",
+        "Supabase",
+        "PostgreSQL",
+        "PostgREST",
+        "Row-Level Security",
+        "JavaScript",
+        "GitHub"
+      ],
+      "updated_at": "2026-08-19T14:22:36"
+    },
+    {
+      "category": "Project",
+      "created_at": "2026-06-16T17:53:37",
+      "description": "Built a C++ asset manager for a custom game engine, centralising asset loading and improving pipeline consistency.\nIntegrated FMOD audio systems into gameplay features, supporting audio proximity logic in the custom engine.\nContributed to engine-level systems and gameplay feature support in an 8-person team project.\nCollaborated with a custom-engine team to integrate systems across asset loading, audio, and gameplay workflows.",
+      "id": 4,
+      "impact": "Improved engine workflow by centralising asset loading and supporting audio proximity logic in an 8-person custom game engine project.",
+      "period": "Sep 2023 - Apr 2024",
+      "resume_header_context": [
+        "Team of 8"
+      ],
+      "resume_header_tools": [
+        "C++",
+        "Custom Engine",
+        "FMOD"
+      ],
+      "skills": [
+        "C++ programming",
+        "game engine development",
+        "asset management",
+        "audio systems",
+        "systems programming",
+        "team collaboration"
+      ],
+      "source_type": "manual",
+      "subtitle": "Survival Game",
+      "title": "The Great Migration",
+      "tools": [
+        "C++",
+        "Custom Game Engine",
+        "FMOD",
+        "GitHub"
+      ],
+      "updated_at": "2026-08-19T14:17:23"
+    },
+    {
+      "category": "Project",
+      "created_at": "2026-06-16T18:13:56",
+      "description": "Led frontend implementation for a GPS-based Android application using Kotlin and Jetpack Compose.\nIntegrated team members’ code into a working Android application, supporting collaboration across a 5-person project.\nImplemented image attachment support using Coil and contributed to user-facing mobile app workflows.",
+      "id": 5,
+      "impact": "Led frontend implementation in a team mobile app project and helped integrate multiple contributors’ work into a working Android application.",
+      "period": "Jan 2025 - Feb 2025",
+      "resume_header_context": [
+        "Team of 5"
+      ],
+      "resume_header_tools": [
+        "Kotlin",
+        "Jetpack Compose",
+        "Android Studio"
+      ],
+      "skills": [
+        "Android frontend development",
+        "UI implementation",
+        "team coordination",
+        "code integration",
+        "mobile app development"
+      ],
+      "source_type": "manual",
+      "subtitle": "Workout Tracking App",
+      "title": "Workout Buddy",
+      "tools": [
+        "Android Studio",
+        "Kotlin",
+        "Jetpack Compose",
+        "Coil",
+        "GitHub"
+      ],
+      "updated_at": "2026-08-20T01:07:11"
+    },
+    {
+      "category": "Project",
+      "created_at": "2026-06-16T18:38:40",
+      "description": "- Built a Streamlit job-application assistant that analyzes PDF/DOCX resumes against job descriptions and supports an end-to-end résumé-tailoring workflow.\n- Created a multi-step LLM pipeline for resume profile extraction, JD extraction, keyword matching, bullet review, structure audit, jargon audit, degree fit, and summary generation.\n- Implemented SQLite-backed saved application sessions with reports, cover letters, rename/delete controls, and persistent chat history.\n- Integrated ChromaDB RAG over analysed job descriptions for Job Market Insights and market-fit comparison.\n- Added tailored cover letter generation and follow-up revision support grounded in the resume and job description.\nAdded automated unit tests and GitHub Actions CI across Ubuntu and Windows, running dependency checks, compilation, the full test suite, and a Streamlit startup health check.",
+      "id": 6,
+      "impact": "Delivered an end-to-end job-application workflow combining resume/JD analysis, tailored cover letters, persistent application sessions, RAG-based job-market insights, and automated cross-platform CI checks in one Streamlit application.",
+      "period": "May 2026 - Aug 2026",
+      "resume_header_context": [
+        "Individual Project"
+      ],
+      "resume_header_tools": [
+        "Python",
+        "Streamlit",
+        "OpenAI",
+        "SQLite",
+        "ChromaDB",
+        "GitHub Actions"
+      ],
+      "skills": [
+        "AI application development",
+        "prompt engineering",
+        "RAG",
+        "resume analysis",
+        "Streamlit development",
+        "database design",
+        "session management",
+        "document parsing"
+      ],
+      "source_type": "manual",
+      "subtitle": "AI-Powered Resume Tailoring System",
+      "title": "Job AI Helper",
+      "tools": [
+        "Python",
+        "Streamlit",
+        "OpenAI API",
+        "SQLite",
+        "ChromaDB",
+        "LiteLLM",
+        "pypdf",
+        "python-docx",
+        "GitHub",
+        "GitHub Actions (CI)",
+        "Python unittest"
+      ],
+      "updated_at": "2026-08-19T14:49:07"
+    }
+  ],
+  "contract_version": "tqd2-7-3-2-real-job-regressions-v1",
+  "evidence_fingerprint": "b889b82a89503963c792eda04ff4e53d1485504d23184dc9e755348b8a00c07e",
+  "fixtures": {
+    "gemini": {
+      "baseline": {
+        "cpp_capability_id": "language.modern_cpp",
+        "cpp_expected_label": "direct",
+        "cpp_expected_source": "capability_none_recovery",
+        "cpp_requirement_contains": "Scala and C++",
+        "deterministic_alignment_score": 15,
+        "evidence_strength_score": 70,
+        "purpose": "Permanent evidence-recovery invariant; should survive JD structure integration.",
+        "qa_capability_id": "quality.qa_testing",
+        "qa_evidence_contains": "Added automated unit tests and GitHub Actions CI",
+        "qa_expected_label": "weak",
+        "qa_expected_source": "capability_none_recovery",
+        "qa_requirement": "Write automated tests and work with our QA team to ensure the operation and correctness of new product features",
+        "required_core_coverage_score": 9,
+        "requirement_count": 15
+      },
+      "company": "GEMINI SOFTWARE SERVICES SINGAPORE, PTE. LTD.",
+      "discovered_job_id": 644,
+      "jd_profile": {
+        "buzzwords": [
+          "Digital assets",
+          "Code reviews",
+          "Information security",
+          "Automated testing",
+          "High-quality code",
+          "Performance",
+          "Maintainability",
+          "Production support",
+          "Operating systems-level software",
+          "Risk systems",
+          "Monitoring",
+          "Blockchain",
+          "API response times",
+          "Refactoring",
+          "Deployment",
+          "Customer funds"
+        ],
+        "company": "Gemini",
+        "deal_breakers": [
+          "At least 8 years of software engineering experience",
+          "Advanced proficiency in at least one programming language",
+          "Ability to work closely across teams and manage dependencies"
+        ],
+        "experience_level": "At least 8 years of software engineering experience",
+        "job_title": "Engineer",
+        "location": "",
+        "preferred_skills": [
+          "Comfort with Scala, C++, or Typescript",
+          "Willingness to learn Scala, C++, or Typescript"
+        ],
+        "required_skills": [
+          "At least 8 years of software engineering experience",
+          "Advanced proficiency in at least one programming language",
+          "Ability to work closely across teams and manage dependencies"
+        ],
+        "responsibilities": [
+          "Architect and solve complex problems that influence the direction of the digital asset space",
+          "Develop new products and product features on the Gemini platform as part of a tight-knit team of two to eight developers",
+          "Write automated tests and work with the QA team to ensure the operation and correctness of new product features",
+          "Provide technical input and knowledge to the planning, design, and requirements process for new products and features",
+          "Review other software engineers' code for correctness, style, and information security concerns",
+          "Improve the performance, maintainability, and operations of the Gemini codebase through occasional refactoring and upgrade projects",
+          "Support the team's production software by responding to occasional alerts or bug reports",
+          "Design, develop, and test operating systems-level software",
+          "Oversee the general functionality of the risk systems and the utilization or development of new monitoring tools for tracking and reporting performance",
+          "Identify, coordinate, and manage resolution efforts on processing usage issues",
+          "Own technical issues through resolution and implement solutions and recommendations based on business needs",
+          "Plan and coordinate project implementation support efforts",
+          "Estimate work efforts and schedules for supporting project development and deployment",
+          "Secure customer funds",
+          "Develop innovative new blockchain products",
+          "Improve API response times",
+          "Write and ship high-quality code with a focus on getting things right the first time"
+        ],
+        "soft_skills": [
+          "Problem-solving",
+          "Close cross-team collaboration",
+          "Managing dependencies",
+          "Providing technical input and knowledge",
+          "Taking ownership of technical issues through resolution",
+          "Working effectively as part of a tight-knit development team",
+          "Security-focused mindset"
+        ],
+        "tools_technologies": [
+          "Scala",
+          "C++",
+          "Typescript",
+          "Automated testing",
+          "QA systems",
+          "Monitoring tools",
+          "Blockchain products",
+          "API systems",
+          "Operating systems-level software",
+          "Risk systems"
+        ]
+      },
+      "job_content_hash": "9f21c1780ab59d14999c4c78cf9d10091425d86aaf9cd956ae1956e80a549561",
+      "raw_jd_text": "As an engineer on the team, you’ll architect and solve complex problems that will directly influence the direction of the digital asset space. There’s a wide range of problems to solve at Gemini – from properly securing millions of dollars worth of customer funds, to developing innovative new blockchain products, to shaving microseconds off our API response times. We have a strong culture of code reviews, and a focus on security, with the end goal of writing and shipping high-quality code by getting things right the first time. We want to continue building the best product we can as we scale and grow our business. If you get excited about solving technical challenges that directly impact our customers, clients, and the rest of the Gemini team, we’d love to hear from you.\nResponsibilities:\nDevelop new products and product features on the Gemini platform, as part of a tight knit team of two to eight developers.\nWrite automated tests and work with our QA team to ensure the operation and correctness of new product features.\nProvide technical input and knowledge to the planning, design, and requirements process for new products and features.\nReview other software engineers’ code for correctness, style, and information security concerns.\nImprove the performance, maintainability, and operations of the Gemini code base by engaging in occasional refactoring and upgrade projects.\nSupport your team’s production software by responding to an occasional alert or bug report.\nDesign, develop and test operating systems level software.\nOversee general functionality of the risk systems and the utilization or development of new monitoring tools for tracking and reporting performance.\nIdentify, coordinate and manage resolution efforts on processing usage issues.\nOwn technical issues through resolution and implement solutions and recommendations based on business needs.\nPlan and coordinate project implementation support efforts and estimate work efforts and schedule for supporting project development and deployment.\nMinimum Qualifications:\nAt least 8 years of software engineering experience.\nAdvanced proficiency in at least one language. We use mostly Scala and C++ on our backend and Typescript on the frontend – it’s great if you’re comfortable in those or if you’re willing to learn.\nThe ability to work closely across teams and manage dependencies.",
+      "snapshot_id": 9,
+      "source": "mycareersfuture",
+      "source_job_id": "eb04329c23615507c7ecf77f056770aa",
+      "title": "Staff Software Engineer"
+    },
+    "st_engineering": {
+      "baseline": {
+        "deterministic_alignment_score": 0,
+        "known_included_non_requirement": "working on cutting-edge technologies and architectures",
+        "known_missing_requirement": "Perform software implementation and testing",
+        "purpose": "Pre-merge structure characterization. This is expected to change when feat/jd-structure-inference-v1 is integrated; inspect the diff before updating this baseline.",
+        "requirement_count": 5,
+        "resolved_count": 0
+      },
+      "company": "ST ENGINEERING MISSION SOFTWARE & SERVICES PTE. LTD.",
+      "discovered_job_id": 493,
+      "jd_profile": {
+        "buzzwords": [
+          "Mission-critical command, control, and communications (C3) systems",
+          "Secured IT infrastructure",
+          "Managed services",
+          "Design thinking",
+          "Analytics",
+          "AI-enabled decision support",
+          "Cloud computing solutions",
+          "Full-stack development",
+          "Software engineering",
+          "Agile Development",
+          "Continuous improvement",
+          "Cutting-edge technologies and architectures"
+        ],
+        "company": "ST Engineering",
+        "deal_breakers": [],
+        "experience_level": "",
+        "job_title": "",
+        "location": "",
+        "preferred_skills": [
+          "Basic programming experience with knowledge of C#, Java, Javascript, HTML5 and Python",
+          "Knowledge of databases (SQL / NoSQL)",
+          "Familiarity with full-stack development and comfort using AngularJS, NodeJS, ReactJS and other common frameworks",
+          "Familiarity with concepts of software engineering and Agile Development",
+          "Good team player who contributes and works effectively in a collaborative team environment",
+          "Critical thinking, analytical and creative problem-solving skills",
+          "Attention to detail and quality"
+        ],
+        "required_skills": [
+          "Ability to learn new software and technologies quickly"
+        ],
+        "responsibilities": [
+          "Be part of a project team to deliver project objectives based on your trained role",
+          "Work closely with the project manager, technical lead and architect as part of project delivery",
+          "Collaborate with other developers and engineers to specify, design, build, and maintain software applications",
+          "Perform software implementation and testing",
+          "Analyze and troubleshoot software issues",
+          "Generate relevant documentation and reports",
+          "Contribute to continuous improvement of software development best practices",
+          "Keep up-to-date with industry trends and technology developments"
+        ],
+        "soft_skills": [
+          "Ability to learn new software and technologies quickly",
+          "Good team player",
+          "Ability to contribute and work effectively in a collaborative team environment",
+          "Critical thinking",
+          "Analytical problem-solving",
+          "Creative problem-solving",
+          "Attention to detail",
+          "Focus on quality"
+        ],
+        "tools_technologies": [
+          "C#",
+          "Java",
+          "Javascript",
+          "HTML5",
+          "Python",
+          "SQL",
+          "NoSQL",
+          "AngularJS",
+          "NodeJS",
+          "ReactJS",
+          "Cloud computing",
+          "Secured IT infrastructure",
+          "Managed services",
+          "Command, control, and communications (C3) systems",
+          "Design thinking",
+          "Analytics",
+          "AI-enabled decision support"
+        ]
+      },
+      "job_content_hash": "9c3ac72242318cdf00f72d58f538abdefe6e22ef59348f1f32c4db0095499605",
+      "raw_jd_text": "About ST Engineering\nST Engineering is a global technology, defence, and engineering group with offices across Asia, Europe, the Middle East, and the U.S., serving customers in more than 100 countries. The Group uses technology and innovation to solve real-world problems and improve lives through its diverse portfolio of businesses across the aerospace, smart city, defence, and public security segments. Headquartered in Singapore, ST Engineering ranks among the largest companies listed on the Singapore Exchange.\nOur history spans more than 50 years, and our strategy is underpinned by our core values – Integrity, Value Creation, Courage, Commitment and Compassion. These 5 core values guide every aspect of our business and are embedded in our ST Engineering culture – from the people we hire, to working with each other, to our partners and customers.\nAbout our Line of Business – Mission Software & Services\nOur Mission Software & Services business provides leading-edge mission critical command, control, and communications (C3) systems with secured IT infrastructure and managed services. We support our client’s innovation journey through design thinking, analytics, and AI-enabled decision support with our full suite of cloud computing solutions. We provide intelligent, actionable insights and sustainable solutions to our valued partners in diverse industries including defence, government, and commercial sectors.\nTogether, We Can Make A Significant Impact\nYou will be part of a project team to deliver project objectives based on your role trained. You will work closely with project manager, technical lead and architect as part of the project delivery.\nBe Part of Our Success\nCollaborate with other developers and engineers to specify, design, build, and maintain software applications.\nPerform software implementation and testing.\nAnalyze and troubleshoot software issues.\nGenerate relevant documentations, reports etc.\nContribute to continuous improvement of software development best practices.\nKeeping up-to-date with industry trends and technology developments.\nQualities We Value\nBasic programming experience with knowledge of C#, Java, Javascript, HTML5 and Python is preferred.\nKnowledge of databases (SQL / NoSQL) is an advantage.\nFamiliar with full-stack development and comfortable using AngularJS, NodeJS, ReactJS and other common frameworks is an advantage.\nFamiliar with concepts of software engineering and Agile Development is preferred.\nAbility to learn new software and technologies quickly.\nA good team player who contribute and work effectively in a collaborative team environment.\nCandidates with critical thinking, analytical and creative problem-solving skills is highly desired.\nAttention to detail and quality is a desired attribute.\nOur Commitment That Goes Beyond the Norm\nAn environment where you will be working on cutting-edge technologies and architectures.\nSafe space where diverse perspectives are valued, and everyone’s unique contributions are celebrated.\nMeaningful work and projects that make a difference in people’s lives.\nA fun, passionate and collaborative workplace.\nCompetitive remuneration and comprehensive benefits.",
+      "snapshot_id": 8,
+      "source": "mycareersfuture",
+      "source_job_id": "b29854f540c66289590ba99eff415b98",
+      "title": "Software Engineer"
+    },
+    "tescom_maintenance": {
+      "baseline": {
+        "bad_atomic_child_1": "Identify, analyze",
+        "bad_atomic_child_2": "resolve coding bugs in a timely manner",
+        "bad_atomic_split_parent": "Identify, analyze, and resolve coding bugs in a timely manner",
+        "deterministic_alignment_score": 9,
+        "purpose": "Captures both the current bad atomic split and a questionable zero-overlap weak configuration recovery so neither can disappear silently during JD structure integration.",
+        "questionable_capability_id": "operations.configuration",
+        "questionable_evidence_contains": "Row-Level Security policies",
+        "questionable_expected_coverage": 0.0,
+        "questionable_expected_label": "none",
+        "questionable_expected_overlap": 0,
+        "questionable_expected_source": "",
+        "questionable_requirement": "Perform comprehensive troubleshooting to diagnose and fix issues related to software configuration, performance, and integration",
+        "requirement_count": 27,
+        "pre_guard_observed_label": "weak",
+        "pre_guard_observed_source": "capability_none_recovery",
+        "policy_resolution": "D2.7.3.2.2 blocks weak none-recovery when deterministic requirement/evidence overlap is zero."
+      },
+      "company": "TESCOM (SINGAPORE) SOFTWARE SYSTEMS TESTING PTE LTD.",
+      "discovered_job_id": 632,
+      "jd_profile": {
+        "buzzwords": [
+          "Software configuration",
+          "Performance",
+          "Integration",
+          "Coding bugs",
+          "Compatibility",
+          "Technical support",
+          "Documentation",
+          "Best practices",
+          "Software development",
+          "QA",
+          "Microservices"
+        ],
+        "company": "",
+        "deal_breakers": [
+          "Bachelor's degree in Computer Science, Software Engineering, or a related field",
+          "Available for 24/7 standby",
+          "Open to working overtime or in shift roles as needed"
+        ],
+        "experience_level": "2-5 years of relevant professional working experience",
+        "job_title": "",
+        "location": "",
+        "preferred_skills": [],
+        "required_skills": [
+          "Proven experience in software development and bug fixing",
+          "Strong troubleshooting skills with the ability to diagnose and resolve complex issues",
+          "Familiarity with software configuration management and performance monitoring tools"
+        ],
+        "responsibilities": [
+          "Perform comprehensive troubleshooting to diagnose and fix issues related to software configuration, performance, and integration",
+          "Identify, analyze, and resolve coding bugs in a timely manner",
+          "Review and update app configurations to ensure optimal performance and compatibility",
+          "Assist in resolving integration issues with other systems and platforms",
+          "Provide technical support to customers and address their concerns effectively",
+          "Maintain detailed documentation of issues, solutions, and best practices",
+          "Work closely with development, QA, and support teams to ensure seamless software operation"
+        ],
+        "soft_skills": [
+          "Ability to diagnose and resolve complex issues",
+          "Ability to address customer concerns effectively",
+          "Ability to work closely with development, QA, and support teams",
+          "Ability to resolve coding bugs in a timely manner"
+        ],
+        "tools_technologies": [
+          "Node.js",
+          "React",
+          "Kafka",
+          "Keycloak",
+          "MQTT",
+          "Microservices",
+          "Docker",
+          "Kubernetes",
+          "Podman",
+          "MongoDB",
+          "IBM MQ",
+          "Software configuration management tools",
+          "Performance monitoring tools"
+        ]
+      },
+      "job_content_hash": "a2b7903e477b7130090d99c12a993222d7161a7678f495720cf33ca920cd4457",
+      "raw_jd_text": "Key Responsibilities:\nPerform comprehensive troubleshooting to diagnose and fix issues related to software configuration, performance, and integration.\nIdentify, analyze, and resolve coding bugs in a timely manner.\nReview and update app configurations to ensure optimal performance and compatibility.\nAssist in resolving integration issues with other systems and platforms.\nProvide technical support to customers and address their concerns effectively.\nMaintain detailed documentation of issues, solutions, and best practices.\nWork closely with development, QA, and support teams to ensure seamless software operation.\nQualifications:\nBachelor's degree in Computer Science, Software Engineering, or a related field.\n2-5 years of relevant professional working experience.\nProven experience in software development and bug fixing.\nStrong troubleshooting skills with the ability to diagnose and resolve complex issues.\nFamiliarity with software configuration management and performance monitoring tools.\nExperience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ.\nAvailable for 24/7 standby and open to working overtime or in shift roles as needed.",
+      "snapshot_id": 12,
+      "source": "mycareersfuture",
+      "source_job_id": "c15cc6cb7cf88574a86945666a958c5f",
+      "title": "Software Engineer (Maintenance)"
+    }
+  },
+  "purpose": "Pre-JD-structure-inference characterization fixtures captured from real Job Finder snapshots after capability-single-row-none-recovery-v1."
+}

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.capability_taxonomy import get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
 from tailoring.jd_user_input_overrides import (
     APPLICATION_SESSION_STABLE_CURRENTNESS_VERSION,
     apply_application_session_jd_user_inputs,
@@ -71,6 +72,7 @@ class ApplicationSessionAnalysisCurrentnessTests(unittest.TestCase):
         return {
             "scoring_version": SCORING_VERSION,
             "capability_taxonomy_version": get_default_taxonomy().version,
+            "technology_registry_version": get_default_registry().version,
             "input_fingerprint": "current-fingerprint",
             "canonical_requirements": [],
             "deterministic_alignment_score": 25,
@@ -125,6 +127,25 @@ class ApplicationSessionAnalysisCurrentnessTests(unittest.TestCase):
         stale_taxonomy = self._current_stable()
         stale_taxonomy["capability_taxonomy_version"] = "taxonomy-old"
         report = self._report(stale_taxonomy)
+        rebuilt = self._current_stable()
+
+        with patch(
+            "tailoring.jd_user_input_overrides._rebuild_stable_analysis",
+            return_value=deepcopy(rebuilt),
+        ) as rebuild:
+            output = apply_application_session_jd_user_inputs(
+                report,
+                raw_jd_text=report["raw_jd_text"],
+                raw_resume_text="languages: Python",
+            )
+
+        rebuild.assert_called_once()
+        self.assertEqual(output["stable_analysis"], rebuilt)
+
+    def test_registry_version_change_alone_forces_rebuild(self):
+        stale_registry = self._current_stable()
+        stale_registry["technology_registry_version"] = "technology-registry-old"
+        report = self._report(stale_registry)
         rebuilt = self._current_stable()
 
         with patch(

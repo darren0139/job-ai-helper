@@ -56,10 +56,11 @@ def build_taxonomy_resolution_diagnostics(
     *,
     taxonomy: CapabilityTaxonomy | None = None,
 ) -> dict[str, Any]:
-    """Classify every score-eligible canonical requirement independently of evidence.
+    """Classify requirements using canonical then snapshot-pinned registry resolution.
 
-    ``match_label == "none"`` means the candidate lacks credited evidence.
-    It does not mean the taxonomy failed to recognize the requirement.
+    This function never re-queries today's registry for old snapshots. Canonical
+    taxonomy remains authoritative; registry resolution is honored only when it
+    was pinned into the same stable-analysis row.
     """
     taxonomy = taxonomy or get_default_taxonomy()
     output_rows: list[dict[str, Any]] = []
@@ -67,45 +68,64 @@ def build_taxonomy_resolution_diagnostics(
     for row in stable_analysis.get("canonical_requirements", []) or []:
         if not isinstance(row, dict) or not requirement_is_score_eligible(row):
             continue
-
         requirement_text = _requirement_text(row)
         capability = classify_requirement_record(row, taxonomy)
-        capability_id = (
+        canonical_id = (
             _clean(capability.get("capability_id"))
-            if isinstance(capability, dict)
-            else ""
+            if isinstance(capability, dict) else ""
         )
-        resolved = bool(capability_id)
-
-        output_rows.append(
-            {
-                "requirement_id": _clean(row.get("requirement_id")),
-                "requirement_text": requirement_text,
-                "importance": _clean(row.get("importance")),
-                "match_label": _clean(row.get("match_label") or "none").lower(),
-                "status": "resolved" if resolved else "unresolved",
-                "capability_id": capability_id or None,
-                "taxonomy_version": taxonomy.version,
-                "reason": (
-                    "canonical_capability_resolved"
-                    if resolved
-                    else "no_canonical_capability_resolved"
-                ),
-            }
+        registry_resolution = row.get("technology_registry_resolution")
+        registry_resolution = (
+            registry_resolution if isinstance(registry_resolution, dict) else {}
         )
+        registry_id = ""
+        if (
+            not canonical_id
+            and row.get("capability_resolution_source") == "technology_registry"
+            and registry_resolution.get("status") == "resolved"
+        ):
+            registry_id = _clean(
+                registry_resolution.get("capability_id") or row.get("capability_id")
+            )
+        capability_id = canonical_id or registry_id
+        if canonical_id:
+            source = "canonical_taxonomy"
+            reason = "canonical_capability_resolved"
+        elif registry_id:
+            source = "technology_registry"
+            reason = "technology_registry_resolved"
+        else:
+            source = "unresolved"
+            reason = "no_canonical_capability_resolved"
+        output_rows.append({
+            "requirement_id": _clean(row.get("requirement_id")),
+            "requirement_text": requirement_text,
+            "importance": _clean(row.get("importance")),
+            "match_label": _clean(row.get("match_label") or "none").lower(),
+            "status": "resolved" if capability_id else "unresolved",
+            "capability_id": capability_id or None,
+            "taxonomy_version": taxonomy.version,
+            "resolution_source": source,
+            "technology_registry_version": _clean(
+                registry_resolution.get("registry_version")
+                or stable_analysis.get("technology_registry_version")
+            ) or None,
+            "technology_id": _clean(registry_resolution.get("technology_id")) or None,
+            "reason": reason,
+        })
 
     resolved_count = sum(1 for row in output_rows if row["status"] == "resolved")
-    unresolved_count = len(output_rows) - resolved_count
-
     return {
         "discovery_version": DISCOVERY_VERSION,
         "taxonomy_version": taxonomy.version,
+        "technology_registry_version": _clean(
+            stable_analysis.get("technology_registry_version")
+        ) or None,
         "eligible_requirement_count": len(output_rows),
         "resolved_count": resolved_count,
-        "unresolved_count": unresolved_count,
+        "unresolved_count": len(output_rows) - resolved_count,
         "rows": output_rows,
     }
-
 
 def build_unresolved_observations(
     taxonomy_resolution: dict[str, Any],

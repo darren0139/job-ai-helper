@@ -25,7 +25,11 @@ from typing import Any
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
-from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
+from tailoring.capability_taxonomy import (
+    evaluate_capability_evidence,
+    evaluate_evidence,
+    get_default_taxonomy,
+)
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
 )
@@ -33,7 +37,11 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.7-phase6d12"
+from taxonomy_discovery.technology_registry import get_default_registry
+
+SCORING_VERSION = "stable-evidence-v1.10-phase6d15"
+CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
+TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
 NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v2"
 JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.1"
@@ -2877,6 +2885,145 @@ def _apply_capability_single_row_reselection(
     return output, audit_rows
 
 
+
+def _apply_capability_none_recovery(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_index: list[dict[str, str]],
+    acronym_map: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Recover one real evidence row when lexical matching produced ``none``.
+
+    Only canonical-taxonomy resolutions are eligible. Registry-resolved rows
+    remain semantic-only because safe cross-technology evidence transfer is a
+    separate policy problem.
+    """
+    taxonomy = get_default_taxonomy()
+    capability_by_id = {
+        str(item.get("capability_id") or ""): item
+        for item in taxonomy.capabilities
+        if isinstance(item, dict) and item.get("capability_id")
+    }
+    output = deepcopy(rows)
+    audit_rows: list[dict[str, Any]] = []
+    evidence_strength_by_label = {
+        "weak": 2,
+        "transferable": 3,
+        "direct": 5,
+    }
+
+    for row in output:
+        if _clean_text(row.get("match_label")).lower() != "none":
+            continue
+
+        capability_id = _clean_text(row.get("capability_id"))
+        resolution_source = _clean_text(row.get("capability_resolution_source"))
+        if not capability_id or resolution_source != "canonical_taxonomy":
+            continue
+
+        capability_record = capability_by_id.get(capability_id) or {}
+
+        # Explicit-only requirements (for example subjective motivation) have
+        # requirement-specific grounding rules in the normal stable matcher.
+        # Generic capability evaluation is intentionally not allowed to rescue
+        # a preliminary none because doing so can cross domains.
+        if bool(capability_record.get("explicit_only")):
+            continue
+
+        best_row: dict[str, str] | None = None
+        best_decision: dict[str, Any] | None = None
+        best_rank = 0
+        best_coverage = 0.0
+        best_overlap = 0
+        focus = _clean_text(row.get("atomic_focus") or row.get("text"))
+
+        for evidence_row in evidence_index:
+            if not _evidence_source_is_requirement_compatible(row, evidence_row):
+                continue
+            evidence_text = str(evidence_row.get("text") or "")
+            if not _clean_text(evidence_text):
+                continue
+
+            decision = evaluate_capability_evidence(
+                capability_id,
+                row,
+                evidence_text,
+                taxonomy,
+            )
+            if _clean_text(decision.get("capability_id")) != capability_id:
+                continue
+
+            label = _clean_text(decision.get("label")).lower()
+            rank = _LABEL_ORDER_FOR_RESELECTION.get(label, 0)
+            if rank <= 0:
+                continue
+
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                focus,
+                evidence_text,
+                acronym_map,
+            )
+            candidate_key = (rank, coverage, overlap)
+            best_key = (best_rank, best_coverage, best_overlap)
+            if candidate_key <= best_key:
+                continue
+
+            best_row = evidence_row
+            best_decision = decision
+            best_rank = rank
+            best_coverage = coverage
+            best_overlap = overlap
+
+        if best_row is None or best_decision is None:
+            continue
+
+        recovered_label = _clean_text(best_decision.get("label")).lower()
+
+        # Weak is the least specific positive capability label. When the
+        # preliminary lexical result was none, require at least one grounded
+        # requirement/evidence token before allowing a weak recovery.
+        if recovered_label == "weak" and best_overlap <= 0:
+            continue
+
+        selected_evidence = {
+            **deepcopy(best_row),
+            "reason": (
+                "One existing resume row independently satisfies the already "
+                "resolved canonical capability. No evidence rows were combined."
+            ),
+            "capability_evidence_reason": _clean_text(best_decision.get("reason")),
+            "evidence_similarity": f"{best_coverage:.3f}",
+        }
+
+        row["match_label"] = recovered_label
+        row["match_value"] = MATCH_VALUES[recovered_label]
+        row["evidence_strength"] = evidence_strength_by_label[recovered_label]
+        row["evidence"] = [selected_evidence]
+        row["match_source"] = "capability_none_recovery"
+        row["match_coverage"] = round(best_coverage, 3)
+        row["match_overlap_count"] = best_overlap
+        row["capability_none_recovery"] = {
+            "policy_version": CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
+            "status": "recovered_from_none",
+            "capability_id": capability_id,
+            "resolution_source": resolution_source,
+            "recovered_label": recovered_label,
+            "selected_evidence_id": _clean_text(best_row.get("evidence_id")),
+            "selected_evidence_source": _clean_text(best_row.get("source")),
+            "selected_requirement_coverage": round(best_coverage, 6),
+            "selected_requirement_overlap_count": best_overlap,
+            "taxonomy_reason": _clean_text(best_decision.get("reason")),
+            "combined_evidence_rows": False,
+        }
+        audit_rows.append(
+            {
+                "requirement_id": _clean_text(row.get("requirement_id")),
+                **deepcopy(row["capability_none_recovery"]),
+            }
+        )
+
+    return output, audit_rows
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -3662,9 +3809,17 @@ def build_stable_analysis(
     )
 
     taxonomy_version = get_default_taxonomy().version
+    registry_version = get_default_registry().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
         reselected,
         retrieval_mode_override=retrieval_mode_override,
+    )
+    taxonomy_validated, capability_none_recovery_audit = (
+        _apply_capability_none_recovery(
+            taxonomy_validated,
+            evidence_index=evidence_index,
+            acronym_map=canonical["acronym_map"],
+        )
     )
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:
@@ -3687,6 +3842,9 @@ def build_stable_analysis(
             _normalise_basic(raw_resume_text),
             _normalise_basic(raw_jd_text),
             taxonomy_version,
+            registry_version,
+            TECHNOLOGY_REGISTRY_RESOLUTION_VERSION,
+            CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             SCORING_VERSION,
         )
     )
@@ -3694,6 +3852,13 @@ def build_stable_analysis(
     return {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": taxonomy_version,
+        "technology_registry_version": registry_version,
+        "technology_registry_resolution_version": (
+            TECHNOLOGY_REGISTRY_RESOLUTION_VERSION
+        ),
+        "capability_none_recovery_policy_version": (
+            CAPABILITY_NONE_RECOVERY_POLICY_VERSION
+        ),
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")
         ).hexdigest(),
@@ -3702,6 +3867,11 @@ def build_stable_analysis(
             "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
             "selection_count": len(evidence_reselection_audit),
             "audit": evidence_reselection_audit,
+        },
+        "capability_none_recovery": {
+            "policy_version": CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
+            "selection_count": len(capability_none_recovery_audit),
+            "audit": capability_none_recovery_audit,
         },
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],
