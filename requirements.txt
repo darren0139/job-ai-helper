@@ -2,6 +2,8 @@ litellm
 python-dotenv
 pypdf
 streamlit
+pandas
+openpyxl
 openai
 python-docx
 chromadb
