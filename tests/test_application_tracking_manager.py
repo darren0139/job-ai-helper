@@ -114,6 +114,54 @@ class ApplicationTrackingManagerTests(unittest.TestCase):
         self.assertEqual(row["completed_at"], date.today().isoformat())
         self.assertEqual(row["completed"], 1)
 
+
+    def test_applied_true_promotes_not_applied_status(self):
+        manager.update_application_tracking(
+            application_id=1,
+            applied=True,
+            status="not_applied",
+            completed=False,
+        )
+        row = manager.list_application_tracking_rows()[0]
+        self.assertEqual(row["applied"], 1)
+        self.assertEqual(row["status"], "applied")
+        self.assertEqual(row["applied_at"], date.today().isoformat())
+
+    def test_advanced_status_still_implies_applied(self):
+        manager.update_application_tracking(
+            application_id=1,
+            applied=False,
+            applied_at="2026-09-03",
+            status="Interview",
+            completed=False,
+        )
+        row = manager.list_application_tracking_rows()[0]
+        self.assertEqual(row["applied"], 1)
+        self.assertEqual(row["status"], "interview")
+        self.assertEqual(row["applied_at"], "2026-09-03")
+
+    def test_schema_repairs_legacy_applied_not_applied_row(self):
+        manager.list_application_tracking_rows()
+        connection = sqlite3.connect(manager.DB_PATH)
+        try:
+            connection.execute(
+                """
+                UPDATE application_tracking
+                SET applied = 1,
+                    applied_at = '2026-08-20',
+                    status = 'not_applied'
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        manager.init_application_tracking_schema()
+        row = manager.list_application_tracking_rows()[0]
+        self.assertEqual(row["applied"], 1)
+        self.assertEqual(row["applied_at"], "2026-08-20")
+        self.assertEqual(row["status"], "applied")
+
     def test_delete_application_tracking_removes_linked_tracker_row(self):
         manager.list_application_tracking_rows()
         self.assertEqual(manager.delete_application_tracking(1), 1)

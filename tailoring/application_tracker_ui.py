@@ -23,6 +23,10 @@ from tailoring.application_tracker_export import (
 
 
 DISPLAY_STATUS_OPTIONS = [STATUS_LABELS[value] for value in STATUS_OPTIONS]
+STATUS_CHART_TYPES = ("Bar", "Donut")
+WEEKLY_CHART_TYPES = ("Line", "Bar")
+COHORT_CHART_TYPES = ("Stacked Bar", "Grouped Bar")
+HISTORY_CHART_TYPES = ("Line", "Stacked Bar")
 
 
 def _to_date(value: Any) -> date | None:
@@ -126,6 +130,66 @@ def tracker_has_unsaved_changes(
     return not left.equals(right)
 
 
+
+def normalise_tracker_editor_lifecycle(
+    original: pd.DataFrame,
+    edited: pd.DataFrame,
+) -> pd.DataFrame:
+    # Resolve the effective lifecycle state implied by the latest edit.
+    normalized = edited.copy()
+    if normalized.empty:
+        return normalized
+
+    originals: dict[int, dict[str, Any]] = {}
+    for row in original.to_dict(orient="records"):
+        originals[int(row["tracked_job_id"])] = row
+
+    for index, row in normalized.iterrows():
+        tracked_job_id = int(row["tracked_job_id"])
+        prior = originals.get(tracked_job_id, {})
+
+        applied = bool(row.get("applied"))
+        prior_applied = bool(prior.get("applied"))
+        status = status_label(row.get("status"))
+        prior_status = status_label(prior.get("status") or "Not Applied")
+        applied_at = _to_date(row.get("applied_at"))
+
+        applied_changed = applied != prior_applied
+        status_changed = status != prior_status
+
+        if status_changed:
+            if status == "Not Applied":
+                applied = False
+                applied_at = None
+            else:
+                applied = True
+                if applied_at is None:
+                    applied_at = date.today()
+        elif applied_changed:
+            if applied:
+                if status == "Not Applied":
+                    status = "Applied"
+                if applied_at is None:
+                    applied_at = date.today()
+            else:
+                status = "Not Applied"
+                applied_at = None
+        else:
+            if status != "Not Applied":
+                applied = True
+                if applied_at is None:
+                    applied_at = date.today()
+            elif applied:
+                status = "Applied"
+                if applied_at is None:
+                    applied_at = date.today()
+
+        normalized.at[index, "applied"] = applied
+        normalized.at[index, "applied_at"] = applied_at
+        normalized.at[index, "status"] = status
+
+    return normalized
+
 def _persist_editor_frame(frame: pd.DataFrame) -> int:
     updated = 0
     for row in frame.to_dict(orient="records"):
@@ -142,7 +206,7 @@ def _persist_editor_frame(frame: pd.DataFrame) -> int:
     return updated
 
 
-def _render_tracker_tab(rows: list[dict[str, Any]]) -> None:
+def _render_tracker_tab(rows: list[dict[str, Any]]) -> pd.DataFrame:
     st.caption(
         "Application Sessions and manually added jobs share one tracker. "
         "Applied and completed dates are editable, so older applications can "
@@ -152,7 +216,7 @@ def _render_tracker_tab(rows: list[dict[str, Any]]) -> None:
     original = tracker_rows_to_dataframe(rows)
     if original.empty:
         st.info("No tracked jobs yet. Add one in **Add Job / JD**.")
-        return
+        return original
 
     visible_columns = [
         "tracked_job_id",
@@ -224,7 +288,21 @@ def _render_tracker_tab(rows: list[dict[str, Any]]) -> None:
         key="application_tracker_editor_v2",
     )
 
-    changed = tracker_has_unsaved_changes(editor_frame, edited)
+    effective_edited = normalise_tracker_editor_lifecycle(
+        editor_frame,
+        edited,
+    )
+    lifecycle_adjusted = tracker_has_unsaved_changes(
+        edited,
+        effective_edited,
+    )
+    changed = tracker_has_unsaved_changes(editor_frame, effective_edited)
+    if lifecycle_adjusted:
+        st.caption(
+            "Lifecycle preview normalized automatically: checking Applied promotes "
+            "Not Applied to Applied, while advanced statuses remain applied. "
+            "Save Changes to persist the normalized row."
+        )
     save_col, export_col = st.columns(2)
 
     with save_col:
@@ -234,7 +312,7 @@ def _render_tracker_tab(rows: list[dict[str, Any]]) -> None:
             width="stretch",
             disabled=not changed,
         ):
-            count = _persist_editor_frame(edited)
+            count = _persist_editor_frame(effective_edited)
             st.session_state["application_tracker_flash"] = (
                 f"Saved {count} tracked job row(s)."
             )
@@ -267,9 +345,11 @@ def _render_tracker_tab(rows: list[dict[str, Any]]) -> None:
 
     if changed:
         st.info(
-            "Preview analytics can reflect unsaved table edits, but save them "
-            "before exporting so the database and workbook stay in sync."
+            "Analytics reflects the effective unsaved tracker edits below. "
+            "Save Changes before exporting so SQLite and Excel stay in sync."
         )
+
+    return effective_edited
 
 
 def _render_add_job_tab() -> None:
@@ -344,8 +424,15 @@ def _render_add_job_tab() -> None:
     st.rerun()
 
 
-def _analytics_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
-    frame = tracker_rows_to_dataframe(rows)
+def _analytics_frame(
+    rows: list[dict[str, Any]],
+    preview_frame: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    frame = (
+        preview_frame.copy()
+        if isinstance(preview_frame, pd.DataFrame)
+        else tracker_rows_to_dataframe(rows)
+    )
     if frame.empty:
         return frame
 
@@ -490,13 +577,16 @@ def _history_weekly(
     )
 
 
-def _render_analytics_tab(rows: list[dict[str, Any]]) -> None:
+def _render_analytics_tab(
+    rows: list[dict[str, Any]],
+    preview_frame: pd.DataFrame | None = None,
+) -> None:
     st.caption(
-        "These charts are derived from persisted tracker data. Status-history "
-        "analytics become more useful as future status transitions are recorded."
+        "Charts use the effective Tracker preview, including unsaved lifecycle edits. "
+        "Status-history charts still use persisted transition events."
     )
 
-    frame = _analytics_frame(rows)
+    frame = _analytics_frame(rows, preview_frame=preview_frame)
     if frame.empty:
         st.info("No tracked jobs match the current filters.")
         return
@@ -515,11 +605,27 @@ def _render_analytics_tab(rows: list[dict[str, Any]]) -> None:
         column.metric(label, metrics[key])
 
     status_counts = _status_counts(frame)
-
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Status distribution")
-        bar = (
+    st.subheader("Status distribution")
+    status_chart_type = st.radio(
+        "Status chart type",
+        STATUS_CHART_TYPES,
+        horizontal=True,
+        key="tracker_status_chart_type",
+        label_visibility="collapsed",
+    )
+    if status_chart_type == "Donut":
+        status_chart = (
+            alt.Chart(status_counts)
+            .mark_arc(innerRadius=55)
+            .encode(
+                theta=alt.Theta("Applications:Q"),
+                color=alt.Color("Status:N", legend=alt.Legend(title=None)),
+                tooltip=["Status:N", "Applications:Q"],
+            )
+            .properties(height=320)
+        )
+    else:
+        status_chart = (
             alt.Chart(status_counts)
             .mark_bar()
             .encode(
@@ -534,63 +640,82 @@ def _render_analytics_tab(rows: list[dict[str, Any]]) -> None:
             )
             .properties(height=max(220, len(status_counts) * 38))
         )
-        st.altair_chart(bar, width="stretch")
-
-    with right:
-        st.subheader("Status share")
-        donut = (
-            alt.Chart(status_counts)
-            .mark_arc(innerRadius=55)
-            .encode(
-                theta=alt.Theta("Applications:Q"),
-                color=alt.Color("Status:N", legend=alt.Legend(title=None)),
-                tooltip=["Status:N", "Applications:Q"],
-            )
-            .properties(height=300)
-        )
-        st.altair_chart(donut, width="stretch")
+    st.altair_chart(status_chart, width="stretch")
 
     weekly = _weekly_applied(frame)
     st.subheader("Applications by week")
+    weekly_chart_type = st.radio(
+        "Weekly applications chart type",
+        WEEKLY_CHART_TYPES,
+        horizontal=True,
+        key="tracker_weekly_chart_type",
+        label_visibility="collapsed",
+    )
     if weekly.empty:
         st.info("Add or edit Applied Dates to build the weekly trend.")
     else:
-        line = (
-            alt.Chart(weekly)
-            .mark_line(point=True)
-            .encode(
+        weekly_base = alt.Chart(weekly).encode(
+            x=alt.X(
+                "Week:T",
+                title="Week",
+                axis=alt.Axis(format="%d %b"),
+            ),
+            y=alt.Y(
+                "Applications:Q",
+                title="Applications",
+                axis=alt.Axis(tickMinStep=1),
+            ),
+            tooltip=[
+                alt.Tooltip("Week:T", title="Week", format="%d %b %Y"),
+                "Applications:Q",
+            ],
+        )
+        weekly_chart = (
+            weekly_base.mark_bar()
+            if weekly_chart_type == "Bar"
+            else weekly_base.mark_line(point=True)
+        ).properties(height=300)
+        st.altair_chart(weekly_chart, width="stretch")
+
+    cohort = _weekly_cohort(frame)
+    st.subheader("Weekly application cohorts")
+    cohort_chart_type = st.radio(
+        "Cohort chart type",
+        COHORT_CHART_TYPES,
+        horizontal=True,
+        key="tracker_cohort_chart_type",
+        label_visibility="collapsed",
+    )
+    st.caption(
+        "Groups jobs by application week and current status. Choose stacked "
+        "for composition or grouped for side-by-side comparison."
+    )
+    if cohort.empty:
+        st.info("Applied dates are needed for the weekly cohort chart.")
+    else:
+        cohort_base = alt.Chart(cohort).mark_bar()
+        if cohort_chart_type == "Grouped Bar":
+            cohort_chart = cohort_base.encode(
                 x=alt.X(
                     "Week:T",
-                    title="Week",
+                    title="Application week",
                     axis=alt.Axis(format="%d %b"),
                 ),
+                xOffset=alt.XOffset("Status:N"),
                 y=alt.Y(
                     "Applications:Q",
                     title="Applications",
                     axis=alt.Axis(tickMinStep=1),
                 ),
+                color=alt.Color("Status:N", legend=alt.Legend(title=None)),
                 tooltip=[
-                    alt.Tooltip("Week:T", title="Week", format="%d %b %Y"),
+                    alt.Tooltip("Week:T", format="%d %b %Y"),
+                    "Status:N",
                     "Applications:Q",
                 ],
             )
-            .properties(height=300)
-        )
-        st.altair_chart(line, width="stretch")
-
-    cohort = _weekly_cohort(frame)
-    st.subheader("Weekly application cohorts")
-    st.caption(
-        "Each bar groups jobs by the week you applied and stacks them by their "
-        "current status."
-    )
-    if cohort.empty:
-        st.info("Applied dates are needed for the weekly cohort chart.")
-    else:
-        stacked = (
-            alt.Chart(cohort)
-            .mark_bar()
-            .encode(
+        else:
+            cohort_chart = cohort_base.encode(
                 x=alt.X(
                     "Week:T",
                     title="Application week",
@@ -609,9 +734,7 @@ def _render_analytics_tab(rows: list[dict[str, Any]]) -> None:
                     "Applications:Q",
                 ],
             )
-            .properties(height=320)
-        )
-        st.altair_chart(stacked, width="stretch")
+        st.altair_chart(cohort_chart.properties(height=320), width="stretch")
 
     tracked_job_ids = [
         int(value)
@@ -619,36 +742,43 @@ def _render_analytics_tab(rows: list[dict[str, Any]]) -> None:
     ]
     history = _history_weekly(tracked_job_ids)
     st.subheader("Pipeline stage changes over time")
+    history_chart_type = st.radio(
+        "Pipeline history chart type",
+        HISTORY_CHART_TYPES,
+        horizontal=True,
+        key="tracker_history_chart_type",
+        label_visibility="collapsed",
+    )
     st.caption(
-        "This event view records when statuses changed. Historical transitions "
+        "This event view records persisted status changes. Historical transitions "
         "that happened before V2 cannot be reconstructed exactly."
     )
     if history.empty:
         st.info("No status transitions have been recorded yet.")
     else:
-        history_chart = (
-            alt.Chart(history)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X(
-                    "Week:T",
-                    title="Week",
-                    axis=alt.Axis(format="%d %b"),
-                ),
-                y=alt.Y(
-                    "Transitions:Q",
-                    title="Status changes",
-                    axis=alt.Axis(tickMinStep=1),
-                ),
-                color=alt.Color("Status:N", legend=alt.Legend(title=None)),
-                tooltip=[
-                    alt.Tooltip("Week:T", format="%d %b %Y"),
-                    "Status:N",
-                    "Transitions:Q",
-                ],
-            )
-            .properties(height=320)
+        history_base = alt.Chart(history).encode(
+            x=alt.X(
+                "Week:T",
+                title="Week",
+                axis=alt.Axis(format="%d %b"),
+            ),
+            y=alt.Y(
+                "Transitions:Q",
+                title="Status changes",
+                axis=alt.Axis(tickMinStep=1),
+            ),
+            color=alt.Color("Status:N", legend=alt.Legend(title=None)),
+            tooltip=[
+                alt.Tooltip("Week:T", format="%d %b %Y"),
+                "Status:N",
+                "Transitions:Q",
+            ],
         )
+        history_chart = (
+            history_base.mark_bar()
+            if history_chart_type == "Stacked Bar"
+            else history_base.mark_line(point=True)
+        ).properties(height=320)
         st.altair_chart(history_chart, width="stretch")
 
 
@@ -669,10 +799,13 @@ def render_application_tracker() -> None:
     )
 
     with tracker_tab:
-        _render_tracker_tab(rows)
+        analytics_preview = _render_tracker_tab(rows)
 
     with add_tab:
         _render_add_job_tab()
 
     with analytics_tab:
-        _render_analytics_tab(rows)
+        _render_analytics_tab(
+            rows,
+            preview_frame=analytics_preview,
+        )

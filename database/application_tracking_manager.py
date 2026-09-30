@@ -5,6 +5,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+APPLICATION_TRACKER_VERSION = "application-tracker-v2.1"
+
 DB_PATH = Path("data/applications.db")
 
 STATUS_OPTIONS = (
@@ -414,6 +416,56 @@ def _ensure_tracking_rows(cursor: sqlite3.Cursor, now: str) -> None:
     )
 
 
+
+def _repair_lifecycle_invariants(
+    cursor: sqlite3.Cursor,
+    now: str,
+) -> None:
+    # Repair contradictory V2 rows without inventing historical events.
+    today = _today()
+
+    cursor.execute(
+        """
+        UPDATE application_tracking
+        SET
+            status = 'applied',
+            updated_at = ?
+        WHERE applied = 1
+          AND status = 'not_applied'
+        """,
+        (now,),
+    )
+
+    cursor.execute(
+        """
+        UPDATE application_tracking
+        SET
+            applied = 1,
+            applied_at = COALESCE(
+                NULLIF(applied_at, ''),
+                SUBSTR(NULLIF(updated_at, ''), 1, 10),
+                ?
+            ),
+            updated_at = ?
+        WHERE status != 'not_applied'
+          AND applied = 0
+        """,
+        (today, now),
+    )
+
+    cursor.execute(
+        """
+        UPDATE application_tracking
+        SET
+            applied_at = NULL,
+            updated_at = ?
+        WHERE applied = 0
+          AND applied_at IS NOT NULL
+        """,
+        (now,),
+    )
+
+
 def init_application_tracking_schema() -> None:
     now = _now()
     connection = _connect()
@@ -425,6 +477,7 @@ def init_application_tracking_schema() -> None:
             _create_v2_schema(cursor)
         _sync_application_sessions(cursor, now)
         _ensure_tracking_rows(cursor, now)
+        _repair_lifecycle_invariants(cursor, now)
         connection.commit()
     finally:
         connection.close()
@@ -620,6 +673,8 @@ def update_application_tracking(
 
     if normalized_status != "not_applied":
         applied_value = True
+    elif applied_value:
+        normalized_status = "applied"
     if not applied_value:
         normalized_status = "not_applied"
 
