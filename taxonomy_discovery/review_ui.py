@@ -41,8 +41,33 @@ from taxonomy_discovery.triage import (
     TRIAGE_VERSION,
     build_triage_report,
 )
+from taxonomy_discovery.classification import (
+    CLASSIFICATION_CLASSES,
+    CLASSIFICATION_VERSION,
+    build_classification_report,
+)
+from taxonomy_discovery.research_targets import (
+    RESEARCH_TARGET_TYPES,
+    RESEARCH_TARGET_VERSION,
+    TARGET_CAPABILITY_CONCEPT,
+    TARGET_TECHNOLOGY_IDENTITY,
+    TARGET_TECHNOLOGY_RELATIONSHIP,
+    build_research_target_report,
+)
 
 PATCH_MARKER = "tqd2.6-technology-registry-ui-v1"
+TQD3_UI_MARKER = "tqd3-classification-readonly-ui-v1.1.0"
+TQD3_RESEARCH_TARGET_UI_MARKER = "tqd3-research-target-readonly-ui-v1.2.0"
+TQD3_RESEARCH_TARGET_SELECTION_UI_MARKER = "tqd3-research-target-clickable-table-v1.2.2"
+
+TQD3_CLASS_LABELS = {
+    "A_existing_capability_near_miss": "A · Existing capability near miss",
+    "B_technology_or_registry": "B · Technology / registry",
+    "C_decomposition_or_structure": "C · Decomposition / JD structure",
+    "D_subjective_or_defer": "D · Subjective / defer",
+    "E_new_capability_research_candidate": "E · New capability research candidate",
+    "U_unclassified": "U · Unclassified",
+}
 
 STATUS_LABELS = {
     "unreviewed": "Unreviewed",
@@ -288,13 +313,988 @@ def _render_observation(
             )
 
 
+
+def _markdown_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return ""
+
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for key in row:
+            key_text = str(key)
+            if key_text not in seen:
+                seen.add(key_text)
+                columns.append(key_text)
+
+    def cell(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list, tuple, set)):
+            text = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        else:
+            text = str(value)
+        return (
+            text.replace("\\", "\\\\")
+            .replace("|", "\\|")
+            .replace("\r", " ")
+            .replace("\n", "<br>")
+        )
+
+    header = "| " + " | ".join(columns) + " |"
+    divider = "| " + " | ".join("---" for _ in columns) + " |"
+    body = [
+        "| "
+        + " | ".join(cell(row.get(column)) for column in columns)
+        + " |"
+        for row in rows
+    ]
+    return "\n".join([header, divider, *body]) + "\n"
+
+
+def _render_readonly_selection_export(
+    *,
+    summary_rows: list[dict[str, Any]],
+    raw_rows: list[dict[str, Any]],
+    key_prefix: str,
+    filename_stem: str,
+) -> None:
+    if not summary_rows:
+        return
+
+    summary_df = pd.DataFrame(summary_rows)
+    csv_data = summary_df.to_csv(index=False)
+    markdown_data = _markdown_table(summary_rows)
+    html_data = summary_df.to_html(index=False, escape=True)
+    json_data = (
+        json.dumps(
+            raw_rows,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+    with st.expander(
+        "Selected rows · debug / export",
+        expanded=False,
+    ):
+        st.caption(
+            "Local download only. Exporting does not review, research, "
+            "mutate, score, or call any model/network service."
+        )
+        e1, e2, e3, e4 = st.columns(4)
+        e1.download_button(
+            "CSV",
+            data=csv_data,
+            file_name=f"{filename_stem}.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+        )
+        e2.download_button(
+            "Markdown",
+            data=markdown_data,
+            file_name=f"{filename_stem}.md",
+            mime="text/markdown",
+            key=f"{key_prefix}_markdown",
+        )
+        e3.download_button(
+            "HTML",
+            data=html_data,
+            file_name=f"{filename_stem}.html",
+            mime="text/html",
+            key=f"{key_prefix}_html",
+        )
+        e4.download_button(
+            "Full JSON",
+            data=json_data,
+            file_name=f"{filename_stem}.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+        )
+
+        with st.expander(
+            "Preview selected full records",
+            expanded=False,
+        ):
+            st.json(raw_rows)
+
+
+_REVIEW_DECISION_GUIDE = [
+    {
+        "decision": "Existing taxonomy near miss",
+        "choose_when": (
+            "One existing canonical capability clearly expresses the same "
+            "reusable concept and the miss is mainly terminology/matching."
+        ),
+        "avoid_when": (
+            "Several capabilities are similarly plausible, the wording is "
+            "broader/narrower in meaning, or the item is mainly a technology."
+        ),
+        "effect": (
+            "Save an existing capability target for matcher/terminology "
+            "improvement; do not create a new capability."
+        ),
+    },
+    {
+        "decision": "Research candidate",
+        "choose_when": (
+            "The requirement appears to describe a reusable technical/work "
+            "capability that is materially absent from the current taxonomy."
+        ),
+        "avoid_when": (
+            "It is primarily a product/framework/tool, subjective wording, "
+            "a parser/decomposition problem, or still too ambiguous."
+        ),
+        "effect": (
+            "Route for downstream research/proposal work. Saving the review "
+            "does not itself mutate the taxonomy or scoring."
+        ),
+    },
+    {
+        "decision": "Decomposition issue",
+        "choose_when": (
+            "The JD structure/parser combined unrelated requirements, split "
+            "one requirement incorrectly, or admitted the wrong text."
+        ),
+        "avoid_when": (
+            "The requirement text itself is coherent and the problem is only "
+            "taxonomy terminology or missing knowledge."
+        ),
+        "effect": (
+            "Route to JD-structure/decomposition work rather than taxonomy "
+            "growth."
+        ),
+    },
+    {
+        "decision": "Scope review",
+        "choose_when": (
+            "The wording is subjective, administrative, eligibility-related, "
+            "or needs a policy decision about whether it belongs in taxonomy."
+        ),
+        "avoid_when": (
+            "There is already a clear technical capability or technology "
+            "routing decision."
+        ),
+        "effect": (
+            "Hold for explicit human policy/scope judgment; no production "
+            "knowledge is changed."
+        ),
+    },
+    {
+        "decision": "Defer",
+        "choose_when": (
+            "Evidence is weak, one-off, ambiguous, tied between plausible "
+            "routes, or there is not enough information to justify a change."
+        ),
+        "avoid_when": (
+            "A clear existing-capability, decomposition, scope, or research "
+            "route is already supported."
+        ),
+        "effect": (
+            "Leave unresolved for now. Defer is a valid conservative outcome, "
+            "not a failure."
+        ),
+    },
+]
+
+
+def _candidate_recurrence(candidate: dict[str, Any]) -> tuple[int, int]:
+    observations = [
+        row
+        for row in candidate.get("observations", []) or []
+        if isinstance(row, dict)
+    ]
+    explicit_jobs = candidate.get("job_count")
+    explicit_observations = candidate.get("observation_count")
+    job_ids = {
+        str(row.get("discovered_job_id"))
+        for row in observations
+        if row.get("discovered_job_id") is not None
+    }
+    job_count = (
+        int(explicit_jobs)
+        if isinstance(explicit_jobs, (int, float))
+        else len(job_ids)
+    )
+    observation_count = (
+        int(explicit_observations)
+        if isinstance(explicit_observations, (int, float))
+        else len(observations)
+    )
+    return job_count, observation_count
+
+
+def _render_reviewer_guidance(
+    candidate: dict[str, Any],
+    suggestion: dict[str, Any],
+    tqd3_classification: dict[str, Any] | None,
+) -> None:
+    classification = (
+        tqd3_classification
+        if isinstance(tqd3_classification, dict)
+        else {}
+    )
+    class_id = str(classification.get("class_id") or "")
+    class_label = TQD3_CLASS_LABELS.get(
+        class_id,
+        class_id or "Not classified",
+    )
+
+    registry = (
+        candidate.get("technology_registry_resolution", {})
+        or {}
+    )
+    registry_status = str(registry.get("status") or "unresolved")
+    registry_target = str(
+        registry.get("capability_id")
+        or registry.get("technology_id")
+        or ""
+    )
+    job_count, observation_count = _candidate_recurrence(candidate)
+    lexical_score = _top_lexical_score(candidate)
+    flags = [
+        str(value)
+        for value in candidate.get("diagnostic_flags", []) or []
+    ]
+
+    with st.expander(
+        "Reviewer Guidance · how to decide",
+        expanded=True,
+    ):
+        st.caption(
+            "The goal is not to decide whether a requirement is 'good' or "
+            "'bad'. Decide which downstream route is justified by the "
+            "evidence. When evidence is ambiguous, Defer is valid."
+        )
+
+        g1, g2, g3, g4 = st.columns(4)
+        g1.metric("TQ-D3 route", class_label)
+        g2.metric(
+            "Python suggestion",
+            str(
+                suggestion.get("suggested_status")
+                or "No suggestion"
+            ),
+        )
+        g3.metric(
+            "Suggestion confidence",
+            str(suggestion.get("confidence") or "none"),
+        )
+        g4.metric(
+            "Seen",
+            f"{job_count} job(s) / {observation_count} obs",
+        )
+
+        st.dataframe(
+            [
+                {
+                    "signal": "Technology registry",
+                    "value": (
+                        registry_status
+                        + (
+                            f" → {registry_target}"
+                            if registry_target
+                            else ""
+                        )
+                    ),
+                },
+                {
+                    "signal": "Top lexical retrieval",
+                    "value": (
+                        f"{lexical_score:.3f}"
+                        if isinstance(lexical_score, float)
+                        else "None"
+                    ),
+                },
+                {
+                    "signal": "Diagnostic flags",
+                    "value": ", ".join(flags) if flags else "None",
+                },
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
+        if class_id == "A_existing_capability_near_miss":
+            st.info(
+                "TQ-D3 sees a possible existing-capability near miss. "
+                "Choose Existing taxonomy near miss only when one capability "
+                "clearly preserves the requirement's meaning."
+            )
+        elif class_id == "B_technology_or_registry":
+            st.warning(
+                "TQ-D3 sees a technology/registry issue. Do not create a "
+                "capability named after the product/framework/tool. Use the "
+                "Research Targets / registry relationship path when needed."
+            )
+        elif class_id == "C_decomposition_or_structure":
+            st.warning(
+                "TQ-D3 sees a likely JD decomposition/structure issue. "
+                "Prefer Decomposition issue rather than growing taxonomy."
+            )
+        elif class_id == "D_subjective_or_defer":
+            st.info(
+                "TQ-D3 sees subjective/general wording. Prefer Scope review "
+                "or Defer unless concrete reusable technical meaning is "
+                "independently supported."
+            )
+        elif class_id == "E_new_capability_research_candidate":
+            st.info(
+                "TQ-D3 sees a recurrent candidate for research. Confirm that "
+                "it is reusable, materially distinct from existing taxonomy, "
+                "and not merely a technology name before choosing Research "
+                "candidate."
+            )
+        elif class_id == "U_unclassified":
+            st.warning(
+                "TQ-D3 intentionally failed closed. Do not guess. Inspect "
+                "retrieval/registry evidence and Defer if no route is clearly "
+                "supported."
+            )
+
+        st.markdown("**What makes a good review**")
+        st.markdown(
+            "- Preserve the meaning of the JD requirement; do not map only "
+            "because a keyword overlaps.\n"
+            "- Keep technology identity/relationship questions separate from "
+            "canonical capabilities.\n"
+            "- Do not use candidate résumé evidence to decide what the "
+            "taxonomy means.\n"
+            "- Require one clearly justified existing capability before using "
+            "Existing taxonomy near miss.\n"
+            "- Prefer Defer over inventing certainty from weak, tied, or "
+            "one-off evidence."
+        )
+
+        st.markdown("**Decision guide**")
+        suggested_status = str(
+            suggestion.get("suggested_status") or ""
+        )
+        suggested_label = STATUS_LABELS.get(
+            suggested_status,
+            suggested_status,
+        )
+        for guide in _REVIEW_DECISION_GUIDE:
+            decision = str(guide.get("decision") or "Decision")
+            with st.expander(
+                decision,
+                expanded=bool(
+                    suggested_label
+                    and decision == suggested_label
+                ),
+            ):
+                st.markdown("**Choose when**")
+                st.write(str(guide.get("choose_when") or "—"))
+                st.markdown("**Avoid when**")
+                st.write(str(guide.get("avoid_when") or "—"))
+                st.markdown("**Effect**")
+                st.write(str(guide.get("effect") or "—"))
+
+        st.caption(
+            "Saving a human review records a routing decision. It does not "
+            "directly mutate the canonical taxonomy/technology registry or "
+            "change candidate scoring."
+        )
+
+def _render_tqd3_classification_tab(
+    triage_report: dict[str, Any],
+) -> None:
+    st.subheader("TQ-D3 Unresolved Requirement Classification")
+    st.caption(
+        f"{CLASSIFICATION_VERSION} · deterministic read-only routing. "
+        "No model/network calls, no taxonomy/registry mutation, "
+        "and no scoring influence."
+    )
+
+    try:
+        classification_report = build_classification_report(triage_report)
+    except Exception as exc:
+        st.error(f"Unable to build TQ-D3 classification report: {exc}")
+        return
+
+    governance = classification_report.get("governance", {}) or {}
+    if any(
+        (
+            int(governance.get("model_calls", 0) or 0) != 0,
+            int(governance.get("network_calls", 0) or 0) != 0,
+            int(governance.get("taxonomy_mutations", 0) or 0) != 0,
+            int(governance.get("registry_mutations", 0) or 0) != 0,
+            bool(governance.get("scoring_influence", False)),
+        )
+    ):
+        st.error(
+            "TQ-D3 governance invariant failed; the read-only inspector "
+            "will not render."
+        )
+        return
+
+    rows = [
+        row
+        for row in classification_report.get("candidates", []) or []
+        if isinstance(row, dict)
+    ]
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(
+        "Persistent unresolved",
+        int(
+            classification_report.get(
+                "persistent_unresolved_candidate_count", 0
+            )
+            or 0
+        ),
+    )
+    m2.metric(
+        "Research eligible",
+        int(classification_report.get("research_queue_count", 0) or 0),
+    )
+    m3.metric(
+        "Registry-resolved skipped",
+        int(
+            classification_report.get(
+                "skipped_registry_resolved_count", 0
+            )
+            or 0
+        ),
+    )
+    m4.metric(
+        "Version",
+        str(classification_report.get("classification_version") or "—"),
+    )
+
+    st.info(
+        "Read-only diagnostic routing. A class is not an approved taxonomy "
+        "or registry change. Research eligibility only means the candidate "
+        "may enter the later research/mining queue."
+    )
+
+    counts = classification_report.get("class_counts", {}) or {}
+    st.dataframe(
+        [
+            {
+                "class": TQD3_CLASS_LABELS.get(class_id, class_id),
+                "count": int(counts.get(class_id, 0) or 0),
+            }
+            for class_id in CLASSIFICATION_CLASSES
+        ],
+        width="stretch",
+        hide_index=True,
+    )
+
+    f1, f2, f3 = st.columns([3, 2, 4])
+    with f1:
+        selected_classes = st.multiselect(
+            "TQ-D3 classes (multi-select)",
+            list(CLASSIFICATION_CLASSES),
+            default=[],
+            format_func=lambda value: TQD3_CLASS_LABELS.get(
+                value, value
+            ),
+            placeholder="All classes",
+            key="tqd3_class_filter",
+        )
+    with f2:
+        research_filter = st.selectbox(
+            "Research eligibility",
+            ("All", "Eligible", "Not eligible"),
+            key="tqd3_research_filter",
+        )
+    with f3:
+        search_text = st.text_input(
+            "Search TQ-D3",
+            placeholder=(
+                "troubleshoot, documentation, AngularJS, Agile..."
+            ),
+            key="tqd3_classification_search",
+        )
+
+    needle = search_text.strip().lower()
+    filtered: list[dict[str, Any]] = []
+    for candidate in rows:
+        result = candidate.get("tqd3_classification", {}) or {}
+        class_id = str(result.get("class_id") or "")
+        eligible = bool(result.get("research_eligible", False))
+        if selected_classes and class_id not in selected_classes:
+            continue
+        if research_filter == "Eligible" and not eligible:
+            continue
+        if research_filter == "Not eligible" and eligible:
+            continue
+        if (
+            needle
+            and needle
+            not in json.dumps(
+                candidate,
+                ensure_ascii=False,
+                sort_keys=True,
+            ).lower()
+        ):
+            continue
+        filtered.append(candidate)
+
+    st.caption(
+        f"{len(filtered)} classified candidate(s) match the current filters."
+    )
+
+    grid_rows: list[dict[str, Any]] = []
+    for candidate in filtered:
+        result = candidate.get("tqd3_classification", {}) or {}
+        signals = result.get("signals", {}) or {}
+        near_miss = signals.get("near_miss") or {}
+        grid_rows.append(
+            {
+                "class": TQD3_CLASS_LABELS.get(
+                    str(result.get("class_id") or ""),
+                    str(result.get("class_id") or ""),
+                ),
+                "candidate": _candidate_text(candidate),
+                "rule": str(result.get("rule_id") or ""),
+                "research_eligible": bool(
+                    result.get("research_eligible", False)
+                ),
+                "near_miss_target": str(
+                    near_miss.get("capability_id") or ""
+                ),
+                "registry_technology": str(
+                    signals.get("registry_technology_id") or ""
+                ),
+                "jobs": int(signals.get("job_count", 0) or 0),
+                "observations": int(
+                    signals.get("observation_count", 0) or 0
+                ),
+            }
+        )
+
+    if not grid_rows:
+        st.info("No TQ-D3 candidates match the current filters.")
+        return
+
+    st.caption(
+        "Select one or more candidates. One row opens the inspector; "
+        "multiple rows show a read-only selection summary."
+    )
+    table_event = st.dataframe(
+        grid_rows,
+        width="stretch",
+        hide_index=True,
+        key="tqd3_classification_table",
+        on_select="rerun",
+        selection_mode="multi-row",
+    )
+
+    selection = getattr(table_event, "selection", None)
+    if selection is None and isinstance(table_event, dict):
+        selection = table_event.get("selection")
+
+    if isinstance(selection, dict):
+        selected_rows = list(selection.get("rows", []) or [])
+    elif selection is not None:
+        selected_rows = list(getattr(selection, "rows", []) or [])
+    else:
+        selected_rows = []
+
+    if not selected_rows:
+        st.info(
+            "Select one or more TQ-D3 candidate rows above. Select exactly "
+            "one row to inspect its details."
+        )
+        return
+
+    valid_selected_rows = [
+        int(index)
+        for index in selected_rows
+        if 0 <= int(index) < len(filtered)
+    ]
+    if len(valid_selected_rows) != len(selected_rows):
+        st.warning(
+            "One or more selected rows are no longer available under the "
+            "current filters. Reselect the rows."
+        )
+        return
+
+    if len(valid_selected_rows) > 1:
+        selected_candidates = [
+            filtered[index]
+            for index in valid_selected_rows
+        ]
+        st.info(
+            f"{len(selected_candidates)} TQ-D3 candidates selected. "
+            "This is a read-only selection; no review, taxonomy, registry, "
+            "or research action is performed."
+        )
+        selected_summary_rows = [
+            {
+                "class": TQD3_CLASS_LABELS.get(
+                    str(
+                        (row.get("tqd3_classification") or {}).get(
+                            "class_id"
+                        )
+                        or ""
+                    ),
+                    str(
+                        (row.get("tqd3_classification") or {}).get(
+                            "class_id"
+                        )
+                        or ""
+                    ),
+                ),
+                "candidate": _candidate_text(row),
+                "research_eligible": bool(
+                    (row.get("tqd3_classification") or {}).get(
+                        "research_eligible",
+                        False,
+                    )
+                ),
+            }
+            for row in selected_candidates
+        ]
+        st.dataframe(
+            selected_summary_rows,
+            width="stretch",
+            hide_index=True,
+        )
+        _render_readonly_selection_export(
+            summary_rows=selected_summary_rows,
+            raw_rows=selected_candidates,
+            key_prefix="tqd3_classification_selection",
+            filename_stem="tqd3_classification_selection",
+        )
+        return
+
+    candidate = filtered[valid_selected_rows[0]]
+    result = candidate.get("tqd3_classification", {}) or {}
+    signals = result.get("signals", {}) or {}
+
+    st.divider()
+    st.markdown(f"### {_candidate_text(candidate)}")
+    d1, d2, d3, d4 = st.columns(4)
+    class_id = str(result.get("class_id") or "")
+    d1.metric(
+        "TQ-D3 class",
+        TQD3_CLASS_LABELS.get(class_id, class_id or "—"),
+    )
+    d2.metric(
+        "Research eligible",
+        "Yes" if result.get("research_eligible") else "No",
+    )
+    d3.metric(
+        "Human review",
+        "Required" if result.get("requires_human_review") else "No",
+    )
+    d4.metric(
+        "Affects scoring",
+        "Yes" if result.get("influences_scoring") else "No",
+    )
+
+    st.markdown("**Rule**")
+    st.code(str(result.get("rule_id") or "—"), language=None)
+    st.markdown("**Why this class**")
+    st.write(str(result.get("rationale") or "—"))
+    st.markdown("**Recommended next action**")
+    st.write(str(result.get("next_action") or "—"))
+
+    near_miss = signals.get("near_miss")
+    if isinstance(near_miss, dict) and near_miss:
+        st.markdown("**Existing-capability near-miss signal**")
+        st.json(near_miss)
+
+    aliases = signals.get("registry_alias_mentions") or []
+    if aliases:
+        st.markdown("**Technology-registry alias signals**")
+        st.dataframe(aliases, width="stretch", hide_index=True)
+
+    with st.expander("TQ-D3 deterministic signals", expanded=False):
+        st.json(signals)
+
+    with st.expander("Underlying discovery diagnostics", expanded=False):
+        st.json(
+            {
+                "candidate_id": candidate.get("candidate_id"),
+                "observed_terms": candidate.get("observed_terms"),
+                "diagnostic_flags": candidate.get("diagnostic_flags", []),
+                "technology_registry_resolution": candidate.get(
+                    "technology_registry_resolution", {}
+                ),
+                "observations": candidate.get("observations", []),
+                "observation_contexts": candidate.get(
+                    "observation_contexts", []
+                ),
+            }
+        )
+
+def _render_tqd3_research_targets_tab(
+    triage_report: dict[str, Any],
+) -> None:
+    st.subheader("TQ-D3 Research Targets")
+    st.caption(
+        f"{RESEARCH_TARGET_VERSION} · dry-run extraction of the exact "
+        "research units that a later Tavily phase may consume. This tab "
+        "makes zero Tavily/model/network calls and cannot mutate the "
+        "taxonomy, registry, or scoring."
+    )
+
+    try:
+        classification_report = build_classification_report(
+            triage_report
+        )
+        target_report = build_research_target_report(
+            classification_report
+        )
+    except Exception as exc:
+        st.error(f"Unable to build TQ-D3 research-target report: {exc}")
+        return
+
+    governance = target_report.get("governance", {}) or {}
+    if any(
+        (
+            int(governance.get("tavily_calls", 0) or 0) != 0,
+            int(governance.get("model_calls", 0) or 0) != 0,
+            int(governance.get("network_calls", 0) or 0) != 0,
+            int(governance.get("taxonomy_mutations", 0) or 0) != 0,
+            int(governance.get("registry_mutations", 0) or 0) != 0,
+            bool(governance.get("scoring_influence", False)),
+        )
+    ):
+        st.error(
+            "TQ-D3 research-target governance invariant failed; "
+            "the dry-run queue will not render."
+        )
+        return
+
+    targets = [
+        row
+        for row in target_report.get("targets", []) or []
+        if isinstance(row, dict)
+    ]
+    type_counts = target_report.get("type_counts", {}) or {}
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Research targets", len(targets))
+    m2.metric(
+        "Technology relationships",
+        int(
+            type_counts.get(
+                TARGET_TECHNOLOGY_RELATIONSHIP,
+                0,
+            )
+            or 0
+        ),
+    )
+    m3.metric(
+        "Technology identities",
+        int(
+            type_counts.get(
+                TARGET_TECHNOLOGY_IDENTITY,
+                0,
+            )
+            or 0
+        ),
+    )
+    m4.metric(
+        "Capability concepts",
+        int(
+            type_counts.get(
+                TARGET_CAPABILITY_CONCEPT,
+                0,
+            )
+            or 0
+        ),
+    )
+
+    st.info(
+        "Dry run only. A research target is a focused question for a later "
+        "research phase, not approved production knowledge. Known mapped "
+        "technologies are excluded; known unmapped technologies are reduced "
+        "to relationship questions; strict unknown technical terms can be "
+        "queued for identity research; E-class candidates become capability "
+        "concept questions."
+    )
+
+    f1, f2 = st.columns([2, 4])
+    with f1:
+        selected_types = st.multiselect(
+            "Target types (multi-select)",
+            list(RESEARCH_TARGET_TYPES),
+            default=[],
+            placeholder="All target types",
+            key="tqd3_target_type_filter",
+        )
+    with f2:
+        search_text = st.text_input(
+            "Search research targets",
+            placeholder="Node.js, C#, SQL, documentation...",
+            key="tqd3_research_target_search",
+        )
+
+    needle = search_text.strip().lower()
+    filtered = []
+    for row in targets:
+        if (
+            selected_types
+            and row.get("target_type") not in selected_types
+        ):
+            continue
+        if (
+            needle
+            and needle
+            not in json.dumps(
+                row,
+                ensure_ascii=False,
+                sort_keys=True,
+            ).lower()
+        ):
+            continue
+        filtered.append(row)
+
+    st.caption(
+        f"{len(filtered)} focused target(s) match the current filters."
+    )
+    display_rows = [
+        {
+            "target_type": row.get("target_type"),
+            "label": row.get("label"),
+            "routing_reason": row.get("routing_reason"),
+            "source_class": row.get("source_class_id"),
+            "source_candidates": len(
+                row.get("source_candidate_ids", []) or []
+            ),
+            "source_jobs": row.get("source_job_count"),
+            "source_observations": row.get(
+                "source_observation_count"
+            ),
+            "tavily_eligible": row.get("tavily_eligible"),
+        }
+        for row in filtered
+    ]
+
+    if not display_rows:
+        st.info("No research targets match the current filters.")
+        return
+
+    st.caption(
+        "Select one or more rows. One row opens the inspector; multiple "
+        "rows show a read-only batch summary for the future Tavily phase."
+    )
+    table_event = st.dataframe(
+        display_rows,
+        width="stretch",
+        hide_index=True,
+        key="tqd3_research_target_table",
+        on_select="rerun",
+        selection_mode="multi-row",
+    )
+
+    selection = getattr(table_event, "selection", None)
+    if selection is None and isinstance(table_event, dict):
+        selection = table_event.get("selection")
+
+    if isinstance(selection, dict):
+        selected_rows = list(selection.get("rows", []) or [])
+    elif selection is not None:
+        selected_rows = list(getattr(selection, "rows", []) or [])
+    else:
+        selected_rows = []
+
+    if not selected_rows:
+        st.info(
+            "Select one or more research-target rows above. Select exactly "
+            "one row to open its details."
+        )
+        return
+
+    valid_selected_rows = [
+        int(index)
+        for index in selected_rows
+        if 0 <= int(index) < len(filtered)
+    ]
+    if len(valid_selected_rows) != len(selected_rows):
+        st.warning(
+            "One or more selected rows are no longer available under the "
+            "current filters. Reselect the rows."
+        )
+        return
+
+    if len(valid_selected_rows) > 1:
+        selected_targets = [
+            filtered[index]
+            for index in valid_selected_rows
+        ]
+        st.info(
+            f"{len(selected_targets)} research targets selected. "
+            "This is a read-only batch selection; Tavily remains disabled "
+            "in TQ-D3 v1.2.x. Select exactly one row to inspect details."
+        )
+        selected_summary_rows = [
+            {
+                "target_type": row.get("target_type"),
+                "label": row.get("label"),
+                "routing_reason": row.get("routing_reason"),
+                "source_class": row.get("source_class_id"),
+                "tavily_eligible": row.get("tavily_eligible"),
+            }
+            for row in selected_targets
+        ]
+        st.dataframe(
+            selected_summary_rows,
+            width="stretch",
+            hide_index=True,
+        )
+        _render_readonly_selection_export(
+            summary_rows=selected_summary_rows,
+            raw_rows=selected_targets,
+            key_prefix="tqd3_research_target_selection",
+            filename_stem="tqd3_research_target_selection",
+        )
+        return
+
+    target = filtered[valid_selected_rows[0]]
+
+    st.divider()
+    st.markdown(f"### {target.get('label')}")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Target type", str(target.get("target_type") or "—"))
+    d2.metric(
+        "Tavily eligible",
+        "Yes" if target.get("tavily_eligible") else "No",
+    )
+    d3.metric(
+        "Human review",
+        "Required"
+        if target.get("requires_human_review")
+        else "No",
+    )
+    d4.metric(
+        "Affects scoring",
+        "Yes" if target.get("influences_scoring") else "No",
+    )
+
+    st.markdown("**Research question**")
+    st.write(target.get("research_question") or "—")
+    st.markdown("**Routing reason**")
+    st.code(str(target.get("routing_reason") or "—"), language=None)
+    st.markdown("**Source terms**")
+    st.write(target.get("source_terms") or [])
+
+    with st.expander(
+        "TQ-D3 research-target diagnostics",
+        expanded=False,
+    ):
+        st.json(target)
+
 def render_capability_discovery_review() -> None:
     st.divider()
     st.header("Capability Discovery")
     st.caption(
-        f"TQ-D2.5/TQ-D2.6/TQ-D2.7 · {TRIAGE_VERSION} · technology registry "
-        "+ deterministic diagnostics + explicit human review. "
-        "No taxonomy mutation and no Tavily calls."
+        f"TQ-D2.5/TQ-D2.6/TQ-D2.7/TQ-D3 · {TRIAGE_VERSION} · "
+        f"{CLASSIFICATION_VERSION} · technology registry + deterministic "
+        "diagnostics + explicit human review. No taxonomy mutation and "
+        "no Tavily calls."
     )
 
     try:
@@ -315,6 +1315,30 @@ def render_capability_discovery_review() -> None:
         for row in candidates
         if str(row.get("candidate_id") or "")
     }
+
+    classification_by_candidate_id: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+    try:
+        review_classification_report = build_classification_report(
+            report
+        )
+        classification_by_candidate_id = {
+            str(row.get("candidate_id") or ""): row
+            for row in (
+                review_classification_report.get("candidates", [])
+                or []
+            )
+            if (
+                isinstance(row, dict)
+                and str(row.get("candidate_id") or "")
+            )
+        }
+    except Exception:
+        # Reviewer Guidance is supplemental. Classification diagnostics
+        # should never block the existing human review workflow.
+        classification_by_candidate_id = {}
 
     ai_key = "taxonomy_discovery_ai_suggestions_registry_v1"
     ai_suggestions = st.session_state.setdefault(ai_key, {})
@@ -349,12 +1373,16 @@ def render_capability_discovery_review() -> None:
 
     (
         overview_tab,
+        classification_tab,
+        research_targets_tab,
         registry_tab,
         research_tab,
         debug_tab,
     ) = st.tabs(
         [
             "Review Queue",
+            "TQ-D3 Classification",
+            "Research Targets",
             "Technology Registry",
             "Research Proposals",
             "Debug / Export",
@@ -402,6 +1430,34 @@ def render_capability_discovery_review() -> None:
                 "Nothing is saved automatically. Select only suggestions "
                 "you agree with, then explicitly confirm the batch."
             )
+            with st.expander(
+                "How to use deterministic Python-assisted review",
+                expanded=False,
+            ):
+                st.markdown(
+                    "This is **rule-based Python assistance**, not an AI/model "
+                    "decision. It only surfaces unresolved, unreviewed "
+                    "candidates where the deterministic rules have a "
+                    "high-confidence, non-Defer suggestion."
+                )
+                st.markdown(
+                    "1. Read each `candidate → suggested status → target` "
+                    "entry.\n"
+                    "2. Open the candidate in the Review Queue if you need "
+                    "the evidence, diagnostics, or Reviewer Guidance.\n"
+                    "3. Select **only** suggestions whose route and target you "
+                    "personally agree with.\n"
+                    "4. Click **Accept selected suggestions** to save those "
+                    "human-confirmed triage decisions.\n"
+                    "5. Nothing is saved for unselected rows, and the Python "
+                    "assistant cannot mutate taxonomy/registry/scoring."
+                )
+                st.info(
+                    "If this section shows 0 high-confidence suggestions, "
+                    "review candidates manually. Do not lower the evidence "
+                    "standard just to create batch suggestions."
+                )
+
             batch_lookup = {
                 str(row.get("candidate_id") or ""): row
                 for row in high_confidence
@@ -517,47 +1573,74 @@ def render_capability_discovery_review() -> None:
         st.caption(
             f"{len(filtered)} candidate(s) in the current queue."
         )
-        st.dataframe(
-            [
-                {
-                    "candidate": _candidate_text(row),
-                    "registry_status": (
-                        row.get("technology_registry_resolution", {})
-                        or {}
-                    ).get("status"),
-                    "registry_target": (
-                        row.get("technology_registry_resolution", {})
-                        or {}
-                    ).get("capability_id"),
-                    "review_status": (
-                        row.get("triage", {}) or {}
-                    ).get("status"),
-                    "suggestion": deterministic_suggestions.get(
-                        str(row.get("candidate_id") or ""),
-                        {},
-                    ).get("suggested_status"),
-                    "confidence": deterministic_suggestions.get(
-                        str(row.get("candidate_id") or ""),
-                        {},
-                    ).get("confidence"),
-                }
-                for row in filtered
-            ],
-            width="stretch",
-            hide_index=True,
-        )
+        queue_rows = [
+            {
+                "candidate": _candidate_text(row),
+                "registry_status": (
+                    row.get("technology_registry_resolution", {})
+                    or {}
+                ).get("status"),
+                "registry_target": (
+                    row.get("technology_registry_resolution", {})
+                    or {}
+                ).get("capability_id"),
+                "review_status": (
+                    row.get("triage", {}) or {}
+                ).get("status"),
+                "suggestion": deterministic_suggestions.get(
+                    str(row.get("candidate_id") or ""),
+                    {},
+                ).get("suggested_status"),
+                "confidence": deterministic_suggestions.get(
+                    str(row.get("candidate_id") or ""),
+                    {},
+                ).get("confidence"),
+            }
+            for row in filtered
+        ]
 
         if not filtered:
             st.info("No candidates match the current filters.")
         else:
-            selected_index = st.selectbox(
-                "Inspect candidate",
-                range(len(filtered)),
-                format_func=lambda index: _candidate_label(
-                    filtered[index]
-                ),
+            st.caption(
+                "Click one row to inspect and review that candidate. "
+                "Until a row is selected, the first filtered candidate is "
+                "shown. Review/save actions remain single-candidate only."
             )
-            selected_candidate = filtered[int(selected_index)]
+            table_event = st.dataframe(
+                queue_rows,
+                width="stretch",
+                hide_index=True,
+                key="taxonomy_discovery_review_queue_table",
+                on_select="rerun",
+                selection_mode="single-row",
+            )
+
+            selection = getattr(table_event, "selection", None)
+            if selection is None and isinstance(table_event, dict):
+                selection = table_event.get("selection")
+
+            if isinstance(selection, dict):
+                selected_rows = list(selection.get("rows", []) or [])
+            elif selection is not None:
+                selected_rows = list(
+                    getattr(selection, "rows", []) or []
+                )
+            else:
+                selected_rows = []
+
+            selected_index = (
+                int(selected_rows[0])
+                if selected_rows
+                else 0
+            )
+            if (
+                selected_index < 0
+                or selected_index >= len(filtered)
+            ):
+                selected_index = 0
+
+            selected_candidate = filtered[selected_index]
             candidate = selected_candidate
             candidate_id = str(
                 candidate.get("candidate_id") or ""
@@ -568,6 +1651,25 @@ def render_capability_discovery_review() -> None:
             st.divider()
             st.subheader(_candidate_text(candidate))
             _render_registry_resolution(candidate)
+
+            classified_candidate = (
+                classification_by_candidate_id.get(
+                    candidate_id,
+                    {},
+                )
+                or {}
+            )
+            _render_reviewer_guidance(
+                candidate,
+                suggestion,
+                (
+                    classified_candidate.get(
+                        "tqd3_classification",
+                        {},
+                    )
+                    or {}
+                ),
+            )
 
             st.markdown("### Assisted suggestion")
             if suggestion.get("routing") == "registry_resolved":
@@ -860,6 +1962,12 @@ def render_capability_discovery_review() -> None:
                             ),
                         )
                         st.rerun()
+
+    with classification_tab:
+        _render_tqd3_classification_tab(report)
+
+    with research_targets_tab:
+        _render_tqd3_research_targets_tab(report)
 
     with registry_tab:
         rows = registry_rows()

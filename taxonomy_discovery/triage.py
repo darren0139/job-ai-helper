@@ -142,6 +142,7 @@ def _context_for_observation(
             "group_weight_fraction": None,
             "semantic_type": "",
             "eligibility_rule": "",
+            "explicit_only_requirement": False,
             "scoring_parent_occurrence_id": "",
             "taxonomy_cap_status": "",
             "capability_id": None,
@@ -180,6 +181,9 @@ def _context_for_observation(
         "group_weight_fraction": _safe_float(row.get("group_weight_fraction")),
         "semantic_type": _clean(row.get("semantic_type")),
         "eligibility_rule": _clean(row.get("eligibility_rule")),
+        "explicit_only_requirement": bool(
+            row.get("explicit_only_requirement", False)
+        ),
         "scoring_parent_occurrence_id": _clean(
             row.get("scoring_parent_occurrence_id")
         ),
