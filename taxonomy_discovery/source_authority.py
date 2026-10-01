@@ -1,4 +1,4 @@
-"""Deterministic source-authority assessment for Broad Mining candidates."""
+"""Deterministic source-authority assessment for discovery and focused verification."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.0.0"
+SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.1.0"
 PRIMARY_OFFICIAL = "primary_official"
 FIRST_PARTY_OTHER = "first_party_other_technology"
 SECONDARY = "secondary"

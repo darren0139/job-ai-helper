@@ -29,6 +29,7 @@ from taxonomy_discovery.focused_verification_targets import (
     build_focused_verification_targets,
     dump_focused_verification_targets_json,
 )
+from taxonomy_discovery.focused_verification_ui import render_focused_verification
 from taxonomy_discovery.broad_mining_discovery_catalog import (
     build_discovery_catalog,
     find_discovery_exact,
@@ -1821,7 +1822,7 @@ def _render_tqd3_broad_mining_tab() -> None:
     st.info(
         "This complements JD-driven Research Targets. Select broad domains "
         "to research widely used technologies that may not have appeared in "
-        "your current JDs yet. Completed research is persisted locally in SQLite and automatically restored without a Tavily call and do not add "
+        "your current JDs yet. Completed research is persisted locally in SQLite and automatically restored without a Tavily call. Saved research does not add "
         "technologies, create proposals, mutate the registry/taxonomy, or "
         "change scoring."
     )
@@ -2573,8 +2574,8 @@ def _render_tqd3_broad_mining_tab() -> None:
             st.success(
                 f"{len(confirmed_items)} candidate(s) are confirmed "
                 "and ready for Step 3: focused verification. "
-                "The next phase will convert only these confirmed "
-                "candidates into narrow verification targets."
+                "Only these confirmed candidates become narrow "
+                "verification targets below."
             )
 
         focused_target_report = (
@@ -2584,7 +2585,7 @@ def _render_tqd3_broad_mining_tab() -> None:
         )
         if focused_target_report["count"]:
             st.markdown(
-                "### Step 3 · Focused verification targets"
+                "### Step 3 · Focused verification"
             )
             st.caption(
                 "These targets are generated deterministically from the "
@@ -2647,8 +2648,6 @@ def _render_tqd3_broad_mining_tab() -> None:
                             ][
                                 "friendly_reason"
                             ],
-                        "target_id":
-                            row["target_id"],
                     }
                     for row
                     in focused_target_report[
@@ -2675,22 +2674,7 @@ def _render_tqd3_broad_mining_tab() -> None:
                 ),
             )
 
-            st.button(
-                "Run focused verification",
-                disabled=True,
-                help=(
-                    "Explicit Tavily-backed execution is coming in the "
-                    "next phase. v1.5 only prepares deterministic targets."
-                ),
-                key=(
-                    "tqd3_run_focused_verification_disabled"
-                ),
-            )
-            st.caption(
-                "Run focused verification is intentionally disabled here: "
-                "execution is coming in the next phase and will remain an "
-                "explicit user action."
-            )
+            render_focused_verification(focused_target_report)
 
         st.caption(
             "Need the underlying evidence, source counts, reason codes, "

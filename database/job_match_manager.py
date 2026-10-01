@@ -153,6 +153,7 @@ def list_latest_compatible_job_match_snapshots(
     match_version: str,
     scoring_version: str,
     taxonomy_version: str,
+    read_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Return one latest compatible Job Match snapshot per discovered job.
 
@@ -160,8 +161,12 @@ def list_latest_compatible_job_match_snapshots(
     Taxonomy discovery must not count historical snapshots from the same job as
     independent market observations.
     """
-    init_job_match_schema()
-    connection = _connect()
+    if read_only:
+        connection = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+    else:
+        init_job_match_schema()
+        connection = _connect()
     try:
         rows = connection.execute(
             """

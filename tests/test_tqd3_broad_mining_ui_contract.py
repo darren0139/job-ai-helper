@@ -38,7 +38,7 @@ class TQD3BroadMiningUIContractTests(unittest.TestCase):
         # contiguously in source text.
         for token in (
             "Candidate extraction",
-            "Results are session-only and do not add",
+            "Completed research is persisted locally in SQLite",
             "Candidate extraction and exact registry dedupe are deterministic",
             "disabled pending human review.",
         ):

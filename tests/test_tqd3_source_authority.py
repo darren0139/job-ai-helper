@@ -215,6 +215,21 @@ class SourceAuthorityTests(unittest.TestCase):
                     SECONDARY,
                 )
 
+
+    def test_default_registry_covers_cpp_standards_sources(self) -> None:
+        candidate = {
+            "canonical_name": "C++",
+            "maintainers_vendors_or_standards_bodies": [],
+        }
+        for url in (
+            "https://isocpp.org/std/the-standard",
+            "https://www.open-std.org/jtc1/sc22/wg21/",
+            "https://www.iso.org/standard/68564.html",
+        ):
+            with self.subTest(url=url):
+                row = classify_candidate_source_url(candidate, url)
+                self.assertEqual(row["authority"], PRIMARY_OFFICIAL)
+
     def test_docker_hub_is_known_first_party_other_for_mosquitto(
         self,
     ) -> None:

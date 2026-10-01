@@ -19,7 +19,7 @@ class FocusedVerificationTargetUIContractTests(
         self,
     ) -> None:
         self.assertIn(
-            "Step 3 · Focused verification targets",
+            "Step 3 · Focused verification",
             SOURCE,
         )
         self.assertIn(
@@ -69,17 +69,14 @@ class FocusedVerificationTargetUIContractTests(
             SOURCE,
         )
 
-    def test_execution_is_deferred_to_next_phase(
+    def test_execution_is_integrated_explicitly(
         self,
     ) -> None:
         self.assertIn(
-            "Run focused verification",
+            "render_focused_verification(focused_target_report)",
             SOURCE,
         )
-        self.assertIn(
-            "coming in the next phase",
-            SOURCE,
-        )
+        self.assertNotIn("tqd3_run_focused_verification_disabled", SOURCE)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 {
-  "version": "source-authority-registry-v1.1",
+  "version": "source-authority-registry-v1.2",
   "contract": {
     "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain",
     "network_calls": 0,
@@ -145,6 +145,19 @@
         "zeromq.org",
         "zguide.zeromq.org"
       ]
+    },
+    {
+      "technology_aliases": [
+        "C++"
+      ],
+      "official_domains": [
+        "isocpp.org",
+        "open-std.org",
+        "iso.org"
+      ],
+      "safe_identity_aliases": [
+        "C++ programming language"
+      ]
     }
   ],
   "organization_domains": [
@@ -264,6 +277,33 @@
       "official_domains": [
         "zeromq.org",
         "zguide.zeromq.org"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "International Organization for Standardization",
+        "ISO"
+      ],
+      "official_domains": [
+        "iso.org"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "ISO/IEC JTC1/SC22/WG21",
+        "WG21",
+        "C++ Standards Committee"
+      ],
+      "official_domains": [
+        "open-std.org"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Standard C++ Foundation"
+      ],
+      "official_domains": [
+        "isocpp.org"
       ]
     }
   ],

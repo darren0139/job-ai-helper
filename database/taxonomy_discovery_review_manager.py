@@ -10,6 +10,104 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+
+def init_focused_verification_schema(db_path=None) -> Path:
+    path = _resolved_path(db_path)
+    with closing(_connect(path, create_parent=True)) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS focused_verification_results (
+                artifact_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                provider_request_id TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS focused_verification_decisions (
+                artifact_id TEXT PRIMARY KEY,
+                decision TEXT NOT NULL,
+                draft_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(artifact_id) REFERENCES focused_verification_results(artifact_id)
+            );
+        """)
+        conn.commit()
+    return path
+
+
+def save_focused_verification_result(result: dict[str, Any], *, db_path=None) -> dict[str, Any]:
+    """Immutable, idempotent provider-request evidence, separate from derived drafts."""
+    for field in ("target_id", "candidate_id", "provider", "provider_request_id"):
+        if not str(result.get(field) or "").strip():
+            raise ValueError(f"Missing focused verification {field}")
+    if not isinstance(result.get("raw_provider_response"), dict):
+        raise ValueError("Raw provider evidence is required")
+    identity = result["provider"] + "|" + result["provider_request_id"]
+    artifact_id = "tqd3fv_" + hashlib.sha256(identity.encode()).hexdigest()[:24]
+    payload = json.dumps(result, sort_keys=True, ensure_ascii=False)
+    path = init_focused_verification_schema(db_path)
+    with closing(_connect(path, create_parent=False)) as conn:
+        existing = conn.execute(
+            "SELECT * FROM focused_verification_results WHERE artifact_id=?", (artifact_id,)
+        ).fetchone()
+        if existing is not None:
+            saved = json.loads(existing["result_json"])
+            if any(saved.get(key) != result.get(key) for key in (
+                "target_id", "candidate_id", "raw_provider_response", "request_payload", "target"
+            )):
+                raise ValueError("Provider request ID conflicts with immutable saved evidence")
+        else:
+            conn.execute(
+                "INSERT INTO focused_verification_results VALUES (?, ?, ?, ?, ?, ?)",
+                (artifact_id, result["target_id"], result["candidate_id"],
+                 result["provider_request_id"], payload, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+    return next(row for row in list_focused_verification_results(db_path=path)
+                if row["artifact_id"] == artifact_id)
+
+
+def list_focused_verification_results(*, db_path=None) -> list[dict[str, Any]]:
+    """Reload without creating a DB/schema, changing evidence, or calling a provider."""
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return []
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='focused_verification_results'").fetchone():
+            return []
+        rows = conn.execute("""
+            SELECT r.*, d.decision, d.draft_json FROM focused_verification_results r
+            LEFT JOIN focused_verification_decisions d ON d.artifact_id=r.artifact_id
+            ORDER BY r.created_at DESC, r.artifact_id
+        """).fetchall()
+    return [{"artifact_id": row["artifact_id"], "created_at": row["created_at"],
+             "result": json.loads(row["result_json"]), "decision": row["decision"],
+             "review_draft": json.loads(row["draft_json"]) if row["draft_json"] else None}
+            for row in rows]
+
+
+def save_focused_verification_decision(*, artifact_id: str, decision: str,
+                                       draft: dict[str, Any], db_path=None) -> None:
+    if decision not in {"send_to_review", "research_more", "no_change"}:
+        raise ValueError("Unsupported focused verification decision")
+    if draft.get("status") != "draft" or draft.get("requires_human_approval") is not True:
+        raise ValueError("Only governed drafts may be saved")
+    path = init_focused_verification_schema(db_path)
+    with closing(_connect(path, create_parent=False)) as conn:
+        row = conn.execute("SELECT result_json FROM focused_verification_results WHERE artifact_id=?",
+                           (artifact_id,)).fetchone()
+        evidence = json.loads(row[0]) if row else {}
+        if row is None or any(evidence.get(key) != draft.get(key) for key in (
+            "target_id", "candidate_id", "provider_request_id"
+        )):
+            raise ValueError("Draft must belong to saved verification evidence")
+        conn.execute("""INSERT INTO focused_verification_decisions VALUES (?, ?, ?, ?)
+            ON CONFLICT(artifact_id) DO UPDATE SET decision=excluded.decision,
+            draft_json=excluded.draft_json, updated_at=excluded.updated_at""",
+            (artifact_id, decision, json.dumps(draft, sort_keys=True), datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+
 from taxonomy_discovery.triage import TRIAGE_STATUSES, TRIAGE_VERSION
 
 _ENV_DB_PATH = "TAXONOMY_DISCOVERY_REVIEW_DB"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from collections.abc import Callable, Iterable
 from typing import Any
 from urllib import error, request
@@ -256,6 +257,7 @@ def research_target_with_tavily(
     max_results: int = DEFAULT_MAX_RESULTS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     transport: Transport | None = None,
+    preserve_raw_response: bool = False,
 ) -> dict[str, Any]:
     key = str(api_key or tavily_api_key_from_env()).strip()
     if not key:
@@ -284,6 +286,9 @@ def research_target_with_tavily(
         request_payload=payload,
         response=response,
     )
+    if preserve_raw_response:
+        result["raw_provider_response"] = deepcopy(response)
+        result["request_payload"] = deepcopy(payload)
 
     # Persist only real adapter network calls. Unit/smoke tests pass an
     # explicit custom transport and therefore never touch the local ledger.

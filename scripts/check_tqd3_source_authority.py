@@ -66,6 +66,13 @@ def main() -> None:
             },
             "https://www.rabbitmq.com/docs/",
         ),
+        (
+            {
+                "canonical_name": "C++",
+                "maintainers_vendors_or_standards_bodies": [],
+            },
+            "https://www.iso.org/standard/68564.html",
+        ),
     )
     from taxonomy_discovery.source_authority import (
         classify_candidate_source_url,
@@ -81,7 +88,7 @@ def main() -> None:
         "TQ-D3 source authority smoke PASS: "
         "primary_official=1 secondary=1 "
         "provider_authority_claim_trusted=false "
-        "coverage=mosquitto_emqx_zeromq_rabbitmq "
+        "coverage=mosquitto_emqx_zeromq_rabbitmq cpp_standards=true "
         "network=0 model=0 mutation=0 scoring_influence=false"
     )
 
