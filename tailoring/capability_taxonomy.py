@@ -422,50 +422,45 @@ def classify_requirement(
     return str(record["capability_id"]) if record else None
 
 
-def evaluate_evidence(
+def _evaluate_capability_record(
+    *,
+    capability: dict[str, Any],
     requirement: dict[str, Any],
     evidence_text: str,
-    taxonomy: CapabilityTaxonomy | None = None,
+    taxonomy_version: str,
 ) -> dict[str, Any]:
-    taxonomy = taxonomy or get_default_taxonomy()
-    capability = classify_requirement_record(requirement, taxonomy)
-    if capability is None:
-        return {
-            "capability_id": None,
-            "label": None,
-            "reason": "unrecognised_capability",
-            "concepts": [],
-            "taxonomy_version": taxonomy.version,
-            "does_not_prove": [],
-        }
-
+    """Evaluate evidence against one already-resolved capability record."""
     if capability.get("evidence_policy"):
-        # atomic_focus is the actual obligation when the row has a parent.
         focus = _clean(requirement.get("atomic_focus") or requirement.get("text"))
-        # A cap may receive multiple cited rows joined by newline. Never combine
-        # their independent facts to satisfy a newly introduced v1.4 policy.
-        decisions = [_v14_label(capability["evidence_policy"], focus, row)
-                     for row in evidence_text.splitlines() if row.strip()]
+        decisions = [
+            _v14_label(capability["evidence_policy"], focus, row)
+            for row in evidence_text.splitlines()
+            if row.strip()
+        ]
         order = {"none": 0, "weak": 1, "transferable": 2, "direct": 3}
-        label, reason = max(decisions, key=lambda d: order[d[0]]) if decisions else ("none", "no_evidence")
+        label, reason = (
+            max(decisions, key=lambda d: order[d[0]])
+            if decisions
+            else ("none", "no_evidence")
+        )
         return {
-            "capability_id": capability["capability_id"], "label": label,
-            "reason": reason, "concepts": [capability["evidence_policy"]],
-            "taxonomy_version": taxonomy.version,
+            "capability_id": capability["capability_id"],
+            "label": label,
+            "reason": reason,
+            "concepts": [capability["evidence_policy"]],
+            "taxonomy_version": taxonomy_version,
             "does_not_prove": capability.get("does_not_prove", []),
         }
 
     if capability.get("explicit_only"):
-        subjective_terms = (
-            capability.get("evidence_concepts", {}).get("subjective", [])
-        )
+        subjective_terms = capability.get("evidence_concepts", {}).get("subjective", [])
         if not _contains_any(evidence_text, subjective_terms):
             return {
                 "capability_id": capability["capability_id"],
                 "label": "none",
                 "reason": "explicit_evidence_required",
                 "concepts": [],
-                "taxonomy_version": taxonomy.version,
+                "taxonomy_version": taxonomy_version,
                 "does_not_prove": capability.get("does_not_prove", []),
             }
 
@@ -483,7 +478,7 @@ def evaluate_evidence(
             "label": tier.get("label", "none"),
             "reason": tier.get("reason", "taxonomy_rule"),
             "concepts": list(tier.get("concepts", []) or []),
-            "taxonomy_version": taxonomy.version,
+            "taxonomy_version": taxonomy_version,
             "does_not_prove": capability.get("does_not_prove", []),
         }
 
@@ -492,10 +487,59 @@ def evaluate_evidence(
         "label": "none",
         "reason": "recognised_but_unsupported",
         "concepts": [],
-        "taxonomy_version": taxonomy.version,
+        "taxonomy_version": taxonomy_version,
         "does_not_prove": capability.get("does_not_prove", []),
     }
 
+
+def evaluate_capability_evidence(
+    capability_id: str,
+    requirement: dict[str, Any],
+    evidence_text: str,
+    taxonomy: CapabilityTaxonomy | None = None,
+) -> dict[str, Any]:
+    """Evaluate evidence for an already-approved deterministic capability ID."""
+    taxonomy = taxonomy or get_default_taxonomy()
+    capability = taxonomy.by_id().get(_clean(capability_id))
+    if capability is None:
+        return {
+            "capability_id": None,
+            "label": None,
+            "reason": "unknown_capability_id",
+            "concepts": [],
+            "taxonomy_version": taxonomy.version,
+            "does_not_prove": [],
+        }
+    return _evaluate_capability_record(
+        capability=capability,
+        requirement=requirement,
+        evidence_text=evidence_text,
+        taxonomy_version=taxonomy.version,
+    )
+
+
+def evaluate_evidence(
+    requirement: dict[str, Any],
+    evidence_text: str,
+    taxonomy: CapabilityTaxonomy | None = None,
+) -> dict[str, Any]:
+    taxonomy = taxonomy or get_default_taxonomy()
+    capability = classify_requirement_record(requirement, taxonomy)
+    if capability is None:
+        return {
+            "capability_id": None,
+            "label": None,
+            "reason": "unrecognised_capability",
+            "concepts": [],
+            "taxonomy_version": taxonomy.version,
+            "does_not_prove": [],
+        }
+    return _evaluate_capability_record(
+        capability=capability,
+        requirement=requirement,
+        evidence_text=evidence_text,
+        taxonomy_version=taxonomy.version,
+    )
 
 def taxonomy_documents(
     taxonomy: CapabilityTaxonomy | None = None,

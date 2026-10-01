@@ -1,0 +1,229 @@
+{
+  "applied_proposal_ids": [
+    "prop_595c511d7639369779b4",
+    "prop_ffbbfa49606896cc76bd",
+    "prop_c4b9391e9c8a55b928e1",
+    "prop_04a938d8a564acf8d80b",
+    "prop_019d19ba2314918c35c9",
+    "prop_b308e425d95dc42e2c30",
+    "prop_5f1ff618e680f1adc966",
+    "prop_5181b2a6bec3c8e49bda",
+    "prop_26b7038c8db53d2f31b0",
+    "prop_d306645098f70ef0a24f",
+    "prop_6ddbce0cab7a29d4e30e",
+    "prop_4d8a74029cfe7475c922",
+    "prop_35e71ca183cd98faae69"
+  ],
+  "notes": "Tranche 1 promotion contains only mappings explicitly approved in the TQ-D2.7 review workflow. Proposal/review SQLite state is local and is not required at runtime after promotion.",
+  "promoted_entries": [
+    {
+      "label": "Apache Pulsar",
+      "proposal_id": "prop_595c511d7639369779b4",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "Apache Pulsar",
+          "title": "Apache Pulsar",
+          "url": "https://pulsar.apache.org/"
+        }
+      ],
+      "technology_id": "apache.pulsar"
+    },
+    {
+      "label": "CircleCI",
+      "proposal_id": "prop_ffbbfa49606896cc76bd",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.98,
+      "sources": [
+        {
+          "publisher": "CircleCI",
+          "title": "CircleCI overview",
+          "url": "https://circleci.com/docs/guides/about-circleci/about-circleci/"
+        }
+      ],
+      "technology_id": "circleci"
+    },
+    {
+      "label": "Docker Compose",
+      "proposal_id": "prop_c4b9391e9c8a55b928e1",
+      "proposed_capability_id": "devops.containerisation",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.97,
+      "sources": [
+        {
+          "publisher": "Docker",
+          "title": "Docker Compose",
+          "url": "https://docs.docker.com/compose"
+        }
+      ],
+      "technology_id": "docker.compose"
+    },
+    {
+      "label": "GitHub Actions",
+      "proposal_id": "prop_04a938d8a564acf8d80b",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "GitHub",
+          "title": "Continuous integration - GitHub Docs",
+          "url": "https://docs.github.com/en/actions/get-started/continuous-integration"
+        }
+      ],
+      "technology_id": "github.actions"
+    },
+    {
+      "label": "GitLab CI/CD",
+      "proposal_id": "prop_019d19ba2314918c35c9",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "GitLab",
+          "title": "Get started with GitLab CI/CD",
+          "url": "https://docs.gitlab.com/ci/"
+        }
+      ],
+      "technology_id": "gitlab.ci_cd"
+    },
+    {
+      "label": "Grafana",
+      "proposal_id": "prop_b308e425d95dc42e2c30",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.97,
+      "sources": [
+        {
+          "publisher": "Grafana Labs",
+          "title": "About Grafana",
+          "url": "https://grafana.com/docs/grafana/latest/introduction/"
+        }
+      ],
+      "technology_id": "grafana"
+    },
+    {
+      "label": "Jenkins",
+      "proposal_id": "prop_5f1ff618e680f1adc966",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "Jenkins",
+          "title": "Jenkins User Documentation",
+          "url": "https://www.jenkins.io/doc/"
+        }
+      ],
+      "technology_id": "jenkins"
+    },
+    {
+      "label": "NATS",
+      "proposal_id": "prop_5181b2a6bec3c8e49bda",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.98,
+      "sources": [
+        {
+          "publisher": "NATS",
+          "title": "NATS Documentation",
+          "url": "https://docs.nats.io/"
+        }
+      ],
+      "technology_id": "nats"
+    },
+    {
+      "label": "OpenTelemetry",
+      "proposal_id": "prop_26b7038c8db53d2f31b0",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "OpenTelemetry",
+          "title": "OpenTelemetry Documentation",
+          "url": "https://opentelemetry.io/docs/"
+        }
+      ],
+      "technology_id": "opentelemetry"
+    },
+    {
+      "label": "Prometheus",
+      "proposal_id": "prop_d306645098f70ef0a24f",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "Prometheus",
+          "title": "Prometheus Overview",
+          "url": "https://prometheus.io/docs/introduction/overview/"
+        }
+      ],
+      "technology_id": "prometheus"
+    },
+    {
+      "label": "RabbitMQ",
+      "proposal_id": "prop_6ddbce0cab7a29d4e30e",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "RabbitMQ",
+          "title": "RabbitMQ",
+          "url": "https://www.rabbitmq.com/"
+        }
+      ],
+      "technology_id": "rabbitmq"
+    },
+    {
+      "label": "Svelte",
+      "proposal_id": "prop_4d8a74029cfe7475c922",
+      "proposed_capability_id": "frontend.ui_development",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "Svelte",
+          "title": "Svelte",
+          "url": "https://svelte.dev/"
+        }
+      ],
+      "technology_id": "svelte"
+    },
+    {
+      "label": "Vue.js",
+      "proposal_id": "prop_35e71ca183cd98faae69",
+      "proposed_capability_id": "frontend.ui_development",
+      "relationship_type": "maps_to_capability",
+      "research_confidence": 0.99,
+      "sources": [
+        {
+          "publisher": "Vue.js",
+          "title": "Vue.js Introduction",
+          "url": "https://vuejs.org/guide/introduction"
+        }
+      ],
+      "technology_id": "vue.js"
+    }
+  ],
+  "promoted_entry_count": 13,
+  "promoted_registry_version": "technology-registry-v1.1",
+  "promotion_manifest_version": "technology-registry-promotion-manifest-v1",
+  "proposal_bundle_version": "technology-registry-research-proposals-v1",
+  "recognized_unmapped_preserved": [
+    "keycloak",
+    "microservices",
+    "mongodb",
+    "node.js"
+  ],
+  "skipped": [],
+  "source_preview_version": "technology-registry-vnext-preview-v1",
+  "source_registry_version": "technology-registry-v1.0-bootstrap",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.4"
+}

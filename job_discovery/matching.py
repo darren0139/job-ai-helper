@@ -11,9 +11,29 @@ from database.job_match_manager import (
     get_latest_job_match_snapshot,
     save_job_match_snapshot,
 )
+from taxonomy_discovery.observations import (
+    build_taxonomy_resolution_diagnostics,
+)
+from taxonomy_discovery.technology_registry import get_default_registry
 
 
-MATCH_VERSION = "job-match-snapshot-v2.0.4"
+MATCH_VERSION = "job-match-snapshot-v2.2.0"
+_JD_PROFILE_REUSE_COMPATIBLE_MATCH_CONTRACTS = {
+    "job-match-snapshot-v2.1.0",
+    "job-match-snapshot-v2.2.0",
+}
+
+
+def _match_contract_version(value: Any) -> str:
+    return str(value or "").split("|registry=", 1)[0].strip()
+
+
+def _match_identity_version(base_match_version: Any, registry_version: Any) -> str:
+    base = str(base_match_version or MATCH_VERSION).strip()
+    registry = str(registry_version or "").strip()
+    if "|registry=" in base or not registry:
+        return base
+    return f"{base}|registry={registry}"
 IMPORTANT_IMPORTANCE = {"deal_breaker", "required", "core"}
 
 
@@ -161,10 +181,13 @@ def current_match_versions() -> dict[str, str]:
     from analysis_stability.stable_evidence_scoring import SCORING_VERSION
     from tailoring.capability_taxonomy import get_default_taxonomy
 
+    registry_version = str(get_default_registry().version)
     return {
-        "match_version": MATCH_VERSION,
+        "match_version": _match_identity_version(MATCH_VERSION, registry_version),
+        "match_contract_version": MATCH_VERSION,
         "scoring_version": str(SCORING_VERSION),
         "taxonomy_version": str(get_default_taxonomy().version),
+        "technology_registry_version": registry_version,
     }
 
 
@@ -247,7 +270,12 @@ def summarize_stable_match(
         for label in ("direct", "transferable", "weak", "none")
     }
 
+    taxonomy_resolution = build_taxonomy_resolution_diagnostics(
+        stable_analysis
+    )
+
     return {
+        "taxonomy_resolution": taxonomy_resolution,
         "deterministic_alignment_score": int(
             stable_analysis.get("deterministic_alignment_score", 0) or 0
         ),
@@ -284,7 +312,10 @@ def _identity(
         "discovered_job_id": int(job.get("id", 0) or 0),
         "job_content_hash": _clean(job.get("content_hash")),
         "evidence_fingerprint": str(context.get("evidence_fingerprint") or ""),
-        "match_version": str(versions.get("match_version") or MATCH_VERSION),
+        "match_version": _match_identity_version(
+            versions.get("match_version") or MATCH_VERSION,
+            versions.get("technology_registry_version") or "",
+        ),
         "scoring_version": str(versions.get("scoring_version") or ""),
         "taxonomy_version": str(versions.get("taxonomy_version") or ""),
     }
@@ -329,6 +360,15 @@ def inspect_job_match(
     for field, reason in comparisons:
         if str(latest.get(field) or "") != str(identity.get(field) or ""):
             stale_reasons.append(reason)
+
+    current_registry_version = str(
+        versions.get("technology_registry_version") or ""
+    ).strip()
+    latest_registry_version = str(
+        (latest.get("stable_analysis") or {}).get("technology_registry_version") or ""
+    ).strip()
+    if current_registry_version and current_registry_version != latest_registry_version:
+        stale_reasons.append("technology registry changed")
 
     return {
         "status": "stale",
@@ -380,7 +420,23 @@ def analyze_job_match(
     extractor = jd_profile_extractor or _default_extract_jd_profile
     builder = stable_builder or _default_stable_builder
 
-    jd_profile = extractor(raw_jd_text)
+    latest = get_latest_job_match_snapshot(identity["discovered_job_id"])
+    reusable_jd_profile: dict[str, Any] | None = None
+    if (
+        isinstance(latest, dict)
+        and _clean(latest.get("job_content_hash")) == identity["job_content_hash"]
+        and _match_contract_version(latest.get("match_version"))
+        in _JD_PROFILE_REUSE_COMPATIBLE_MATCH_CONTRACTS
+        and isinstance(latest.get("jd_profile"), dict)
+        and latest.get("jd_profile")
+    ):
+        reusable_jd_profile = dict(latest["jd_profile"])
+
+    if reusable_jd_profile is not None:
+        jd_profile = reusable_jd_profile
+    else:
+        jd_profile = extractor(raw_jd_text)
+
     if not isinstance(jd_profile, dict) or not jd_profile:
         raise RuntimeError("JD extraction returned an empty profile.")
 

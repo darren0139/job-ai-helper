@@ -1,0 +1,397 @@
+{
+  "proposal_bundle_version": "technology-registry-research-proposals-v1",
+  "proposals": [
+    {
+      "aliases": [
+        "Keycloak"
+      ],
+      "confidence": 0.94,
+      "entry_kind": "product",
+      "label": "Keycloak",
+      "proposal_classification": "new_capability_candidate",
+      "proposal_id": "prop_a18b9fa3229c3ed2d9da",
+      "proposed_capability_id": null,
+      "relationship_type": null,
+      "sources": [
+        {
+          "publisher": "Keycloak",
+          "title": "Keycloak Documentation",
+          "url": "https://www.keycloak.org/documentation"
+        }
+      ],
+      "summary": "Keycloak is an identity and access management technology used to secure applications and services, including authorization services. The current taxonomy has no narrow identity/access-management capability, so forcing Keycloak into an existing security capability would overstate the current taxonomy.",
+      "technology_id": "keycloak"
+    },
+    {
+      "aliases": [
+        "Microservices",
+        "Microservice architecture"
+      ],
+      "confidence": 0.93,
+      "entry_kind": "architecture_pattern",
+      "label": "Microservices",
+      "proposal_classification": "new_capability_candidate",
+      "proposal_id": "prop_86d473f5d1c24f6c7e2e",
+      "proposed_capability_id": null,
+      "relationship_type": null,
+      "sources": [
+        {
+          "publisher": "Microsoft Learn",
+          "title": "Design a Microservices Architecture",
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/microservices/design/"
+        }
+      ],
+      "summary": "Microservices is an architectural style based on independently deployable services. The current taxonomy contains backend API development and distributed messaging capabilities, but no explicit microservices-architecture capability. Mapping bare 'Microservices' to backend.api_development would be too broad.",
+      "technology_id": "microservices"
+    },
+    {
+      "aliases": [
+        "MongoDB"
+      ],
+      "confidence": 0.98,
+      "entry_kind": "product",
+      "label": "MongoDB",
+      "proposal_classification": "recognized_unmapped",
+      "proposal_id": "prop_d77da7dce5ec259c30e6",
+      "proposed_capability_id": null,
+      "relationship_type": null,
+      "sources": [
+        {
+          "publisher": "MongoDB",
+          "title": "Welcome to the MongoDB Docs",
+          "url": "https://www.mongodb.com/docs/"
+        }
+      ],
+      "summary": "MongoDB is a document-oriented operational database. A bare requirement for MongoDB experience does not necessarily establish database-design capability, so the existing database.design capability is not a safe deterministic mapping.",
+      "technology_id": "mongodb"
+    },
+    {
+      "aliases": [
+        "Node.js",
+        "NodeJS",
+        "Node JS"
+      ],
+      "confidence": 0.98,
+      "entry_kind": "runtime",
+      "label": "Node.js",
+      "proposal_classification": "recognized_unmapped",
+      "proposal_id": "prop_565e150b1fd2d3907a22",
+      "proposed_capability_id": null,
+      "relationship_type": null,
+      "sources": [
+        {
+          "publisher": "Node.js",
+          "title": "Node.js API Documentation",
+          "url": "https://nodejs.org/api/documentation.html"
+        }
+      ],
+      "summary": "Node.js is a JavaScript runtime. Experience with Node.js alone does not safely imply backend API development because the runtime is also used for CLI tools, build tooling, scripts, desktop tooling, and other workloads.",
+      "technology_id": "node.js"
+    },
+    {
+      "aliases": [
+        "SQL / NoSQL",
+        "SQL and NoSQL",
+        "SQL/NoSQL"
+      ],
+      "confidence": 0.96,
+      "entry_kind": "architecture_pattern",
+      "label": "SQL / NoSQL database knowledge",
+      "proposal_classification": "reject",
+      "proposal_id": "prop_0dea33d7a96ef6beb8e0",
+      "proposed_capability_id": null,
+      "relationship_type": null,
+      "sources": [],
+      "summary": "This observed requirement is not a single technology-registry entry. It is a compound capability/knowledge requirement spanning relational and non-relational database concepts. Route it to capability-taxonomy/decomposition review rather than creating a fake technology alias.",
+      "technology_id": "sql-nosql-database-knowledge"
+    },
+    {
+      "aliases": [
+        "RabbitMQ"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "product",
+      "label": "RabbitMQ",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_6ddbce0cab7a29d4e30e",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "RabbitMQ",
+          "title": "RabbitMQ",
+          "url": "https://www.rabbitmq.com/"
+        }
+      ],
+      "summary": "RabbitMQ describes itself as a messaging and streaming broker. A requirement for RabbitMQ experience is therefore a strong deterministic signal for the existing real-time messaging and streaming capability.",
+      "technology_id": "rabbitmq"
+    },
+    {
+      "aliases": [
+        "NATS",
+        "NATS.io"
+      ],
+      "confidence": 0.98,
+      "entry_kind": "platform",
+      "label": "NATS",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_5181b2a6bec3c8e49bda",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "NATS",
+          "title": "NATS Documentation",
+          "url": "https://docs.nats.io/"
+        }
+      ],
+      "summary": "NATS documentation describes NATS as a high-performance messaging system, including Core NATS and JetStream messaging patterns. This is a safe fit for the existing real-time messaging and streaming capability.",
+      "technology_id": "nats"
+    },
+    {
+      "aliases": [
+        "Apache Pulsar",
+        "Pulsar"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "platform",
+      "label": "Apache Pulsar",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_595c511d7639369779b4",
+      "proposed_capability_id": "realtime.messaging_streaming",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Apache Pulsar",
+          "title": "Apache Pulsar",
+          "url": "https://pulsar.apache.org/"
+        }
+      ],
+      "summary": "Apache Pulsar is explicitly documented as a distributed messaging and streaming platform, making it a direct fit for realtime.messaging_streaming.",
+      "technology_id": "apache.pulsar"
+    },
+    {
+      "aliases": [
+        "Vue",
+        "Vue.js",
+        "VueJS"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "framework",
+      "label": "Vue.js",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_35e71ca183cd98faae69",
+      "proposed_capability_id": "frontend.ui_development",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Vue.js",
+          "title": "Vue.js Introduction",
+          "url": "https://vuejs.org/guide/introduction"
+        }
+      ],
+      "summary": "Vue is documented as a JavaScript framework for building user interfaces. Experience with Vue is therefore a strong deterministic signal for the existing frontend and UI development capability.",
+      "technology_id": "vue.js"
+    },
+    {
+      "aliases": [
+        "Svelte"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "framework",
+      "label": "Svelte",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_4d8a74029cfe7475c922",
+      "proposed_capability_id": "frontend.ui_development",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Svelte",
+          "title": "Svelte",
+          "url": "https://svelte.dev/"
+        }
+      ],
+      "summary": "Svelte is documented as a framework for building user interfaces on the web, making it a direct fit for frontend.ui_development.",
+      "technology_id": "svelte"
+    },
+    {
+      "aliases": [
+        "Prometheus"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "tool",
+      "label": "Prometheus",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_d306645098f70ef0a24f",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Prometheus",
+          "title": "Prometheus Overview",
+          "url": "https://prometheus.io/docs/introduction/overview/"
+        }
+      ],
+      "summary": "Prometheus is an open-source systems monitoring and alerting toolkit. A requirement for Prometheus is a strong deterministic signal for monitoring and observability.",
+      "technology_id": "prometheus"
+    },
+    {
+      "aliases": [
+        "OpenTelemetry",
+        "Open Telemetry",
+        "OTel"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "tool",
+      "label": "OpenTelemetry",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_26b7038c8db53d2f31b0",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "OpenTelemetry",
+          "title": "OpenTelemetry Documentation",
+          "url": "https://opentelemetry.io/docs/"
+        }
+      ],
+      "summary": "OpenTelemetry is a vendor-neutral observability framework for generating, collecting, and exporting traces, metrics, and logs. It directly supports the existing monitoring and observability capability.",
+      "technology_id": "opentelemetry"
+    },
+    {
+      "aliases": [
+        "Grafana"
+      ],
+      "confidence": 0.97,
+      "entry_kind": "tool",
+      "label": "Grafana",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_b308e425d95dc42e2c30",
+      "proposed_capability_id": "devops.observability",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Grafana Labs",
+          "title": "About Grafana",
+          "url": "https://grafana.com/docs/grafana/latest/introduction/"
+        }
+      ],
+      "summary": "Grafana is used to query, visualize, alert on, and explore metrics, logs, and traces, and its documentation explicitly frames it as an observability and monitoring tool. This is a safe mapping to devops.observability.",
+      "technology_id": "grafana"
+    },
+    {
+      "aliases": [
+        "Jenkins"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "tool",
+      "label": "Jenkins",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_5f1ff618e680f1adc966",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Jenkins",
+          "title": "Jenkins User Documentation",
+          "url": "https://www.jenkins.io/doc/"
+        }
+      ],
+      "summary": "Jenkins is an automation server used to automate building, testing, delivery, and deployment, with official tutorials centered on CI/CD pipelines. This is a direct fit for CI/CD automation.",
+      "technology_id": "jenkins"
+    },
+    {
+      "aliases": [
+        "GitHub Actions",
+        "Github Actions"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "tool",
+      "label": "GitHub Actions",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_04a938d8a564acf8d80b",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "GitHub",
+          "title": "Continuous integration - GitHub Docs",
+          "url": "https://docs.github.com/en/actions/get-started/continuous-integration"
+        }
+      ],
+      "summary": "GitHub Actions provides continuous integration and continuous deployment workflows directly in repositories, making it a direct fit for CI/CD automation.",
+      "technology_id": "github.actions"
+    },
+    {
+      "aliases": [
+        "GitLab CI/CD",
+        "GitLab CI",
+        "Gitlab CI/CD",
+        "Gitlab CI"
+      ],
+      "confidence": 0.99,
+      "entry_kind": "tool",
+      "label": "GitLab CI/CD",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_019d19ba2314918c35c9",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "GitLab",
+          "title": "Get started with GitLab CI/CD",
+          "url": "https://docs.gitlab.com/ci/"
+        }
+      ],
+      "summary": "GitLab CI/CD is explicitly documented for continuously building, testing, deploying, and monitoring code changes. It directly maps to CI/CD automation.",
+      "technology_id": "gitlab.ci_cd"
+    },
+    {
+      "aliases": [
+        "CircleCI",
+        "Circle CI"
+      ],
+      "confidence": 0.98,
+      "entry_kind": "tool",
+      "label": "CircleCI",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_ffbbfa49606896cc76bd",
+      "proposed_capability_id": "devops.ci_cd",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "CircleCI",
+          "title": "CircleCI overview",
+          "url": "https://circleci.com/docs/guides/about-circleci/about-circleci/"
+        }
+      ],
+      "summary": "CircleCI orchestrates pipelines that build, test, and deploy code and explicitly documents its platform as CI/CD automation. It is a safe mapping to devops.ci_cd.",
+      "technology_id": "circleci"
+    },
+    {
+      "aliases": [
+        "Docker Compose",
+        "docker compose"
+      ],
+      "confidence": 0.97,
+      "entry_kind": "tool",
+      "label": "Docker Compose",
+      "proposal_classification": "safe_mapping_candidate",
+      "proposal_id": "prop_c4b9391e9c8a55b928e1",
+      "proposed_capability_id": "devops.containerisation",
+      "relationship_type": "maps_to_capability",
+      "sources": [
+        {
+          "publisher": "Docker",
+          "title": "Docker Compose",
+          "url": "https://docs.docker.com/compose"
+        }
+      ],
+      "summary": "Docker Compose defines and runs multi-container applications. A requirement for Docker Compose is therefore a strong deterministic signal for containerisation.",
+      "technology_id": "docker.compose"
+    }
+  ],
+  "registry_version": "technology-registry-v1.0-bootstrap",
+  "research_method": "ChatGPT web research using primary project/vendor documentation; first conservative D2.7 tranche generated 2026-09-28.",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.4"
+}

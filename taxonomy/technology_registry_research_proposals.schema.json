@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "proposal_bundle_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "proposals": {
+      "items": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "entry_kind": {
+            "enum": [
+              "framework",
+              "runtime",
+              "platform",
+              "product",
+              "protocol",
+              "tool",
+              "language",
+              "architecture_pattern"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "proposal_classification": {
+            "enum": [
+              "safe_mapping_candidate",
+              "recognized_unmapped",
+              "new_capability_candidate",
+              "reject"
+            ],
+            "type": "string"
+          },
+          "proposal_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "proposed_capability_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relationship_type": {
+            "enum": [
+              "maps_to_capability",
+              "commonly_used_for",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "publisher": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "url"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "technology_id": {
+            "pattern": "^[a-z0-9_.-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "technology_id",
+          "label",
+          "entry_kind",
+          "aliases",
+          "proposal_classification",
+          "confidence",
+          "summary",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "registry_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "research_method": {
+      "type": "string"
+    },
+    "taxonomy_version": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_bundle_version",
+    "taxonomy_version",
+    "registry_version",
+    "proposals"
+  ],
+  "title": "Technology Registry Research Proposal Bundle",
+  "type": "object"
+}

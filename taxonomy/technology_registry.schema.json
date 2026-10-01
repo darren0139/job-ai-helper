@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "capability_relationships": {
+            "items": {
+              "properties": {
+                "capability_id": {
+                  "type": "string"
+                },
+                "relationship_type": {
+                  "enum": [
+                    "maps_to_capability",
+                    "commonly_used_technology",
+                    "related_to"
+                  ],
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "approved",
+                    "advisory"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "relationship_type",
+                "capability_id",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "entry_kind": {
+            "enum": [
+              "framework",
+              "runtime",
+              "platform",
+              "product",
+              "protocol",
+              "tool",
+              "language",
+              "architecture_pattern"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "deferred"
+            ],
+            "type": "string"
+          },
+          "technology_id": {
+            "pattern": "^[a-z0-9_.-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "technology_id",
+          "label",
+          "entry_kind",
+          "aliases",
+          "status",
+          "capability_relationships"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "registry_version": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "registry_version",
+    "entries"
+  ],
+  "title": "Job AI Helper Technology Registry",
+  "type": "object"
+}

@@ -29,7 +29,11 @@ from analysis_stability.jd_section_inference import (
     JD_STRUCTURE_INFERENCE_VERSION,
     infer_semantic_list_heading,
 )
-from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
+from tailoring.capability_taxonomy import (
+    evaluate_capability_evidence,
+    evaluate_evidence,
+    get_default_taxonomy,
+)
 from tailoring.phase6d_stable_scoring_adapter import (
     apply_taxonomy_caps_to_requirements,
 )
@@ -37,7 +41,11 @@ from tailoring.phase6d6_structured_matching import (
     apply_structured_requirement_matches,
 )
 
-SCORING_VERSION = "stable-evidence-v1.7-phase6d12"
+from taxonomy_discovery.technology_registry import get_default_registry
+
+SCORING_VERSION = "stable-evidence-v1.10-phase6d20"
+CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
+TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
 NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v2"
 JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.1"
@@ -63,6 +71,7 @@ IMPORTANCE_WEIGHTS = {
     "deal_breaker": 5.0,
     "required": 4.0,
     "core": 3.0,
+    "supporting": 2.0,
     "preferred": 1.0,
 }
 
@@ -92,6 +101,7 @@ _REQUIRED_HINTS = (
 
 _PREFERRED_HINTS = (
     "preferred",
+    "preferably",
     "nice to have",
     "nice-to-have",
     "plus",
@@ -100,6 +110,44 @@ _PREFERRED_HINTS = (
     "desired",
     "highly desired",
 )
+
+# Conservative patterns for generic soft-skill / behavioural statements.
+# These are deliberately anchored. Functional requirements with a concrete
+# task/object (for example, "Ability to troubleshoot complex issues") are not
+# downgraded by this policy.
+_SUPPORTING_PATTERNS = (
+    r"^(?:strong|excellent|good|effective)\s+"
+    r"(?:analytical\s+and\s+)?problem[- ]solving(?:\s+skills?)?$",
+    r"^(?:strong|excellent|good|effective)\s+"
+    r"(?:written\s+and\s+verbal\s+)?communication"
+    r"(?:\s+and\s+collaboration)?\s+skills?$",
+    r"^(?:strong|excellent|good|effective)\s+"
+    r"(?:collaboration|interpersonal|teamwork)\s+skills?$",
+    r"^(?:ability\s+to\s+|comfortable\s+)"
+    r"(?:work|working|thrive|thriving)\s+in\s+(?:a\s+)?"
+    r"fast[- ]paced(?:\s+and)?(?:\s+dynamic)?\s+environment$",
+    r"^(?:ability\s+to\s+)?work\s+independently\s+and\s+"
+    r"(?:as\s+)?(?:part\s+of\s+)?a\s+team$",
+    r"^(?:a\s+)?continuous\s+learning\s+mindset\b.*$",
+    r"^(?:familiarity\s+with|exposure\s+to|awareness\s+of)\b.*$",
+    r"^basic\s+(?:knowledge|understanding)\s+of\b.*$",
+    # Generic project/team context: supporting, not a central technical gap.
+    r"^(?:be\s+)?part\s+of\s+(?:a\s+)?project\s+team\s+to\s+deliver\s+project\s+objectives\b.*$",
+    r"^work\s+closely\s+with\b.*\bas\s+part\s+of\s+(?:the\s+)?project\s+delivery\b.*$",
+    # Engineering citizenship / learning expectations.
+    r"^(?:contribute|participate|help)\s+(?:to|with)\s+continuous\s+improvement\s+of\b.*(?:best\s+practices|processes|ways\s+of\s+working)\b.*$",
+    r"^(?:keep|keeping|stay|staying)\s+up[- ]to[- ]date\s+with\b.*(?:industry\s+trends|technology|technological)\b.*$",
+    r"^ability\s+to\s+learn\s+new\s+(?:software|technologies?|tools?)(?:\s+and\s+(?:software|technologies?|tools?))?\s+(?:quickly|rapidly|fast)\b.*$",
+    r"^(?:a\s+)?(?:good|strong)\s+team\s+player\b.*$",
+)
+
+
+def _looks_supporting_requirement(normalised: str) -> bool:
+    return any(
+        re.search(pattern, normalised)
+        for pattern in _SUPPORTING_PATTERNS
+    )
+
 
 _MATCH_TYPE_MAP = {
     "exact": "direct",
@@ -413,9 +461,10 @@ def _token_similarity(
 def _importance_rank(value: str) -> int:
     order = {
         "preferred": 1,
-        "core": 2,
-        "required": 3,
-        "deal_breaker": 4,
+        "supporting": 2,
+        "core": 3,
+        "required": 4,
+        "deal_breaker": 5,
     }
     return order.get(value, 0)
 
@@ -456,17 +505,59 @@ def _importance_sensitive_fuzzy_merge_is_unsafe(
     )
 
 
-def _classify_raw_importance(text: str, default: str = "core") -> str:
+def _classify_raw_importance(
+    text: str,
+    default: str = "core",
+    *,
+    preserve_required_default: bool = False,
+) -> str:
     normalised = _normalise_basic(text)
 
+    # Explicit employer preference remains preferred.
     if any(hint in normalised for hint in _PREFERRED_HINTS):
         return "preferred"
 
+    # Explicit hard-requirement language wins over the supporting classifier.
     if any(hint in normalised for hint in _REQUIRED_HINTS):
         return "required"
 
+    # An explicit Preferred section is itself an optionality signal.
+    # Generic wording such as "familiarity with" must not upgrade that row
+    # into supporting. Explicit hard wording above can still override a
+    # contradictory preferred-section placement.
+    if default == "preferred":
+        return "preferred"
+
+    # A clearly hard section heading (for example "Required Qualifications")
+    # is itself an explicit employer signal. Preserve it unless the row is
+    # explicitly preferred.
+    if preserve_required_default and default == "required":
+        return "required"
+
+    # Generic behavioural statements and low-threshold exposure wording are
+    # expected/supportive context, not hard qualification gaps.
+    if _looks_supporting_requirement(normalised):
+        return "supporting"
+
     return default
 
+
+
+_HARD_REQUIRED_SECTION_HEADINGS = frozenset(
+    {
+        "minimum requirements",
+        "required qualifications",
+        "required skills",
+        "minimum qualifications",
+    }
+)
+
+
+def _requirements_section_default_importance(section_heading: str) -> str:
+    heading = _normalise_jd_section_heading(section_heading)
+    if heading in _HARD_REQUIRED_SECTION_HEADINGS:
+        return "required"
+    return "core"
 
 
 _RAW_SECTION_HEADINGS = {
@@ -1303,20 +1394,51 @@ def _split_single_requirement_clause(
             ("within ", "in ", "at ", "from ", "for ", "with ")
         )
 
-        if before and after and not context_only and len(_tokenise(after)) >= 3:
-            records = _split_non_preference_clause(
-                before,
-                default_importance,
+        # A preference cue at the beginning applies to the whole requirement.
+        # Keep the original wording for identity/display, but mark it preferred.
+        if not before and after:
+            return _split_non_preference_clause(
+                value,
+                "preferred",
                 parent_text,
             )
-            records.extend(
-                _split_non_preference_clause(
-                    after,
-                    "preferred",
+
+        if before:
+            # Classify the mandatory/base portion independently from its
+            # preferred tail. Otherwise a generic Requirements section can
+            # downgrade "Must have X, preferably Y" to core simply because the
+            # preference transition asks the caller to pass the section
+            # default into this splitter.
+            before_importance = _classify_raw_importance(
+                before,
+                default_importance,
+                preserve_required_default=(default_importance == "required"),
+            )
+
+            if after and not context_only and len(_tokenise(after)) >= 3:
+                records = _split_non_preference_clause(
+                    before,
+                    before_importance,
                     parent_text,
                 )
+                records.extend(
+                    _split_non_preference_clause(
+                        after,
+                        "preferred",
+                        parent_text,
+                    )
+                )
+                return records
+
+            # Context-only or very short preference tails deliberately remain
+            # attached to the parent requirement, but the parent's importance
+            # must come from the base clause rather than the generic section
+            # default.
+            return _split_non_preference_clause(
+                value,
+                before_importance,
+                parent_text,
             )
-            return records
 
     return _split_non_preference_clause(
         value,
@@ -1684,10 +1806,15 @@ def _raw_jd_requirement_rows(
         if active_section and _tokenise(value):
             default_importance = {
                 "responsibilities": "core",
-                "requirements": "required",
                 "core": "core",
                 "preferred": "preferred",
-            }[active_section]
+            }.get(active_section)
+            hard_required_section = False
+            if active_section == "requirements":
+                default_importance = _requirements_section_default_importance(
+                    span.get("section_heading", "")
+                )
+                hard_required_section = default_importance == "required"
             # A raw span can contain several independently punctuated sentences.
             # Importance cues such as "plus" or "must" are local to the sentence
             # that contains them; do not let one sentence reclassify its neighbours.
@@ -1698,6 +1825,7 @@ def _raw_jd_requirement_rows(
                 sentence_importance = _classify_raw_importance(
                     sentence,
                     default_importance,
+                    preserve_required_default=hard_required_section,
                 )
                 has_explicit_preference_transition = bool(
                     re.search(
@@ -1873,7 +2001,7 @@ def _is_explicit_unheaded_qualification(sentence: str) -> bool:
 
 
 def _unheaded_role_importance(sentence: str) -> str:
-    """Keep role-obligation prose core unless it explicitly elevates priority."""
+    """Classify explicit unheaded obligations without over-promoting context."""
     if _is_explicit_unheaded_qualification(sentence):
         return _classify_raw_importance(sentence, "core")
     if re.search(
@@ -1882,6 +2010,14 @@ def _unheaded_role_importance(sentence: str) -> str:
         flags=re.IGNORECASE,
     ):
         return "required"
+
+    # The wrapper ("You will ...") establishes a real role obligation, but some
+    # obligations are generic team/delivery context rather than central
+    # technical qualifications.
+    content = _unheaded_obligation_content(sentence)
+    if content and _looks_supporting_requirement(_normalise_basic(content)):
+        return "supporting"
+
     return "core"
 
 
@@ -2153,7 +2289,7 @@ def _requirement_sources(
         ("deal_breakers", "deal_breaker"),
         ("required_skills", "required"),
         ("responsibilities", "core"),
-        ("soft_skills", "core"),
+        ("soft_skills", "supporting"),
         ("preferred_skills", "preferred"),
         ("tools_technologies", "core"),
     )
@@ -2969,6 +3105,145 @@ def _apply_capability_single_row_reselection(
     return output, audit_rows
 
 
+
+def _apply_capability_none_recovery(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_index: list[dict[str, str]],
+    acronym_map: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Recover one real evidence row when lexical matching produced ``none``.
+
+    Only canonical-taxonomy resolutions are eligible. Registry-resolved rows
+    remain semantic-only because safe cross-technology evidence transfer is a
+    separate policy problem.
+    """
+    taxonomy = get_default_taxonomy()
+    capability_by_id = {
+        str(item.get("capability_id") or ""): item
+        for item in taxonomy.capabilities
+        if isinstance(item, dict) and item.get("capability_id")
+    }
+    output = deepcopy(rows)
+    audit_rows: list[dict[str, Any]] = []
+    evidence_strength_by_label = {
+        "weak": 2,
+        "transferable": 3,
+        "direct": 5,
+    }
+
+    for row in output:
+        if _clean_text(row.get("match_label")).lower() != "none":
+            continue
+
+        capability_id = _clean_text(row.get("capability_id"))
+        resolution_source = _clean_text(row.get("capability_resolution_source"))
+        if not capability_id or resolution_source != "canonical_taxonomy":
+            continue
+
+        capability_record = capability_by_id.get(capability_id) or {}
+
+        # Explicit-only requirements (for example subjective motivation) have
+        # requirement-specific grounding rules in the normal stable matcher.
+        # Generic capability evaluation is intentionally not allowed to rescue
+        # a preliminary none because doing so can cross domains.
+        if bool(capability_record.get("explicit_only")):
+            continue
+
+        best_row: dict[str, str] | None = None
+        best_decision: dict[str, Any] | None = None
+        best_rank = 0
+        best_coverage = 0.0
+        best_overlap = 0
+        focus = _clean_text(row.get("atomic_focus") or row.get("text"))
+
+        for evidence_row in evidence_index:
+            if not _evidence_source_is_requirement_compatible(row, evidence_row):
+                continue
+            evidence_text = str(evidence_row.get("text") or "")
+            if not _clean_text(evidence_text):
+                continue
+
+            decision = evaluate_capability_evidence(
+                capability_id,
+                row,
+                evidence_text,
+                taxonomy,
+            )
+            if _clean_text(decision.get("capability_id")) != capability_id:
+                continue
+
+            label = _clean_text(decision.get("label")).lower()
+            rank = _LABEL_ORDER_FOR_RESELECTION.get(label, 0)
+            if rank <= 0:
+                continue
+
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                focus,
+                evidence_text,
+                acronym_map,
+            )
+            candidate_key = (rank, coverage, overlap)
+            best_key = (best_rank, best_coverage, best_overlap)
+            if candidate_key <= best_key:
+                continue
+
+            best_row = evidence_row
+            best_decision = decision
+            best_rank = rank
+            best_coverage = coverage
+            best_overlap = overlap
+
+        if best_row is None or best_decision is None:
+            continue
+
+        recovered_label = _clean_text(best_decision.get("label")).lower()
+
+        # Weak is the least specific positive capability label. When the
+        # preliminary lexical result was none, require at least one grounded
+        # requirement/evidence token before allowing a weak recovery.
+        if recovered_label == "weak" and best_overlap <= 0:
+            continue
+
+        selected_evidence = {
+            **deepcopy(best_row),
+            "reason": (
+                "One existing resume row independently satisfies the already "
+                "resolved canonical capability. No evidence rows were combined."
+            ),
+            "capability_evidence_reason": _clean_text(best_decision.get("reason")),
+            "evidence_similarity": f"{best_coverage:.3f}",
+        }
+
+        row["match_label"] = recovered_label
+        row["match_value"] = MATCH_VALUES[recovered_label]
+        row["evidence_strength"] = evidence_strength_by_label[recovered_label]
+        row["evidence"] = [selected_evidence]
+        row["match_source"] = "capability_none_recovery"
+        row["match_coverage"] = round(best_coverage, 3)
+        row["match_overlap_count"] = best_overlap
+        row["capability_none_recovery"] = {
+            "policy_version": CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
+            "status": "recovered_from_none",
+            "capability_id": capability_id,
+            "resolution_source": resolution_source,
+            "recovered_label": recovered_label,
+            "selected_evidence_id": _clean_text(best_row.get("evidence_id")),
+            "selected_evidence_source": _clean_text(best_row.get("source")),
+            "selected_requirement_coverage": round(best_coverage, 6),
+            "selected_requirement_overlap_count": best_overlap,
+            "taxonomy_reason": _clean_text(best_decision.get("reason")),
+            "combined_evidence_rows": False,
+        }
+        audit_rows.append(
+            {
+                "requirement_id": _clean_text(row.get("requirement_id")),
+                **deepcopy(row["capability_none_recovery"]),
+            }
+        )
+
+    return output, audit_rows
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -3690,6 +3965,11 @@ def compute_deterministic_alignment(
             for row in scoring_rows
             if row.get("importance") in {"deal_breaker", "required", "core"}
         ),
+        "supporting_requirement_count": sum(
+            1
+            for row in scoring_rows
+            if row.get("importance") == "supporting"
+        ),
         "preferred_requirement_count": sum(
             1
             for row in scoring_rows
@@ -3754,9 +4034,17 @@ def build_stable_analysis(
     )
 
     taxonomy_version = get_default_taxonomy().version
+    registry_version = get_default_registry().version
     taxonomy_validated = apply_taxonomy_caps_to_requirements(
         reselected,
         retrieval_mode_override=retrieval_mode_override,
+    )
+    taxonomy_validated, capability_none_recovery_audit = (
+        _apply_capability_none_recovery(
+            taxonomy_validated,
+            evidence_index=evidence_index,
+            acronym_map=canonical["acronym_map"],
+        )
     )
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:
@@ -3779,6 +4067,9 @@ def build_stable_analysis(
             _normalise_basic(raw_resume_text),
             _normalise_basic(raw_jd_text),
             taxonomy_version,
+            registry_version,
+            TECHNOLOGY_REGISTRY_RESOLUTION_VERSION,
+            CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             SCORING_VERSION,
         )
     )
@@ -3786,6 +4077,13 @@ def build_stable_analysis(
     return {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": taxonomy_version,
+        "technology_registry_version": registry_version,
+        "technology_registry_resolution_version": (
+            TECHNOLOGY_REGISTRY_RESOLUTION_VERSION
+        ),
+        "capability_none_recovery_policy_version": (
+            CAPABILITY_NONE_RECOVERY_POLICY_VERSION
+        ),
         "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")
@@ -3795,6 +4093,11 @@ def build_stable_analysis(
             "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
             "selection_count": len(evidence_reselection_audit),
             "audit": evidence_reselection_audit,
+        },
+        "capability_none_recovery": {
+            "policy_version": CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
+            "selection_count": len(capability_none_recovery_audit),
+            "audit": capability_none_recovery_audit,
         },
         "canonicalisation_debug": {
             "acronym_map": canonical["acronym_map"],

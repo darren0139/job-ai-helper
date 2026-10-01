@@ -358,6 +358,7 @@ from tailoring.canonical_bullet_suggester import (
 
 from database.job_discovery_manager import init_job_discovery_schema
 from job_discovery.ui import render_job_finder
+from taxonomy_discovery.review_ui import render_capability_discovery_review
 
 from report import render_markdown
 from api_cost import (
@@ -1603,9 +1604,10 @@ def build_stable_alignment_summary(report: dict[str, Any]) -> str:
     ]
 
     importance_order = {
-        "deal_breaker": 4,
-        "required": 3,
-        "core": 2,
+        "deal_breaker": 5,
+        "required": 4,
+        "core": 3,
+        "supporting": 2,
         "preferred": 1,
     }
     label_order = {
@@ -2365,6 +2367,7 @@ with st.sidebar:
             "Tag Library",
             "Profile & Evidence",
             "Job Finder",
+            "Capability Discovery",
             "Job Market Insights",
         ],
         key="navigation_page",
@@ -2699,6 +2702,11 @@ with st.sidebar:
         st.subheader("Job Finder")
         st.caption(
             "Fetch and search normalized Singapore job postings, then hand a selected JD into a new Application Session."
+        )
+    elif page == "Capability Discovery":
+        st.subheader("Capability Discovery")
+        st.caption(
+            "Review unresolved deterministic taxonomy observations, record human triage decisions, and prepare genuine research candidates for TQ-D3."
         )
     elif page == "Job Market Insights":
         st.subheader("Job Market Insights")
@@ -8592,6 +8600,9 @@ elif page == "Application Sessions":
 
 elif page == "Job Finder":
     render_job_finder()
+
+elif page == "Capability Discovery":
+    render_capability_discovery_review()
 
 elif page == "Blueprint Library":
     st.divider()

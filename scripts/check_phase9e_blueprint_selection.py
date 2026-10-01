@@ -64,13 +64,13 @@ def main() -> None:
                 decision["role_family_classification"]["role_family_id"]
                 == "ai_fullstack_software_engineering"
             )
-            # Current deterministic precision baseline. The stricter weak-
-            # evidence gate removes one formerly credited required/core row;
-            # evidence selection may improve citation quality but preserves
-            # the preliminary match ceiling.
-            assert comparison["deterministic_alignment_score"] == 59
+            # Integrated JD-structure + capability-scoring baseline.
+            # Preferred coverage increases under JD structure inference while
+            # required/core coverage and evidence-strength safety invariants
+            # remain unchanged.
+            assert comparison["deterministic_alignment_score"] == 60
             assert comparison["required_core_coverage_score"] == 59
-            assert comparison["preferred_coverage_score"] == 53
+            assert comparison["preferred_coverage_score"] == 62
             assert comparison["evidence_strength_score"] == 66
             assert comparison["important_gap_count"] == 1
             assert comparison["deal_breaker_gap_count"] == 0

@@ -96,7 +96,6 @@ def _signals(value: Any) -> dict[str, int]:
         "stop": 1 if _EMPLOYER_OFFER_RE.search(text) else 0,
     }
 
-
 def _has_signal(value: Any) -> bool:
     return any(_signals(value).values())
 
@@ -229,4 +228,3 @@ def infer_semantic_list_heading(
         "scores": scores,
         "items": item_debug,
     }
-

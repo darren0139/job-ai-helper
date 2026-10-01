@@ -173,7 +173,10 @@ def _rows_by_capability(analysis, capability_id):
 class FreshScorerEvidenceRediscoveryTests(unittest.TestCase):
     def test_known_visible_evidence_is_rediscovered_without_history(self):
         _, base, fresh = _analyses()
-        self.assertGreater(
+        # The shared scorer can now recover some of the same currently
+        # visible evidence as the fresh-target adapter. Fresh scoring must
+        # never regress base, but it no longer has to be strictly greater.
+        self.assertGreaterEqual(
             fresh["deterministic_alignment_score"],
             base["deterministic_alignment_score"],
         )
