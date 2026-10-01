@@ -18,9 +18,8 @@ class TQD3ClassificationUIContractTests(unittest.TestCase):
 
     def test_read_only_helper_has_no_mutation_or_ai_controls(self):
         start = SOURCE.index("def _render_tqd3_classification_tab(")
-        end = SOURCE.index(
-            "\ndef render_capability_discovery_review()", start
-        )
+        end = SOURCE.find("\ndef ", start + 1)
+        self.assertGreater(end, start)
         helper = SOURCE[start:end]
         for token in (
             "save_review(",

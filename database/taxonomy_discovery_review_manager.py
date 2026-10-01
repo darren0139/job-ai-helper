@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import closing
 
 import hashlib
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -267,3 +268,672 @@ def delete_review(
             raise
         conn.commit()
         return bool(cursor.rowcount)
+
+BROAD_MINING_RESEARCH_STORE_VERSION = (
+    "tqd3-broad-mining-research-store-v1.0.0"
+)
+
+
+def init_broad_mining_research_schema(
+    db_path: str | os.PathLike[str] | None = None,
+) -> Path:
+    path = _resolved_path(db_path)
+    with closing(_connect(path, create_parent=True)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS broad_mining_research_artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                store_version TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                provider_request_id TEXT,
+                seed_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                research_model TEXT NOT NULL,
+                technology_count INTEGER NOT NULL,
+                source_count INTEGER NOT NULL,
+                raw_result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+                idx_broad_mining_research_seed_updated
+            ON broad_mining_research_artifacts (
+                seed_id,
+                updated_at DESC
+            )
+            """
+        )
+        conn.commit()
+    return path
+
+
+def _broad_mining_artifact_id(
+    result: dict[str, Any],
+) -> str:
+    provider = str(result.get("provider") or "").strip()
+    request_id = str(
+        result.get("provider_request_id") or ""
+    ).strip()
+    if request_id:
+        identity = f"{provider}|{request_id}"
+    else:
+        identity = json.dumps(
+            result,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    digest = hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()[:24]
+    return f"tqdminres_{digest}"
+
+
+def _broad_mining_counts(
+    result: dict[str, Any],
+) -> tuple[int, int]:
+    structured = result.get("structured_output")
+    technologies = (
+        structured.get("technologies")
+        if isinstance(structured, dict)
+        else []
+    )
+    sources = result.get("sources")
+    return (
+        len(technologies)
+        if isinstance(technologies, list)
+        else 0,
+        len(sources)
+        if isinstance(sources, list)
+        else 0,
+    )
+
+
+def save_broad_mining_research_result(
+    result: dict[str, Any],
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise TypeError("result must be a dict")
+
+    seed_id = str(result.get("seed_id") or "").strip()
+    domain = str(result.get("domain") or "").strip()
+    if not seed_id:
+        raise ValueError("Broad Mining result has no seed_id")
+    if not domain:
+        raise ValueError("Broad Mining result has no domain")
+
+    artifact_id = _broad_mining_artifact_id(result)
+    technology_count, source_count = _broad_mining_counts(
+        result
+    )
+    raw_result_json = json.dumps(
+        result,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    path = init_broad_mining_research_schema(db_path)
+
+    with closing(_connect(path, create_parent=True)) as conn:
+        existing = conn.execute(
+            """
+            SELECT created_at
+            FROM broad_mining_research_artifacts
+            WHERE artifact_id = ?
+            """,
+            (artifact_id,),
+        ).fetchone()
+        created_at = (
+            str(existing["created_at"])
+            if existing is not None
+            else now
+        )
+
+        conn.execute(
+            """
+            INSERT INTO broad_mining_research_artifacts (
+                artifact_id,
+                store_version,
+                provider,
+                endpoint,
+                provider_request_id,
+                seed_id,
+                domain,
+                research_model,
+                technology_count,
+                source_count,
+                raw_result_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(artifact_id)
+            DO UPDATE SET
+                store_version = excluded.store_version,
+                provider = excluded.provider,
+                endpoint = excluded.endpoint,
+                provider_request_id = excluded.provider_request_id,
+                seed_id = excluded.seed_id,
+                domain = excluded.domain,
+                research_model = excluded.research_model,
+                technology_count = excluded.technology_count,
+                source_count = excluded.source_count,
+                raw_result_json = excluded.raw_result_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                artifact_id,
+                BROAD_MINING_RESEARCH_STORE_VERSION,
+                str(result.get("provider") or "").strip(),
+                str(result.get("endpoint") or "").strip(),
+                (
+                    str(
+                        result.get("provider_request_id")
+                        or ""
+                    ).strip()
+                    or None
+                ),
+                seed_id,
+                domain,
+                str(
+                    result.get("research_model")
+                    or result.get("model")
+                    or ""
+                ).strip(),
+                technology_count,
+                source_count,
+                raw_result_json,
+                created_at,
+                now,
+            ),
+        )
+        conn.commit()
+
+    return {
+        "artifact_id": artifact_id,
+        "store_version": BROAD_MINING_RESEARCH_STORE_VERSION,
+        "seed_id": seed_id,
+        "domain": domain,
+        "technology_count": technology_count,
+        "source_count": source_count,
+        "created_at": created_at,
+        "updated_at": now,
+    }
+
+
+def save_broad_mining_research_results(
+    results: list[dict[str, Any]],
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+) -> list[dict[str, Any]]:
+    saved: list[dict[str, Any]] = []
+    for result in results:
+        if isinstance(result, dict):
+            saved.append(
+                save_broad_mining_research_result(
+                    result,
+                    db_path=db_path,
+                )
+            )
+    return saved
+
+
+def _decode_broad_mining_summary(
+    row: sqlite3.Row,
+) -> dict[str, Any]:
+    return {
+        "artifact_id": str(row["artifact_id"]),
+        "store_version": str(row["store_version"]),
+        "provider": str(row["provider"]),
+        "endpoint": str(row["endpoint"]),
+        "provider_request_id": (
+            str(row["provider_request_id"])
+            if row["provider_request_id"]
+            else None
+        ),
+        "seed_id": str(row["seed_id"]),
+        "domain": str(row["domain"]),
+        "research_model": str(
+            row["research_model"] or ""
+        ),
+        "technology_count": int(
+            row["technology_count"] or 0
+        ),
+        "source_count": int(
+            row["source_count"] or 0
+        ),
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+    }
+
+
+def list_broad_mining_research_artifacts(
+    *,
+    limit: int = 100,
+    db_path: str | os.PathLike[str] | None = None,
+) -> list[dict[str, Any]]:
+    limit = int(limit)
+    if limit < 1:
+        return []
+
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return []
+
+    with closing(_connect(path, create_parent=False)) as conn:
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    artifact_id,
+                    store_version,
+                    provider,
+                    endpoint,
+                    provider_request_id,
+                    seed_id,
+                    domain,
+                    research_model,
+                    technology_count,
+                    source_count,
+                    created_at,
+                    updated_at
+                FROM broad_mining_research_artifacts
+                ORDER BY updated_at DESC, artifact_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return []
+            raise
+
+    return [
+        _decode_broad_mining_summary(row)
+        for row in rows
+    ]
+
+
+def get_broad_mining_research_result(
+    artifact_id: str,
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any] | None:
+    artifact_id = str(artifact_id or "").strip()
+    if not artifact_id:
+        return None
+
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return None
+
+    with closing(_connect(path, create_parent=False)) as conn:
+        try:
+            row = conn.execute(
+                """
+                SELECT raw_result_json
+                FROM broad_mining_research_artifacts
+                WHERE artifact_id = ?
+                """,
+                (artifact_id,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
+
+    if row is None:
+        return None
+
+    payload = json.loads(
+        str(row["raw_result_json"])
+    )
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "Saved Broad Mining research artifact is not an object"
+        )
+    return payload
+
+
+def load_latest_broad_mining_research_results(
+    *,
+    limit: int = 100,
+    db_path: str | os.PathLike[str] | None = None,
+) -> list[dict[str, Any]]:
+    summaries = list_broad_mining_research_artifacts(
+        limit=limit,
+        db_path=db_path,
+    )
+
+    selected: list[dict[str, Any]] = []
+    seen_seeds: set[str] = set()
+    for summary in summaries:
+        seed_id = str(summary.get("seed_id") or "")
+        if not seed_id or seed_id in seen_seeds:
+            continue
+        payload = get_broad_mining_research_result(
+            str(summary["artifact_id"]),
+            db_path=db_path,
+        )
+        if payload is not None:
+            selected.append(payload)
+            seen_seeds.add(seed_id)
+
+    return selected
+
+BROAD_MINING_CANDIDATE_REVIEW_VERSION = (
+    "tqd3-broad-mining-candidate-review-v1.0.0"
+)
+
+BROAD_MINING_CANDIDATE_REVIEW_DECISIONS = (
+    "research_further",
+    "defer",
+    "reject",
+)
+
+
+def init_broad_mining_candidate_review_schema(
+    db_path: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Create the local human-review table for mined Broad Mining candidates.
+
+    This table stores explicit reviewer decisions only. It does not create
+    technology-registry proposals, mutate taxonomy/registry production data,
+    influence scoring, or call any external provider.
+    """
+    path = _resolved_path(db_path)
+    with closing(_connect(path, create_parent=True)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS broad_mining_candidate_reviews (
+                candidate_id TEXT PRIMARY KEY,
+                review_version TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                canonical_name TEXT NOT NULL,
+                candidate_status TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                candidate_snapshot_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+                idx_broad_mining_candidate_review_decision
+            ON broad_mining_candidate_reviews (
+                decision,
+                updated_at DESC
+            )
+            """
+        )
+        conn.commit()
+    return path
+
+
+def _decode_broad_mining_candidate_review(
+    row: sqlite3.Row,
+) -> dict[str, Any]:
+    snapshot = json.loads(
+        str(row["candidate_snapshot_json"])
+    )
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    return {
+        "candidate_id": str(row["candidate_id"]),
+        "review_version": str(row["review_version"]),
+        "decision": str(row["decision"]),
+        "canonical_name": str(row["canonical_name"]),
+        "candidate_status": str(row["candidate_status"]),
+        "notes": str(row["notes"] or ""),
+        "candidate_snapshot": snapshot,
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+    }
+
+
+def list_broad_mining_candidate_reviews(
+    *,
+    decision: str | None = None,
+    db_path: str | os.PathLike[str] | None = None,
+) -> list[dict[str, Any]]:
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return []
+
+    sql = """
+        SELECT
+            candidate_id,
+            review_version,
+            decision,
+            canonical_name,
+            candidate_status,
+            notes,
+            candidate_snapshot_json,
+            created_at,
+            updated_at
+        FROM broad_mining_candidate_reviews
+    """
+    params: tuple[Any, ...] = ()
+    if decision:
+        decision = str(decision).strip()
+        if decision not in BROAD_MINING_CANDIDATE_REVIEW_DECISIONS:
+            raise ValueError(
+                f"Unsupported candidate review decision {decision!r}."
+            )
+        sql += " WHERE decision = ?"
+        params = (decision,)
+    sql += " ORDER BY updated_at DESC, candidate_id"
+
+    with closing(_connect(path, create_parent=False)) as conn:
+        try:
+            rows = conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return []
+            raise
+    return [
+        _decode_broad_mining_candidate_review(row)
+        for row in rows
+    ]
+
+
+def get_broad_mining_candidate_review(
+    candidate_id: str,
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any] | None:
+    candidate_id = str(candidate_id or "").strip()
+    if not candidate_id:
+        return None
+
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return None
+
+    with closing(_connect(path, create_parent=False)) as conn:
+        try:
+            row = conn.execute(
+                """
+                SELECT
+                    candidate_id,
+                    review_version,
+                    decision,
+                    canonical_name,
+                    candidate_status,
+                    notes,
+                    candidate_snapshot_json,
+                    created_at,
+                    updated_at
+                FROM broad_mining_candidate_reviews
+                WHERE candidate_id = ?
+                """,
+                (candidate_id,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None
+            raise
+
+    return (
+        _decode_broad_mining_candidate_review(row)
+        if row is not None
+        else None
+    )
+
+
+def save_broad_mining_candidate_review(
+    *,
+    candidate: dict[str, Any],
+    decision: str,
+    notes: str = "",
+    db_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        raise TypeError("candidate must be a dict")
+
+    candidate_id = str(
+        candidate.get("candidate_id") or ""
+    ).strip()
+    canonical_name = str(
+        candidate.get("canonical_name") or ""
+    ).strip()
+    candidate_status = str(
+        candidate.get("status") or ""
+    ).strip()
+    decision = str(decision or "").strip()
+
+    if not candidate_id:
+        raise ValueError("candidate_id is required")
+    if not canonical_name:
+        raise ValueError("canonical_name is required")
+    if candidate_status not in {
+        "possible_new_technology",
+        "ambiguous_registry_match",
+    }:
+        raise ValueError(
+            "Only possible_new_technology or "
+            "ambiguous_registry_match candidates may enter this review queue."
+        )
+    if decision not in BROAD_MINING_CANDIDATE_REVIEW_DECISIONS:
+        raise ValueError(
+            f"Unsupported candidate review decision {decision!r}. "
+            "Expected one of: "
+            + ", ".join(
+                BROAD_MINING_CANDIDATE_REVIEW_DECISIONS
+            )
+        )
+
+    snapshot_json = json.dumps(
+        candidate,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    path = init_broad_mining_candidate_review_schema(
+        db_path
+    )
+    now = datetime.now(timezone.utc).isoformat()
+
+    with closing(_connect(path, create_parent=True)) as conn:
+        existing = conn.execute(
+            """
+            SELECT created_at
+            FROM broad_mining_candidate_reviews
+            WHERE candidate_id = ?
+            """,
+            (candidate_id,),
+        ).fetchone()
+        created_at = (
+            str(existing["created_at"])
+            if existing is not None
+            else now
+        )
+
+        conn.execute(
+            """
+            INSERT INTO broad_mining_candidate_reviews (
+                candidate_id,
+                review_version,
+                decision,
+                canonical_name,
+                candidate_status,
+                notes,
+                candidate_snapshot_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(candidate_id)
+            DO UPDATE SET
+                review_version = excluded.review_version,
+                decision = excluded.decision,
+                canonical_name = excluded.canonical_name,
+                candidate_status = excluded.candidate_status,
+                notes = excluded.notes,
+                candidate_snapshot_json = excluded.candidate_snapshot_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                candidate_id,
+                BROAD_MINING_CANDIDATE_REVIEW_VERSION,
+                decision,
+                canonical_name,
+                candidate_status,
+                str(notes or ""),
+                snapshot_json,
+                created_at,
+                now,
+            ),
+        )
+        conn.commit()
+
+    saved = get_broad_mining_candidate_review(
+        candidate_id,
+        db_path=path,
+    )
+    if saved is None:
+        raise RuntimeError(
+            "Candidate review was written but could not be reloaded."
+        )
+    return saved
+
+
+def delete_broad_mining_candidate_review(
+    candidate_id: str,
+    *,
+    db_path: str | os.PathLike[str] | None = None,
+) -> bool:
+    candidate_id = str(candidate_id or "").strip()
+    if not candidate_id:
+        return False
+
+    path = _resolved_path(db_path)
+    if not path.exists():
+        return False
+
+    with closing(_connect(path, create_parent=False)) as conn:
+        try:
+            cursor = conn.execute(
+                """
+                DELETE FROM broad_mining_candidate_reviews
+                WHERE candidate_id = ?
+                """,
+                (candidate_id,),
+            )
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return False
+            raise
+    return bool(cursor.rowcount)

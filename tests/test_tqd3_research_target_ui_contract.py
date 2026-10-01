@@ -23,14 +23,12 @@ class TQD3ResearchTargetUIContractTests(unittest.TestCase):
             SOURCE,
         )
 
-    def test_read_only_helper_has_no_mutation_or_network_controls(self) -> None:
+    def test_tab_has_no_direct_mutation_or_network_execution_controls(self) -> None:
         start = SOURCE.index(
             "def _render_tqd3_research_targets_tab("
         )
-        end = SOURCE.index(
-            "\ndef render_capability_discovery_review()",
-            start,
-        )
+        end = SOURCE.find("\ndef ", start + 1)
+        self.assertGreater(end, start)
         helper = SOURCE[start:end]
         for token in (
             "save_review(",
@@ -40,9 +38,15 @@ class TQD3ResearchTargetUIContractTests(unittest.TestCase):
             "st.button(",
             "st.form(",
             "st.file_uploader(",
+            "research_selected_targets_with_tavily(",
         ):
             with self.subTest(token=token):
                 self.assertNotIn(token, helper)
+
+        self.assertIn(
+            "_render_tqd3_tavily_research_controls(selected_targets)",
+            helper,
+        )
 
     def test_research_target_diagnostics_present(self) -> None:
         for token in (

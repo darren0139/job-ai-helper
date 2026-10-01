@@ -21,9 +21,8 @@ def main() -> None:
         assert token in source, token
 
     start = source.index("def _render_tqd3_classification_tab(")
-    end = source.index(
-        "\ndef render_capability_discovery_review()", start
-    )
+    end = source.find("\ndef ", start + 1)
+    assert end > start, "classification helper end boundary"
     helper = source[start:end]
     for token in (
         "save_review(",

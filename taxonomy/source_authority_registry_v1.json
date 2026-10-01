@@ -1,0 +1,348 @@
+{
+  "version": "source-authority-registry-v1.1",
+  "contract": {
+    "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain",
+    "network_calls": 0,
+    "model_calls": 0,
+    "provider_authority_claim_trusted": false
+  },
+  "technology_domains": [
+    {
+      "technology_aliases": [
+        "Amazon Kinesis Data Streams",
+        "Amazon Kinesis"
+      ],
+      "official_domains": [
+        "docs.aws.amazon.com",
+        "aws.amazon.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Apache ActiveMQ",
+        "ActiveMQ"
+      ],
+      "official_domains": [
+        "activemq.apache.org",
+        "apache.org"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Apache Kafka",
+        "Kafka"
+      ],
+      "official_domains": [
+        "kafka.apache.org",
+        "apache.org"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Apache Pulsar",
+        "Pulsar"
+      ],
+      "official_domains": [
+        "pulsar.apache.org",
+        "apache.org"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Azure Event Hubs"
+      ],
+      "official_domains": [
+        "learn.microsoft.com",
+        "azure.microsoft.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Confluent Platform"
+      ],
+      "official_domains": [
+        "docs.confluent.io",
+        "confluent.io"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Docker",
+        "Docker Hub"
+      ],
+      "official_domains": [
+        "docker.com",
+        "docs.docker.com",
+        "hub.docker.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "EMQX"
+      ],
+      "official_domains": [
+        "emqx.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Google Cloud Pub/Sub",
+        "Google Pub/Sub"
+      ],
+      "official_domains": [
+        "cloud.google.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "IBM MQ"
+      ],
+      "official_domains": [
+        "ibm.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Microsoft Azure Service Bus",
+        "Azure Service Bus"
+      ],
+      "official_domains": [
+        "learn.microsoft.com",
+        "azure.microsoft.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "Mosquitto",
+        "Eclipse Mosquitto"
+      ],
+      "official_domains": [
+        "mosquitto.org"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "NATS"
+      ],
+      "official_domains": [
+        "nats.io"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "RabbitMQ"
+      ],
+      "official_domains": [
+        "rabbitmq.com"
+      ]
+    },
+    {
+      "technology_aliases": [
+        "ZeroMQ",
+        "ØMQ"
+      ],
+      "official_domains": [
+        "zeromq.org",
+        "zguide.zeromq.org"
+      ]
+    }
+  ],
+  "organization_domains": [
+    {
+      "organization_aliases": [
+        "Amazon Web Services",
+        "AWS"
+      ],
+      "official_domains": [
+        "docs.aws.amazon.com",
+        "aws.amazon.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Apache Software Foundation",
+        "ASF"
+      ],
+      "official_domains": [
+        "apache.org"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Confluent Inc.",
+        "Confluent Inc",
+        "Confluent"
+      ],
+      "official_domains": [
+        "docs.confluent.io",
+        "confluent.io"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Eclipse Foundation",
+        "Eclipse Foundation, Inc."
+      ],
+      "official_domains": [
+        "eclipse.org"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "EMQ Technologies",
+        "EMQ"
+      ],
+      "official_domains": [
+        "emqx.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Google Cloud"
+      ],
+      "official_domains": [
+        "cloud.google.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "IBM"
+      ],
+      "official_domains": [
+        "ibm.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Microsoft Azure",
+        "Microsoft"
+      ],
+      "official_domains": [
+        "learn.microsoft.com",
+        "azure.microsoft.com",
+        "microsoft.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Pivotal Software / VMware",
+        "VMware",
+        "Pivotal Software"
+      ],
+      "official_domains": [
+        "rabbitmq.com",
+        "vmware.com",
+        "broadcom.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "RabbitMQ Ltd.",
+        "RabbitMQ Ltd",
+        "RabbitMQ"
+      ],
+      "official_domains": [
+        "rabbitmq.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "Synadia Communications",
+        "Synadia"
+      ],
+      "official_domains": [
+        "nats.io",
+        "synadia.com"
+      ]
+    },
+    {
+      "organization_aliases": [
+        "ZeroMQ community",
+        "ZeroMQ community (GPLv3)",
+        "ØMQ community"
+      ],
+      "official_domains": [
+        "zeromq.org",
+        "zguide.zeromq.org"
+      ]
+    }
+  ],
+  "secondary_domains": [
+    {
+      "domain": "ably.com",
+      "kind": "commercial_technical_content"
+    },
+    {
+      "domain": "automq.com",
+      "kind": "commercial_technical_content"
+    },
+    {
+      "domain": "blackball.lv",
+      "kind": "community_editorial"
+    },
+    {
+      "domain": "cloudamqp.com",
+      "kind": "commercial_technical_content"
+    },
+    {
+      "domain": "dataintelo.com",
+      "kind": "market_research"
+    },
+    {
+      "domain": "dattell.com",
+      "kind": "commercial_technical_content"
+    },
+    {
+      "domain": "dev.to",
+      "kind": "community_editorial"
+    },
+    {
+      "domain": "geeksforgeeks.org",
+      "kind": "technical_secondary"
+    },
+    {
+      "domain": "grokipedia.com",
+      "kind": "reference_secondary"
+    },
+    {
+      "domain": "infoq.com",
+      "kind": "technical_secondary"
+    },
+    {
+      "domain": "linkedin.com",
+      "kind": "community_social"
+    },
+    {
+      "domain": "medium.com",
+      "kind": "community_editorial"
+    },
+    {
+      "domain": "modern-datatools.com",
+      "kind": "commercial_technical_content"
+    },
+    {
+      "domain": "mordorintelligence.com",
+      "kind": "market_research"
+    },
+    {
+      "domain": "plainenglish.io",
+      "kind": "community_editorial"
+    },
+    {
+      "domain": "reddit.com",
+      "kind": "community_discussion"
+    },
+    {
+      "domain": "stackoverflow.com",
+      "kind": "community_reference"
+    },
+    {
+      "domain": "theirstack.com",
+      "kind": "market_usage_data"
+    },
+    {
+      "domain": "wikipedia.org",
+      "kind": "reference_secondary"
+    }
+  ]
+}

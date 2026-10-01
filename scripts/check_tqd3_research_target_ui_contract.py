@@ -35,10 +35,8 @@ def main() -> None:
     start = source.index(
         "def _render_tqd3_research_targets_tab("
     )
-    end = source.index(
-        "\ndef render_capability_discovery_review()",
-        start,
-    )
+    end = source.find("\ndef ", start + 1)
+    assert end > start, "research-target helper end boundary"
     helper = source[start:end]
     for token in (
         "save_review(",
@@ -46,13 +44,20 @@ def main() -> None:
         "ask_local_ai",
         "st.button(",
         "st.form(",
+        "research_selected_targets_with_tavily(",
     ):
         assert token not in helper, token
 
+    assert (
+        "_render_tqd3_tavily_research_controls(selected_targets)"
+        in helper
+    )
+
     print(
-        "TQ-D3 research-target read-only UI smoke PASS: "
+        "TQ-D3 research-target UI smoke PASS: "
         f"targets={RESEARCH_TARGET_VERSION} "
-        "tavily_controls=0 mutation_controls=0 ai_controls=0"
+        "network=delegated_explicit "
+        "direct_mutation_controls=0 direct_ai_controls=0"
     )
 
 

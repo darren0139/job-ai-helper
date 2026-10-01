@@ -30,6 +30,114 @@ RESEARCH_TARGET_TYPES = (
     TARGET_CAPABILITY_CONCEPT,
 )
 
+RESEARCH_QUESTION_VERSION = "tqd3-external-research-question-v1.0.0"
+
+RESEARCH_QUERY_VERSION = "tqd3-provider-search-query-v1.0.0"
+
+
+def _external_search_query(
+    *,
+    target_type: str,
+    label: str,
+) -> str:
+    cleaned = _clean(label)
+    if target_type == TARGET_TECHNOLOGY_IDENTITY:
+        return (
+            f'"{cleaned}" software engineering technology '
+            "official documentation"
+        )
+    if target_type == TARGET_TECHNOLOGY_RELATIONSHIP:
+        return (
+            f'"{cleaned}" software engineering common use cases '
+            "developer activities official documentation"
+        )
+    if target_type == TARGET_CAPABILITY_CONCEPT:
+        return (
+            f'"{cleaned}" software engineering capability '
+            "responsibilities skills"
+        )
+    raise ValueError(f"Unsupported research target type: {target_type}")
+
+_RESEARCH_PROFILES = {
+    TARGET_TECHNOLOGY_IDENTITY: {
+        "profile": "technology_identity_external_facts",
+        "requested_facts": [
+            "canonical_name",
+            "entity_type",
+            "primary_purpose",
+            "maintainer_vendor_or_standards_body",
+            "common_aliases",
+            "ambiguity_notes",
+        ],
+    },
+    TARGET_TECHNOLOGY_RELATIONSHIP: {
+        "profile": "technology_relationship_external_facts",
+        "requested_facts": [
+            "canonical_name",
+            "entity_type",
+            "primary_use_cases",
+            "reusable_engineering_activities",
+            "adjacent_concepts",
+        ],
+    },
+    TARGET_CAPABILITY_CONCEPT: {
+        "profile": "capability_concept_external_facts",
+        "requested_facts": [
+            "standard_terminology",
+            "scope",
+            "common_tasks",
+            "adjacent_concepts",
+            "evidence_of_reuse",
+        ],
+    },
+}
+
+
+def _research_profile(target_type: str) -> dict[str, Any]:
+    profile = _RESEARCH_PROFILES.get(target_type)
+    if profile is None:
+        raise ValueError(f"Unsupported research target type: {target_type}")
+    return deepcopy(profile)
+
+
+def _external_research_question(
+    *,
+    target_type: str,
+    label: str,
+) -> str:
+    if target_type == TARGET_TECHNOLOGY_IDENTITY:
+        return (
+            f"What does the term '{label}' refer to in software engineering? "
+            "Identify its canonical name, technology/entity type, primary "
+            "purpose, maintainer/vendor or standards body when applicable, "
+            "common aliases, and any important ambiguity. Use external facts "
+            "only. Do not decide whether it belongs in any internal taxonomy "
+            "or technology registry."
+        )
+
+    if target_type == TARGET_TECHNOLOGY_RELATIONSHIP:
+        return (
+            f"What is the known technology '{label}' primarily used for in "
+            "software engineering? Identify its canonical technology/entity "
+            "type, common use cases, the reusable engineering activities "
+            "practitioners perform when using it, and adjacent concepts. "
+            "Use external facts only. Do not decide any internal capability "
+            "mapping, taxonomy relationship, or registry relationship."
+        )
+
+    if target_type == TARGET_CAPABILITY_CONCEPT:
+        return (
+            f"In software engineering and technical job descriptions, what "
+            f"reusable work capability does the requirement '{label}' "
+            "describe? Identify standard terminology, scope, common tasks, "
+            "and closely related concepts, and provide evidence that the "
+            "concept is reused across contexts. Use external facts only. "
+            "Do not decide whether it is distinct from or should be added to "
+            "any internal taxonomy."
+        )
+
+    raise ValueError(f"Unsupported research target type: {target_type}")
+
 _TECH_CONTEXT_MARKERS = (
     "knowledge of",
     "experience with",
@@ -263,8 +371,17 @@ def _base_target(
     candidate: dict[str, Any],
     reason: str,
 ) -> dict[str, Any]:
+    profile = _research_profile(target_type)
     return {
         "research_target_version": RESEARCH_TARGET_VERSION,
+        "research_question_version": RESEARCH_QUESTION_VERSION,
+        "research_query_version": RESEARCH_QUERY_VERSION,
+        "research_profile": profile["profile"],
+        "requested_facts": list(profile["requested_facts"]),
+        "search_query": _external_search_query(
+            target_type=target_type,
+            label=label,
+        ),
         "target_id": _stable_id(target_type, target_key),
         "target_type": target_type,
         "target_key": target_key,
@@ -326,9 +443,9 @@ def extract_research_targets_for_candidate(
                     target_type=TARGET_TECHNOLOGY_RELATIONSHIP,
                     target_key=technology_id,
                     label=label,
-                    research_question=(
-                        "What reusable capability relationship, if any, "
-                        f"should the known technology '{label}' have?"
+                    research_question=_external_research_question(
+                        target_type=TARGET_TECHNOLOGY_RELATIONSHIP,
+                        label=label,
                     ),
                     source_class_id=class_id,
                     candidate=candidate,
@@ -349,10 +466,9 @@ def extract_research_targets_for_candidate(
                     target_type=TARGET_TECHNOLOGY_IDENTITY,
                     target_key=key,
                     label=term,
-                    research_question=(
-                        "What technology/product/runtime/language/protocol "
-                        f"does the term '{term}' refer to, and should it be "
-                        "represented in the technology registry?"
+                    research_question=_external_research_question(
+                        target_type=TARGET_TECHNOLOGY_IDENTITY,
+                        label=term,
                     ),
                     source_class_id=class_id,
                     candidate=candidate,
@@ -370,10 +486,9 @@ def extract_research_targets_for_candidate(
                     target_type=TARGET_CAPABILITY_CONCEPT,
                     target_key=concept_key,
                     label=text or concept_key,
-                    research_question=(
-                        "Does this recurrent unresolved requirement represent "
-                        "a reusable capability that is materially distinct "
-                        "from the existing canonical taxonomy?"
+                    research_question=_external_research_question(
+                        target_type=TARGET_CAPABILITY_CONCEPT,
+                        label=text or concept_key,
                     ),
                     source_class_id=class_id,
                     candidate=candidate,

@@ -9,6 +9,8 @@ from taxonomy_discovery.classification import (
     CLASS_E,
 )
 from taxonomy_discovery.research_targets import (
+    RESEARCH_QUESTION_VERSION,
+    RESEARCH_QUERY_VERSION,
     RESEARCH_TARGET_VERSION,
     TARGET_CAPABILITY_CONCEPT,
     TARGET_TECHNOLOGY_IDENTITY,
@@ -227,6 +229,123 @@ class TQD3ResearchTargetExtractionTests(unittest.TestCase):
                 "scoring_influence": False,
                 "human_approval_required": True,
             },
+        )
+
+    def test_identity_question_is_external_facts_only(self) -> None:
+        candidate = _candidate(
+            "Knowledge of databases (SQL / NoSQL) is an advantage",
+            class_id="U_unclassified",
+        )
+        rows = extract_research_targets_for_candidate(candidate)
+        target = next(
+            row
+            for row in rows
+            if row["target_type"] == TARGET_TECHNOLOGY_IDENTITY
+            and row["label"] == "SQL"
+        )
+        question = target["research_question"].lower()
+        self.assertIn("external facts only", question)
+        self.assertIn("canonical name", question)
+        self.assertNotIn(
+            "should it be represented in the technology registry",
+            question,
+        )
+        self.assertEqual(
+            target["research_question_version"],
+            RESEARCH_QUESTION_VERSION,
+        )
+        self.assertEqual(
+            target["research_profile"],
+            "technology_identity_external_facts",
+        )
+        self.assertIn("entity_type", target["requested_facts"])
+
+    def test_relationship_question_is_external_facts_only(self) -> None:
+        candidate = _candidate(
+            "Experience with C#",
+            class_id=CLASS_B,
+            alias_mentions=[
+                {
+                    "technology_id": "csharp",
+                    "technology_label": "C#",
+                    "alias": "C#",
+                    "mapping_status": "recognized_unmapped",
+                    "capability_id": None,
+                }
+            ],
+        )
+        rows = extract_research_targets_for_candidate(candidate)
+        target = next(
+            row
+            for row in rows
+            if row["target_type"] == TARGET_TECHNOLOGY_RELATIONSHIP
+        )
+        question = target["research_question"].lower()
+        self.assertIn("external facts only", question)
+        self.assertIn("reusable engineering activities", question)
+        self.assertNotIn("should the known technology", question)
+        self.assertEqual(
+            target["research_profile"],
+            "technology_relationship_external_facts",
+        )
+
+    def test_capability_concept_question_is_external_facts_only(self) -> None:
+        candidate = _candidate(
+            "Generate technical documentation and operational reports",
+            class_id=CLASS_E,
+            job_count=3,
+            observation_count=3,
+        )
+        rows = extract_research_targets_for_candidate(candidate)
+        target = next(
+            row
+            for row in rows
+            if row["target_type"] == TARGET_CAPABILITY_CONCEPT
+        )
+        question = target["research_question"].lower()
+        self.assertIn("external facts only", question)
+        self.assertNotIn(
+            "materially distinct from the existing canonical taxonomy",
+            question,
+        )
+        self.assertEqual(
+            target["research_profile"],
+            "capability_concept_external_facts",
+        )
+
+    def test_provider_search_query_is_concise_and_versioned(self) -> None:
+        candidate = _candidate(
+            "Experience with C#",
+            class_id=CLASS_B,
+            alias_mentions=[
+                {
+                    "technology_id": "csharp",
+                    "technology_label": "C#",
+                    "alias": "C#",
+                    "mapping_status": "recognized_unmapped",
+                    "capability_id": None,
+                }
+            ],
+        )
+        rows = extract_research_targets_for_candidate(candidate)
+        target = next(
+            row
+            for row in rows
+            if row["target_type"] == TARGET_TECHNOLOGY_RELATIONSHIP
+        )
+        self.assertEqual(
+            target["research_query_version"],
+            RESEARCH_QUERY_VERSION,
+        )
+        self.assertIn('"C#"', target["search_query"])
+        self.assertIn("common use cases", target["search_query"])
+        self.assertNotIn(
+            "Do not decide",
+            target["search_query"],
+        )
+        self.assertLess(
+            len(target["search_query"]),
+            len(target["research_question"]),
         )
 
 
