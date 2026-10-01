@@ -40,13 +40,13 @@ Medical coverage and annual leave.
     assert not leaked, f"Section headings leaked into requirements: {sorted(leaked)}"
 
     assert by_text["Build reliable Python services"]["importance"] == "core"
-    assert by_text["Hands-on experience with Python"]["importance"] == "required"
+    assert by_text["Hands-on experience with Python"]["importance"] == "core"
     assert by_text["Experience with Docker"]["importance"] == "preferred"
     assert "Medical coverage and annual leave" not in by_text
 
     filtered = result.get("filtered_section_headings", [])
     assert len(filtered) >= 4
-    assert SCORING_VERSION == "stable-evidence-v1.10-phase6d15"
+    assert SCORING_VERSION == "stable-evidence-v1.10-phase6d20"
 
     sentence_result = canonicalise_requirements(
         {},
@@ -83,8 +83,8 @@ Bonus Requirements and Skills
         "Android/Kotlin",
         "CUDA",
     }
-    assert phase_2_3b_rows["C++"]["importance"] == "required"
-    assert phase_2_3b_rows["Data Structures"]["importance"] == "required"
+    assert phase_2_3b_rows["C++"]["importance"] == "core"
+    assert phase_2_3b_rows["Data Structures"]["importance"] == "core"
     assert phase_2_3b_rows["Android/Kotlin"]["importance"] == "preferred"
     assert phase_2_3b_rows["CUDA"]["importance"] == "preferred"
 
