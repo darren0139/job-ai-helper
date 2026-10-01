@@ -214,7 +214,7 @@ def seed_phase9d_database(
 
             raw_lines: list[str] = []
             for heading, field_name in (
-                ("Requirements", "required_skills"),
+                ("Required Qualifications", "required_skills"),
                 ("Responsibilities", "responsibilities"),
                 ("Preferred Qualifications", "preferred_skills"),
             ):
