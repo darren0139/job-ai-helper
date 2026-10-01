@@ -149,6 +149,10 @@ from database.db_manager import (
     get_recent_applications,
     get_application_by_id,
 )
+from database.application_tracking_manager import (
+    delete_application_tracking,
+    init_application_tracking_schema,
+)
 from database.analysis_cache_manager import (
     ANALYSIS_CACHE_VERSION,
     activate_analysis_snapshot,
@@ -299,6 +303,7 @@ from tailoring.phase9e1_blueprint_lifecycle_ui import (
 from tailoring.application_output_integrations_ui import (
     render_application_output_cover_letter,
 )
+from tailoring.application_tracker_ui import render_application_tracker
 from tailoring.phase9a_evidence_opportunity_ui import (
     render_evidence_opportunity_analysis,
 )
@@ -2292,6 +2297,7 @@ st.set_page_config(
 )
 
 init_db()
+init_application_tracking_schema()
 init_application_tailoring_versions()
 init_tailoring_generation_control()
 init_analysis_cache()
@@ -2356,6 +2362,7 @@ with st.sidebar:
         [
             "Tailor Resume",
             "Application Sessions",
+            "Application Tracker",
             "Blueprint Library",
             "Tag Library",
             "Profile & Evidence",
@@ -2635,6 +2642,7 @@ with st.sidebar:
                             )
                             delete_application_resume_results(app_id)
                             delete_application_cover_letters(app_id)
+                            delete_application_tracking(app_id)
                             delete_application_session(app_id)
 
                             cleanup_summary = {}
@@ -2685,6 +2693,11 @@ with st.sidebar:
         st.caption(
             "Analyse a job description without creating an Application Session."
         )
+    elif page == "Application Tracker":
+        st.subheader("Application Tracker")
+        st.caption(
+            "Review submission status, progress charts, and Excel export."
+        )
     elif page == "Job Finder":
         st.subheader("Job Finder")
         st.caption(
@@ -2730,6 +2743,9 @@ with st.sidebar:
 
 if page == "Tailor Resume":
     render_phase9f_jd_intake()
+
+elif page == "Application Tracker":
+    render_application_tracker()
 
 elif page == "Application Sessions":
     input_suffix = st.session_state["input_reset_counter"]

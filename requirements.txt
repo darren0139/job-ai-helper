@@ -2,8 +2,11 @@ litellm
 python-dotenv
 pypdf
 streamlit
+pandas
+openpyxl
 openai
 python-docx
 chromadb
 PyMuPDF
 github-copilot-sdk==1.0.14
+altair
