@@ -461,6 +461,9 @@ def build_phase9f_analysis_diagnostics(
     required_count = sum(
         _clean(row.get("importance")) == "required" for row in rows
     )
+    supporting_count = sum(
+        _clean(row.get("importance")) == "supporting" for row in rows
+    )
     preferred_count = sum(
         _clean(row.get("importance")) == "preferred" for row in rows
     )
@@ -517,6 +520,7 @@ def build_phase9f_analysis_diagnostics(
             "required_core": core_count + required_count,
             "core": core_count,
             "required": required_count,
+            "supporting": supporting_count,
             "preferred": preferred_count,
         },
         "extraction": {

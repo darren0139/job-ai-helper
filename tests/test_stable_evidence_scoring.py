@@ -655,7 +655,7 @@ Requirements and Skills
 
         self.assertEqual(set(by_text), {"C++", "Data Structures"})
         self.assertTrue(
-            all(row["importance"] == "required" for row in by_text.values())
+            all(row["importance"] == "core" for row in by_text.values())
         )
         self.assertIn(
             "Requirements and Skills",
@@ -707,8 +707,8 @@ Bonus Requirements and Skills
         }
 
         self.assertEqual(len(rows), 4)
-        self.assertEqual(by_text["C++"]["importance"], "required")
-        self.assertEqual(by_text["Data Structures"]["importance"], "required")
+        self.assertEqual(by_text["C++"]["importance"], "core")
+        self.assertEqual(by_text["Data Structures"]["importance"], "core")
         self.assertEqual(by_text["Android/Kotlin"]["importance"], "preferred")
         self.assertEqual(by_text["CUDA"]["importance"], "preferred")
         self.assertFalse(heading_texts & set(by_text))
@@ -802,7 +802,7 @@ Medical coverage and annual leave.
         )
         self.assertEqual(
             by_text["Hands-on experience with Python"]["importance"],
-            "required",
+            "core",
         )
         self.assertEqual(
             by_text["Experience with Docker"]["importance"],
