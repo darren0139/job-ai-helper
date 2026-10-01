@@ -1599,9 +1599,10 @@ def build_stable_alignment_summary(report: dict[str, Any]) -> str:
     ]
 
     importance_order = {
-        "deal_breaker": 4,
-        "required": 3,
-        "core": 2,
+        "deal_breaker": 5,
+        "required": 4,
+        "core": 3,
+        "supporting": 2,
         "preferred": 1,
     }
     label_order = {
