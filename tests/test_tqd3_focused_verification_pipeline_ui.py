@@ -3,12 +3,15 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+import sys
+from types import ModuleType
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
 from database import job_match_manager
-from taxonomy_discovery import focused_verification_ui as ui
+with patch.dict(sys.modules, {"streamlit": ModuleType("streamlit")}):
+    from taxonomy_discovery import focused_verification_ui as ui
 from tests.test_tqd3_focused_verification_pipeline import target
 
 
@@ -44,7 +47,7 @@ class FakeStreamlit:
 
 class FocusedVerificationPipelineUITests(unittest.TestCase):
     def test_rerenders_and_selection_never_execute_research(self):
-        with patch.object(ui, "st", FakeStreamlit()), patch.object(ui, "execute_focused_verification") as execute, \
+        with patch.object(ui, "st", FakeStreamlit()), patch.object(ui, "execute_focused_bulk") as execute, \
                 patch.object(ui, "list_focused_verification_results", return_value=[]):
             for _ in range(2):
                 ui.render_focused_verification({"targets": [target(), target("OtherTool")]})
@@ -53,7 +56,7 @@ class FocusedVerificationPipelineUITests(unittest.TestCase):
     def test_explicit_button_executes_only_selected_target(self):
         targets = [target(), target("OtherTool")]
         with patch.object(ui, "st", FakeStreamlit("Run focused verification")), \
-                patch.object(ui, "execute_focused_verification") as execute, \
+                patch.object(ui, "execute_focused_bulk") as execute, \
                 patch.object(ui, "list_focused_verification_results", return_value=[]):
             ui.render_focused_verification({"targets": targets})
             execute.assert_called_once_with(targets, selected_target_ids=[targets[0]["target_id"]], explicit_execution=True)
@@ -104,6 +107,8 @@ class FocusedVerificationPipelineUITests(unittest.TestCase):
             with self.subTest(label=label), patch.object(ui, "st", FakeStreamlit(label)), \
                     patch.object(ui, "execute_focused_verification") as execute, \
                     patch.object(ui, "list_focused_verification_results", return_value=[saved]), \
+                    patch.object(ui, "list_proposal_reviews", return_value=[]), \
+                    patch.object(ui, "render_focused_review_handoff"), \
                     patch.object(ui, "interpret_focused_verification", return_value=interpretation), \
                     patch.object(ui, "build_focused_draft", return_value=draft), \
                     patch.object(ui, "load_focused_preview_snapshots", return_value=[]), \

@@ -7,17 +7,18 @@ from taxonomy_discovery.proposal_publication_ui import render_focused_review_han
 from database.taxonomy_discovery_review_manager import (
     list_focused_verification_results, save_focused_verification_decision,
 )
-from database.technology_registry_proposal_manager import import_proposal_bundle
+from database.technology_registry_proposal_manager import import_proposal_bundle, list_proposal_reviews
 from taxonomy_discovery.focused_verification import (
-    MAX_FOCUSED_BATCH, build_focused_draft, execute_focused_verification, interpret_focused_verification,
+    build_focused_draft, execute_focused_verification, interpret_focused_verification,
     focused_target_signature,
+    verified_relationship_followup,
+    execute_focused_bulk, focused_review_rows,
 )
 from taxonomy_discovery.focused_verification_preview import (
     build_focused_impact_preview, load_focused_preview_snapshots,
 )
 from taxonomy_discovery.focused_verification_targets import (
     TARGET_REGISTRY_RELATIONSHIP,
-    build_relationship_followup_target,
 )
 from tailoring.capability_taxonomy import get_default_taxonomy
 
@@ -27,12 +28,12 @@ def render_focused_verification(target_report):
     by_id = {t["target_id"]: t for t in targets}
     selected = st.multiselect("Select ready targets", list(by_id),
                               format_func=lambda tid: by_id[tid]["canonical_name"],
-                              max_selections=MAX_FOCUSED_BATCH, key="tqd3_focused_selection")
-    st.caption("Up to three targets per batch. Saved results reload without a Tavily request.")
+                              key="tqd3_focused_selection")
+    st.caption("Selections run in batches of three. Each completion is saved; reload does not request Tavily.")
     if st.button("Run focused verification", disabled=not selected, key="tqd3_run_focused_verification"):
         try:
             with st.spinner("Running focused verification..."):
-                execute_focused_verification(targets, selected_target_ids=selected, explicit_execution=True)
+                execute_focused_bulk(targets, selected_target_ids=selected, explicit_execution=True)
         except Exception as exc:
             st.error(f"Focused verification failed: {exc}. Completed requests remain saved.")
     try:
@@ -83,6 +84,12 @@ def render_focused_verification(target_report):
         latest.setdefault(row["result"]["target_id"], row)
     if not latest:
         return
+    st.markdown("**Consolidated verification review**")
+    try:
+        st.dataframe(focused_review_rows(latest.values(), proposal_reviews=list_proposal_reviews()),
+                     hide_index=True, width="stretch")
+    except Exception as exc:
+        st.error(f"Consolidated review unavailable: {exc}")
     try:
         snapshots = load_focused_preview_snapshots()
         snapshot_error = ""
@@ -122,7 +129,7 @@ def render_focused_verification(target_report):
             and interpretation[
                 "existing_registry_knowledge"
             ]["status"]
-            == "unresolved"
+            in {"unresolved", "recognized_unmapped"}
         ):
             st.markdown("**Research an existing capability relationship**")
             st.caption(
@@ -161,8 +168,8 @@ def render_focused_verification(target_report):
             ):
                 try:
                     relationship_target = (
-                        build_relationship_followup_target(
-                            source_target=result["target"],
+                        verified_relationship_followup(
+                            result,
                             capability_id=selected_capability_id,
                         )
                     )
@@ -218,7 +225,7 @@ def render_focused_verification(target_report):
         if c2.button("Research more", key="focused_more_" + aid):
             try:
                 save_focused_verification_decision(artifact_id=aid, decision="research_more", draft=draft)
-                execute_focused_verification(targets, selected_target_ids=[result["target_id"]],
+                execute_focused_verification([result["target"]], selected_target_ids=[result["target_id"]],
                                              explicit_execution=True, research_more=True)
                 st.rerun()
             except Exception as exc:

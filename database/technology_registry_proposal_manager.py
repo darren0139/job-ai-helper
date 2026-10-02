@@ -304,6 +304,178 @@ def proposal_publication_state(proposal, review, *, publications=None, registry_
                         "production_active": "Published · Production resolver active"}[state]}
 
 
+def _replace_registry(path, original, encoded):
+    """Shared staged validation and single atomic file replacement."""
+    from taxonomy_discovery import technology_registry as production
+    with tempfile.NamedTemporaryFile(mode="wb", prefix=".tqd3-publish-", suffix=".json", dir=path.parent, delete=False) as staged:
+        staging_path = Path(staged.name)
+        staged.write(encoded)
+        staged.flush()
+        os.fsync(staged.fileno())
+    try:
+        production.load_registry(staging_path)
+        if path.read_bytes() != original:
+            raise ValueError("Production knowledge changed while staging; publication stopped")
+        os.replace(staging_path, path)
+    finally:
+        staging_path.unlink(missing_ok=True)
+
+
+def _prepare_tranche(conn, selected, expected_registry_version, path):
+    from taxonomy_discovery import technology_registry as production
+    registry = production.load_registry(path)
+    taxonomy = production.get_default_taxonomy()
+    blockers, proposals, reviews = [], [], []
+    alias_owners = {production.normalise(a): e["technology_id"] for e in registry.entries for a in e["aliases"]}
+    selected_alias_owners = {}
+    selected_mappings = {}
+    def block(pid, reason):
+        blockers.append({"proposal_id": pid, "reason": reason})
+    for item in selected:
+        pid = str(item.get("proposal_id") or "")
+        version = item.get("proposal_bundle_version", PROPOSAL_CONTRACT_VERSION)
+        saved = conn.execute("SELECT * FROM technology_registry_proposals WHERE proposal_id=? AND proposal_bundle_version=?", (pid, version)).fetchone()
+        review = conn.execute("SELECT * FROM technology_registry_proposal_reviews WHERE proposal_id=? AND proposal_bundle_version=?", (pid, version)).fetchone()
+        if registry.version != expected_registry_version:
+            block(pid, "Production registry changed")
+        if not saved:
+            block(pid, "Proposal missing")
+            continue
+        proposal = json.loads(saved["payload_json"])
+        fingerprint = hashlib.sha256(json.dumps(proposal, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if saved["source_fingerprint"] != item.get("source_fingerprint") or saved["source_fingerprint"] != fingerprint:
+            block(pid, "Proposal fingerprint changed")
+        required = {"safe_mapping_candidate": "approve_mapping", "recognized_unmapped": "approve_identity"}.get(proposal.get("proposal_classification"))
+        if not required or not review or review["decision"] != required:
+            block(pid, "Exact proposal requires appropriate human approval")
+        knowledge = proposal.get("knowledge_context", {})
+        if knowledge.get("taxonomy_version") != taxonomy.version:
+            block(pid, "Taxonomy changed since research import")
+        if knowledge.get("registry_version") != registry.version:
+            block(pid, "Registry changed since research import; refresh review")
+        if not proposal.get("sources"):
+            block(pid, "Reviewed source evidence required")
+        try:
+            validate_proposal_bundle({"proposal_bundle_version": version, "taxonomy_version": taxonomy.version,
+                                     "registry_version": registry.version, "proposals": [proposal]})
+        except ValueError as exc:
+            block(pid, str(exc))
+        if _published_knowledge_present(proposal, registry):
+            block(pid, "Proposal is obsolete / already covered; no change")
+        technology_id = proposal["technology_id"]
+        for alias in proposal.get("aliases", []):
+            key = production.normalise(alias)
+            owner = alias_owners.get(key)
+            if owner and owner != technology_id:
+                block(pid, f"Alias conflict: {alias} belongs to {owner}")
+                if key in selected_alias_owners:
+                    block(selected_alias_owners[key], f"Alias conflict with selected proposal {pid}: {alias}")
+            alias_owners[key] = technology_id
+            selected_alias_owners[key] = pid
+        capability = proposal.get("proposed_capability_id")
+        if capability:
+            if capability not in taxonomy.by_id():
+                block(pid, "Target capability does not exist")
+            previous = selected_mappings.get(technology_id)
+            if previous and previous[1] != capability:
+                block(pid, "Conflicting selected technology relationships")
+                block(previous[0], "Conflicting selected technology relationships")
+            selected_mappings[technology_id] = (pid, capability)
+        proposals.append(proposal)
+        if review:
+            reviews.append(dict(review))
+    preview = None
+    if not selected:
+        block("", "Select at least one approved proposal")
+    # The existing builder detects conflicts against approved production mappings.
+    if proposals:
+        preview = build_registry_vnext_preview(proposals, reviews, registry_path=path)
+        blockers.extend(preview["skipped"])
+        if not blockers:
+            try:
+                production._validate_registry(preview["registry_preview"])
+            except ValueError as exc:
+                for item in selected:
+                    block(item["proposal_id"], str(exc))
+    return {"ready": not blockers, "blockers": blockers, "blocked_count": len({b["proposal_id"] for b in blockers}),
+            "preview": preview, "registry_version": registry.version, "proposals": proposals, "reviews": reviews}
+
+
+def prepare_approved_tranche(*, selected_proposals, expected_registry_version, db_path=None, registry_path=None):
+    """Read-only all-item validation. Missing stores are never created."""
+    from taxonomy_discovery import technology_registry as production
+    path = Path(registry_path or production.REGISTRY_PATH).resolve()
+    store = _resolved_path(db_path)
+    if not store.exists():
+        return {"ready": False, "blockers": [{"proposal_id": p.get("proposal_id"), "reason": "Proposal store unavailable"} for p in selected_proposals]}
+    with closing(sqlite3.connect(store.as_uri() + "?mode=ro", uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        return _prepare_tranche(conn, list(selected_proposals), expected_registry_version, path)
+
+
+def publish_approved_tranche(*, selected_proposals, expected_registry_version, explicit_publish=False,
+                             db_path=None, registry_path=None):
+    """Publish all selected approvals in one replacement, or return every blocker."""
+    import re
+    from taxonomy_discovery import technology_registry as production
+    if explicit_publish is not True:
+        raise ValueError("Publication requires an explicit Publish action")
+    selected = list(selected_proposals)
+    if len({p.get("proposal_id") for p in selected}) != len(selected):
+        raise ValueError("Duplicate selected proposals")
+    path = Path(registry_path or production.REGISTRY_PATH).resolve()
+    prepared = prepare_approved_tranche(selected_proposals=selected, expected_registry_version=expected_registry_version,
+                                       db_path=db_path, registry_path=path)
+    if not prepared["ready"]:
+        return {"status": "blocked", "production_active": False, **prepared}
+    with closing(_connect(db_path, create_parent=False)) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        original = path.read_bytes()
+        prepared = _prepare_tranche(conn, selected, expected_registry_version, path)
+        if not prepared["ready"]:
+            return {"status": "blocked", "production_active": False, **prepared}
+        raw = json.loads(original)
+        promoted = prepared["preview"]["registry_preview"]
+        version = re.fullmatch(r"technology-registry-v(\d+)\.(\d+)(?:-bootstrap)?", raw["registry_version"])
+        if not version:
+            raise ValueError("Unsupported production registry version")
+        promoted["registry_version"] = f"technology-registry-v{version[1]}.{int(version[2]) + 1}"
+        promoted["description"] = raw.get("description", "")
+        encoded = (json.dumps(promoted, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
+        old_by_id = {e["technology_id"]: e for e in raw["entries"]}
+        aliases, relationships = [], []
+        for entry in promoted["entries"]:
+            old = old_by_id.get(entry["technology_id"], {})
+            aliases.extend({"technology_id": entry["technology_id"], "alias": a} for a in entry["aliases"] if a not in old.get("aliases", []))
+            relationships.extend({"technology_id": entry["technology_id"], **r} for r in entry.get("capability_relationships", []) if r not in old.get("capability_relationships", []))
+        receipt = {"promotion_manifest_version": "technology-registry-promotion-manifest-v1",
+            "applied_proposal_ids": [p["proposal_id"] for p in selected], "proposal_count": len(selected),
+            "source_registry_version": raw["registry_version"], "promoted_registry_version": promoted["registry_version"],
+            "source_registry_sha256": hashlib.sha256(original).hexdigest(), "published_registry_sha256": hashlib.sha256(encoded).hexdigest(),
+            "published_at": datetime.now(timezone.utc).isoformat(), "registry_path": str(path),
+            "taxonomy_version": production.get_default_taxonomy().version,
+            "capability_relationships_added": relationships, "aliases_added": aliases, "blocked_count": 0,
+            "production_active": False, "explicit_publish": True, "status": "prepared"}
+        def journal(status):
+            receipt.update(status=status, production_active=status == "published")
+            for item in selected:
+                item_receipt = {**receipt, **item, "proposal_bundle_version": item.get("proposal_bundle_version", PROPOSAL_CONTRACT_VERSION)}
+                conn.execute("""INSERT INTO technology_registry_publications VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(proposal_id, proposal_bundle_version, source_fingerprint, registry_path)
+                    DO UPDATE SET receipt_json=excluded.receipt_json""", (item["proposal_id"], item_receipt["proposal_bundle_version"],
+                        item["source_fingerprint"], str(path), json.dumps(item_receipt, sort_keys=True)))
+        journal("prepared")
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        checked = _prepare_tranche(conn, selected, expected_registry_version, path)
+        if not checked["ready"] or path.read_bytes() != original:
+            raise ValueError("Tranche approval or knowledge changed during staging")
+        _replace_registry(path, original, encoded)
+        journal("published")
+        conn.commit()
+    return receipt
+
+
 def publish_approved_proposal(*, proposal_id: str, explicit_publish: bool = False,
                              expected_source_fingerprint: str, expected_registry_version: str,
                              proposal_bundle_version: str = PROPOSAL_CONTRACT_VERSION,
@@ -409,18 +581,7 @@ def publish_approved_proposal(*, proposal_id: str, explicit_publish: bool = Fals
         if changed:
             # Stage and validate before a single atomic replacement. No backup,
             # taxonomy write, or changes to unrelated production entries.
-            with tempfile.NamedTemporaryFile(mode="wb", prefix=".tqd3-publish-", suffix=".json", dir=path.parent, delete=False) as staged:
-                staging_path = Path(staged.name)
-                staged.write(encoded)
-                staged.flush()
-                os.fsync(staged.fileno())
-            try:
-                production.load_registry(staging_path)
-                if path.read_bytes() != original:
-                    raise ValueError("Production knowledge changed while staging; publication stopped")
-                os.replace(staging_path, path)
-            finally:
-                staging_path.unlink(missing_ok=True)
+            _replace_registry(path, original, encoded)
             production.get_default_registry.cache_clear()
         receipt["status"] = "published"
         conn.execute("""UPDATE technology_registry_publications SET receipt_json=?

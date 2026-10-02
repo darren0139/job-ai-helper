@@ -23,12 +23,22 @@ from taxonomy_discovery.focused_verification_targets import (
 from taxonomy_discovery.research_proposals import PROPOSAL_CONTRACT_VERSION, validate_proposal_bundle
 from taxonomy_discovery.source_authority import (
     PRIMARY_OFFICIAL, classify_candidate_source_url, load_source_authority_registry,
+    candidate_official_domains,
 )
 from taxonomy_discovery.tavily_research import build_tavily_search_request, research_target_with_tavily
 from taxonomy_discovery.technology_registry import get_default_registry, normalise, resolve_requirement_text
 
 FOCUSED_VERIFICATION_VERSION = "tqd3-focused-verification-v1.6.1"
 MAX_FOCUSED_BATCH = 3
+
+
+def verified_relationship_followup(result, capability_id, *, authority_registry_path=None):
+    """Recheck saved identity before creating research intent; never approve."""
+    interpretation = interpret_focused_verification(result, authority_registry_path=authority_registry_path)
+    if interpretation["outcome"] != "verified_identity":
+        raise ValueError("Relationship follow-up requires a currently verified identity")
+    from taxonomy_discovery.focused_verification_targets import build_relationship_followup_target
+    return build_relationship_followup_target(source_target=result["target"], capability_id=capability_id)
 
 
 def focused_target_signature(target: dict[str, Any]) -> str:
@@ -39,7 +49,7 @@ def focused_target_signature(target: dict[str, Any]) -> str:
     )}, sort_keys=True)
 
 
-def focused_search_target(target: dict[str, Any]) -> dict[str, Any]:
+def focused_search_target(target: dict[str, Any], *, research_more=False) -> dict[str, Any]:
     """Adapt the v1.5 questions verbatim to the existing focused Search adapter."""
     if target.get("target_version") != FOCUSED_VERIFICATION_TARGET_VERSION:
         raise ValueError("Unsupported focused target version")
@@ -62,6 +72,17 @@ def focused_search_target(target: dict[str, Any]) -> dict[str, Any]:
         "research_question": "\n".join(questions),
         "research_question_version": target["target_version"],
     }
+    if research_more:
+        name = target["canonical_name"]
+        adapted.update({
+            "research_profile": "first_party_definition_rescue_v1",
+            "search_query": (
+                f'"{name}" official project product documentation overview '
+                f'"{name} is" definition purpose features. '
+                + " ".join(questions)
+            ),
+            "include_domains": candidate_official_domains({"canonical_name": name}),
+        })
     build_tavily_search_request(adapted)  # Validate the whole batch before execution.
     return adapted
 
@@ -76,7 +97,7 @@ def execute_focused_verification(targets, *, selected_target_ids, explicit_execu
         raise ValueError(f"Select between 1 and {MAX_FOCUSED_BATCH} focused targets")
     if any(tid not in by_id for tid in selected):
         raise ValueError("Unknown selected focused target")
-    adapted = {tid: focused_search_target(by_id[tid]) for tid in selected}
+    adapted = {tid: focused_search_target(by_id[tid], research_more=research_more) for tid in selected}
     saved = list_focused_verification_results(db_path=db_path)
     output = []
     for tid in selected:
@@ -93,6 +114,58 @@ def execute_focused_verification(targets, *, selected_target_ids, explicit_execu
                        "completed_at": datetime.now(timezone.utc).isoformat()})
         # Save each completion immediately so a later batch failure cannot lose evidence.
         output.append(save_focused_verification_result(result, db_path=db_path))
+    return output
+
+
+def execute_focused_bulk(targets, *, selected_target_ids, explicit_execution=False, **options):
+    """Validate selection once, then execute existing safe batches sequentially."""
+    if explicit_execution is not True:
+        raise ValueError("Focused verification requires explicit execution")
+    targets = list(targets)
+    by_id = {t["target_id"]: t for t in targets}
+    selected = list(dict.fromkeys(selected_target_ids))
+    if not selected or any(tid not in by_id for tid in selected):
+        raise ValueError("Select known ready targets")
+    for tid in selected:
+        focused_search_target(by_id[tid])
+    output = []
+    for start in range(0, len(selected), MAX_FOCUSED_BATCH):
+        output.extend(execute_focused_verification(targets,
+            selected_target_ids=selected[start:start + MAX_FOCUSED_BATCH],
+            explicit_execution=True, **options))
+    return output
+
+
+def focused_review_rows(saved_rows, *, proposal_reviews=()):
+    """Consolidated diagnostics; no decisions are made from evidence confidence."""
+    decisions = {r["proposal_id"]: r["decision"] for r in proposal_reviews}
+    output = []
+    for row in saved_rows:
+        result = row["result"]
+        try:
+            interpreted = interpret_focused_verification(result)
+            draft = build_focused_draft(result, interpreted)
+            knowledge = interpreted["existing_registry_knowledge"]
+            proposal_ids = [p["proposal_id"] for p in draft["proposal_bundle"]["proposals"]]
+            sent = row.get("review_draft") or {}
+            proposal_ids += [p["proposal_id"] for p in sent.get("proposal_bundle", {}).get("proposals", [])]
+            output.append({
+                "Technology": interpreted["canonical_name"], "Route": result["target"]["route"],
+                "Verification outcome": interpreted["outcome"],
+                "Proposed capability": interpreted["proposed_capability_id"],
+                "Authoritative sources": len(interpreted["authoritative_sources"]),
+                "Aliases": ", ".join(interpreted["safe_aliases"]),
+                "Conflicts / blockers": interpreted["outcome"] if interpreted["outcome"] in
+                    {"ambiguous_identity", "insufficient_evidence", "needs_more_research"} else "",
+                "Production knowledge": knowledge["status"],
+                "Existing capability": knowledge.get("capability_id"),
+                "Human decision": ", ".join(sorted({decisions[pid] for pid in proposal_ids if pid in decisions})) or "unreviewed",
+                "Review action": row.get("decision") or "none",
+            })
+        except (ValueError, KeyError, TypeError) as exc:
+            output.append({"Technology": result.get("target", {}).get("canonical_name"),
+                           "Verification outcome": "conflict", "Conflicts / blockers": str(exc),
+                           "Human decision": "unreviewed"})
     return output
 
 
@@ -153,9 +226,13 @@ def interpret_focused_verification(result: dict[str, Any], *, authority_registry
         classification = classify_candidate_source_url(
             {"canonical_name": name}, url, registry_path=authority_registry_path
         )  # Never adopt provider maintainer or authoritative claims as domain rules.
-        sentences = _definition_sentences(name, str(raw.get("content") or ""))
+        content = str(raw.get("content") or "") + "\n" + str(raw.get("raw_content") or "")
+        # Snippet and full text are separate evidence fields. Never join a
+        # non-definitional snippet onto the subject of a full-text definition.
+        sentences = sorted({sentence for field in ("content", "raw_content")
+                            for segment in [str(raw.get(field) or ""), *str(raw.get(field) or "").splitlines()]
+                            for sentence in _definition_sentences(name, segment)})
         official = classification["authority"] == PRIMARY_OFFICIAL and urlsplit(url).scheme in {"http", "https"}
-        content = str(raw.get("content") or "")
         if official and re.search(re.escape(name) + r"\s+(?:is\s+not|is\s+a\s+different)\b", content, re.I):
             contradictory = True
         accepted = official and bool(sentences)

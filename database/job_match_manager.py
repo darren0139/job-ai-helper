@@ -198,6 +198,39 @@ def list_latest_compatible_job_match_snapshots(
         connection.close()
 
 
+def list_latest_job_match_corpus_snapshots(*, db_path=None):
+    """Read one frozen snapshot per job, retaining its pinned historical versions.
+
+    Original JD text is recoverable only while the stored job has the same
+    content hash. Never substitute a changed current JD for historical input.
+    """
+    path = Path(db_path or DB_PATH).resolve()
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "job_match_snapshots" not in tables:
+            raise ValueError("Saved Job Match snapshots unavailable")
+        jobs_available = "discovered_jobs" in tables and {"id", "content_hash", "description"}.issubset(
+            {row[1] for row in connection.execute("PRAGMA table_info(discovered_jobs)")})
+        rows = connection.execute("""SELECT s.* FROM job_match_snapshots s
+            JOIN (SELECT discovered_job_id, MAX(id) latest_id FROM job_match_snapshots GROUP BY discovered_job_id) latest
+            ON s.id=latest.latest_id ORDER BY s.discovered_job_id""").fetchall()
+        output = []
+        for row in rows:
+            snapshot = _decode_row(row)
+            original = None
+            if jobs_available:
+                original = connection.execute("SELECT description FROM discovered_jobs WHERE id=? AND content_hash=?",
+                    (snapshot["discovered_job_id"], snapshot["job_content_hash"])).fetchone()
+            snapshot["raw_jd_text"] = original[0] if original else None
+            snapshot["raw_jd_provenance"] = "stored_job_matching_snapshot_hash" if original else "unavailable"
+            output.append(snapshot)
+        return output
+    finally:
+        connection.close()
+
+
 def save_job_match_snapshot(
     *,
     discovered_job_id: int,

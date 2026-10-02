@@ -1,0 +1,278 @@
+{
+  "branch": "feat/tqd3-capability-research-mining-v1",
+  "starting_head": "cb9318f57db496c5ae4a5f24a30e029a073a9514",
+  "ending_head": "cb9318f57db496c5ae4a5f24a30e029a073a9514",
+  "starting_working_tree": "clean",
+  "scoring_version": "stable-evidence-v1.10-phase6d16",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+  "starting_registry_version": "technology-registry-v1.2",
+  "ending_production_registry_version": "technology-registry-v1.2",
+  "starting_cpp_resolution": {
+    "status": "resolved",
+    "technology_id": "focused.cedb1bac7efcd7db",
+    "capability_id": "language.modern_cpp"
+  },
+  "production_registry_mutated": false,
+  "phases_completed": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G"
+  ],
+  "gates": {
+    "A": "PASS: 19 focused tests and existing verification smoke",
+    "B": "PASS: 5 focused tests (new integration test passed on third fixture iteration); verification smoke PASS",
+    "C": "PASS: three canaries and six Phase9E currentness tests",
+    "D": "PASS: 8 bulk/UI tests and verification smoke",
+    "E": "PASS: 6 tranche tests and 13 existing publication tests; publication smoke",
+    "F": "PASS: six focused corpus tests; CLI export/compare on one fixture; publication smoke",
+    "G": "PASS: 3 aggregation/UI/CLI tests and verification smoke"
+  },
+  "tests_run": [
+    {
+      "command": "python -B -m unittest tests.test_tqd3_evidence_rescue tests.test_tqd3_focused_verification_pipeline",
+      "environment": "PYTHONPATH=C:\\Users\\Admin\\Documents\\GitHub\\Job-AI-Helper\\.venv\\Lib\\site-packages; sandbox Python 3.12.13",
+      "result": "FAILED: 19 tests run, 17 passed, 2 failed",
+      "failures": [
+        "test_official_snippet_rescue_and_fail_closed",
+        "test_cpp_saved_evidence_reinterprets_without_network"
+      ]
+    },
+    {
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS: fake transport, persisted reload, saved C++ reinterpretation, draft-only, no mutation"
+    },
+    {
+      "phase": "A",
+      "command": "python -B -m unittest tests.test_tqd3_evidence_rescue tests.test_tqd3_focused_verification_pipeline -v",
+      "result": "PASS: 19 tests"
+    },
+    {
+      "phase": "A",
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS"
+    },
+    {
+      "phase": "B",
+      "command": "python -B -m unittest tests.test_tqd3_relationship_followup -v",
+      "result": "4 PASS, new test incomplete fixture ERROR"
+    },
+    {
+      "phase": "B",
+      "command": "python -B -m unittest tests.test_tqd3_relationship_followup.TQD3RelationshipFollowupTests.test_saved_identity_explicit_followup_reload_and_closed_relationship -v",
+      "result": "iteration 2: insufficient fixture FAIL; iteration 3: PASS"
+    },
+    {
+      "phase": "B",
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS"
+    },
+    {
+      "phase": "C",
+      "command": "python -B -m unittest tests.test_tqd3_integration_canaries tests.test_tqd3_explicit_publication.ExplicitPublicationTests.test_end_to_end_runtime_job_match_and_session_analysis_zero_network_models tests.test_phase9e_registry_currentness_cache -v",
+      "result": "9 passed; C++ mock target error fixed; targeted retest passed"
+    },
+    {
+      "phase": "C",
+      "command": "python -B -m unittest tests.test_tqd3_integration_canaries.IntegrationCanaries.test_cpp_canonical_and_registry_do_not_double_credit -v",
+      "result": "PASS"
+    },
+    {
+      "phase": "C",
+      "command": "python -B -m scripts.check_tqd3_explicit_publication",
+      "result": "PASS"
+    },
+    {
+      "phase": "D",
+      "command": "python -B -m unittest tests.test_tqd3_bulk_verification tests.test_tqd3_focused_verification_pipeline_ui -v",
+      "result": "PASS: 8 tests"
+    },
+    {
+      "phase": "D",
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS"
+    },
+    {
+      "phase": "E",
+      "command": "python -B -m unittest tests.test_tqd3_atomic_tranche tests.test_tqd3_explicit_publication -v",
+      "result": "PASS: initial 4 tranche plus 13 publication tests"
+    },
+    {
+      "phase": "E",
+      "command": "python -B -m unittest tests.test_tqd3_atomic_tranche.AtomicTrancheTests.test_ui_selection_never_publishes_until_explicit_button tests.test_tqd3_atomic_tranche.AtomicTrancheTests.test_taxonomy_and_registry_staleness_zero_writes -v",
+      "result": "PASS: 2 added tests"
+    },
+    {
+      "phase": "E",
+      "command": "python -B -m scripts.check_tqd3_explicit_publication",
+      "result": "PASS"
+    },
+    {
+      "phase": "F",
+      "command": "python -B -m unittest tests.test_tqd3_regression_corpus -v",
+      "result": "5 PASS; fixture SQLite handle cleanup error fixed"
+    },
+    {
+      "phase": "F",
+      "command": "python -B -m unittest tests.test_tqd3_regression_corpus.RegressionCorpusTests.test_read_only_export_hash_matched_jd_and_missing_context_closed -v",
+      "result": "PASS including explicit CLI on one temporary saved job"
+    },
+    {
+      "phase": "F",
+      "command": "python -B -m scripts.check_tqd3_explicit_publication",
+      "result": "PASS"
+    },
+    {
+      "phase": "G",
+      "command": "python -B -m unittest tests.test_tqd3_taxonomy_gaps -v",
+      "result": "PASS: 3 tests"
+    },
+    {
+      "phase": "G",
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS"
+    },
+    {
+      "phase": "review",
+      "command": "python -B -m unittest tests.test_tqd3_evidence_rescue tests.test_tqd3_atomic_tranche.AtomicTrancheTests.test_cross_item_alias_conflict_closed tests.test_tqd3_regression_corpus.RegressionCorpusTests.test_roundtrip_fields_csv_offline_unchanged_and_no_mutation -v",
+      "result": "PASS: 4 tests after evidence-line/alias diagnostics/CSV additions"
+    },
+    {
+      "phase": "review",
+      "command": "AST parse all changed Python files",
+      "result": "PASS: 22 files"
+    },
+    {
+      "phase": "final",
+      "command": "python -B -m unittest tests.test_tqd3_evidence_rescue tests.test_tqd3_focused_verification_pipeline tests.test_tqd3_relationship_followup tests.test_tqd3_integration_canaries tests.test_phase9e_registry_currentness_cache tests.test_tqd3_bulk_verification tests.test_tqd3_focused_verification_pipeline_ui tests.test_tqd3_atomic_tranche tests.test_tqd3_regression_corpus tests.test_tqd3_taxonomy_gaps -v",
+      "result": "PASS: 56 tests; first union before final missing-baseline closure"
+    },
+    {
+      "phase": "review",
+      "command": "python -B -m unittest tests.test_tqd3_regression_corpus.RegressionCorpusTests.test_missing_evidence_and_frozen_context_tampering_closed -v",
+      "result": "PASS: missing baseline closes replay"
+    },
+    {
+      "phase": "final",
+      "command": "python -B -m unittest tests.test_tqd3_evidence_rescue tests.test_tqd3_focused_verification_pipeline tests.test_tqd3_relationship_followup tests.test_tqd3_integration_canaries tests.test_phase9e_registry_currentness_cache tests.test_tqd3_bulk_verification tests.test_tqd3_focused_verification_pipeline_ui tests.test_tqd3_atomic_tranche tests.test_tqd3_regression_corpus tests.test_tqd3_taxonomy_gaps -v",
+      "result": "PASS: 56 tests after final missing-baseline closure"
+    },
+    {
+      "phase": "final",
+      "command": "python -B -m scripts.check_tqd3_focused_verification_pipeline",
+      "result": "PASS on both final runs"
+    },
+    {
+      "phase": "final",
+      "command": "python -B -m scripts.check_tqd3_explicit_publication",
+      "result": "PASS on both final runs"
+    }
+  ],
+  "tests_skipped_by_budget": [
+    "project quick/full gates",
+    "full unittest discovery",
+    "full approximately 400-job historical corpus",
+    "live Tavily/model/embedding calls"
+  ],
+  "network_calls_in_tests": 0,
+  "model_calls_in_tests": 0,
+  "real_publications": 0,
+  "canary_results": {
+    "C++": "PASS canonical plus registry with identical score and evidence",
+    "React": "PASS real implementation evidence credited once",
+    "unresolved_technology": "PASS existing end-to-end temporary publication canary",
+    "currentness": "PASS taxonomy/scorer/registry identity; no runtime manual cache clearing"
+  },
+  "bulk_invariants": {
+    "internal_batch_limit": 3,
+    "immediate_completion_persistence": true,
+    "later_failure_preserves_completions": true,
+    "selection_does_not_execute": true,
+    "automatic_approval": false,
+    "atomic_tranche": "PASS: one bad item yields zero registry and DB writes; all valid uses one replacement"
+  },
+  "regression_corpus": {
+    "export": "JSON frozen inputs plus CSV requirement/score summary",
+    "comparison": "existing production deterministic matcher; retrieval off; network blocked",
+    "historical_JD_policy": "only stored job with matching snapshot hash; missing context fails closed",
+    "full_historical_corpus_run": false
+  },
+  "taxonomy_gap_summary": {
+    "exact_normalized_clustering": true,
+    "existing_observation_aggregation_reused": true,
+    "five_routes_tested": true,
+    "provenance_and_current_versions": true,
+    "entry_point": "Capability Discovery corpus expander and offline gaps CLI",
+    "automatic_research": false,
+    "proposal_creation": false
+  },
+  "remaining_manual_actions": [
+    "Review all uncommitted changes.",
+    "Validate with supported Python 3.13; sandbox testing used Python 3.12.13 with pure dependencies from .venv.",
+    "After review, export and compare the historical corpus. Inspect review/regression reports and unavailable historical inputs.",
+    "Inspect uploaded gap inputs in Capability Discovery; research, approval, and publication require explicit human actions."
+  ],
+  "blockers": [],
+  "phase_iterations": {
+    "A": 1,
+    "B": 3,
+    "C": 2,
+    "D": 1,
+    "E": 1,
+    "F": 2,
+    "G": 1
+  },
+  "full_corpus_command": "python -B -m scripts.tqd3_regression_corpus compare --corpus tqd3_job_match_corpus.json --output tqd3_job_match_regression.json",
+  "corpus_export_command": "python -B -m scripts.tqd3_regression_corpus export --output tqd3_job_match_corpus.json --csv tqd3_job_match_corpus.csv",
+  "production_file_checks": {
+    "taxonomy/technology_registry_v1.json": true,
+    "taxonomy/capability_taxonomy_v1.json": true,
+    "analysis_stability/stable_evidence_scoring.py": true
+  },
+  "production_file_check_method": "Registry bytes match HEAD exactly; taxonomy and scorer match Git blobs after existing Windows CRLF normalization, with no Git modifications.",
+  "production_taxonomy_mutated": false,
+  "continuation_starting_working_tree": "Known uncommitted Gate A files preserved",
+  "manual_commands": {
+    "export": "python -B -m scripts.tqd3_regression_corpus export --output tqd3_job_match_corpus.json --csv tqd3_job_match_corpus.csv",
+    "compare": "python -B -m scripts.tqd3_regression_corpus compare --corpus tqd3_job_match_corpus.json --output tqd3_job_match_regression.json",
+    "gaps": "python -B -m scripts.tqd3_regression_corpus gaps --corpus tqd3_job_match_corpus.json --output tqd3_taxonomy_gap_inputs.json"
+  },
+  "files": {
+    "database/job_match_manager.py": "Read-only latest historical snapshots; original JD must match snapshot hash.",
+    "database/technology_registry_proposal_manager.py": "All-item tranche validation, zero-write blockers, journal receipts, shared atomic registry replacement.",
+    "taxonomy_discovery/focused_verification.py": "Strict independent snippet/full-text/line definitions; explicit rescue, verified follow-up guard, chunking and review diagnostics.",
+    "taxonomy_discovery/focused_verification_ui.py": "Many selections, safe batch execution, consolidated review, recognized-unmapped follow-ups and saved follow-up retries.",
+    "taxonomy_discovery/proposal_publication_ui.py": "Approved tranche selection and read-only preview; explicit publication button.",
+    "taxonomy_discovery/review_ui.py": "Integrate tranche publication and corpus diagnostics into existing Capability Discovery.",
+    "taxonomy_discovery/source_authority.py": "Reuse versioned candidate-specific official domains as query routing hints.",
+    "taxonomy_discovery/tavily_research.py": "Rescue-only advanced Search, full text and domain filtering; ordinary request unchanged.",
+    "taxonomy_discovery/regression_corpus.py": "Frozen corpus/CSV, production deterministic replay, change classifications, evidence/credit invariants and missing-context closure.",
+    "taxonomy_discovery/taxonomy_gaps.py": "Existing exact observation aggregation, provenance, suggestions, five diagnostic routes; no proposals.",
+    "taxonomy_discovery/corpus_review_ui.py": "Uploaded frozen corpus gap diagnostics and governed download.",
+    "scripts/tqd3_regression_corpus.py": "Explicit export, offline compare and gaps commands; not included in project runner.",
+    "tests/test_phase9e_registry_currentness_cache.py": "Actual cache identity function isolated from optional UI dependencies; scorer/taxonomy/registry identity contracts.",
+    "tests/test_tqd3_focused_verification_pipeline.py": "Isolated unpublished C++ and published no-change contracts; initial verbatim query.",
+    "tests/test_tqd3_focused_verification_pipeline_ui.py": "Mocked explicit execution and bulk integration; no live UI handoff or proposal-store reads.",
+    "tests/test_tqd3_relationship_followup.py": "Fake identity-to-relationship research, selection, reload and failure closure.",
+    "tests/test_tqd3_evidence_rescue.py": "Official snippet/full-text rescue and continued insufficient evidence with fake transport.",
+    "tests/test_tqd3_integration_canaries.py": "C++/React evidence and credit canaries, version invalidation.",
+    "tests/test_tqd3_bulk_verification.py": "Safe chunks, selected-only requests, reload and persistence after later failure.",
+    "tests/test_tqd3_atomic_tranche.py": "Atomic validation, receipts, stale knowledge, aliases and explicit UI on temporary registries.",
+    "tests/test_tqd3_regression_corpus.py": "Small frozen export/replay/CLI fixtures, deltas, missing inputs, evidence and duplicate-credit checks.",
+    "tests/test_tqd3_taxonomy_gaps.py": "Exact clusters, routes, provenance, deduplication and diagnostics-only UI/CLI.",
+    "tqd3_governed_pipeline_handover.json": "Continuous phase gates, tests, file summaries, invariants and manual commands."
+  },
+  "validation": {
+    "final_focused_union": "56 passed",
+    "verification_smoke": "PASS",
+    "publication_smoke": "PASS",
+    "phase9e_currentness": "6 passed in final union",
+    "syntax": "22 changed Python files parsed",
+    "test_runtime": "sandbox Python 3.12.13; Python 3.13 remains local",
+    "git_diff_check": "PASS"
+  },
+  "git_status_summary": "12 tracked files modified, 10 Python files plus handover untracked; all implementation changes remain uncommitted."
+}

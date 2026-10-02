@@ -78,7 +78,7 @@ class FocusedVerificationPipelineTests(unittest.TestCase):
         for t in (target(), target(capabilities=["devops.containerisation"])):
             adapted = focused_search_target(t)
             self.assertEqual(adapted["research_question"], "\n".join(t["questions"]))
-            self.execute(t, research_more=True)
+            self.execute(t)
             self.assertEqual(self.calls[-1]["query"], "\n".join(t["questions"]))
             self.assertEqual(self.calls[-1]["search_depth"], "basic")
 
@@ -183,7 +183,8 @@ class FocusedVerificationPipelineTests(unittest.TestCase):
         with patch(
             "taxonomy_discovery.focused_verification.research_target_with_tavily",
             side_effect=AssertionError("saved evidence reinterpretation must not call network"),
-        ):
+        ), patch("taxonomy_discovery.focused_verification.get_default_registry",
+                 return_value=TechnologyRegistry(version="unpublished-test", entries=())):
             interpretation = interpret_focused_verification(result)
         self.assertEqual(interpretation["outcome"], "verified_registry_relationship")
         self.assertEqual(interpretation["proposed_capability_id"], "language.modern_cpp")
@@ -196,6 +197,10 @@ class FocusedVerificationPipelineTests(unittest.TestCase):
         proposal = draft["proposal_bundle"]["proposals"][0]
         self.assertEqual(proposal["entry_kind"], "language")
         self.assertEqual(proposal["proposed_capability_id"], "language.modern_cpp")
+        published = interpret_focused_verification(result)
+        self.assertEqual(published["outcome"], "no_change")
+        self.assertEqual(published["existing_registry_knowledge"]["capability_id"], "language.modern_cpp")
+        self.assertEqual(build_focused_draft(result, published)["action"], "no_change")
 
     def test_exact_production_knowledge_remains_authoritative(self):
         row = self.execute(target("RabbitMQ"))

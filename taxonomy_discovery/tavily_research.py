@@ -86,7 +86,7 @@ def build_tavily_search_request(
             f"Research target {target_id} has no provider query"
         )
 
-    return {
+    payload = {
         "query": provider_query,
         "search_depth": "basic",
         "max_results": int(max_results),
@@ -98,6 +98,12 @@ def build_tavily_search_request(
         "include_usage": True,
         "safe_search": True,
     }
+    if target.get("research_profile") == "first_party_definition_rescue_v1":
+        payload.update(search_depth="advanced", include_raw_content="text")
+        domains = target.get("include_domains") or []
+        if domains:
+            payload["include_domains"] = list(domains)
+    return payload
 
 
 def _default_transport(

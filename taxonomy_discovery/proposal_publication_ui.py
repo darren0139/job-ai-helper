@@ -3,12 +3,45 @@ from __future__ import annotations
 
 from database.technology_registry_proposal_manager import (
     proposal_publication_state, publish_approved_proposal,
+    prepare_approved_tranche, publish_approved_tranche,
 )
 
 DISCOVERY_TABS_KEY = "taxonomy_discovery_tabs"
 REQUESTED_PROPOSAL_KEY = "taxonomy_discovery_requested_proposal"
 PROPOSAL_INSPECTOR_KEY = "technology_registry_proposal_inspector"
 PINNED_PROPOSAL_KEY = "taxonomy_discovery_pinned_proposal"
+
+
+def render_tranche_publication(proposals, reviews):
+    """Selection and preview are read-only; publication has one explicit button."""
+    import streamlit as st
+    from taxonomy_discovery.technology_registry import get_default_registry
+    decisions = {r["proposal_id"]: r["decision"] for r in reviews}
+    by_id = {p["proposal_id"]: p for p in proposals
+             if decisions.get(p["proposal_id"]) in {"approve_mapping", "approve_identity"}}
+    st.markdown("**Publish an approved tranche**")
+    selected = st.multiselect("Approved proposals to publish together", list(by_id),
+                              format_func=lambda pid: by_id[pid]["label"], key="tqd3_publication_tranche")
+    if not selected:
+        return
+    selection = [{k: by_id[pid][k] for k in ("proposal_id", "proposal_bundle_version", "source_fingerprint")} for pid in selected]
+    version = get_default_registry().version
+    prepared = prepare_approved_tranche(selected_proposals=selection, expected_registry_version=version)
+    if prepared["blockers"]:
+        st.dataframe(prepared["blockers"], hide_index=True, width="stretch")
+    st.caption("Every selected approval must still be valid. Any blocker prevents the entire publication.")
+    if st.button("Publish selected approved tranche", disabled=not prepared["ready"], key="tqd3_publish_tranche"):
+        try:
+            receipt = publish_approved_tranche(selected_proposals=selection, expected_registry_version=version, explicit_publish=True)
+            if receipt["status"] == "blocked":
+                st.error("Nothing published. Review every blocker.")
+                st.dataframe(receipt["blockers"], hide_index=True)
+            else:
+                st.success("Approved tranche published. Candidate evidence remains unchanged.")
+                st.json(receipt)
+                st.rerun()
+        except Exception as exc:
+            st.error(f"Publication stopped: {exc}")
 
 
 FRIENDLY_DECISION_LABELS = {

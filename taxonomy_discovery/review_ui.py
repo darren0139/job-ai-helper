@@ -30,6 +30,7 @@ from taxonomy_discovery.focused_verification_targets import (
     dump_focused_verification_targets_json,
 )
 from taxonomy_discovery.focused_verification_ui import render_focused_verification
+from taxonomy_discovery.corpus_review_ui import render_corpus_research_inputs
 from taxonomy_discovery.proposal_publication_ui import (
     DISCOVERY_TABS_KEY,
     friendly_classification_label,
@@ -37,6 +38,7 @@ from taxonomy_discovery.proposal_publication_ui import (
     prepare_proposal_inspector,
     render_human_decision_guidance,
     render_proposal_publication,
+    render_tranche_publication,
 )
 from taxonomy_discovery.broad_mining_discovery_catalog import (
     build_discovery_catalog,
@@ -4156,6 +4158,7 @@ def _render_tqd3_broad_mining_tab() -> None:
     )
 
 def render_capability_discovery_review() -> None:
+    render_corpus_research_inputs()
     st.divider()
     st.header("Capability Discovery")
     st.caption(
@@ -4953,6 +4956,7 @@ def render_capability_discovery_review() -> None:
             for row in proposal_reviews
         }
         publications = list_proposal_publications()
+        render_tranche_publication(proposals, proposal_reviews)
 
         decision_counts = {
             decision: sum(

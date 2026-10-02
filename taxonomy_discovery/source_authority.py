@@ -135,6 +135,11 @@ def _all_known_official_domains(
     return domains
 
 
+def candidate_official_domains(candidate, *, registry_path=None) -> list[str]:
+    """Versioned routing hints only; never infer authority from provider claims."""
+    return sorted(_candidate_official_domains(candidate, load_source_authority_registry(registry_path)))
+
+
 def _secondary_kind(
     host: str,
     registry: dict[str, Any],
