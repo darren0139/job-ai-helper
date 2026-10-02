@@ -20,6 +20,8 @@ from taxonomy_discovery.source_authority import classify_candidate_source_url, P
 from taxonomy_discovery.taxonomy_gaps import GAP_VERSION
 from taxonomy_discovery.technology_registry import resolve_requirement_text, get_default_registry
 from taxonomy_discovery.research_targets import _strict_unknown_terms
+from taxonomy_discovery.candidate_refinement import (concept_key, semantic_overlap,
+    technology_entities, route_candidate, capability_context, REFINEMENT_VERSION)
 
 PROPOSAL_VERSION = "tqd3-taxonomy-proposal-v1"
 ROUTES = ("technology_identity", "technology_relationship", "existing_capability_resolver_issue",
@@ -30,6 +32,8 @@ DECISIONS = ("undecided", "research_more", "reject", "approve_for_publication")
 def overlap_check(text, *, taxonomy=None):
     taxonomy = taxonomy or get_default_taxonomy()
     exact = classify_requirement_record({"text":text},taxonomy)
+    semantic_text=capability_context(text)
+    supported_canonical=classify_requirement_record({"text":semantic_text},taxonomy)
     registry_resolution = resolve_requirement_text(text)
     lexical = lexical_retrieve(text, taxonomy=taxonomy, top_k=5)
     words = set(normalise(text).split()) - {"experience","with","the","and","of","in","a","to","knowledge","required"}
@@ -45,10 +49,15 @@ def overlap_check(text, *, taxonomy=None):
             concepts.append({"capability_id":entry["capability_id"],"domain":entry["domain"],
                 "common_concepts":common,"score":round(len(common)/max(1,len(words)),6)})
     concepts.sort(key=lambda r:(-r["score"],r["capability_id"]))
-    high = [r for r in concepts if r["score"] >= 0.6 and len(r["common_concepts"]) >= 2]
+    high = semantic_overlap(semantic_text,taxonomy)
     conflicts = sorted({r["domain"] for r in high}) if len({r["domain"] for r in high}) > 1 else []
     exact_ids = [exact["capability_id"]] if exact else [registry_resolution["capability_id"]] if registry_resolution["status"] == "resolved" else []
     return {"taxonomy_version":taxonomy.version,"exact_matches":exact_ids, "existing_registry_resolution":registry_resolution,
+        "canonical_match":exact["capability_id"] if exact else None,
+        "semantic_resolver_evidence":bool(supported_canonical or registry_resolution["status"]=="resolved" or high),
+        "canonical_match_product_context_conflict":bool(exact and not supported_canonical),
+        "requirement_phrase_product_context_conflict":bool(semantic_overlap(text,taxonomy) and not high),
+        "token_overlap_is_lexical_only":True,
         "lexical_retrieval":lexical, "high_overlap_candidates":high, "concept_overlap":concepts[:5],
         "conflicting_domains":conflicts, "vector_retrieval":"disabled_offline_no_embeddings",
         "diagnostic_only":True, "automatic_equivalence":False}
@@ -64,27 +73,14 @@ def gap_candidates(artifact):
         candidate = deepcopy(gap)  # Preserve all Phase G fields, including observed versions.
         text = " ".join(gap.get("examples") or [gap.get("normalized_cluster", "")])
         overlap = overlap_check(text)
-        route = gap.get("recommended_research_route")
-        if re.search(r"\b(degree|bachelor|master.s|phd|years? (?:of )?experience|citizenship|work authorization|salary|visa|credential|certification)\b|\b\d+\+?\s*(?:years|yrs)\b", text, re.I):
-            route = "administrative_or_non_capability"
-        elif re.search(r"\b(passionate|motivated|enthusias|team player|self.starter|dynamic personality)\b",text,re.I):
-            route = "ambiguous_or_noise"
-        elif overlap["exact_matches"] or overlap["high_overlap_candidates"]:
-            route = "existing_capability_resolver_issue"
-        elif route in {"technology_identity", "technology_relationship"}:
-            pass
-        elif gap.get("technology_terms") or any(_strict_unknown_terms(example,registry=get_default_registry()) for example in gap.get("examples",[])):
-            route = "technology_identity"
-        elif route == "resolver_issue/already_covered":
-            route = "existing_capability_resolver_issue"
-        elif route == "ambiguous/noise" or len(normalise(text).split()) < 2:
-            route = "ambiguous_or_noise"
-        elif not gap.get("provenance") or not gap.get("job_count") or not gap.get("occurrence_count"):
-            route = "insufficient_signal"
-        elif not re.search(r"\b(software|system|comput|algorithm|protocol|distributed|network|database|testing|architecture|program|data|code|application|deployment|pipeline|performance|concurrency|storage|design)\w*\b",text,re.I):
-            route = "insufficient_signal"
-        else:
-            route = "possible_new_capability"
+        entities=technology_entities(text,gap.get("technology_terms",[]))
+        route,reason=route_candidate(gap,text,overlap,entities)
+        candidate.update(concept_key=concept_key(gap["normalized_cluster"]),routing_reason=reason,
+            refinement_version=REFINEMENT_VERSION,technology_entity_diagnostics=entities,
+            observed_job_count=gap["job_count"],observed_occurrence_count=gap["occurrence_count"],
+            recurrence_priority="repeated_cross_job" if gap["job_count"]>1 else "single_job",
+            research_priority="repeated_cross_job_review" if gap["job_count"]>1 else "single_job_review",
+            review_priority="repeated_cross_job_review" if gap["job_count"]>1 else "single_job_review")
         candidate.update(candidate_route=route, overlap=overlap,
             current_versions=current_match_versions(), source_gap_ids=[gap["gap_id"]],
             observed_scoring_versions=sorted({p.get("observed_versions",{}).get("scoring_version", "unknown") for p in gap.get("provenance",[])}),

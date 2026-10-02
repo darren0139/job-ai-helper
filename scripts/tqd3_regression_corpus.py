@@ -18,6 +18,10 @@ def main(argv=None):
     gaps = commands.add_parser("gaps")
     gaps.add_argument("--corpus", required=True)
     gaps.add_argument("--output", required=True)
+    candidates=commands.add_parser("taxonomy-candidates")
+    candidates.add_argument("--gaps",required=True)
+    candidates.add_argument("--output",required=True)
+    candidates.add_argument("--csv")
     coverage = commands.add_parser("coverage")
     coverage.add_argument("--db-path")
     coverage.add_argument("--output", required=True)
@@ -44,7 +48,13 @@ def main(argv=None):
     run.add_argument("--execute", action="store_true", required=True)
     run.add_argument("--output", help="Receipt path; defaults to <plan>.run.json")
     args = parser.parse_args(argv)
-    if args.command in {"model-plan", "model-run"}:
+    if args.command == "taxonomy-candidates":
+        from taxonomy_discovery.taxonomy_evolution import gap_candidates
+        from taxonomy_discovery.candidate_refinement import candidate_report, candidate_csv
+        result=candidate_report(gap_candidates(json.loads(Path(args.gaps).read_text(encoding="utf-8"))))
+        if args.csv:
+            Path(args.csv).write_text(candidate_csv(result),encoding="utf-8")
+    elif args.command in {"model-plan", "model-run"}:
         from taxonomy_discovery.corpus_expansion import model_plan, model_run
         if args.command == "model-plan":
             result = model_plan(db_path=args.db_path, software_only=args.software_only, limit=args.limit)
@@ -78,9 +88,14 @@ def main(argv=None):
             result = model_required_queue(db_path=args.db_path, limit=args.limit)
     if args.output:
         Path(args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(json.dumps({"command": args.command, "job_count": result.get("job_count",len(result.get("jobs", []))),
+        if args.command == "taxonomy-candidates":
+            print(json.dumps({"command":args.command,**{k:result[k] for k in (
+                "source_observations","concept_count","candidate_route_counts","recurrence_counts")}}))
+        else:
+            print(json.dumps({"command": args.command, "job_count": result.get("job_count",len(result.get("jobs", []))),
                           "gap_count": len(result.get("observations", [])), "classification_counts": result.get("classification_counts"),
-                          **{k:result[k] for k in ("discovered_jobs","replayable_jobs_before","zero_cost_backfillable","model_required") if k in result}}))
+                          **{k:result[k] for k in ("discovered_jobs","replayable_jobs_before","zero_cost_backfillable","model_required",
+                              "source_observations","concept_count","candidate_route_counts","recurrence_counts") if k in result}}))
     else:
         print(json.dumps(result,indent=2,ensure_ascii=False))
     return int(bool(result.get("classification_counts", {}).get("hard_regression/invariant_violation")))

@@ -7,17 +7,25 @@ def render_taxonomy_evolution():
     from database.taxonomy_discovery_review_manager import (list_taxonomy_evolution_proposals,
         save_taxonomy_evolution_proposal, save_taxonomy_evolution_review)
     from taxonomy_discovery.taxonomy_evolution import gap_candidates, temporary_regression, DECISIONS
+    from taxonomy_discovery.candidate_refinement import candidate_report
     with st.expander("Governed Taxonomy Evolution / Gap Review"):
         st.caption("Research inputs, drafts and approval are separate. Temporary regression is read-only. H.0 provides no production publication action.")
         gaps = st.file_uploader("Governed gap inputs JSON", type=["json"],key="tqd3_taxonomy_gaps")
         if gaps is not None:
             try:
                 candidates=gap_candidates(json.loads(gaps.getvalue()))
+                refined=candidate_report(candidates)
+                st.json({k:refined[k] for k in ("source_observations","concept_count","candidate_route_counts","recurrence_counts")})
+                routes=st.multiselect("Candidate route filters",sorted(refined["candidate_route_counts"]),key="tqd3_taxonomy_route_filters")
+                visible=[c for c in candidates if not routes or c["candidate_route"] in routes]
                 st.dataframe([{"candidate_id":c["candidate_id"],"cluster":c["normalized_cluster"],"route":c["candidate_route"],
-                    "jobs":c["job_count"],"requirements":c["occurrence_count"]} for c in candidates],hide_index=True,width="stretch")
+                    "concept":c["concept_key"],"recurrence":c["recurrence_priority"],
+                    "jobs":c["job_count"],"requirements":c["occurrence_count"]} for c in visible],hide_index=True,width="stretch")
+                with st.expander("Concept groups, source examples and route conflicts"):
+                    st.json([c for c in refined["concepts"] if not routes or any(r in routes for r in c["candidate_routes"])])
                 with st.expander("Candidate overlap and complete provenance"):
                     st.json(candidates)
-                st.download_button("Download governed candidates",data=json.dumps(candidates,indent=2)+"\n",file_name="tqd3_taxonomy_candidates.json",mime="application/json")
+                st.download_button("Download governed candidates",data=json.dumps(refined,indent=2)+"\n",file_name="tqd3_taxonomy_candidates.json",mime="application/json")
             except Exception as exc:
                 st.error(f"Gap inputs fail closed: {exc}")
         draft_file=st.file_uploader("Proposal-only taxonomy draft JSON",type=["json"],key="tqd3_taxonomy_draft_import")

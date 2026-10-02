@@ -56,9 +56,9 @@ class EvolutionTests(unittest.TestCase):
             self.assertEqual(c["observed_scoring_versions"],["old-scorer"])
             self.assertEqual(c,candidate())
             cases=(("UnknownTool", "technology_identity","technology_identity"),
-                ("unknown computing widget","technology_relationship","technology_relationship"),
+                ("Node.js","technology_relationship","technology_relationship"),
                 ("Bachelor degree in computing","capability_gap","administrative_or_non_capability"),
-                ("5 years of experience","capability_gap","administrative_or_non_capability"),
+                ("5 years of experience","capability_gap","existing_capability_resolver_issue"),
                 ("passionate and motivated","capability_gap","ambiguous_or_noise"),
                 ("comfortable attending meetings","capability_gap","insufficient_signal"),
                 ("C++ programming","capability_gap","existing_capability_resolver_issue"))
