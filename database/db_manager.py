@@ -378,21 +378,138 @@ def rename_application_session(application_id: int, session_name: str) -> None:
     conn.close()
 
 
-def delete_application_session(application_id: int) -> None:
-    """Delete one application session permanently."""
-    conn = _connect()
-    cursor = conn.cursor()
+# FULL_APPLICATION_DELETE_V1
+def _quote_sqlite_identifier(identifier: str) -> str:
+    """Quote a SQLite identifier discovered from sqlite_master/PRAGMA."""
+    return '"' + str(identifier).replace('"', '""') + '"'
 
-    cursor.execute(
+
+def _application_delete_targets(cursor) -> list[tuple[str, tuple[str, ...]]]:
+    """
+    Return every non-root table containing an application lifecycle column.
+
+    application_id is the canonical ownership/link column. The suffix match
+    also covers relationship columns such as source_application_id or
+    parent_application_id without hard-coding every future table name.
+    """
+    rows = cursor.execute(
         """
-        DELETE FROM applications
-        WHERE id = ?
-        """,
-        (application_id,),
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+        """
+    ).fetchall()
+
+    targets: list[tuple[str, tuple[str, ...]]] = []
+    for row in rows:
+        table_name = str(row[0])
+        if table_name == "applications":
+            continue
+
+        quoted_table = _quote_sqlite_identifier(table_name)
+        columns = [
+            str(info[1])
+            for info in cursor.execute(
+                f"PRAGMA table_info({quoted_table})"
+            ).fetchall()
+        ]
+        application_columns = tuple(
+            column
+            for column in columns
+            if column == "application_id" or column.endswith("_application_id")
+        )
+        if application_columns:
+            targets.append((table_name, application_columns))
+
+    return targets
+
+
+def _application_delete_where(application_columns: tuple[str, ...]) -> str:
+    return " OR ".join(
+        f"{_quote_sqlite_identifier(column)} = ?"
+        for column in application_columns
     )
 
-    conn.commit()
-    conn.close()
+
+def get_application_delete_impact(application_id: int) -> dict[str, int]:
+    """Return a side-effect-free count of rows a full application delete removes."""
+    application_id = int(application_id)
+    if application_id <= 0:
+        raise ValueError("application_id must be a positive integer.")
+
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        impact: dict[str, int] = {}
+
+        application_row = cursor.execute(
+            "SELECT COUNT(*) FROM applications WHERE id = ?",
+            (application_id,),
+        ).fetchone()
+        impact["applications"] = int(application_row[0] if application_row else 0)
+
+        for table_name, application_columns in _application_delete_targets(cursor):
+            where_sql = _application_delete_where(application_columns)
+            parameters = (application_id,) * len(application_columns)
+            row = cursor.execute(
+                f"SELECT COUNT(*) FROM {_quote_sqlite_identifier(table_name)} "
+                f"WHERE {where_sql}",
+                parameters,
+            ).fetchone()
+            count = int(row[0] if row else 0)
+            if count:
+                impact[table_name] = count
+
+        return impact
+    finally:
+        conn.close()
+
+
+def delete_application_session(application_id: int) -> None:
+    """
+    Delete one application session and every SQLite row linked to it.
+
+    Relationship/provenance rows, snapshots, histories, decisions, execution
+    ledgers, tailoring state, chat rows, and future application-scoped tables
+    are discovered from the schema instead of a brittle hand-maintained list.
+
+    Shared/global rows are preserved because they do not carry this
+    application's lifecycle key. The SQLite portion is atomic: any failure
+    rolls back the entire operation.
+    """
+    application_id = int(application_id)
+    if application_id <= 0:
+        raise ValueError("application_id must be a positive integer.")
+
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+
+        # Delete application-owned/link rows first. This removes provenance
+        # edges without deleting shared evidence objects they reference.
+        for table_name, application_columns in _application_delete_targets(cursor):
+            where_sql = _application_delete_where(application_columns)
+            parameters = (application_id,) * len(application_columns)
+            cursor.execute(
+                f"DELETE FROM {_quote_sqlite_identifier(table_name)} "
+                f"WHERE {where_sql}",
+                parameters,
+            )
+
+        # Delete the application root last.
+        cursor.execute(
+            "DELETE FROM applications WHERE id = ?",
+            (application_id,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_recent_applications(limit: int = 15) -> list[tuple]:
