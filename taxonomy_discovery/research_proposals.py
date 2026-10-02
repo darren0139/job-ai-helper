@@ -350,6 +350,8 @@ def validate_proposal_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         )
         if isinstance(raw.get("focused_verification"), dict):
             cleaned_proposals[-1]["focused_verification"] = deepcopy(raw["focused_verification"])
+        if isinstance(raw.get("governed_research"), dict):
+            cleaned_proposals[-1]["governed_research"] = deepcopy(raw["governed_research"])
 
     return {
         "proposal_bundle_version": PROPOSAL_CONTRACT_VERSION,

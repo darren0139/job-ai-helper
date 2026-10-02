@@ -2,13 +2,178 @@
 import json
 
 
+def render_governed_research():
+    import streamlit as st
+    from taxonomy_discovery import governed_research as research
+    from database.taxonomy_discovery_review_manager import (list_governed_research_results,
+        save_governed_research_draft, save_governed_research_review)
+    from taxonomy_discovery.taxonomy_evolution import DECISIONS
+    st.subheader("Governed Gap Review and Research")
+    st.caption("Research, draft creation, human approval and publication are separate. H.1 offers no publication action.")
+    st.markdown("**Step 1 — Prepare Gap Review**")
+    if st.button("Prepare / Refresh Gap Review", key="tqd3_h1_prepare"):
+        try:
+            st.session_state["tqd3_h1_prepared"] = research.prepare_gap_review()
+            st.session_state.pop("tqd3_h1_plan", None)
+        except Exception as exc:
+            st.error(f"Local preparation failed closed: {exc}")
+    with st.expander("Advanced / reproducibility · frozen artifacts"):
+        corpus = st.file_uploader("Historical frozen corpus JSON", type=["json"], key="tqd3_h1_corpus")
+        gaps = st.file_uploader("Historical governed gap JSON", type=["json"], key="tqd3_h1_gaps")
+        if st.button("Prepare uploaded artifacts", key="tqd3_h1_manual", disabled=corpus is None and gaps is None):
+            try:
+                st.session_state["tqd3_h1_prepared"] = research.prepare_gap_review(
+                    corpus=json.loads(corpus.getvalue()) if corpus else None,
+                    gaps=json.loads(gaps.getvalue()) if gaps else None)
+                st.session_state.pop("tqd3_h1_plan", None)
+            except Exception as exc:
+                st.error(f"Uploaded artifacts fail closed: {exc}")
+        prepared = st.session_state.get("tqd3_h1_prepared")
+        if prepared:
+            st.json({k:prepared[k] for k in ("current_versions", "artifact_fingerprint")})
+            for key, filename in (("corpus","tqd3_job_match_corpus.json"), ("gaps","tqd3_taxonomy_gap_inputs.json"), ("report","tqd3_taxonomy_candidates.json")):
+                if prepared[key] is not None:
+                    st.download_button("Download "+key, json.dumps(prepared[key],indent=2)+"\n", file_name=filename, mime="application/json", key="tqd3_h1_download_"+key)
+            st.download_button("Download refined candidate CSV", prepared["csv"], file_name="tqd3_taxonomy_candidates.csv", mime="text/csv")
+    with st.expander("TQ-D3 verification/publication canaries · diagnostics only"):
+        st.json(research.canary_status())
+    prepared = st.session_state.get("tqd3_h1_prepared")
+    if not prepared:
+        st.info("Prepare current saved snapshots or upload frozen artifacts to start. Preparation uses local deterministic functions only.")
+        return
+    candidates = prepared["candidates"]
+    st.json({k:prepared["report"][k] for k in ("source_observations", "concept_count", "candidate_route_counts", "recurrence_counts")})
+    st.markdown("**Step 2 — Select research candidates (maximum 3)**")
+    st.dataframe([{"candidate_id":c["candidate_id"], "Concept":c["concept_key"],
+        "Initial Phase-G research route":c["recommended_research_route"], "Refined candidate route":c["candidate_route"],
+        "Jobs":c["job_count"], "Occurrences":c["occurrence_count"], "Reason":c["routing_reason"]} for c in candidates], hide_index=True, width="stretch")
+    eligible = sorted([c for c in candidates if c["candidate_route"] in research.ELIGIBLE_ROUTES],
+                      key=lambda c:(research.ELIGIBLE_ROUTES.index(c["candidate_route"]),c["concept_key"],c["candidate_id"]))
+    by_id = {c["candidate_id"]:c for c in eligible}
+    selected = st.multiselect("Research candidates", list(by_id), default=[], max_selections=research.MAX_BATCH,
+        format_func=lambda cid:by_id[cid]["candidate_route"]+" · "+by_id[cid]["concept_key"], key="tqd3_h1_selection") or []
+    external_resolver = st.checkbox("Also request external supporting evidence for resolver issues", value=False, key="tqd3_h1_external_resolver")
+    research_round = st.number_input("Research round (0 reuses initial results; increase for explicit follow-up)",min_value=0,max_value=3,value=0,step=1,key="tqd3_h1_round") or 0
+    st.markdown("**Step 3 — Preview research plan**")
+    if st.button("Preview selected research plan", key="tqd3_h1_plan_preview", disabled=not selected):
+        try:
+            st.session_state["tqd3_h1_plan"] = research.research_plan(candidates, selected_candidate_ids=selected, external_resolver=external_resolver, research_round=research_round)
+        except Exception as exc:
+            st.error(f"Planning rejected: {exc}")
+    plan = st.session_state.get("tqd3_h1_plan")
+    if plan:
+        for target in plan["targets"]:
+            st.write(target["subject"], "·", target["candidate"]["candidate_route"])
+            st.write("Research questions",target["questions"])
+            st.write("Why research is needed",target["reason"])
+            st.write("Source examples",target["candidate"]["examples"])
+            st.write("Preferred sources",target["preferred_source_classes"])
+            st.caption("External query planned" if target["external_requested"] and not target["requires_decomposition"] else "Local deterministic review; no external query planned")
+        with st.expander("Advanced / complete research plan and fingerprints"):
+            st.json(plan)
+        same_selection = sorted(selected) == sorted(t["candidate"]["candidate_id"] for t in plan["targets"])
+        same_options = all(t["external_requested"] == (external_resolver or t["candidate"]["candidate_route"] != "existing_capability_resolver_issue") for t in plan["targets"])
+        same_options = same_options and all(t["research_round"] == research_round for t in plan["targets"])
+        st.markdown("**Step 4 — Explicitly run bounded research**")
+        st.warning("This action may call Tavily Search: at most 3 candidates, one query each, at most two attempts each. Resolver issues use local knowledge first. Saved matching results are reused.")
+        if st.button("Run selected bounded research", key="tqd3_h1_execute", disabled=not same_selection or not same_options):
+            try:
+                if not same_selection or not same_options:
+                    raise ValueError("Selection/options changed; preview a new plan")
+                receipt = research.execute_plan(plan, candidates, explicit_execution=True)
+                st.session_state["tqd3_h1_receipt"] = receipt
+                st.json(receipt["failures"])
+            except Exception as exc:
+                st.error(f"Research stopped: {exc}. Completed results remain saved.")
+    st.markdown("**Step 5 — Review research evidence**")
+    try:
+        saved = list_governed_research_results()
+    except Exception as exc:
+        st.error(f"Saved research unavailable: {exc}")
+        return
+    for row in saved:
+        result, draft = row["result"], row["draft"]
+        rid = result["research_result_id"]
+        with st.expander(result["candidate"]["concept_key"]+" · "+result["candidate_route"]):
+            st.write("Examples",result["candidate"]["examples"])
+            st.write("Recurrence",result["candidate"]["job_count"],"jobs;",result["candidate"]["occurrence_count"],"occurrences. Frequency is context, not proof.")
+            st.write("Source jobs",sorted({p["job_id"] for p in result["source_gap_provenance"]}))
+            st.write("Authoritative evidence",result["authoritative_evidence_summary"])
+            st.dataframe([{"Source":s["evidence"].get("url"),"Source class":s["source_class"],
+                           "Accepted definitions":"\n".join(s["accepted_definition_sentences"])} for s in result["sources"]],hide_index=True,width="stretch")
+            st.write("Identity finding",result["identity_finding"])
+            st.write("Relationship finding",result["relationship_finding"])
+            st.write("Existing capability overlap",result["existing_capability_assessment"]["exact_matches"],result["existing_capability_assessment"]["high_overlap_candidates"])
+            st.write("Possible new capability assessment",result["possible_new_capability_assessment"])
+            st.write("Blockers",result["conflicts_blockers"])
+            st.write("Recommended next action",result["recommended_next_action"])
+            with st.expander("Advanced / raw provider evidence and research diagnostics"):
+                st.json(result)
+            st.markdown("**Step 6 — Create proposal if warranted**")
+            fields = None
+            if result["recommended_next_action"] == "new_capability_proposal":
+                st.caption("Enter a definition, positive concepts, explicit boundaries and native evidence tiers for human review. No new scoring policy is created.")
+                fields = {"capability_id":st.text_input("Capability ID",key=rid+"_cap"),
+                    "label":st.text_input("Label",key=rid+"_label"),
+                    "domain":st.selectbox("Existing domain",sorted({c["domain"] for c in research.get_default_taxonomy().capabilities}),key=rid+"_domain"),
+                    "definition":st.text_area("Definition",key=rid+"_definition"),
+                    "match_concepts":(st.text_area("Positive concepts (one per line)",key=rid+"_concepts") or "").splitlines(),
+                    "does_not_prove":(st.text_area("Does not prove (one per line)",key=rid+"_boundaries") or "").splitlines()}
+                evidence_terms = (st.text_area("Direct evidence application terms (one per line)", value="built\nimplemented", key=rid+"_evidence_terms") or "").splitlines()
+                fields["evidence_expectations"] = {"policy_references":["existing deterministic evidence tiers"],
+                    "evidence_tiers":[{"label":"direct", "all_groups":[fields["match_concepts"], evidence_terms],
+                        "reason":"explicit_application", "concepts":fields["match_concepts"]}]}
+            if st.button("Create draft proposal",key=rid+"_draft",disabled=draft is not None) and draft is None:
+                try:
+                    draft = research.create_draft(result, explicit_creation=True, capability_fields=fields)
+                    save_governed_research_draft(result,draft)
+                    st.success("Draft saved. Human decision remains undecided.")
+                except Exception as exc:
+                    st.error(f"Draft rejected: {exc}")
+            st.markdown("**Step 7 — Preview temporary Job Match impact**")
+            if draft:
+                st.json(draft)
+                if st.button("Preview temporary Job Match impact",key=rid+"_impact",disabled=prepared["corpus"] is None):
+                    try:
+                        st.session_state[rid+"_impact_report"] = research.temporary_impact(prepared["corpus"], draft)
+                    except Exception as exc:
+                        st.error(f"Temporary impact failed closed: {exc}")
+            report = st.session_state.get(rid+"_impact_report")
+            if report and (prepared["corpus"] is None or report.get("corpus_fingerprint") != research.fingerprint(prepared["corpus"])):
+                report = None
+            if report:
+                st.write("Affected jobs",report["affected_jobs"])
+                st.dataframe([{"Job":j["job_id"], "Requirement":c["requirement_id"],
+                    "Before":(c.get("before") or {}).get("resolution_status"), "After":(c.get("after") or {}).get("resolution_status"),
+                    "Before capability":(c.get("before") or {}).get("capability_id"), "After capability":(c.get("after") or {}).get("capability_id"),
+                    "Changed fields":", ".join(c["changed_fields"])} for j in report["jobs"] for c in j.get("requirement_changes",[])],hide_index=True,width="stretch")
+                st.write("Score differences",[{"job":j["job_id"],"deltas":j.get("job_score_deltas")} for j in report["jobs"]])
+                st.write("Duplicate-credit / availability checks",[{"job":j["job_id"], "classification":j["classification"],
+                    "violations":j.get("duplicate_credit_violations",[]),"blockers":j.get("blockers",[])} for j in report["jobs"]])
+                with st.expander("Advanced / full temporary Job Match report"):
+                    st.json(report)
+                st.caption("Temporary resolution, evidence and score differences require review; a score increase does not establish correctness.")
+            st.markdown("**Step 8 — Human decision**")
+            st.json(row["review"])
+            decision = st.selectbox("Human decision",DECISIONS,index=DECISIONS.index(row["review"].get("decision","undecided")),key=rid+"_decision")
+            reviewer = st.text_input("Reviewer",key=rid+"_reviewer")
+            notes = st.text_area("Decision rationale",key=rid+"_notes")
+            if st.button("Record human decision",key=rid+"_review"):
+                try:
+                    save_governed_research_review(rid,result_fingerprint=result["result_fingerprint"],decision=decision,reviewer=reviewer,notes=notes,regression=report)
+                    st.success("Separate human decision saved. No production publication or scoring change.")
+                except Exception as exc:
+                    st.error(f"Review rejected: {exc}")
+
+
 def render_taxonomy_evolution():
     import streamlit as st
+    render_governed_research()
     from database.taxonomy_discovery_review_manager import (list_taxonomy_evolution_proposals,
         save_taxonomy_evolution_proposal, save_taxonomy_evolution_review)
     from taxonomy_discovery.taxonomy_evolution import gap_candidates, temporary_regression, DECISIONS
     from taxonomy_discovery.candidate_refinement import candidate_report
-    with st.expander("Governed Taxonomy Evolution / Gap Review"):
+    with st.expander("Advanced / reproducibility · historical H.0 gap and draft review"):
         st.caption("Research inputs, drafts and approval are separate. Temporary regression is read-only. H.0 provides no production publication action.")
         gaps = st.file_uploader("Governed gap inputs JSON", type=["json"],key="tqd3_taxonomy_gaps")
         if gaps is not None:

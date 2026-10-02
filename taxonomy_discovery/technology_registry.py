@@ -6,6 +6,8 @@ import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,19 @@ REGISTRY_PATH = (
     / "taxonomy"
     / "technology_registry_v1.json"
 )
+
+_review_registry = ContextVar("tqd3_temporary_registry", default=None)
+
+
+@contextmanager
+def temporary_registry_scope(registry):
+    """Context-local copied knowledge for native offline review, never a cache write."""
+    _validate_registry({"registry_version":registry.version, "entries":list(registry.entries)})
+    token = _review_registry.set(registry)
+    try:
+        yield registry
+    finally:
+        _review_registry.reset(token)
 
 
 def _clean(value: Any) -> str:
@@ -132,6 +147,9 @@ def _registry_at_file_signature(path: str, signature: tuple[int, int, int]) -> T
 
 
 def get_default_registry() -> TechnologyRegistry:
+    review = _review_registry.get()
+    if review is not None:
+        return review
     # Atomic publication replaces the file. Other app processes also observe
     # the new knowledge before checking versions or resolving requirements.
     path = Path(REGISTRY_PATH).resolve()

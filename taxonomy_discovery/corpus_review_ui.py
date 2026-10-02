@@ -96,7 +96,7 @@ def render_corpus_research_inputs():
             st.error(f"Corpus diagnostics unavailable: {exc}")
             return
         st.dataframe([{"Cluster":r["normalized_cluster"],"Requirements":r["occurrence_count"],"Jobs":r["job_count"],
-                       "Research route":r["recommended_research_route"],"Technology terms":", ".join(r["technology_terms"])}
+                       "Initial Phase-G research route":r["recommended_research_route"],"Technology terms":", ".join(r["technology_terms"])}
                       for r in report["observations"]],hide_index=True,width="stretch")
         st.download_button("Download governed gap research inputs", data=json.dumps(report,indent=2,ensure_ascii=False)+"\n",
                            file_name="tqd3_taxonomy_gap_inputs.json",mime="application/json")

@@ -53,7 +53,8 @@ def main(argv=None):
         from taxonomy_discovery.candidate_refinement import candidate_report, candidate_csv
         result=candidate_report(gap_candidates(json.loads(Path(args.gaps).read_text(encoding="utf-8"))))
         if args.csv:
-            Path(args.csv).write_text(candidate_csv(result),encoding="utf-8")
+            with Path(args.csv).open("w", encoding="utf-8", newline="") as csv_file:
+                csv_file.write(candidate_csv(result))
     elif args.command in {"model-plan", "model-run"}:
         from taxonomy_discovery.corpus_expansion import model_plan, model_run
         if args.command == "model-plan":
