@@ -73,6 +73,7 @@ def aggregate_corpus_gaps(corpus):
             "taxonomy_version":taxonomy.version,"registry_version":registry.version,
             "recommended_research_route":route,"research_input_only":True,"requires_human_review":True})
     return {"gap_version":GAP_VERSION,"observations":gaps,"excluded":excluded,
+            "job_count":len({p["job_id"] for gap in gaps for p in gap["provenance"]}),
             "taxonomy_version":taxonomy.version,"registry_version":registry.version,
             "governance":{"research_input_only":True,"automatic_research":False,"proposal_creation":False,
                           "taxonomy_mutations":0,"registry_mutations":0,"candidate_evidence_mutations":0,

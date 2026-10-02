@@ -12,9 +12,10 @@ from typing import Any
 DB_PATH = Path("data/applications.db")
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+def _connect(db_path=None) -> sqlite3.Connection:
+    path = Path(db_path or DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -23,8 +24,8 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def init_job_match_schema() -> None:
-    connection = _connect()
+def init_job_match_schema(db_path=None) -> None:
+    connection = _connect(db_path)
     try:
         connection.executescript(
             """
@@ -96,9 +97,10 @@ def get_job_match_snapshot(
     match_version: str,
     scoring_version: str,
     taxonomy_version: str,
+    db_path=None,
 ) -> dict[str, Any] | None:
-    init_job_match_schema()
-    connection = _connect()
+    init_job_match_schema(db_path)
+    connection = _connect(db_path)
     try:
         row = connection.execute(
             """
@@ -243,9 +245,10 @@ def save_job_match_snapshot(
     evidence_snapshot: list[dict[str, Any]],
     stable_analysis: dict[str, Any],
     summary: dict[str, Any],
+    db_path=None,
 ) -> dict[str, Any]:
-    init_job_match_schema()
-    connection = _connect()
+    init_job_match_schema(db_path)
+    connection = _connect(db_path)
     try:
         connection.execute(
             """
@@ -302,6 +305,7 @@ def save_job_match_snapshot(
         match_version=match_version,
         scoring_version=scoring_version,
         taxonomy_version=taxonomy_version,
+        db_path=db_path,
     )
     if snapshot is None:
         raise RuntimeError("Job match snapshot was not readable after save.")

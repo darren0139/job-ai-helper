@@ -46,3 +46,5 @@ data/blueprint_artifacts/
 debug_exports/
 /python
 *.bak.*
+/tqd3_*.json
+/tqd3_*.csv

@@ -24,6 +24,7 @@ class TaxonomyGapTests(unittest.TestCase):
             corpus = gap_corpus()
             frozen = deepcopy(corpus)
             report = aggregate_corpus_gaps(corpus)
+            self.assertEqual(report["job_count"],2)
             self.assertEqual(corpus,frozen)
             by_example = {r["examples"][0]:r for r in report["observations"]}
             self.assertEqual(by_example["Experience with ZetaNovelTool"]["recommended_research_route"],"technology_identity")
@@ -72,5 +73,7 @@ class TaxonomyGapTests(unittest.TestCase):
             input_path, output_path = f.tmp/"corpus.json", f.tmp/"gaps.json"
             input_path.write_text(json.dumps(corpus))
             self.assertEqual(main(["gaps","--corpus",str(input_path),"--output",str(output_path)]),0)
-            self.assertTrue(json.loads(output_path.read_text())["governance"]["research_input_only"])
+            output = json.loads(output_path.read_text())
+            self.assertTrue(output["governance"]["research_input_only"])
+            self.assertEqual(output["job_count"],2)
             self.assertEqual(f.real_registry.read_bytes(),f.real_registry_bytes)
