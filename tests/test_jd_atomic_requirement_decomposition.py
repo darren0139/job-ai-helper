@@ -241,7 +241,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
     def test_split_children_inherit_section_importance_without_explicit_optionality(self):
         parent = "Familiarity with Git, relational databases, and REST APIs"
-        rows = _canonical(f"Requirements\n{parent}\n")["requirements"]
+        rows = _canonical(f"Required Qualifications\n{parent}\n")["requirements"]
 
         # "Familiarity" describes proficiency depth; it does not make an item
         # optional when the enclosing section explicitly says Requirements.
@@ -263,7 +263,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
         )
 
         explicit_preferred = _canonical(
-            "Requirements\n"
+            "Required Qualifications\n"
             "Familiarity with Kubernetes is preferred.\n"
         )["requirements"]
         self.assertEqual(
@@ -273,7 +273,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
         # Explicit source-language transitions still override section defaults.
         transitioned = _canonical(
-            "Requirements\n"
+            "Required Qualifications\n"
             "Experience with Python, preferably production cloud operations\n"
         )["requirements"]
         self.assertEqual(
@@ -366,7 +366,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
     def test_multiline_example_and_alternative_lists_preserve_item_boundaries(self):
         result = _canonical(
-            "Requirements\n"
+            "Required Qualifications\n"
             "Experience working with AI systems, including one or more of:\n"
             "- LLM applications\n"
             "- RAG pipelines\n"
@@ -489,7 +489,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
     def test_standalone_preferred_heading_is_structural_and_controls_following_rows(self):
         result = _canonical(
-            "Requirements\n"
+            "Required Qualifications\n"
             "Strong Python software engineering skills.\n"
             "Preferred\n"
             "AWS or other cloud deployment experience.\n"
@@ -515,7 +515,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
     def test_required_section_familiarity_does_not_leak_preferred_importance(self):
         rows = _canonical(
-            "Job Requirements\n"
+            "Required Qualifications\n"
             "Interest in online games and familiarity with recent tactical "
             "shooting titles.\n"
         )["requirements"]
@@ -539,7 +539,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
         result = _canonical(
             "Responsibilities\n"
             "Design and implement Python backend services and REST APIs.\n"
-            "Requirements\n"
+            "Required Qualifications\n"
             "Experience designing REST APIs.\n"
         )
 
@@ -560,7 +560,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
         exact = _canonical(
             "Responsibilities\n"
             "Build backend APIs.\n"
-            "Requirements\n"
+            "Required Qualifications\n"
             "Build backend APIs.\n"
         )["requirements"]
         self.assertEqual(len(exact), 1)
@@ -707,7 +707,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
 
     def test_source_group_fraction_is_provenance_not_a_second_weighting_engine(self):
         result = _canonical(
-            "Requirements\n"
+            "Required Qualifications\n"
             "Experience using Git, relational databases, and REST APIs\n"
         )
         rows = result["requirements"]
@@ -883,7 +883,7 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
             retrieval_mode_override="off",
         )
 
-        self.assertEqual(analysis["scoring_version"], "stable-evidence-v1.10-phase6d15")
+        self.assertEqual(analysis["scoring_version"], "stable-evidence-v1.10-phase6d20")
         self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
         self.assertEqual(
             analysis["canonicalisation_debug"][

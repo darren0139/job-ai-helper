@@ -123,8 +123,8 @@ class JDStructureInferenceRegressionGuardTests(unittest.TestCase):
         self.assertEqual(
             [(row["text"], row["importance"]) for row in result["requirements"]],
             [
-                ("C++", "required"),
-                ("Data Structures", "required"),
+                ("C++", "core"),
+                ("Data Structures", "core"),
                 ("Android/Kotlin", "preferred"),
                 ("CUDA", "preferred"),
             ],

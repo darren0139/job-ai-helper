@@ -295,7 +295,7 @@
     },
     "st_engineering": {
       "baseline": {
-          "deterministic_alignment_score": 10,
+          "deterministic_alignment_score": 12,
         "known_included_non_requirement": "working on cutting-edge technologies and architectures",
         "known_missing_requirement": "Perform software implementation and testing",
           "purpose": "Post-integration characterization: the inferred responsibility heading grounds real profile obligations, while the employer-offer section remains excluded.",

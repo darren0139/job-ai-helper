@@ -21,7 +21,7 @@ class JDStructureInferenceBulletBoundaryTests(unittest.TestCase):
                 self.assertFalse(result["is_heading_candidate"])
                 self.assertEqual(result["reason"], "not_heading_shape")
 
-    def test_required_bullet_data_structures_survives(self):
+    def test_requirement_bullet_data_structures_survives(self):
         result = canonicalise_requirements(
             {},
             "Requirements and Skills\n"
@@ -34,8 +34,8 @@ class JDStructureInferenceBulletBoundaryTests(unittest.TestCase):
         self.assertEqual(
             [(row["text"], row["importance"]) for row in result["requirements"]],
             [
-                ("C++", "required"),
-                ("Data Structures", "required"),
+                ("C++", "core"),
+                ("Data Structures", "core"),
                 ("Android/Kotlin", "preferred"),
                 ("CUDA", "preferred"),
             ],

@@ -341,7 +341,7 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
         )
 
         baseline = next(row for row in rows if row["text"] == "Build reliable APIs")
-        self.assertEqual(baseline["importance"], "required")
+        self.assertEqual(baseline["importance"], "core")
         self.assertEqual(
             set(result["meta"]["jd_user_inputs"]["canonical_preferred_matches"]),
             set(BONUS_REQUIREMENTS),
@@ -554,7 +554,7 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
             for row in result["stable_analysis"]["canonical_requirements"]
             if row["text"] == longer_requirement
         )
-        self.assertEqual(canonical["importance"], "required")
+        self.assertEqual(canonical["importance"], "core")
         self.assertNotIn("importance_source", canonical)
         supplemental = [
             row
@@ -587,7 +587,7 @@ class JDUserInputOverrideUnitTests(unittest.TestCase):
             for row in cleared["stable_analysis"]["canonical_requirements"]
             if row["text"] == matched
         )
-        self.assertEqual(restored["importance"], "required")
+        self.assertEqual(restored["importance"], "core")
         self.assertNotIn("importance_source", restored)
         self.assertFalse(
             any(
