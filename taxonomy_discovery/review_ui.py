@@ -30,6 +30,14 @@ from taxonomy_discovery.focused_verification_targets import (
     dump_focused_verification_targets_json,
 )
 from taxonomy_discovery.focused_verification_ui import render_focused_verification
+from taxonomy_discovery.proposal_publication_ui import (
+    DISCOVERY_TABS_KEY,
+    friendly_classification_label,
+    friendly_decision_label,
+    prepare_proposal_inspector,
+    render_human_decision_guidance,
+    render_proposal_publication,
+)
 from taxonomy_discovery.broad_mining_discovery_catalog import (
     build_discovery_catalog,
     find_discovery_exact,
@@ -79,6 +87,8 @@ from database.technology_registry_proposal_manager import (
     import_proposal_bundle,
     list_proposal_reviews,
     list_proposals,
+    list_proposal_publications,
+    proposal_publication_state,
     save_proposal_review,
 )
 from taxonomy_discovery.triage import (
@@ -4247,7 +4257,7 @@ def render_capability_discovery_review() -> None:
             "Technology Registry",
             "Research Proposals",
             "Debug / Export",
-        ]
+        ], key=DISCOVERY_TABS_KEY, on_change="rerun",
     )
 
     selected_candidate: dict[str, Any] | None = None
@@ -4878,7 +4888,8 @@ def render_capability_discovery_review() -> None:
         st.caption(
             "Research output is untrusted proposal data. Importing it does "
             "not change the production registry. Only explicit proposal "
-            "decisions can appear in a downloadable registry-vNext preview."
+            "approval enables a registry-vNext preview. Production changes "
+            "require a separate explicit Publish action."
         )
 
         handover = build_research_handover(report)
@@ -4941,6 +4952,7 @@ def render_capability_discovery_review() -> None:
             str(row.get("proposal_id") or ""): row
             for row in proposal_reviews
         }
+        publications = list_proposal_publications()
 
         decision_counts = {
             decision: sum(
@@ -4964,7 +4976,7 @@ def render_capability_discovery_review() -> None:
         )
         p3.metric(
             "Approved",
-            decision_counts.get("approve_mapping", 0),
+            decision_counts.get("approve_mapping", 0) + decision_counts.get("approve_identity", 0),
         )
         p4.metric(
             "Keep unmapped",
@@ -4996,11 +5008,11 @@ def render_capability_discovery_review() -> None:
                 for row in proposals
             }
 
-            st.markdown("### Proposal review queue")
+            st.markdown("### Optional bulk automation · Python recommendations")
             st.caption(
-                "Python recommendations are deterministic translations of "
-                "the validated research classification. They use zero AI "
-                "credits and never save without an explicit click."
+                "Optional batch helper only. The checkboxes below apply deterministic Python "
+                "recommendations to eligible unreviewed proposals after an explicit click. "
+                "For normal review, use the single-proposal inspector below."
             )
 
             q1, q2, q3 = st.columns([2, 2, 3])
@@ -5020,6 +5032,7 @@ def render_capability_discovery_review() -> None:
                     ),
                     default=[],
                     placeholder="All classifications",
+                    format_func=friendly_classification_label,
                 )
             with q2:
                 decision_filter = st.multiselect(
@@ -5027,6 +5040,7 @@ def render_capability_discovery_review() -> None:
                     list(PROPOSAL_REVIEW_DECISIONS),
                     default=[],
                     placeholder="All decisions",
+                    format_func=friendly_decision_label,
                 )
             with q3:
                 proposal_search = st.text_input(
@@ -5082,11 +5096,8 @@ def render_capability_discovery_review() -> None:
                         "select": False,
                         "proposal_id": pid,
                         "technology": str(row.get("label") or ""),
-                        "classification": str(
-                            row.get(
-                                "proposal_classification"
-                            )
-                            or ""
+                        "classification": friendly_classification_label(
+                            row.get("proposal_classification")
                         ),
                         "proposed_target": str(
                             row.get("proposed_capability_id")
@@ -5095,12 +5106,10 @@ def render_capability_discovery_review() -> None:
                         "research_confidence": float(
                             row.get("confidence") or 0.0
                         ),
-                        "current_decision": current,
-                        "python_recommendation": str(
-                            suggestion.get(
-                                "suggested_decision"
-                            )
-                            or "unreviewed"
+                        "current_decision": friendly_decision_label(current),
+                        "publication_state": proposal_publication_state(row, review_index.get(pid, {}), publications=publications)["display"],
+                        "python_recommendation": friendly_decision_label(
+                            suggestion.get("suggested_decision") or "unreviewed"
                         ),
                         "python_confidence": str(
                             suggestion.get("confidence") or ""
@@ -5115,16 +5124,14 @@ def render_capability_discovery_review() -> None:
             else:
                 use_all_recommended = st.checkbox(
                     (
-                        "Select all filtered, unreviewed proposals "
-                        "that have a Python recommendation"
+                        "Select all eligible rows for optional Python-recommended decisions"
                     ),
                     value=False,
                     key="technology_registry_select_all_recommended",
                     help=(
-                        "This visibly checks every currently filtered row "
-                        "that is still unreviewed and has a deterministic "
-                        "Python recommendation. Already-reviewed proposals "
-                        "are never bulk-overwritten."
+                        "This only selects rows eligible for the optional deterministic "
+                        "Python batch action. It does not verify, approve, or publish anything "
+                        "by itself. Already-reviewed proposals are never bulk-overwritten."
                     ),
                 )
 
@@ -5132,8 +5139,11 @@ def render_capability_discovery_review() -> None:
                     str(row["proposal_id"])
                     for row in grid_rows
                     if (
-                        row["python_recommendation"] != "unreviewed"
-                        and row["current_decision"] == "unreviewed"
+                        str(review_index.get(str(row["proposal_id"]), {}).get("decision", "unreviewed"))
+                        == "unreviewed"
+                        and str(proposal_suggestions.get(str(row["proposal_id"]), {}).get(
+                            "suggested_decision", "unreviewed"
+                        )) != "unreviewed"
                     )
                 }
 
@@ -5169,15 +5179,16 @@ def render_capability_discovery_review() -> None:
                         "proposed_target",
                         "research_confidence",
                         "current_decision",
+                        "publication_state",
                         "python_recommendation",
                         "python_confidence",
                     ],
                     column_config={
                         "select": st.column_config.CheckboxColumn(
-                            "Select",
+                            "Apply Python suggestion",
                             help=(
-                                "Select proposals for an explicit "
-                                "bulk review action."
+                                "Select this proposal only for the optional explicit "
+                                "Python-recommended batch decision action."
                             ),
                         ),
                         "proposal_id": None,
@@ -5231,7 +5242,7 @@ def render_capability_discovery_review() -> None:
 
                 if decision_summary:
                     summary_text = " · ".join(
-                        f"{count} {decision}"
+                        f"{count} {friendly_decision_label(decision)}"
                         for decision, count in sorted(
                             decision_summary.items()
                         )
@@ -5300,20 +5311,14 @@ def render_capability_discovery_review() -> None:
 
             st.divider()
             st.markdown("### Proposal detail inspector")
+            inspector_ids = prepare_proposal_inspector(st.session_state, proposals, filtered_proposals)
             proposal_id = st.selectbox(
                 "Inspect research proposal",
-                [
-                    str(row.get("proposal_id") or "")
-                    for row in filtered_proposals
-                ]
-                or [
-                    str(row.get("proposal_id") or "")
-                    for row in proposals
-                ],
+                inspector_ids,
                 format_func=lambda value: next(
                     (
                         f"{row.get('label')} · "
-                        f"{row.get('proposal_classification')}"
+                        f"{friendly_classification_label(row.get('proposal_classification'))}"
                         for row in proposals
                         if row.get("proposal_id") == value
                     ),
@@ -5334,7 +5339,7 @@ def render_capability_discovery_review() -> None:
             a, b, c, d = st.columns(4)
             a.metric(
                 "Classification",
-                str(proposal.get("proposal_classification")),
+                friendly_classification_label(proposal.get("proposal_classification")),
             )
             b.metric(
                 "Proposed target",
@@ -5344,17 +5349,93 @@ def render_capability_discovery_review() -> None:
                 ),
             )
             c.metric(
-                "Research confidence",
+                "Research confidence (diagnostic)",
                 str(proposal.get("confidence")),
             )
             d.metric(
-                "Python recommendation",
-                str(
+                "Automation suggestion (optional)",
+                friendly_decision_label(
                     deterministic_proposal_suggestion.get(
                         "suggested_decision"
                     )
                     or "unreviewed"
                 ),
+            )
+
+            st.markdown("#### Human decision")
+            st.caption(
+                "Your saved human decision controls eligibility for publication. "
+                "Saving a decision never publishes automatically. Research confidence and automation suggestions are supporting diagnostics, not approval thresholds."
+            )
+            render_human_decision_guidance(proposal, review)
+            current_decision = str(
+                review.get("decision") or "unreviewed"
+            )
+            decision_values = list(
+                PROPOSAL_REVIEW_DECISIONS
+            )
+            decision_index = (
+                decision_values.index(current_decision)
+                if current_decision in decision_values
+                else 0
+            )
+
+            with st.form(
+                f"proposal_review_{proposal_id}"
+            ):
+                decision = st.selectbox(
+                    "Proposal decision",
+                    decision_values,
+                    index=decision_index,
+                    format_func=friendly_decision_label,
+                    help=(
+                        "Choose the human-governed outcome. Internal decision values remain "
+                        "unchanged; this menu only uses friendlier display labels."
+                    ),
+                )
+                notes = st.text_area(
+                    "Proposal review notes",
+                    value=str(review.get("notes") or ""),
+                )
+                save_proposal = st.form_submit_button(
+                    "Save proposal decision"
+                )
+
+            if save_proposal:
+                if (
+                    (decision == "approve_mapping" and proposal.get("proposal_classification") != "safe_mapping_candidate")
+                    or (decision == "approve_identity" and proposal.get("proposal_classification") != "recognized_unmapped")
+                ):
+                    st.error(
+                        "Mapping approval requires safe_mapping_candidate; "
+                        "identity/alias approval requires recognized_unmapped."
+                    )
+                else:
+                    save_proposal_review(
+                        proposal_id=proposal_id,
+                        proposal_bundle_version=(
+                            PROPOSAL_CONTRACT_VERSION
+                        ),
+                        decision=decision,
+                        notes=notes,
+                    )
+                    st.rerun()
+
+            render_proposal_publication(
+                proposal,
+                review,
+                publications=publications,
+                automation_suggestion=(
+                    deterministic_proposal_suggestion.get("suggested_decision")
+                    or "unreviewed"
+                ),
+            )
+
+            st.divider()
+            st.markdown("#### Evidence and advisory details")
+            st.caption(
+                "The material below explains the proposal and optional automation advice. "
+                "It does not replace the human decision above."
             )
 
             for reason in (
@@ -5366,7 +5447,7 @@ def render_capability_discovery_review() -> None:
             ):
                 st.markdown(f"- {reason}")
 
-            st.markdown("**Research summary**")
+            st.markdown("**Research summary / evidence context**")
             st.write(proposal.get("summary") or "—")
             st.markdown("**Aliases**")
             st.write(", ".join(proposal.get("aliases", []) or []))
@@ -5391,7 +5472,7 @@ def render_capability_discovery_review() -> None:
             )
 
             with st.expander(
-                "Optional local-Ollama proposal second opinion",
+                "Optional automation · local-Ollama second opinion",
                 expanded=False,
             ):
                 local_models = local_ollama_models()
@@ -5471,54 +5552,7 @@ def render_capability_discovery_review() -> None:
                             )
                             st.rerun()
 
-            current_decision = str(
-                review.get("decision") or "unreviewed"
-            )
-            decision_values = list(
-                PROPOSAL_REVIEW_DECISIONS
-            )
-            decision_index = (
-                decision_values.index(current_decision)
-                if current_decision in decision_values
-                else 0
-            )
 
-            with st.form(
-                f"proposal_review_{proposal_id}"
-            ):
-                decision = st.selectbox(
-                    "Proposal decision",
-                    decision_values,
-                    index=decision_index,
-                )
-                notes = st.text_area(
-                    "Proposal review notes",
-                    value=str(review.get("notes") or ""),
-                )
-                save_proposal = st.form_submit_button(
-                    "Save proposal decision"
-                )
-
-            if save_proposal:
-                if (
-                    decision == "approve_mapping"
-                    and proposal.get("proposal_classification")
-                    != "safe_mapping_candidate"
-                ):
-                    st.error(
-                        "Only safe_mapping_candidate proposals can be "
-                        "approved as deterministic mappings."
-                    )
-                else:
-                    save_proposal_review(
-                        proposal_id=proposal_id,
-                        proposal_bundle_version=(
-                            PROPOSAL_CONTRACT_VERSION
-                        ),
-                        decision=decision,
-                        notes=notes,
-                    )
-                    st.rerun()
 
             preview = build_registry_vnext_preview(
                 proposals,
@@ -5528,8 +5562,9 @@ def render_capability_discovery_review() -> None:
                     )
                 ),
             )
+            st.markdown("**Preview / advanced**")
             st.download_button(
-                "Download registry vNext preview JSON",
+                "Download registry vNext preview JSON · Preview only",
                 data=json.dumps(
                     preview,
                     ensure_ascii=False,
@@ -5544,7 +5579,7 @@ def render_capability_discovery_review() -> None:
             )
             st.caption(
                 "Preview only. It contains only explicitly approved "
-                "mapping proposals plus the existing production registry. "
+                "identity/mapping proposals plus the existing production registry. "
                 "Downloading it does not change technology_registry_v1.json."
             )
 

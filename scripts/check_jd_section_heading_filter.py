@@ -46,7 +46,7 @@ Medical coverage and annual leave.
 
     filtered = result.get("filtered_section_headings", [])
     assert len(filtered) >= 4
-    assert SCORING_VERSION == "stable-evidence-v1.10-phase6d15"
+    assert SCORING_VERSION == "stable-evidence-v1.10-phase6d16"
 
     sentence_result = canonicalise_requirements(
         {},

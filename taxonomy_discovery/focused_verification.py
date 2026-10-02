@@ -266,6 +266,12 @@ def build_focused_draft(result: dict[str, Any], interpretation: dict[str, Any]) 
             "confidence": 0.8, "summary": f"Focused verification draft: {action}. Human review required.",
             "sources": [{"title": s["title"], "url": s["url"], "publisher": s["classification"]["hostname"]}
                         for s in interpretation["authoritative_sources"]],
+            "focused_verification": {
+                "outcome": outcome, "target_id": result["target_id"],
+                "candidate_id": result["candidate_id"], "provider_request_id": result["provider_request_id"],
+                "action": action, "relationship_basis": interpretation.get("relationship_basis"),
+                "authoritative_evidence": deepcopy(interpretation["authoritative_sources"]),
+            },
         }
     bundle = validate_proposal_bundle({
         "proposal_bundle_version": PROPOSAL_CONTRACT_VERSION,

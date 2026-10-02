@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from taxonomy_discovery.proposal_publication_ui import render_focused_review_handoff
 
 from database.taxonomy_discovery_review_manager import (
     list_focused_verification_results, save_focused_verification_decision,
@@ -14,6 +15,11 @@ from taxonomy_discovery.focused_verification import (
 from taxonomy_discovery.focused_verification_preview import (
     build_focused_impact_preview, load_focused_preview_snapshots,
 )
+from taxonomy_discovery.focused_verification_targets import (
+    TARGET_REGISTRY_RELATIONSHIP,
+    build_relationship_followup_target,
+)
+from tailoring.capability_taxonomy import get_default_taxonomy
 
 
 def render_focused_verification(target_report):
@@ -34,9 +40,44 @@ def render_focused_verification(target_report):
     except Exception as exc:
         st.error(f"Saved verification evidence could not be loaded: {exc}")
         return
-    active = [r for r in saved if r["result"].get("target_id") in by_id and
-              focused_target_signature(r["result"].get("target", {})) ==
-              focused_target_signature(by_id[r["result"]["target_id"]])]
+    root_target_ids = set(by_id)
+    active = []
+    for saved_row in saved:
+        saved_result = saved_row.get("result", {}) or {}
+        saved_target = saved_result.get("target", {}) or {}
+        saved_target_id = str(
+            saved_result.get("target_id") or ""
+        )
+        root_match = (
+            saved_target_id in by_id
+            and focused_target_signature(saved_target)
+            == focused_target_signature(
+                by_id[saved_target_id]
+            )
+        )
+        followup_match = (
+            str(
+                saved_target.get(
+                    "followup_of_target_id"
+                )
+                or ""
+            )
+            in root_target_ids
+            and str(
+                saved_target.get("route") or ""
+            )
+            == TARGET_REGISTRY_RELATIONSHIP
+            and bool(
+                saved_target.get(
+                    "governance",
+                    {},
+                ).get(
+                    "generated_from_verified_identity"
+                )
+            )
+        )
+        if root_match or followup_match:
+            active.append(saved_row)
     latest = {}
     for row in active:
         latest.setdefault(row["result"]["target_id"], row)
@@ -71,6 +112,80 @@ def render_focused_verification(target_report):
             "recognized_first_party_organizations": interpretation["recognized_first_party_organizations"],
             "safe_aliases": interpretation["safe_aliases"],
         })
+        if (
+            interpretation["outcome"] == "verified_identity"
+            and str(
+                result.get("target", {}).get("route")
+                or ""
+            )
+            != TARGET_REGISTRY_RELATIONSHIP
+            and interpretation[
+                "existing_registry_knowledge"
+            ]["status"]
+            == "unresolved"
+        ):
+            st.markdown("**Research an existing capability relationship**")
+            st.caption(
+                "Identity is verified, but no production mapping exists. "
+                "Selecting a capability below creates a focused research target "
+                "only; it does not approve or publish a mapping."
+            )
+            taxonomy = get_default_taxonomy()
+            capability_index = taxonomy.by_id()
+            capability_options = [
+                ""
+            ] + sorted(capability_index)
+            selected_capability_id = st.selectbox(
+                "Existing capability to research",
+                capability_options,
+                format_func=lambda cid: (
+                    "Select a capability…"
+                    if not cid
+                    else (
+                        f"{cid} — "
+                        f"{capability_index[cid].get('label', cid)}"
+                    )
+                ),
+                key=(
+                    "focused_relationship_capability_"
+                    + row["artifact_id"]
+                ),
+            )
+            if st.button(
+                "Research selected capability relationship",
+                disabled=not selected_capability_id,
+                key=(
+                    "focused_relationship_research_"
+                    + row["artifact_id"]
+                ),
+            ):
+                try:
+                    relationship_target = (
+                        build_relationship_followup_target(
+                            source_target=result["target"],
+                            capability_id=selected_capability_id,
+                        )
+                    )
+                    execute_focused_verification(
+                        [relationship_target],
+                        selected_target_ids=[
+                            relationship_target[
+                                "target_id"
+                            ]
+                        ],
+                        explicit_execution=True,
+                    )
+                    st.success(
+                        "Relationship research completed and saved. "
+                        "No approval or production change was made."
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(
+                        "Relationship research failed closed: "
+                        f"{exc}"
+                    )
+
         st.write("Proposed draft action:", draft["action"].replace("_", " "))
         st.caption("Draft is not approval. Human approval and a separate production change are required.")
         st.markdown("**Job Match impact preview**")
@@ -90,13 +205,14 @@ def render_focused_verification(target_report):
             st.caption("Saved review action: " + row["decision"].replace("_", " "))
         c1, c2, c3 = st.columns(3)
         aid = row["artifact_id"]
+        sent_draft = row.get("review_draft") if row.get("decision") == "send_to_review" else None
         if c1.button("Send draft to review", key="focused_review_" + aid):
             try:
                 # Existing proposal queue: import only, never save an approval.
                 if draft["proposal_bundle"]["proposals"]:
                     import_proposal_bundle(draft["proposal_bundle"])
                 save_focused_verification_decision(artifact_id=aid, decision="send_to_review", draft=draft)
-                st.success("Draft sent to human review; no production change.")
+                sent_draft = draft
             except Exception as exc:
                 st.error(f"Could not send draft to review: {exc}")
         if c2.button("Research more", key="focused_more_" + aid):
@@ -113,6 +229,8 @@ def render_focused_verification(target_report):
                 st.success("No change recorded; production knowledge remains unchanged.")
             except Exception as exc:
                 st.error(f"Could not save review decision: {exc}")
+        if sent_draft:
+            render_focused_review_handoff(sent_draft, interpretation["canonical_name"])
         with st.expander("Advanced / Diagnostics · " + interpretation["canonical_name"]):
             st.json({"saved_evidence": row, "interpretation": interpretation, "draft": draft,
                      "impact_preview": preview, "snapshot_load_error": snapshot_error})

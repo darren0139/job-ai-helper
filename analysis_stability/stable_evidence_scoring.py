@@ -43,7 +43,7 @@ from tailoring.phase6d6_structured_matching import (
 
 from taxonomy_discovery.technology_registry import get_default_registry
 
-SCORING_VERSION = "stable-evidence-v1.10-phase6d15"
+SCORING_VERSION = "stable-evidence-v1.10-phase6d16"
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
@@ -154,6 +154,60 @@ _SUBJECTIVE_CUE_TOKEN_SOURCE = (
 def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
 
+
+_RAW_RESUME_STRUCTURAL_HEADINGS = frozenset(
+    {
+        "summary",
+        "professional summary",
+        "profile",
+        "professional profile",
+        "objective",
+        "career objective",
+        "about me",
+        "education",
+        "academic background",
+        "work experience",
+        "professional experience",
+        "employment history",
+        "experience",
+        "projects",
+        "project experience",
+        "selected projects",
+        "personal projects",
+        "skills",
+        "technical skills",
+        "core skills",
+        "key skills",
+        "competencies",
+        "technical competencies",
+        "certifications",
+        "certificates",
+        "licenses and certifications",
+        "awards",
+        "achievements",
+        "publications",
+        "languages",
+        "interests",
+        "references",
+    }
+)
+
+
+def _normalise_resume_structural_heading(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    text = re.sub(r"[\\s:;.\\-–—]+$", "", text)
+    text = text.casefold()
+    text = re.sub(r"[^a-z0-9+#]+", " ", text)
+    return " ".join(text.split())
+
+
+def _is_raw_resume_structural_heading(value: Any) -> bool:
+    return (
+        _normalise_resume_structural_heading(value)
+        in _RAW_RESUME_STRUCTURAL_HEADINGS
+    )
 
 def _normalise_requirement_surface(value: Any) -> str:
     """Repair unambiguous presentation joins before deterministic tokenisation.
@@ -2669,7 +2723,10 @@ def build_resume_evidence_index(
 
     for index, line in enumerate(raw_resume_text.splitlines()):
         cleaned = _clean_text(line).strip("-•* \t")
-        if len(cleaned) >= 8:
+        if (
+            len(cleaned) >= 8
+            and not _is_raw_resume_structural_heading(cleaned)
+        ):
             add("raw_text", cleaned, f"raw_resume_text[{index}]")
 
     return rows
@@ -2784,7 +2841,18 @@ def _evidence_source_is_requirement_compatible(
     practical design/implementation experience. Explicit course rows remain
     eligible for subject-matter requirements.
     """
-    if row.get("section") != "education":
+    section = _clean_text(row.get("section"))
+
+    # Structural résumé labels describe document layout, not a
+    # candidate claim. Reject them even if a raw-text evidence row
+    # is constructed directly by a caller.
+    if (
+        section == "raw_text"
+        and _is_raw_resume_structural_heading(row.get("text"))
+    ):
+        return False
+
+    if section != "education":
         return True
 
     source = _clean_text(row.get("source"))

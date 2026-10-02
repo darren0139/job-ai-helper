@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from database.taxonomy_discovery_review_manager import list_focused_verification_results
 from taxonomy_discovery.focused_verification_targets import build_focused_verification_target
 from taxonomy_discovery.focused_verification import execute_focused_verification, interpret_focused_verification, build_focused_draft
 from taxonomy_discovery.focused_verification_preview import build_focused_impact_preview
+from taxonomy_discovery.technology_registry import TechnologyRegistry
 
 
 def main():
@@ -51,12 +53,36 @@ def main():
                 }]
             },
         }
-        cpp_interpretation = interpret_focused_verification(cpp_result)
+        # Keep the exact pre-publication contract isolated from mutable
+        # production registry state.
+        unpublished_registry = TechnologyRegistry(
+            version="technology-registry-smoke-unpublished-v1",
+            entries=(),
+        )
+        with patch(
+            "taxonomy_discovery.focused_verification.get_default_registry",
+            return_value=unpublished_registry,
+        ):
+            cpp_interpretation = interpret_focused_verification(cpp_result)
+
         assert cpp_interpretation["outcome"] == "verified_registry_relationship"
         assert cpp_interpretation["relationship_evidence"]["basis"] == "exact_internal_taxonomy"
         cpp_draft = build_focused_draft(cpp_result, cpp_interpretation)
         assert cpp_draft["action"] == "add_technology_capability_relationship"
         assert cpp_draft["proposal_bundle"]["proposals"][0]["entry_kind"] == "language"
+
+        # The live production registry may legitimately be either side of the
+        # publication boundary.
+        production_cpp_interpretation = interpret_focused_verification(cpp_result)
+        assert production_cpp_interpretation["outcome"] in {
+            "verified_registry_relationship",
+            "no_change",
+        }
+        if production_cpp_interpretation["outcome"] == "no_change":
+            assert (
+                production_cpp_interpretation["existing_registry_knowledge"]["status"]
+                == "resolved"
+            )
     print("TQ-D3 v1.6.1 pipeline smoke PASS: explicit=true fake_transport=true reload_network=0 cpp_saved_reinterpret=true exact_internal_relationship=true model=0 mutation=0 draft_only=true missing_snapshot=closed scoring_influence=false")
 
 

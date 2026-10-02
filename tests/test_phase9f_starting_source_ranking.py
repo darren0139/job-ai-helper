@@ -57,7 +57,7 @@ GOLDEN = REPO_ROOT / "ci_fixtures" / (
     "phase9f_starting_source_ranking_golden.json"
 )
 PINNED_IDENTITY = REPO_ROOT / "ci_fixtures" / (
-    "phase9f_b_ranking_identity_pinned_v8.json"
+    "phase9f_b_ranking_identity_pinned_v9.json"
 )
 
 
@@ -586,7 +586,7 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
         # guarded as semantic invariants.
         self.assertEqual(
             pinned.get("fixture_version"),
-            "phase9f-b-ranking-identity-pinned-v8",
+            "phase9f-b-ranking-identity-pinned-v9",
         )
         self.assertEqual(
             actual,

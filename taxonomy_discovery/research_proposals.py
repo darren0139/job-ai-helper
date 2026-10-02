@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ PROPOSAL_CLASSIFICATIONS = {
 PROPOSAL_REVIEW_DECISIONS = {
     "unreviewed",
     "approve_mapping",
+    "approve_identity",
     "keep_unmapped",
     "new_capability_needed",
     "reject_proposal",
@@ -346,6 +348,8 @@ def validate_proposal_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
                 "sources": cleaned_sources,
             }
         )
+        if isinstance(raw.get("focused_verification"), dict):
+            cleaned_proposals[-1]["focused_verification"] = deepcopy(raw["focused_verification"])
 
     return {
         "proposal_bundle_version": PROPOSAL_CONTRACT_VERSION,
@@ -493,12 +497,14 @@ def build_research_handover(
 def build_registry_vnext_preview(
     proposals: list[dict[str, Any]],
     reviews: list[dict[str, Any]],
+    *,
+    registry_path: str | Path | None = None,
 ) -> dict[str, Any]:
     raw_registry = json.loads(
-        Path(REGISTRY_PATH).read_text(encoding="utf-8")
+        Path(registry_path or REGISTRY_PATH).read_text(encoding="utf-8")
     )
     entries = [
-        dict(entry)
+        deepcopy(entry)
         for entry in raw_registry.get("entries", []) or []
     ]
     by_id = {
@@ -528,7 +534,28 @@ def build_registry_vnext_preview(
             {},
         )
         decision = str(review.get("decision") or "unreviewed")
-        if decision != "approve_mapping":
+        if decision not in {"approve_mapping", "approve_identity"}:
+            continue
+
+        if decision == "approve_identity":
+            if proposal.get("proposal_classification") != "recognized_unmapped":
+                skipped.append({"proposal_id": proposal_id, "reason": "approve_identity requires recognized_unmapped"})
+                continue
+            technology_id = _clean(proposal.get("technology_id"))
+            entry = by_id.get(technology_id)
+            if entry is None:
+                entry = {
+                    "technology_id": technology_id, "label": _clean(proposal.get("label")),
+                    "entry_kind": _clean(proposal.get("entry_kind")),
+                    "aliases": list(proposal.get("aliases", [])), "status": "approved",
+                    "capability_relationships": [],
+                    "notes": f"Human-approved identity from research proposal {proposal_id}.",
+                }
+                entries.append(entry)
+                by_id[technology_id] = entry
+            else:
+                entry["aliases"] = sorted(set(entry.get("aliases", []) + proposal.get("aliases", [])))
+            applied.append(proposal_id)
             continue
 
         if (

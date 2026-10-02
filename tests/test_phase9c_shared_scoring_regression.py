@@ -87,7 +87,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d15")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d16")
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],

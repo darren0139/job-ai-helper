@@ -127,8 +127,19 @@ def load_registry(
 
 
 @lru_cache(maxsize=1)
+def _registry_at_file_signature(path: str, signature: tuple[int, int, int]) -> TechnologyRegistry:
+    return load_registry(path)
+
+
 def get_default_registry() -> TechnologyRegistry:
-    return load_registry(REGISTRY_PATH)
+    # Atomic publication replaces the file. Other app processes also observe
+    # the new knowledge before checking versions or resolving requirements.
+    path = Path(REGISTRY_PATH).resolve()
+    stat = path.stat()
+    return _registry_at_file_signature(str(path), (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+
+
+get_default_registry.cache_clear = _registry_at_file_signature.cache_clear
 
 
 def _alias_index(

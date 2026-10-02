@@ -880,6 +880,30 @@ def render_application_analysis_details(
             "not an ATS acceptance probability."
         )
 
+
+        resolver_context = (
+            (report.get("meta") or {})
+            .get("stable_analysis_currentness")
+            or {}
+        )
+        st.caption(
+            "Deterministic resolver context · "
+            f"scorer {stable_analysis.get('scoring_version', 'unknown')} · "
+            f"taxonomy {stable_analysis.get('capability_taxonomy_version', 'unknown')} · "
+            f"registry {stable_analysis.get('technology_registry_version', 'unknown')}"
+        )
+        if resolver_context:
+            mode = str(
+                resolver_context.get("mode")
+                or "unknown"
+            )
+            rebuilt = bool(
+                resolver_context.get("rebuilt")
+            )
+            st.caption(
+                "Currentness · "
+                f"{mode} · rebuilt {'yes' if rebuilt else 'no'}"
+            )
         boundary_status = (
             stable_analysis.get("boundary_status", {}) or {}
         )
