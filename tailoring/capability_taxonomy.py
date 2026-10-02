@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import re
 from dataclasses import dataclass
@@ -367,8 +369,31 @@ def load_taxonomy(path: str | Path = TAXONOMY_PATH) -> CapabilityTaxonomy:
 
 
 @lru_cache(maxsize=1)
-def get_default_taxonomy() -> CapabilityTaxonomy:
+def _production_taxonomy() -> CapabilityTaxonomy:
     return load_taxonomy(TAXONOMY_PATH)
+
+
+# Offline review scopes are context-local: never replace the production cache or
+# leak temporary knowledge to another Streamlit session/thread.
+_review_taxonomy = ContextVar("temporary_review_taxonomy", default=None)
+
+
+def get_default_taxonomy() -> CapabilityTaxonomy:
+    return _review_taxonomy.get() or _production_taxonomy()
+
+
+get_default_taxonomy.cache_clear = _production_taxonomy.cache_clear
+get_default_taxonomy.cache_info = _production_taxonomy.cache_info
+
+
+@contextmanager
+def temporary_taxonomy_scope(taxonomy: CapabilityTaxonomy):
+    """Explicit offline test/review only; no file, cache or scoring mutation."""
+    token = _review_taxonomy.set(taxonomy)
+    try:
+        yield taxonomy
+    finally:
+        _review_taxonomy.reset(token)
 
 
 def capability_anchors(

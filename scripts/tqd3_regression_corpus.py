@@ -32,8 +32,32 @@ def main(argv=None):
     queue.add_argument("--db-path")
     queue.add_argument("--output")
     queue.add_argument("--limit", type=int, default=25)
+    plan = commands.add_parser("model-plan")
+    plan.add_argument("--software-only", action="store_true")
+    plan.add_argument("--limit", type=int, default=25)
+    plan.add_argument("--db-path")
+    plan.add_argument("--output", required=True)
+    run = commands.add_parser("model-run")
+    run.add_argument("--plan", required=True)
+    run.add_argument("--limit", type=int, default=25)
+    run.add_argument("--db-path")
+    run.add_argument("--execute", action="store_true", required=True)
+    run.add_argument("--output", help="Receipt path; defaults to <plan>.run.json")
     args = parser.parse_args(argv)
-    if args.command == "export":
+    if args.command in {"model-plan", "model-run"}:
+        from taxonomy_discovery.corpus_expansion import model_plan, model_run
+        if args.command == "model-plan":
+            result = model_plan(db_path=args.db_path, software_only=args.software_only, limit=args.limit)
+        else:
+            plan_data = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+            args.output = args.output or str(Path(args.plan).with_suffix(".run.json"))
+            def receipt(value):
+                Path(args.output).write_text(json.dumps(value, indent=2)+"\n", encoding="utf-8")
+                if "started_at" not in value:
+                    print(json.dumps(value), flush=True)
+            result = model_run(plan_data, db_path=args.db_path, limit=args.limit,
+                               execute=args.execute, receipt_callback=receipt)
+    elif args.command == "export":
         result = export_saved_corpus(db_path=args.db_path)
         if args.csv:
             Path(args.csv).write_text(corpus_csv(result), encoding="utf-8")

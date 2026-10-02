@@ -11,6 +11,64 @@ from pathlib import Path
 from typing import Any
 
 
+def save_taxonomy_evolution_proposal(proposal, *, db_path=None):
+    """Explicit immutable proposal-only persistence; never updates knowledge."""
+    from taxonomy_discovery.taxonomy_evolution import temporary_overlay
+    temporary_overlay([proposal])
+    path = _resolved_path(db_path)
+    with closing(_connect(path, create_parent=True)) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS taxonomy_evolution_proposals (
+                proposal_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+                proposal_json TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS taxonomy_evolution_reviews (
+                proposal_id TEXT PRIMARY KEY, review_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL);
+        """)
+        row=conn.execute("SELECT fingerprint FROM taxonomy_evolution_proposals WHERE proposal_id=?",(proposal["proposal_id"],)).fetchone()
+        if row and row["fingerprint"] != proposal["proposal_fingerprint"]:
+            raise ValueError("Proposal identity conflict; edited semantics need a new draft")
+        conn.execute("INSERT OR IGNORE INTO taxonomy_evolution_proposals VALUES (?,?,?,?)",
+            (proposal["proposal_id"],proposal["proposal_fingerprint"],json.dumps(proposal,sort_keys=True),proposal["created_at"]))
+        conn.commit()
+    return proposal["proposal_id"]
+
+
+def list_taxonomy_evolution_proposals(*, db_path=None):
+    path=_resolved_path(db_path)
+    if not path.exists():
+        return []
+    with closing(sqlite3.connect(path.as_uri()+"?mode=ro",uri=True)) as conn:
+        conn.row_factory=sqlite3.Row
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='taxonomy_evolution_proposals'").fetchone():
+            return []
+        result=[]
+        for row in conn.execute("SELECT * FROM taxonomy_evolution_proposals ORDER BY proposal_id"):
+            review=conn.execute("SELECT review_json FROM taxonomy_evolution_reviews WHERE proposal_id=?",(row["proposal_id"],)).fetchone()
+            result.append({"proposal":json.loads(row["proposal_json"]),"review":json.loads(review[0]) if review else {"decision":"undecided"}})
+        return result
+
+
+def save_taxonomy_evolution_review(proposal_id, *, proposal_fingerprint, decision, reviewer,
+                                   regression=None, notes="", db_path=None):
+    from taxonomy_discovery.taxonomy_evolution import DECISIONS
+    if decision not in DECISIONS or not str(reviewer).strip():
+        raise ValueError("Explicit valid human decision and reviewer identity required")
+    path=_resolved_path(db_path)
+    # No create path: review cannot fabricate/import a missing draft implicitly.
+    with closing(_connect(path,create_parent=False)) as conn:
+        row=conn.execute("SELECT fingerprint FROM taxonomy_evolution_proposals WHERE proposal_id=?",(proposal_id,)).fetchone()
+        if not row or row["fingerprint"] != proposal_fingerprint:
+            raise ValueError("Review proposal fingerprint stale/missing")
+        review={"decision":decision,"reviewer":str(reviewer).strip(),"notes":notes,"proposal_fingerprint":proposal_fingerprint,
+            "regression_fingerprint":(regression or {}).get("regression_fingerprint"),"regression":regression,
+            "updated_at":datetime.now(timezone.utc).isoformat(),"publication":False}
+        conn.execute("INSERT INTO taxonomy_evolution_reviews VALUES (?,?,?) ON CONFLICT(proposal_id) DO UPDATE SET review_json=excluded.review_json,updated_at=excluded.updated_at",
+            (proposal_id,json.dumps(review,sort_keys=True),review["updated_at"]))
+        conn.commit()
+    return review
+
+
 def init_focused_verification_schema(db_path=None) -> Path:
     path = _resolved_path(db_path)
     with closing(_connect(path, create_parent=True)) as conn:

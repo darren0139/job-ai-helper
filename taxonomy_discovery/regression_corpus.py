@@ -122,7 +122,18 @@ def duplicate_credit_violations(stable, context):
     return problems
 
 
-def compare_regression_corpus(corpus):
+def compare_regression_corpus(corpus, *, temporary_taxonomy=None):
+    if temporary_taxonomy is not None:
+        from tailoring.capability_taxonomy import temporary_taxonomy_scope
+        with temporary_taxonomy_scope(temporary_taxonomy):
+            report = compare_regression_corpus(corpus)
+        for job in report["jobs"]:
+            if job["classification"] == "expected_improvement":
+                job["classification"] = "requires_review"
+        report["classification_counts"] = dict(Counter(j["classification"] for j in report["jobs"]))
+        report["temporary_taxonomy_identity"] = temporary_taxonomy.version
+        report["review_only"] = True
+        return report
     if corpus.get("corpus_version") != CORPUS_VERSION:
         raise ValueError("Unsupported regression corpus")
     comparisons = []
