@@ -17,6 +17,7 @@ from taxonomy_discovery.source_authority import load_source_authority_registry
 from taxonomy_discovery.technology_registry import get_default_registry, resolve_requirement_text, normalise
 
 RESEARCH_VERSION = "tqd3-governed-research-h1-v1"
+INTERPRETATION_VERSION = "tqd3-governed-interpretation-h1.1-v1"
 PLAN_VERSION = "tqd3-governed-research-plan-h1-v1"
 MAX_BATCH = 3
 MAX_ATTEMPTS = 2
@@ -82,10 +83,11 @@ def research_plan(candidates, *, selected_candidate_ids, external_resolver=False
     for cid in selected:
         c = by_id[cid]
         validate_candidate(c)
-        entities = c.get("technology_entity_diagnostics", {}).get("concrete_entities", [])
-        registry_entries = get_default_registry().by_id()
-        names = sorted({registry_entries[e["technology_id"]]["label"]
-                        if e.get("technology_id") in registry_entries else e["term"] for e in entities})
+        from taxonomy_discovery.research_atomicity import candidate_atomicity
+        atomicity = candidate_atomicity(c)
+        if atomicity["atomicity_status"] == "compound_requires_decomposition":
+            raise ValueError("Needs decomposition before research")
+        names = atomicity["detected_entities"]
         # Multiple entities must be decomposed by the human before identity research.
         subject = names[0] if len(names) == 1 else c["concept_key"]
         t = {"candidate": deepcopy(c), "subject": subject, "questions": _questions(c, subject),
@@ -93,7 +95,7 @@ def research_plan(candidates, *, selected_candidate_ids, external_resolver=False
              "current_versions": current_match_versions(), "research_input_only": True,
              "preferred_source_classes": list(SOURCE_CLASSES), "reason": c["routing_reason"],
              "external_requested": c["candidate_route"] != "existing_capability_resolver_issue" or bool(external_resolver),
-             "requires_decomposition": len(names) > 1 and c["candidate_route"].startswith("technology_")}
+             "requires_decomposition": atomicity["atomicity_status"] == "compound_requires_decomposition"}
         t["target_fingerprint"] = fingerprint(t)
         targets.append(t)
     plan = {"plan_version": PLAN_VERSION, "current_versions": current_match_versions(), "knowledge_fingerprint":knowledge_fingerprint(),
@@ -144,6 +146,8 @@ def classify_sources(subject, raw, *, authority_registry_path=None):
         repo = "/".join(url.path.strip("/").split("/")[:2]).lower().removesuffix(".git")
         if url.scheme not in {"https", "http"}:
             source_class = "secondary_supporting"
+        elif url.hostname == "learn.microsoft.com" and re.match(r"/(?:[a-z]{2}-[a-z]{2}/)?answers/",url.path,re.I):
+            source_class = "secondary_supporting"  # Community answers are not official product definitions.
         elif url.hostname == "github.com":
             source_class = "first_party_official_repository" if repo in official_repos else "secondary_supporting"
         elif authority["authority"] == PRIMARY_OFFICIAL:
@@ -158,16 +162,20 @@ def classify_sources(subject, raw, *, authority_registry_path=None):
 
 def interpret(target, research, *, authority_registry_path=None):
     c, subject = target["candidate"], target["subject"]
+    from taxonomy_discovery.research_atomicity import candidate_atomicity
+    atomicity = candidate_atomicity(c)
     raw = research["raw_provider_evidence"]
+    rules = load_source_authority_registry(authority_registry_path)
+    aliases = _configured_safe_identity_aliases(subject, rules)
     sources = classify_sources(subject, raw, authority_registry_path=authority_registry_path)
     definitions, conflicts = [], []
     for s in sources:
         content = "\n".join(str(s["evidence"].get(k) or "") for k in ("content", "raw_content"))
         primary = s["source_class"] in SOURCE_CLASSES[:2] or (c["candidate_route"] == "possible_new_capability" and s["source_class"] == "authoritative_supporting")
-        sentences = _definition_sentences(subject, content) if primary else []
+        sentences = sorted({sentence for name in aliases for sentence in _definition_sentences(name,content)}) if primary else []
         s["accepted_definition_sentences"] = sentences
         definitions.extend(sentences)
-        if primary and re.search(re.escape(subject)+r"\s+is\s+(?:not|a different)\b", content, re.I):
+        if primary and any(re.search(re.escape(name)+r"\s+is\s+(?:not|a different)\b", content, re.I) for name in aliases):
             conflicts.append("Contradictory first-party identity evidence")
     local = overlap_check(" ".join(c["examples"]))
     ids = set(local["exact_matches"]) | {r["capability_id"] for r in local["high_overlap_candidates"]}
@@ -177,10 +185,11 @@ def interpret(target, research, *, authority_registry_path=None):
     supported = sorted({r["capability_id"] for sentence in definitions
                         if (r := classify_requirement_record({"text":sentence}, get_default_taxonomy()))})
     blockers = list(conflicts)
-    if target["requires_decomposition"]:
+    if target["requires_decomposition"] or atomicity["atomicity_status"] == "compound_requires_decomposition":
         blockers.append("Multiple technology entities require explicit decomposition")
     if not definitions and c["candidate_route"] != "existing_capability_resolver_issue":
         blockers.append("No affirmative subject-specific first-party definition")
+    identity_supported = bool(definitions) and not blockers
     action = "research_more"
     if c["candidate_route"] == "existing_capability_resolver_issue":
         action = "no_change" if local["exact_matches"] else "resolver_improvement" if local["high_overlap_candidates"] else "requirement_decomposition_review"
@@ -205,12 +214,15 @@ def interpret(target, research, *, authority_registry_path=None):
         else:
             blockers.append("Distinct engineering capability is not established by entity/repository evidence")
     rules = load_source_authority_registry(authority_registry_path)
-    return {"sources": sources, "authoritative_evidence_summary": definitions,
+    canonical = next((r["canonical_name"] for r in rules.get("technology_domains",[]) if r.get("canonical_name")
+        and normalise(subject) in {normalise(a) for a in r.get("technology_aliases",[])}),subject)
+    return {"atomicity":atomicity,"sources": sources, "authoritative_evidence_summary": definitions,
             "supporting_evidence_summary": [s["evidence"] for s in sources if s["source_class"] not in SOURCE_CLASSES[:2]],
-            "identity_finding": {"canonical_name": subject, "verified": bool(definitions) and not blockers,
+            "identity_finding": {"canonical_name": canonical, "verified": identity_supported,
                 "maintainer":"Not inferred; review first-party definitions and ownership evidence",
                 "official_repositories":[s["evidence"].get("url") for s in sources if s["source_class"] == "first_party_official_repository"]},
-            "relationship_finding": {"supported_existing_capability_ids": supported, "relationship_type": "maps_to_capability", "production_knowledge": known},
+            "relationship_finding": {"verified":action == "relationship_proposal" or known["status"] == "resolved",
+                "supported_existing_capability_ids": supported, "relationship_type": "maps_to_capability", "production_knowledge": known},
             "existing_capability_assessment": local,
             "possible_new_capability_assessment": {"distinctness": "unverified_requires_human_review", "recurrence_is_metadata_only": True},
             "aliases": _configured_safe_identity_aliases(subject, rules), "conflicts_blockers": blockers,
@@ -218,7 +230,7 @@ def interpret(target, research, *, authority_registry_path=None):
             "recommended_next_action": action}
 
 
-def validate_result(result):
+def validate_result(result, *, allow_stale_authority=False):
     if result.get("result_fingerprint") != fingerprint({k:v for k,v in result.items() if k not in {"result_fingerprint", "research_result_id"}}):
         raise ValueError("Research result fingerprint stale/edited")
     if result.get("research_result_id") != "tqd3h1_"+result["result_fingerprint"][:24]:
@@ -228,8 +240,43 @@ def validate_result(result):
         raise ValueError("Research knowledge stale")
     if result["knowledge_fingerprint"] != knowledge_fingerprint():
         raise ValueError("Research knowledge contents changed")
-    if result["authority_rules_fingerprint"] != fingerprint(load_source_authority_registry(result.get("authority_registry_path"))):
+    raw = result["research"]["raw_provider_evidence"]
+    local_only = result["candidate_route"] == "existing_capability_resolver_issue" and raw.get("provider") == "local_deterministic" and not raw.get("results")
+    if not allow_stale_authority and not local_only and result["authority_rules_fingerprint"] != fingerprint(load_source_authority_registry(result.get("authority_registry_path"))):
         raise ValueError("Source authority rules changed; refresh research interpretation")
+    if result["research"].get("evidence_fingerprint") != fingerprint(result["research"]["raw_provider_evidence"]):
+        raise ValueError("Raw evidence fingerprint edited")
+
+
+def interpretation_cache_key(target, authority_registry_path=None):
+    return fingerprint({"target":target,"research_version":RESEARCH_VERSION,"interpretation_version":INTERPRETATION_VERSION,
+        "knowledge_fingerprint":knowledge_fingerprint(),"authority_rules":load_source_authority_registry(authority_registry_path)})
+
+
+def re_evaluate_saved_evidence(result, *, explicit_execution=False, authority_registry_path=None, persist=False, db_path=None):
+    """Pure by default; explicit local save appends lineage, never repeats Search."""
+    if explicit_execution is not True:
+        raise ValueError("Explicit saved-evidence re-evaluation required")
+    validate_result(result,allow_stale_authority=True)
+    path = authority_registry_path if authority_registry_path is not None else result.get("authority_registry_path")
+    rules = load_source_authority_registry(path)
+    updated = deepcopy(result)
+    target = result["research"]["target"]
+    updated.update(interpret(target,result["research"],authority_registry_path=path))
+    updated.update(interpretation_version=INTERPRETATION_VERSION,authority_registry_path=str(path) if path else None,
+        authority_rules_version=rules.get("version"),authority_rules_fingerprint=fingerprint(rules),
+        cache_key=interpretation_cache_key(target,path),approval=False,
+        interpretation_lineage={"previous_research_result_id":result["research_result_id"],"previous_result_fingerprint":result["result_fingerprint"]},
+        re_evaluated_at=datetime.now(timezone.utc).isoformat())
+    updated.pop("research_result_id",None); updated.pop("result_fingerprint",None)
+    updated["result_fingerprint"] = fingerprint(updated)
+    updated["research_result_id"] = "tqd3h1_"+updated["result_fingerprint"][:24]
+    if persist:
+        from database.taxonomy_discovery_review_manager import save_governed_research_result, list_governed_research_results
+        if not any(row["result"] == result for row in list_governed_research_results(db_path=db_path)):
+            raise ValueError("Original saved research record required for persisted re-evaluation")
+        return save_governed_research_result(updated,db_path=db_path)
+    return updated
 
 
 def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, db_path=None, authority_registry_path=None):
@@ -242,6 +289,29 @@ def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, 
         raise ValueError("Research batch limit/selection invalid")
     by_id = {c["candidate_id"]:c for c in candidates}
     saved = list_governed_research_results(db_path=db_path)
+    from taxonomy_discovery.research_atomicity import candidate_atomicity
+    for t in plan["targets"]:
+        if candidate_atomicity(t["candidate"])["atomicity_status"] == "compound_requires_decomposition":
+            raise ValueError("Needs decomposition before research")
+    # Global configuration failure must precede any candidate execution. Fake
+    # transports and local-only/cached work never require a real provider key.
+    def raw_match(t):
+        return next((row["result"] for row in saved if row["result"]["candidate_fingerprint"] == t["candidate"]["candidate_fingerprint"]
+            and row["result"]["research"]["target"].get("research_round",0) == t.get("research_round",0)
+            and row["result"]["research"]["target"].get("external_requested") == t["external_requested"]
+            and row["result"]["research"]["target"].get("questions") == t["questions"]),None)
+    for t in plan["targets"]:
+        if t["external_requested"] and not raw_match(t) and any(
+                row["result"]["candidate"].get("source_gap_ids") == t["candidate"].get("source_gap_ids")
+                and row["result"]["candidate"].get("normalized_cluster") == t["candidate"].get("normalized_cluster")
+                and row["result"]["candidate"].get("provenance") == t["candidate"].get("provenance")
+                and row["result"]["research"]["target"].get("research_round",0) == t.get("research_round",0)
+                and row["result"]["research"]["target"].get("external_requested") for row in saved):
+            raise ValueError("Saved evidence exists for this gap under earlier candidate inputs. Re-evaluate saved evidence; no external request was sent.")
+    if transport is None and any(t["external_requested"] and not raw_match(t) for t in plan["targets"]):
+        from taxonomy_discovery.tavily_research import tavily_api_key_from_env
+        if not tavily_api_key_from_env():
+            raise ValueError("Tavily research is not configured. TAVILY_API_KEY is unavailable.")
     output, failures = [], []
     for t in plan["targets"]:
         cid = t["candidate"]["candidate_id"]
@@ -251,12 +321,15 @@ def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, 
                 raise ValueError("Selected candidate or knowledge changed; no substitution")
             if t["target_fingerprint"] != fingerprint({k:v for k,v in t.items() if k != "target_fingerprint"}):
                 raise ValueError("Target edited")
-            cache_key = fingerprint({"target":t, "research_version":RESEARCH_VERSION, "knowledge_fingerprint":knowledge_fingerprint(),
-                                     "authority_rules":load_source_authority_registry(authority_registry_path)})
+            cache_key = interpretation_cache_key(t,authority_registry_path)
             cached = next((row["result"] for row in saved if row["result"]["cache_key"] == cache_key), None)
             if cached:
                 validate_result(cached)
                 output.append(cached)
+                continue
+            prior = raw_match(t)
+            if prior:
+                output.append(re_evaluate_saved_evidence(prior,explicit_execution=True,authority_registry_path=authority_registry_path,persist=True,db_path=db_path))
                 continue
             if not t["external_requested"] or t["requires_decomposition"]:
                 raw = {"request_id":"local_"+t["target_fingerprint"], "results":[], "provider":"local_deterministic"}
@@ -282,6 +355,7 @@ def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, 
                         if not retryable or attempt+1 == MAX_ATTEMPTS:
                             raise
             result = {"research_version":RESEARCH_VERSION, "research_plan_fingerprint":plan["plan_fingerprint"],
+                      "interpretation_version":INTERPRETATION_VERSION,"authority_rules_version":load_source_authority_registry(authority_registry_path).get("version"),
                       "candidate_id":cid, "candidate_fingerprint":t["candidate"]["candidate_fingerprint"],
                       "candidate_route":t["candidate"]["candidate_route"], "candidate":deepcopy(t["candidate"]),
                       "source_gap_provenance":deepcopy(t["candidate"]["provenance"]), "current_versions":current_match_versions(),
@@ -311,6 +385,9 @@ def create_draft(result, *, explicit_creation=False, capability_fields=None):
     action = result["recommended_next_action"]
     if result["conflicts_blockers"]:
         raise ValueError("Research blockers require more research")
+    if action == "resolver_improvement":
+        from taxonomy_discovery.resolver_improvement import resolver_draft
+        return resolver_draft(result)
     if action == "new_capability_proposal":
         from taxonomy_discovery.taxonomy_evolution import draft_proposal, proposal_fingerprint
         p = draft_proposal(result["candidate"], result["research"], **(capability_fields or {}))
@@ -358,14 +435,21 @@ def _temporary_impact(corpus, draft):
         report.pop("regression_fingerprint", None)
         report["regression_fingerprint"] = fingerprint(report)
         return report
-    from taxonomy_discovery.focused_verification_preview import _shadow_registry
-    from taxonomy_discovery.research_proposals import validate_proposal_bundle
-    validate_proposal_bundle(draft["proposal_bundle"])
-    from taxonomy_discovery.technology_registry import temporary_registry_scope, TechnologyRegistry
     from taxonomy_discovery.regression_corpus import compare_regression_corpus, build_regression_corpus, duplicate_credit_violations
     from job_discovery.matching import _default_stable_builder
-    copied = _shadow_registry(draft)
-    shadow = TechnologyRegistry("tqd3-temporary-registry-"+fingerprint(draft)[:24], copied.entries)
+    if draft["kind"] == "resolver_improvement":
+        from taxonomy_discovery.resolver_improvement import resolver_overlay
+        from tailoring.capability_taxonomy import temporary_taxonomy_scope
+        shadow = resolver_overlay(draft)
+        scope = temporary_taxonomy_scope(shadow)
+    else:
+        from taxonomy_discovery.focused_verification_preview import _shadow_registry
+        from taxonomy_discovery.research_proposals import validate_proposal_bundle
+        from taxonomy_discovery.technology_registry import temporary_registry_scope, TechnologyRegistry
+        validate_proposal_bundle(draft["proposal_bundle"])
+        copied = _shadow_registry(draft)
+        shadow = TechnologyRegistry("tqd3-temporary-registry-"+fingerprint(draft)[:24], copied.entries)
+        scope = temporary_registry_scope(shadow)
     # Use the native current-production baseline and native offline replay.
     snapshots = []
     for job in corpus["jobs"]:
@@ -378,7 +462,7 @@ def _temporary_impact(corpus, draft):
             "raw_jd_text":inputs["raw_jd_text"], "jd_profile":inputs["jd_profile"], "evidence_snapshot":inputs["evidence_snapshot"],
             "evidence_fingerprint":inputs["context"]["evidence_fingerprint"], "stable_analysis":stable})
     baseline = build_regression_corpus(snapshots)
-    with temporary_registry_scope(shadow):
+    with scope:
         report = compare_regression_corpus(baseline)
     for job, original in zip(report["jobs"], corpus["jobs"]):
         violations = duplicate_credit_violations(original["baseline_stable_analysis"], original["frozen_inputs"]["context"])
@@ -388,14 +472,25 @@ def _temporary_impact(corpus, draft):
         elif job["classification"] == "expected_improvement":
             job["classification"] = "requires_review"
         for change in job.get("requirement_changes", []):
-            change["responsible_draft_id"] = draft["draft_id"]
+            change["responsible_draft_id"] = draft.get("draft_id") or draft.get("resolver_draft_id")
     from collections import Counter
     report["classification_counts"] = dict(Counter(j["classification"] for j in report["jobs"]))
     report.update(review_only=True, score_increase_is_correctness=False,
-                  temporary_registry_identity=shadow.version,
+                  temporary_knowledge_identity=shadow.version,
                   current_versions=current_match_versions(), knowledge_fingerprint=knowledge_fingerprint(),
                   corpus_fingerprint=fingerprint(corpus), draft_fingerprint=fingerprint(draft),
                   affected_jobs=[j["job_id"] for j in report["jobs"] if j.get("requirement_changes")])
+    if draft["kind"] == "resolver_improvement":
+        source_ids = {(p["job_id"],p["requirement_id"]) for p in draft["source_job_snapshot_provenance"]}
+        changes = [(j,c) for j in report["jobs"] for c in j.get("requirement_changes",[])]
+        report.update(temporary_resolver_identity=shadow.version,
+            affected_requirement_ids=[c["requirement_id"] for _,c in changes],
+            newly_resolved_count=sum(c["newly_resolved"] for _,c in changes),
+            unchanged_count=sum(len(j["requirements"]) for j in baseline["jobs"])-len(changes),
+            unexpectedly_changed_requirements=[{"job_id":j["job_id"],**c} for j,c in changes
+                if (j["job_id"],c["requirement_id"]) not in source_ids or (c.get("after") or {}).get("capability_id") != draft["target_capability_id"]])
+    else:
+        report["temporary_registry_identity"] = shadow.version
     report["regression_fingerprint"] = fingerprint(report)
     return report
 

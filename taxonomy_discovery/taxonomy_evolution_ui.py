@@ -43,15 +43,31 @@ def render_governed_research():
         return
     candidates = prepared["candidates"]
     st.json({k:prepared["report"][k] for k in ("source_observations", "concept_count", "candidate_route_counts", "recurrence_counts")})
-    st.markdown("**Step 2 — Select research candidates (maximum 3)**")
+    from taxonomy_discovery.research_atomicity import candidate_atomicity
+    atomicity = {c["candidate_id"]:candidate_atomicity(c) for c in candidates}
+    normal = [c for c in candidates if c["candidate_route"] in research.ELIGIBLE_ROUTES and atomicity[c["candidate_id"]]["atomicity_status"] != "compound_requires_decomposition"]
+    compounds = [c for c in candidates if atomicity[c["candidate_id"]]["atomicity_status"] == "compound_requires_decomposition"]
+    st.markdown("**Step 2 — Select eligible atomic research candidates (maximum 3)**")
     st.dataframe([{"candidate_id":c["candidate_id"], "Concept":c["concept_key"],
         "Initial Phase-G research route":c["recommended_research_route"], "Refined candidate route":c["candidate_route"],
-        "Jobs":c["job_count"], "Occurrences":c["occurrence_count"], "Reason":c["routing_reason"]} for c in candidates], hide_index=True, width="stretch")
-    eligible = sorted([c for c in candidates if c["candidate_route"] in research.ELIGIBLE_ROUTES],
+        "Jobs":c["job_count"], "Occurrences":c["occurrence_count"], "Reason":c["routing_reason"]} for c in normal], hide_index=True, width="stretch")
+    with st.expander("Needs decomposition before research · preview only"):
+        st.dataframe([{"Concept":"[Needs decomposition] "+c["concept_key"], "Relation":atomicity[c["candidate_id"]]["logical_relation"],
+            "Detected children":", ".join(atomicity[c["candidate_id"]]["detected_entities"])} for c in compounds],hide_index=True,width="stretch")
+        st.json([atomicity[c["candidate_id"]] for c in compounds])
+        st.caption("Parent requirements/provenance are preserved. No child requirements or Job Match changes are created.")
+    with st.expander("Advanced / quarantined administrative, noise and insufficient inputs"):
+        st.json([c for c in candidates if c["candidate_route"] not in research.ELIGIBLE_ROUTES])
+    eligible = sorted(normal,
                       key=lambda c:(research.ELIGIBLE_ROUTES.index(c["candidate_route"]),c["concept_key"],c["candidate_id"]))
     by_id = {c["candidate_id"]:c for c in eligible}
-    selected = st.multiselect("Research candidates", list(by_id), default=[], max_selections=research.MAX_BATCH,
-        format_func=lambda cid:by_id[cid]["candidate_route"]+" · "+by_id[cid]["concept_key"], key="tqd3_h1_selection") or []
+    labels = {"existing_capability_resolver_issue":"Resolver","technology_relationship":"Relationship","technology_identity":"Identity","possible_new_capability":"Capability"}
+    selected = []
+    for slot in range(research.MAX_BATCH):
+        cid = st.selectbox("Research candidate "+str(slot+1),[None,*[cid for cid in by_id if cid not in selected]],
+            format_func=lambda cid:"No selection" if cid is None else "["+labels[by_id[cid]["candidate_route"]]+"] "+by_id[cid]["concept_key"],key="tqd3_h1_selection_"+str(slot))
+        if cid:
+            selected.append(cid)
     external_resolver = st.checkbox("Also request external supporting evidence for resolver issues", value=False, key="tqd3_h1_external_resolver")
     research_round = st.number_input("Research round (0 reuses initial results; increase for explicit follow-up)",min_value=0,max_value=3,value=0,step=1,key="tqd3_h1_round") or 0
     st.markdown("**Step 3 — Preview research plan**")
@@ -82,19 +98,36 @@ def render_governed_research():
                     raise ValueError("Selection/options changed; preview a new plan")
                 receipt = research.execute_plan(plan, candidates, explicit_execution=True)
                 st.session_state["tqd3_h1_receipt"] = receipt
-                st.json(receipt["failures"])
+                if receipt["failures"]:
+                    st.error("Some candidates failed; completed research remains saved.")
+                    st.json(receipt["failures"])
+                else:
+                    st.success(f"Completed or reused {len(receipt['results'])} research result(s).")
             except Exception as exc:
                 st.error(f"Research stopped: {exc}. Completed results remain saved.")
     st.markdown("**Step 5 — Review research evidence**")
+    st.caption("Step 4 alternative: Re-evaluate saved evidence below uses only persisted raw evidence, with zero Tavily/model/network calls.")
     try:
         saved = list_governed_research_results()
     except Exception as exc:
         st.error(f"Saved research unavailable: {exc}")
         return
+    superseded = {row["result"].get("interpretation_lineage",{}).get("previous_research_result_id") for row in saved}
     for row in saved:
         result, draft = row["result"], row["draft"]
         rid = result["research_result_id"]
+        if rid in superseded:
+            with st.expander("Advanced / earlier research interpretation · "+result["candidate"]["concept_key"]):
+                st.json(result)
+            continue
         with st.expander(result["candidate"]["concept_key"]+" · "+result["candidate_route"]):
+            if st.button("Re-evaluate saved evidence",key=rid+"_reevaluate"):
+                try:
+                    updated = research.re_evaluate_saved_evidence(result,explicit_execution=True,persist=True)
+                    st.success("Saved evidence re-evaluated without a new search. Original evidence/history preserved: "+updated["research_result_id"])
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Saved-evidence re-evaluation rejected: {exc}")
             st.write("Examples",result["candidate"]["examples"])
             st.write("Recurrence",result["candidate"]["job_count"],"jobs;",result["candidate"]["occurrence_count"],"occurrences. Frequency is context, not proof.")
             st.write("Source jobs",sorted({p["job_id"] for p in result["source_gap_provenance"]}))
@@ -143,6 +176,9 @@ def render_governed_research():
                 report = None
             if report:
                 st.write("Affected jobs",report["affected_jobs"])
+                if "unexpectedly_changed_requirements" in report:
+                    st.write("Newly resolved / unchanged",report["newly_resolved_count"],report["unchanged_count"])
+                    st.write("Unexpectedly changed requirements requiring review",report["unexpectedly_changed_requirements"])
                 st.dataframe([{"Job":j["job_id"], "Requirement":c["requirement_id"],
                     "Before":(c.get("before") or {}).get("resolution_status"), "After":(c.get("after") or {}).get("resolution_status"),
                     "Before capability":(c.get("before") or {}).get("capability_id"), "After capability":(c.get("after") or {}).get("capability_id"),

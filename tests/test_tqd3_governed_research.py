@@ -202,7 +202,9 @@ class ExecutionTests(unittest.TestCase):
             fake=Mock(return_value=fake_raw(request_id="changed-rules"))
             r=h1.execute_plan(h1.research_plan([c],selected_candidate_ids=[c["candidate_id"]]),[c],explicit_execution=True,
                 transport=fake,db_path=f.tmp/"h1.sqlite",authority_registry_path=authority)
-            fake.assert_called_once(); self.assertEqual(r["results"][0]["recommended_next_action"],"research_more")
+            fake.assert_not_called(); self.assertEqual(r["results"][0]["recommended_next_action"],"research_more")
+            self.assertEqual(r["results"][0]["research"]["raw_provider_evidence"],result["research"]["raw_provider_evidence"])
+            self.assertEqual(r["results"][0]["interpretation_lineage"]["previous_research_result_id"],result["research_result_id"])
 
 
 class RouteEvidenceTests(unittest.TestCase):
@@ -414,12 +416,13 @@ class UITests(unittest.TestCase):
             prepared["candidates"]=[c]
             st=FakeStreamlit(); st.session_state["tqd3_h1_prepared"]=prepared
             st.session_state["tqd3_h1_plan"]=h1.research_plan([c],selected_candidate_ids=[c["candidate_id"]])
-            st.multiselect=lambda *a,**kw:[c["candidate_id"]]; st.checkbox=lambda *a,**kw:False
+            st.selectbox=lambda *a,**kw:c["candidate_id"] if kw.get("key")=="tqd3_h1_selection_0" else None
+            st.checkbox=lambda *a,**kw:False
             st.button=lambda label,**kw:kw.get("key")=="tqd3_h1_execute"
             with patch.dict(sys.modules,{"streamlit":st}),patch.object(h1,"execute_plan",return_value={"failures":[],"results":[]}) as run:
                 render_governed_research()
                 self.assertTrue(run.call_args.kwargs["explicit_execution"])
-                st.multiselect=lambda *a,**kw:[]
+                st.selectbox=lambda *a,**kw:None
                 render_governed_research()
                 self.assertEqual(run.call_count,1)
 

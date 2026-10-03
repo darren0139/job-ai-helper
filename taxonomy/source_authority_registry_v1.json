@@ -1,5 +1,5 @@
 {
-  "version": "source-authority-registry-v1.2",
+  "version": "source-authority-registry-v1.3",
   "contract": {
     "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain",
     "network_calls": 0,
@@ -7,6 +7,17 @@
     "provider_authority_claim_trusted": false
   },
   "technology_domains": [
+    {
+      "technology_aliases": ["Keycloak"],
+      "safe_identity_aliases": ["Keycloak"],
+      "official_domains": ["keycloak.org", "docs.redhat.com"]
+    },
+    {
+      "technology_aliases": ["SCCM", "Microsoft SCCM", "Microsoft Configuration Manager", "Configuration Manager", "System Center Configuration Manager", "Microsoft System Center Configuration Manager", "Microsoft Endpoint Configuration Manager"],
+      "canonical_name": "Microsoft Configuration Manager",
+      "safe_identity_aliases": ["SCCM", "Microsoft SCCM", "Microsoft Configuration Manager", "Configuration Manager", "System Center Configuration Manager", "Microsoft System Center Configuration Manager", "Microsoft Endpoint Configuration Manager"],
+      "official_domains": ["learn.microsoft.com"]
+    },
     {
       "technology_aliases": [
         "Amazon Kinesis Data Streams",

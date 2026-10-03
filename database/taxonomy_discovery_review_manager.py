@@ -83,7 +83,7 @@ def save_governed_research_draft(result, draft, *, db_path=None, proposal_db_pat
     """Explicit native proposal persistence followed by an H.1 receipt; no decision."""
     from taxonomy_discovery.governed_research import validate_result
     validate_result(result)
-    provenance = draft.get("proposal",{}).get("governed_research") if draft.get("kind") == "capability" else draft["proposal_bundle"]["proposals"][0].get("governed_research")
+    provenance = draft.get("governed_research") if draft.get("kind") == "resolver_improvement" else draft.get("proposal",{}).get("governed_research") if draft.get("kind") == "capability" else draft["proposal_bundle"]["proposals"][0].get("governed_research")
     if not provenance or provenance.get("result_fingerprint") != result["result_fingerprint"]:
         raise ValueError("Draft research provenance mismatch")
     with closing(sqlite3.connect(_resolved_path(db_path).as_uri()+"?mode=ro",uri=True)) as conn:
@@ -92,7 +92,10 @@ def save_governed_research_draft(result, draft, *, db_path=None, proposal_db_pat
             raise ValueError("Saved research result required")
         if row[1] and json.loads(row[1]) != draft:
             raise ValueError("Existing draft receipt differs; create a separate research review")
-    if draft["kind"] == "capability":
+    if draft["kind"] == "resolver_improvement":
+        from taxonomy_discovery.resolver_improvement import resolver_overlay
+        resolver_overlay(draft)  # Validate, then persist only the separate draft receipt below.
+    elif draft["kind"] == "capability":
         save_taxonomy_evolution_proposal(draft["proposal"],db_path=db_path)
     else:
         from database.technology_registry_proposal_manager import import_proposal_bundle
