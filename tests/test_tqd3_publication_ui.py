@@ -24,6 +24,10 @@ class FakeStreamlit:
         self.messages.append(("expander", args))
         return self
 
+    def tabs(self, labels):
+        self.messages.append(("tabs", (labels,)))
+        return [self for _ in labels]
+
     def __enter__(self):
         return self
 

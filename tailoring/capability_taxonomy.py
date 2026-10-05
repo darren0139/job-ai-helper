@@ -435,6 +435,20 @@ def classify_requirement_record(
     requirement: dict[str, Any],
     taxonomy: CapabilityTaxonomy | None = None,
 ) -> dict[str, Any] | None:
+    """Return the production taxonomy record selected for a requirement."""
+    return classify_requirement_diagnostics(requirement, taxonomy)["capability_record"]
+
+
+def classify_requirement_diagnostics(
+    requirement: dict[str, Any],
+    taxonomy: CapabilityTaxonomy | None = None,
+) -> dict[str, Any]:
+    """Run the production matcher once and expose its deterministic decisions.
+
+    The returned ``capability_record`` is for internal callers.  The other
+    fields are safe, read-only diagnostics derived while applying the exact
+    same rules used by :func:`classify_requirement_record`.
+    """
     taxonomy = taxonomy or get_default_taxonomy()
     text = " ".join(
         [
@@ -442,6 +456,10 @@ def classify_requirement_record(
             _clean(requirement.get("atomic_focus")),
         ]
     )
+    original = _clean(requirement.get("text")) or _clean(
+        requirement.get("atomic_focus")
+    )
+    rejected_rules: list[dict[str, Any]] = []
 
     for item in taxonomy.capabilities:
         matcher = item.get("requirement") or {}
@@ -451,21 +469,57 @@ def classify_requirement_record(
             continue
         variants = matcher.get("contextual_phrase_variants", [])
         variant_match = False
+        matched_variant: dict[str, Any] | None = None
         if variants:
             # Only governed temporary variants opt in. Native production terms
             # and all evidence/scoring predicates retain their existing contract.
             from taxonomy_discovery.candidate_refinement import capability_context
             # A shortened atomic focus cannot strip the product's identity and
             # turn a fragment of its name into independent capability evidence.
-            original = _clean(requirement.get("text")) or _clean(requirement.get("atomic_focus"))
-            def variant_present(v):
+            def variant_result(v):
                 names = v.get("excluded_product_names")
-                context = capability_context(original,include_research_aliases=names is None,extra_product_names=names or (),product_span_replacement=" tqd3_product_span ")
-                return v.get("product_context_guard") == "exclude_recognized_multiword_technology_spans" and _contains(context,v.get("phrase",""))
-            variant_match = any(
-                variant_present(v) for v in variants
-            )
-        if (any_terms or variants) and not (_contains_any(text, any_terms) or variant_match):
+                context = capability_context(
+                    original,
+                    include_research_aliases=names is None,
+                    extra_product_names=names or (),
+                    product_span_replacement=" tqd3_product_span ",
+                )
+                excluded = [
+                    normalise(name)
+                    for name in names or ()
+                    if _contains(original, name)
+                ]
+                raw_match = _contains(original, v.get("phrase", ""))
+                guarded_match = bool(
+                    v.get("product_context_guard")
+                    == "exclude_recognized_multiword_technology_spans"
+                    and _contains(context, v.get("phrase", ""))
+                )
+                detail = {
+                    "capability_id": str(item.get("capability_id") or ""),
+                    "phrase": str(v.get("phrase") or ""),
+                    "product_context_guard": v.get("product_context_guard"),
+                    "guard_contract_version": v.get("guard_contract_version"),
+                    "raw_phrase_matched": raw_match,
+                    "guarded_phrase_matched": guarded_match,
+                    "excluded_product_spans": excluded,
+                }
+                if raw_match and not guarded_match:
+                    rejected_rules.append(
+                        {
+                            **detail,
+                            "reason": "product_context_guard_excluded_phrase",
+                        }
+                    )
+                return guarded_match, detail
+
+            for variant in variants:
+                present, detail = variant_result(variant)
+                if present and matched_variant is None:
+                    matched_variant = detail
+            variant_match = matched_variant is not None
+        matched_any_terms = [term for term in any_terms if _contains(text, term)]
+        if (any_terms or variants) and not (matched_any_terms or variant_match):
             continue
         if not _matches_groups(text, matcher.get("all_groups", [])):
             continue
@@ -473,8 +527,57 @@ def classify_requirement_record(
             continue
         if not any_terms and not all_terms and not variants:
             continue
-        return item
-    return None
+        matched_phrase = (
+            str(matched_any_terms[0])
+            if matched_any_terms
+            else str((matched_variant or {}).get("phrase") or "")
+        )
+        return {
+            "normalized_requirement_text": normalise(original),
+            "taxonomy_version": taxonomy.version,
+            "capability_record": item,
+            "capability_id": str(item.get("capability_id") or ""),
+            "capability_label": str(item.get("label") or ""),
+            "matched_phrase": matched_phrase,
+            "matched_taxonomy_rule_type": (
+                "native_any_term" if matched_any_terms else "contextual_phrase_variant"
+            ),
+            "contextual_phrase_rule": (
+                str((matched_variant or {}).get("phrase") or "") or None
+            ),
+            "product_context_guard": (matched_variant or {}).get(
+                "product_context_guard"
+            ),
+            "guard_contract_version": (matched_variant or {}).get(
+                "guard_contract_version"
+            ),
+            "excluded_product_spans": list(
+                (matched_variant or {}).get("excluded_product_spans") or []
+            ),
+            "rejected_candidate_rules": rejected_rules,
+            "reason": "taxonomy_requirement_rule_matched",
+        }
+    return {
+        "normalized_requirement_text": normalise(original),
+        "taxonomy_version": taxonomy.version,
+        "capability_record": None,
+        "capability_id": None,
+        "capability_label": None,
+        "matched_phrase": None,
+        "matched_taxonomy_rule_type": None,
+        "contextual_phrase_rule": None,
+        "product_context_guard": None,
+        "guard_contract_version": None,
+        "excluded_product_spans": sorted(
+            {
+                span
+                for row in rejected_rules
+                for span in row.get("excluded_product_spans", [])
+            }
+        ),
+        "rejected_candidate_rules": rejected_rules,
+        "reason": "no_taxonomy_requirement_rule_matched",
+    }
 
 
 def classify_requirement(

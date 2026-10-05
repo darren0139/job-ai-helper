@@ -257,6 +257,12 @@ def render_governed_research():
 
 def render_taxonomy_evolution():
     import streamlit as st
+    from taxonomy_discovery.production_resolver_inspector_ui import (
+        render_production_resolver_inspector,
+    )
+
+    render_production_resolver_inspector()
+    st.divider()
     render_governed_research()
     from database.taxonomy_discovery_review_manager import (list_taxonomy_evolution_proposals,
         save_taxonomy_evolution_proposal, save_taxonomy_evolution_review)

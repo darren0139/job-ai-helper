@@ -779,7 +779,7 @@ All applicants will be updated on the status of their applications within 4 week
         self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d16")
         self.assertEqual(
             get_default_taxonomy().version,
-            "phase6d-capability-taxonomy-v1.4",
+            "phase6d-capability-taxonomy-v1.5",
         )
         self.assertEqual(
             RECONCILIATION_VERSION,

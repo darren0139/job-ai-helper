@@ -9,17 +9,11 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from tailoring.capability_taxonomy import (
-    evaluate_capability_evidence,
-    evaluate_evidence,
-    get_default_taxonomy,
+from tailoring.production_requirement_resolver import (
+    resolve_requirement_with_production_knowledge,
 )
 from tailoring.phase6d5_retrieval import (
     build_capability_retrieval_trace,
-)
-
-from taxonomy_discovery.technology_registry import (
-    resolve_requirement_text,
 )
 
 _LABEL_ORDER = {"none": 0, "weak": 1, "transferable": 2, "direct": 3}
@@ -65,26 +59,14 @@ def cap_requirement_with_taxonomy(
         )
         return row
 
-    taxonomy = get_default_taxonomy()
-    decision = evaluate_evidence(row, evidence_text, taxonomy)
-    resolution_source = "canonical_taxonomy"
-    registry_resolution: dict[str, Any] | None = None
-
-    if decision.get("capability_id") is None:
-        focus = str(row.get("atomic_focus") or row.get("text") or "")
-        registry_resolution = resolve_requirement_text(focus)
+    resolution = resolve_requirement_with_production_knowledge(
+        row, evidence_text=evidence_text
+    )
+    decision = resolution["decision"]
+    resolution_source = str(resolution["resolution_source"])
+    registry_resolution = resolution["registry_resolution"]
+    if registry_resolution is not None:
         row["technology_registry_resolution"] = deepcopy(registry_resolution)
-        if (
-            registry_resolution.get("status") == "resolved"
-            and registry_resolution.get("capability_id")
-        ):
-            decision = evaluate_capability_evidence(
-                str(registry_resolution["capability_id"]),
-                row, evidence_text, taxonomy,
-            )
-            resolution_source = "technology_registry"
-        else:
-            resolution_source = "unresolved"
 
     row["capability_retrieval"] = build_capability_retrieval_trace(
         row,

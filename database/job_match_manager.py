@@ -21,6 +21,13 @@ def _connect(db_path=None) -> sqlite3.Connection:
     return connection
 
 
+def _connect_read_only(db_path=None) -> sqlite3.Connection:
+    path = Path(db_path or DB_PATH).resolve()
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -147,10 +154,20 @@ def get_job_match_snapshot(
 
 def get_latest_job_match_snapshot(
     discovered_job_id: int,
+    *,
+    db_path=None,
+    read_only: bool = False,
 ) -> dict[str, Any] | None:
-    init_job_match_schema()
-    connection = _connect()
+    if read_only:
+        connection = _connect_read_only(db_path)
+    else:
+        init_job_match_schema(db_path)
+        connection = _connect(db_path)
     try:
+        if read_only and not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_match_snapshots'"
+        ).fetchone():
+            return None
         row = connection.execute(
             """
             SELECT *
@@ -162,6 +179,27 @@ def get_latest_job_match_snapshot(
             (int(discovered_job_id),),
         ).fetchone()
         return _decode_row(row)
+    finally:
+        connection.close()
+
+
+def get_discovered_job_metadata_read_only(
+    discovered_job_id: int,
+    *,
+    db_path=None,
+) -> dict[str, Any] | None:
+    """Read persisted job metadata without schema creation or any write path."""
+    connection = _connect_read_only(db_path)
+    try:
+        if not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='discovered_jobs'"
+        ).fetchone():
+            return None
+        row = connection.execute(
+            "SELECT * FROM discovered_jobs WHERE id = ?",
+            (int(discovered_job_id),),
+        ).fetchone()
+        return dict(row) if row is not None else None
     finally:
         connection.close()
 
@@ -180,8 +218,7 @@ def list_latest_compatible_job_match_snapshots(
     independent market observations.
     """
     if read_only:
-        connection = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
-        connection.row_factory = sqlite3.Row
+        connection = _connect_read_only()
     else:
         init_job_match_schema()
         connection = _connect()
