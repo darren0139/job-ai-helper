@@ -9,12 +9,18 @@ def render_governed_research():
         save_governed_research_draft, save_governed_research_review)
     from taxonomy_discovery.taxonomy_evolution import DECISIONS
     st.subheader("Governed Gap Review and Research")
-    st.caption("Research, draft creation, human approval and publication are separate. H.1 offers no publication action.")
+    st.caption("Research, draft creation, human approval and explicit production publication are separate.")
+    flash = st.session_state.pop("tqd3_h1_flash",None)
+    if flash:
+        st.success(flash)
+    from taxonomy_discovery.governed_publication_ui import render_governed_review_ledger
+    render_governed_review_ledger()
     st.markdown("**Step 1 — Prepare Gap Review**")
     if st.button("Prepare / Refresh Gap Review", key="tqd3_h1_prepare"):
         try:
             st.session_state["tqd3_h1_prepared"] = research.prepare_gap_review()
             st.session_state.pop("tqd3_h1_plan", None)
+            st.session_state.pop("tqd3_h1_executed_plan", None)
         except Exception as exc:
             st.error(f"Local preparation failed closed: {exc}")
     with st.expander("Advanced / reproducibility · frozen artifacts"):
@@ -26,6 +32,7 @@ def render_governed_research():
                     corpus=json.loads(corpus.getvalue()) if corpus else None,
                     gaps=json.loads(gaps.getvalue()) if gaps else None)
                 st.session_state.pop("tqd3_h1_plan", None)
+                st.session_state.pop("tqd3_h1_executed_plan", None)
             except Exception as exc:
                 st.error(f"Uploaded artifacts fail closed: {exc}")
         prepared = st.session_state.get("tqd3_h1_prepared")
@@ -63,15 +70,18 @@ def render_governed_research():
     by_id = {c["candidate_id"]:c for c in eligible}
     labels = {"existing_capability_resolver_issue":"Resolver","technology_relationship":"Relationship","technology_identity":"Identity","possible_new_capability":"Capability"}
     selected = []
+    frozen = bool(st.session_state.get("tqd3_h1_plan") and st.session_state.get("tqd3_h1_executed_plan") == st.session_state["tqd3_h1_plan"]["plan_fingerprint"])
+    if frozen:
+        st.info("Selection frozen because this research plan has already been executed. Prepare / Refresh Gap Review to create another plan. Saved evidence remains available below.")
     for slot in range(research.MAX_BATCH):
         cid = st.selectbox("Research candidate "+str(slot+1),[None,*[cid for cid in by_id if cid not in selected]],
-            format_func=lambda cid:"No selection" if cid is None else "["+labels[by_id[cid]["candidate_route"]]+"] "+by_id[cid]["concept_key"],key="tqd3_h1_selection_"+str(slot))
+            format_func=lambda cid:"No selection" if cid is None else "["+labels[by_id[cid]["candidate_route"]]+"] "+by_id[cid]["concept_key"],key="tqd3_h1_selection_"+str(slot),disabled=frozen)
         if cid:
             selected.append(cid)
-    external_resolver = st.checkbox("Also request external supporting evidence for resolver issues", value=False, key="tqd3_h1_external_resolver")
-    research_round = st.number_input("Research round (0 reuses initial results; increase for explicit follow-up)",min_value=0,max_value=3,value=0,step=1,key="tqd3_h1_round") or 0
+    external_resolver = st.checkbox("Also request external supporting evidence for resolver issues", value=False, key="tqd3_h1_external_resolver",disabled=frozen)
+    research_round = st.number_input("Research round (0 reuses initial results; increase for explicit follow-up)",min_value=0,max_value=3,value=0,step=1,key="tqd3_h1_round",disabled=frozen) or 0
     st.markdown("**Step 3 — Preview research plan**")
-    if st.button("Preview selected research plan", key="tqd3_h1_plan_preview", disabled=not selected):
+    if st.button("Preview selected research plan", key="tqd3_h1_plan_preview", disabled=not selected or frozen):
         try:
             st.session_state["tqd3_h1_plan"] = research.research_plan(candidates, selected_candidate_ids=selected, external_resolver=external_resolver, research_round=research_round)
         except Exception as exc:
@@ -92,9 +102,9 @@ def render_governed_research():
         same_options = same_options and all(t["research_round"] == research_round for t in plan["targets"])
         st.markdown("**Step 4 — Explicitly run bounded research**")
         st.warning("This action may call Tavily Search: at most 3 candidates, one query each, at most two attempts each. Resolver issues use local knowledge first. Saved matching results are reused.")
-        if st.button("Run selected bounded research", key="tqd3_h1_execute", disabled=not same_selection or not same_options):
+        if st.button("Run selected bounded research", key="tqd3_h1_execute", disabled=frozen or not same_selection or not same_options):
             try:
-                if not same_selection or not same_options:
+                if frozen or not same_selection or not same_options:
                     raise ValueError("Selection/options changed; preview a new plan")
                 receipt = research.execute_plan(plan, candidates, explicit_execution=True)
                 st.session_state["tqd3_h1_receipt"] = receipt
@@ -103,6 +113,9 @@ def render_governed_research():
                     st.json(receipt["failures"])
                 else:
                     st.success(f"Completed or reused {len(receipt['results'])} research result(s).")
+                    st.session_state["tqd3_h1_executed_plan"]=plan["plan_fingerprint"]
+                    st.session_state["tqd3_h1_flash"]="Research evidence saved. Saved matching results are reused; rerender performs no research."
+                    st.rerun()
             except Exception as exc:
                 st.error(f"Research stopped: {exc}. Completed results remain saved.")
     st.markdown("**Step 5 — Review research evidence**")
@@ -113,6 +126,8 @@ def render_governed_research():
         st.error(f"Saved research unavailable: {exc}")
         return
     superseded = {row["result"].get("interpretation_lineage",{}).get("previous_research_result_id") for row in saved}
+    from taxonomy_discovery.governed_publication import list_publications, latest_impact
+    published = {r["research_result_id"]:r for r in list_publications() if r["status"] == "published"}
     for row in saved:
         result, draft = row["result"], row["draft"]
         rid = result["research_result_id"]
@@ -121,6 +136,23 @@ def render_governed_research():
                 st.json(result)
             continue
         with st.expander(result["candidate"]["concept_key"]+" · "+result["candidate_route"]):
+            if rid in published:
+                st.success("Published to production knowledge version "+published[rid]["version_after"]+". Review/publication history is retained in Governed Review Ledger.")
+                with st.expander("Advanced / published research and draft history"):
+                    st.json(row)
+                continue
+            persisted_report = latest_impact(rid)
+            state = row["review"].get("decision","undecided")
+            if state == "approve_for_publication":
+                st.info("Approved — pending explicit publication in Governed Review Ledger.")
+            elif state == "reject":
+                st.info("Rejected — historical draft retained.")
+            elif draft and persisted_report:
+                st.info("Temporary regression saved — human review required; publication blockers must be checked.")
+            elif draft:
+                st.info("Draft created — awaiting temporary regression.")
+            else:
+                st.info("Research evidence saved — draft creation is a separate explicit action.")
             if st.button("Re-evaluate saved evidence",key=rid+"_reevaluate"):
                 try:
                     updated = research.re_evaluate_saved_evidence(result,explicit_execution=True,persist=True)
@@ -156,29 +188,49 @@ def render_governed_research():
                 fields["evidence_expectations"] = {"policy_references":["existing deterministic evidence tiers"],
                     "evidence_tiers":[{"label":"direct", "all_groups":[fields["match_concepts"], evidence_terms],
                         "reason":"explicit_application", "concepts":fields["match_concepts"]}]}
-            if st.button("Create draft proposal",key=rid+"_draft",disabled=draft is not None) and draft is None:
+            from taxonomy_discovery.resolver_improvement import RESOLVER_DRAFT_VERSION
+            legacy_resolver = bool(draft and draft.get("kind") == "resolver_improvement" and draft.get("resolver_draft_version") != RESOLVER_DRAFT_VERSION)
+            replace_rejected = legacy_resolver and row["review"].get("decision") == "reject"
+            if legacy_resolver:
+                st.caption("Legacy resolver draft cannot be approved. Record Reject first; then create a guarded replacement. Its rejection history is retained.")
+            if st.button("Create guarded replacement draft" if replace_rejected else "Create draft proposal",key=rid+"_draft",disabled=draft is not None and not replace_rejected) and (draft is None or replace_rejected):
                 try:
                     draft = research.create_draft(result, explicit_creation=True, capability_fields=fields)
                     save_governed_research_draft(result,draft)
+                    st.session_state.pop(rid+"_impact_report", None)
+                    st.session_state.pop(rid+"_decision", None)
                     st.success("Draft saved. Human decision remains undecided.")
+                    st.session_state["tqd3_h1_flash"]="Draft created — awaiting temporary regression"
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Draft rejected: {exc}")
             st.markdown("**Step 7 — Preview temporary Job Match impact**")
             if draft:
                 st.json(draft)
                 if st.button("Preview temporary Job Match impact",key=rid+"_impact",disabled=prepared["corpus"] is None):
+                    st.session_state.pop(rid+"_impact_report", None)
                     try:
                         st.session_state[rid+"_impact_report"] = research.temporary_impact(prepared["corpus"], draft)
+                        from database.taxonomy_discovery_review_manager import save_governed_temporary_impact
+                        save_governed_temporary_impact(rid, st.session_state[rid+"_impact_report"])
+                        st.session_state["tqd3_h1_flash"]="Temporary regression saved — human review required"
+                        st.rerun()
                     except Exception as exc:
                         st.error(f"Temporary impact failed closed: {exc}")
-            report = st.session_state.get(rid+"_impact_report")
+            from taxonomy_discovery.governed_publication import latest_impact
+            report = latest_impact(rid)
             if report and (prepared["corpus"] is None or report.get("corpus_fingerprint") != research.fingerprint(prepared["corpus"])):
                 report = None
             if report:
                 st.write("Affected jobs",report["affected_jobs"])
                 if "unexpectedly_changed_requirements" in report:
+                    st.write("Intended changed requirements",report.get("intended_changed_requirements",[]))
                     st.write("Newly resolved / unchanged",report["newly_resolved_count"],report["unchanged_count"])
                     st.write("Unexpectedly changed requirements requiring review",report["unexpectedly_changed_requirements"])
+                    if report.get("publication_blockers"):
+                        st.error("Publication blocked: " + ", ".join(report["publication_blockers"]) + ". Reject or revise this resolver draft.")
+                    else:
+                        st.caption("No unexpected requirement changes. Human review and current regression checks remain required before approval.")
                 st.dataframe([{"Job":j["job_id"], "Requirement":c["requirement_id"],
                     "Before":(c.get("before") or {}).get("resolution_status"), "After":(c.get("after") or {}).get("resolution_status"),
                     "Before capability":(c.get("before") or {}).get("capability_id"), "After capability":(c.get("after") or {}).get("capability_id"),
@@ -197,7 +249,8 @@ def render_governed_research():
             if st.button("Record human decision",key=rid+"_review"):
                 try:
                     save_governed_research_review(rid,result_fingerprint=result["result_fingerprint"],decision=decision,reviewer=reviewer,notes=notes,regression=report)
-                    st.success("Separate human decision saved. No production publication or scoring change.")
+                    st.session_state["tqd3_h1_flash"]="Human decision saved: "+decision+". Approval is separate from publication."
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Review rejected: {exc}")
 

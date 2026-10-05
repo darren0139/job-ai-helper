@@ -44,6 +44,20 @@ def save_governed_research_result(result, *, db_path=None):
     return result
 
 
+def save_governed_temporary_impact(result_id, regression, *, db_path=None):
+    """Explicit preview receipt: retain the latest report, without a human decision."""
+    from taxonomy_discovery.corpus_expansion import fingerprint
+    if regression.get("regression_fingerprint") != fingerprint({k:v for k,v in regression.items() if k != "regression_fingerprint"}):
+        raise ValueError("Temporary impact report edited")
+    with closing(_connect(_resolved_path(db_path), create_parent=False)) as conn:
+        row = conn.execute("SELECT draft_json FROM governed_research_results WHERE result_id=?", (result_id,)).fetchone()
+        if not row or not row[0] or regression.get("draft_fingerprint") != fingerprint(json.loads(row[0])):
+            raise ValueError("Temporary impact requires the saved draft")
+        conn.execute("CREATE TABLE IF NOT EXISTS governed_temporary_impacts (result_id TEXT PRIMARY KEY, report_json TEXT NOT NULL)")
+        conn.execute("INSERT OR REPLACE INTO governed_temporary_impacts VALUES (?,?)", (result_id,json.dumps(regression,sort_keys=True)))
+        conn.commit()
+
+
 def save_governed_research_review(result_id, *, result_fingerprint, decision, reviewer, notes="", draft=None, regression=None, db_path=None):
     """Separate human decision/draft receipt; no approval in other queues or publication."""
     from taxonomy_discovery.taxonomy_evolution import DECISIONS
@@ -70,6 +84,26 @@ def save_governed_research_review(result_id, *, result_fingerprint, decision, re
                 raise ValueError("Temporary impact knowledge stale")
             if not regression.get("jobs") or any(not j.get("available") or j.get("duplicate_credit_violations") or j.get("classification") == "hard_regression/invariant_violation" for j in regression["jobs"]):
                 raise ValueError("Temporary impact is unavailable or has invariant failures")
+            if saved_draft.get("kind") == "resolver_improvement":
+                from taxonomy_discovery.resolver_improvement import resolver_overlay
+                shadow = resolver_overlay(saved_draft)
+                table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='governed_temporary_impacts'").fetchone()
+                latest = conn.execute("SELECT report_json FROM governed_temporary_impacts WHERE result_id=?", (result_id,)).fetchone() if table else None
+                if not latest or json.loads(latest[0]) != regression:
+                    raise ValueError("Resolver approval requires the most recent saved temporary regression")
+                if regression.get("temporary_resolver_identity") != shadow.version or regression.get("unexpectedly_changed_requirements") != []:
+                    raise ValueError("Resolver approval blocked: missing regression identity or unexpected requirement changes")
+                if (regression.get("review_only") is not True or not regression.get("corpus_fingerprint")
+                    or regression.get("publication_blockers") != []
+                    or any(j.get("available") is not True or j.get("duplicate_credit_violations") != []
+                        or not isinstance(j.get("requirement_changes"),list) for j in regression["jobs"])):
+                    raise ValueError("Resolver approval blocked: incomplete or unsafe regression result")
+                from taxonomy_discovery.candidate_refinement import product_context_names
+                names = product_context_names()
+                from tailoring.capability_taxonomy import PRODUCT_CONTEXT_GUARD_VERSION
+                if (regression.get("resolver_product_context_names") != names or regression.get("resolver_product_context_fingerprint") != fingerprint(names)
+                    or regression.get("resolver_guard_contract_version") != PRODUCT_CONTEXT_GUARD_VERSION):
+                    raise ValueError("Resolver approval requires current product-context vocabulary in the regression")
         review = {"decision":decision, "reviewer":str(reviewer).strip(), "notes":notes,
                   "result_fingerprint":result_fingerprint, "regression":regression,
                   "updated_at":datetime.now(timezone.utc).isoformat(), "publication":False}
@@ -83,14 +117,22 @@ def save_governed_research_draft(result, draft, *, db_path=None, proposal_db_pat
     """Explicit native proposal persistence followed by an H.1 receipt; no decision."""
     from taxonomy_discovery.governed_research import validate_result
     validate_result(result)
+    def legacy_replacement(old_json, review_json):
+        from taxonomy_discovery.resolver_improvement import RESOLVER_DRAFT_VERSION
+        old = json.loads(old_json) if old_json else {}
+        review = json.loads(review_json) if review_json else {}
+        return (old.get("kind") == draft.get("kind") == "resolver_improvement"
+            and old.get("resolver_draft_version") != RESOLVER_DRAFT_VERSION
+            and draft.get("resolver_draft_version") == RESOLVER_DRAFT_VERSION
+            and review.get("decision") == "reject")
     provenance = draft.get("governed_research") if draft.get("kind") == "resolver_improvement" else draft.get("proposal",{}).get("governed_research") if draft.get("kind") == "capability" else draft["proposal_bundle"]["proposals"][0].get("governed_research")
     if not provenance or provenance.get("result_fingerprint") != result["result_fingerprint"]:
         raise ValueError("Draft research provenance mismatch")
     with closing(sqlite3.connect(_resolved_path(db_path).as_uri()+"?mode=ro",uri=True)) as conn:
-        row = conn.execute("SELECT result_fingerprint,draft_json FROM governed_research_results WHERE result_id=?",(result["research_result_id"],)).fetchone()
+        row = conn.execute("SELECT result_fingerprint,draft_json,review_json FROM governed_research_results WHERE result_id=?",(result["research_result_id"],)).fetchone()
         if not row or row[0] != result["result_fingerprint"]:
             raise ValueError("Saved research result required")
-        if row[1] and json.loads(row[1]) != draft:
+        if row[1] and json.loads(row[1]) != draft and not legacy_replacement(row[1],row[2]):
             raise ValueError("Existing draft receipt differs; create a separate research review")
     if draft["kind"] == "resolver_improvement":
         from taxonomy_discovery.resolver_improvement import resolver_overlay
@@ -101,11 +143,18 @@ def save_governed_research_draft(result, draft, *, db_path=None, proposal_db_pat
         from database.technology_registry_proposal_manager import import_proposal_bundle
         import_proposal_bundle(draft["proposal_bundle"],db_path=proposal_db_path)
     with closing(_connect(_resolved_path(db_path),create_parent=False)) as conn:
-        row = conn.execute("SELECT result_fingerprint,draft_json FROM governed_research_results WHERE result_id=?",(result["research_result_id"],)).fetchone()
+        row = conn.execute("SELECT result_fingerprint,draft_json,review_json FROM governed_research_results WHERE result_id=?",(result["research_result_id"],)).fetchone()
         if not row or row[0] != result["result_fingerprint"]:
             raise ValueError("Saved research result required")
         if row[1] and json.loads(row[1]) != draft:
-            raise ValueError("Existing draft receipt differs; create a separate research review")
+            if not legacy_replacement(row[1],row[2]):
+                raise ValueError("Existing draft receipt differs; reject the legacy resolver draft before creating its guarded replacement")
+            conn.execute("CREATE TABLE IF NOT EXISTS governed_resolver_draft_history (result_id TEXT, draft_id TEXT, draft_json TEXT, review_json TEXT, PRIMARY KEY(result_id,draft_id))")
+            conn.execute("INSERT OR IGNORE INTO governed_resolver_draft_history VALUES (?,?,?,?)",
+                (result["research_result_id"],json.loads(row[1])["resolver_draft_id"],row[1],row[2]))
+            conn.execute("UPDATE governed_research_results SET review_json=NULL WHERE result_id=?",(result["research_result_id"],))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='governed_temporary_impacts'").fetchone():
+                conn.execute("DELETE FROM governed_temporary_impacts WHERE result_id=?",(result["research_result_id"],))
         conn.execute("UPDATE governed_research_results SET draft_json=? WHERE result_id=?",(json.dumps(draft,sort_keys=True),result["research_result_id"]))
         conn.commit()
 

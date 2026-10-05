@@ -886,6 +886,8 @@ def render_application_analysis_details(
             .get("stable_analysis_currentness")
             or {}
         )
+        if resolver_context.get("stale_requires_refresh"):
+            st.warning("Saved analysis is stale after a knowledge change. Saved JD/evidence inputs are unavailable; restore them and use Analyze Resume to refresh. Historical analysis is retained.")
         st.caption(
             "Deterministic resolver context · "
             f"scorer {stable_analysis.get('scoring_version', 'unknown')} · "

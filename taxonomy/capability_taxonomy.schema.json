@@ -50,6 +50,19 @@
               "any_terms"
             ],
             "properties": {
+              "contextual_phrase_variants": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["phrase", "product_context_guard"],
+                  "properties": {
+                    "phrase": {"type": "string", "minLength": 1},
+                    "excluded_product_names": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                    "guard_contract_version": {"const": "native-product-context-guard-v1"},
+                    "product_context_guard": {"const": "exclude_recognized_multiword_technology_spans"}
+                  }
+                }
+              },
               "any_terms": {
                 "type": "array",
                 "items": {

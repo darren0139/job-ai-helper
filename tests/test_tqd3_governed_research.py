@@ -406,7 +406,8 @@ class UITests(unittest.TestCase):
                 render_governed_research()
             execute_mock.assert_not_called()
             self.assertIn("tqd3_h1_prepared",st.session_state)
-            rows=next(m[1][0] for m in st.messages if m[0]=="dataframe")
+            rows=next(m[1][0] for m in st.messages if m[0]=="dataframe" and m[1][0]
+                and "Initial Phase-G research route" in m[1][0][0])
             self.assertIn("Initial Phase-G research route",rows[0]); self.assertIn("Refined candidate route",rows[0])
 
     def test_execute_only_button_and_plan_selection_change_blocks(self):

@@ -307,13 +307,18 @@ def proposal_publication_state(proposal, review, *, publications=None, registry_
 def _replace_registry(path, original, encoded):
     """Shared staged validation and single atomic file replacement."""
     from taxonomy_discovery import technology_registry as production
+    return _replace_knowledge(path, original, encoded, production.load_registry)
+
+
+def _replace_knowledge(path, original, encoded, validator):
+    """Native publication primitive shared by registry and capability taxonomy."""
     with tempfile.NamedTemporaryFile(mode="wb", prefix=".tqd3-publish-", suffix=".json", dir=path.parent, delete=False) as staged:
         staging_path = Path(staged.name)
         staged.write(encoded)
         staged.flush()
         os.fsync(staged.fileno())
     try:
-        production.load_registry(staging_path)
+        validator(staging_path)
         if path.read_bytes() != original:
             raise ValueError("Production knowledge changed while staging; publication stopped")
         os.replace(staging_path, path)

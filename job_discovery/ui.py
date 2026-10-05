@@ -973,6 +973,12 @@ def render_job_finder() -> None:
         ),
         reverse=True,
     )
+    match_context = current_evidence_context()
+    order = st.selectbox("Rank results by",["Search relevance","Current Job Match alignment"],key="job_finder_current_match_order")
+    if order == "Current Job Match alignment":
+        from job_discovery.ranking import rank_current_job_matches
+        jobs = rank_current_job_matches(jobs,context=match_context)
+        st.caption("Uses the existing deterministic alignment score from current Job Match snapshots. Stale or unanalysed scores are excluded; search relevance breaks ties.")
 
     result_limit = st.slider(
         "Maximum results shown",
@@ -993,7 +999,6 @@ def render_job_finder() -> None:
         )
         return
 
-    match_context = current_evidence_context()
     evidence_count = int(match_context.get("evidence_item_count", 0) or 0)
     if evidence_count:
         st.caption(
@@ -1090,6 +1095,8 @@ def render_job_finder() -> None:
                         "snapshot": match_result.get("snapshot"),
                         "stale_reasons": [],
                     }
+                    if order == "Current Job Match alignment":
+                        st.rerun()
                 except (ValueError, RuntimeError) as exc:
                     st.warning(str(exc))
                 except Exception as exc:

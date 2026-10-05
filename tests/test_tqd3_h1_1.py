@@ -71,7 +71,8 @@ class ResolverTests(unittest.TestCase):
             for cid,entry in get_default_taxonomy().by_id().items():
                 expected=deepcopy(entry)
                 if cid==draft["target_capability_id"]:
-                    expected["requirement"]["any_terms"]=sorted(set(expected["requirement"]["any_terms"]+["web services"]))
+                    expected["requirement"]["contextual_phrase_variants"]=[{"phrase":"web services",
+                        "product_context_guard":"exclude_recognized_multiword_technology_spans"}]
                 self.assertEqual(overlay.by_id()[cid],expected)
             save_governed_research_draft(result,draft,db_path=f.tmp/"h11.sqlite")
             saved=list_governed_research_results(db_path=f.tmp/"h11.sqlite")[0]
@@ -112,13 +113,23 @@ class ResolverTests(unittest.TestCase):
 
     def test_not_exact_sentence_rule_and_human_approval_separate(self):
         with PublicationFixture() as f:
-            result=local_result(f,"Design and operate reliable web services")
+            text="Design and operate reliable web services"
+            snapshot=frozen_snapshot(text)
+            corpus=build_regression_corpus([snapshot])
+            c=candidate(text)
+            c["provenance"][0]["requirement_id"]=corpus["jobs"][0]["requirements"][0]["requirement_id"]
+            c["candidate_fingerprint"]=fingerprint({k:v for k,v in c.items() if k not in {"candidate_id","candidate_fingerprint"}})
+            c["candidate_id"]="tqd3taxgap_"+c["candidate_fingerprint"][:24]
+            with patch("tests.test_tqd3_h1_1.candidate",return_value=c):
+                result=local_result(f,text)
             draft=h1.create_draft(result,explicit_creation=True)
             self.assertEqual(draft["target_capability_id"],"backend.api_development")
             save_governed_research_draft(result,draft,db_path=f.tmp/"h11.sqlite")
             options=dict(result_fingerprint=result["result_fingerprint"],decision="approve_for_publication",reviewer="TEST ONLY",db_path=f.tmp/"h11.sqlite")
             with self.assertRaises(ValueError): save_governed_research_review(result["research_result_id"],**options)
-            report=h1.temporary_impact(build_regression_corpus([frozen_snapshot("Design and operate reliable web services")]),draft)
+            report=h1.temporary_impact(corpus,draft)
+            from database.taxonomy_discovery_review_manager import save_governed_temporary_impact
+            save_governed_temporary_impact(result["research_result_id"],report,db_path=f.tmp/"h11.sqlite")
             review=save_governed_research_review(result["research_result_id"],regression=report,**options)
             self.assertFalse(review["publication"])
 

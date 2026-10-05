@@ -53,22 +53,38 @@ def semantic_overlap(text, taxonomy):
     return strong
 
 
-def capability_context(text):
+def product_context_names():
+    """Material vocabulary used by temporary product-context exclusion."""
+    names = list(_ENTITY_HINTS)
+    for rule in load_source_authority_registry().get("technology_domains",[]):
+        names.extend(rule.get("technology_aliases",[]))
+    for entry in get_default_registry().entries:
+        if entry.get("entry_kind") not in _CONCEPT_KINDS:
+            names.extend(entry.get("aliases",[]))
+    return sorted({normalise(n) for n in names if len(normalise(n).split()) > 1})
+
+
+def capability_context(text, *, include_research_aliases=True, extra_product_names=(), product_span_replacement=" "):
     """A requirement phrase inside a multiword product name is not capability evidence."""
     key=normalise(text)
-    for entity in technology_entities(text,[])["concrete_entities"]:
+    for entity in technology_entities(text,[],include_research_aliases=include_research_aliases)["concrete_entities"]:
         term=normalise(entity["term"])
         if len(term.split())>1:
-            key=re.sub(r"(?<!\w)"+re.escape(term)+r"(?!\w)"," ",key)
+            key=re.sub(r"(?<!\w)"+re.escape(term)+r"(?!\w)",product_span_replacement,key)
+    for term in extra_product_names:
+        term = normalise(term)
+        if len(term.split()) > 1:
+            key=re.sub(r"(?<!\w)"+re.escape(term)+r"(?!\w)",product_span_replacement,key)
     return key
 
 
-def technology_entities(text, proposed_terms):
+def technology_entities(text, proposed_terms, *, include_research_aliases=True):
     registry=get_default_registry()
     names={normalise(n):n for n in _ENTITY_HINTS}
-    for rule in load_source_authority_registry().get("technology_domains",[]):
-        for name in rule.get("technology_aliases",[]):
-            names.setdefault(normalise(name),name)
+    if include_research_aliases:
+        for rule in load_source_authority_registry().get("technology_domains",[]):
+            for name in rule.get("technology_aliases",[]):
+                names.setdefault(normalise(name),name)
     concept_aliases={}
     entries={}
     for entry in registry.entries:

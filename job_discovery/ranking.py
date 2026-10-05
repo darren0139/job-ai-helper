@@ -4,6 +4,17 @@ import re
 from typing import Any
 
 
+def rank_current_job_matches(jobs, *, context):
+    """Sort by the existing native score; exclude stale scores, preserve tie order."""
+    from job_discovery.matching import inspect_job_match
+    def score(job):
+        state = inspect_job_match(job, context=context)
+        if state["status"] != "current":
+            return -1
+        return (state["snapshot"].get("summary") or {}).get("deterministic_alignment_score", 0)
+    return sorted(jobs, key=score, reverse=True)
+
+
 def _tokens(value: str) -> list[str]:
     return [token for token in re.findall(r"[a-z0-9+#.]+", value.lower()) if len(token) >= 2]
 

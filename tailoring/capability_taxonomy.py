@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "taxonomy" / "capability_taxonomy_v1.json"
 ALLOWED_LABELS = {"direct", "transferable", "weak", "none"}
+PRODUCT_CONTEXT_GUARD_VERSION = "native-product-context-guard-v1"
 
 
 def _clean(value: Any) -> str:
@@ -313,6 +314,19 @@ def _validate_capability(item: dict[str, Any], seen: set[str]) -> None:
         raise ValueError(f"{capability_id}: requirement.any_terms must be a list")
     if not isinstance(requirement.get("all_terms", []), list):
         raise ValueError(f"{capability_id}: requirement.all_terms must be a list")
+    variants = requirement.get("contextual_phrase_variants", [])
+    if not isinstance(variants,list) or any(not isinstance(v,dict)
+        or not isinstance(v.get("phrase"),str) or len(normalise(v["phrase"]).split()) < 2
+        or v.get("product_context_guard") != "exclude_recognized_multiword_technology_spans" for v in variants):
+        raise ValueError(f"{capability_id}: invalid guarded contextual phrase variant")
+    if len({normalise(v["phrase"]) for v in variants}) != len(variants):
+        raise ValueError(f"{capability_id}: duplicate contextual phrase variants")
+    for variant in variants:
+        names = variant.get("excluded_product_names")
+        if names is not None and (not isinstance(names,list) or any(not isinstance(n,str) or len(normalise(n).split()) < 2 for n in names)):
+            raise ValueError(f"{capability_id}: invalid frozen product-context names")
+        if names is not None and variant.get("guard_contract_version") != PRODUCT_CONTEXT_GUARD_VERSION:
+            raise ValueError(f"{capability_id}: unsupported product-context guard contract")
 
     if "evidence_policy" in item and item["evidence_policy"] not in V14_EVIDENCE_POLICIES:
         raise ValueError(f"{capability_id}: unknown evidence policy")
@@ -369,8 +383,16 @@ def load_taxonomy(path: str | Path = TAXONOMY_PATH) -> CapabilityTaxonomy:
 
 
 @lru_cache(maxsize=1)
+def _taxonomy_at_signature(path, signature) -> CapabilityTaxonomy:
+    return load_taxonomy(path)
+
+
 def _production_taxonomy() -> CapabilityTaxonomy:
-    return load_taxonomy(TAXONOMY_PATH)
+    # Publication in another session/process must advance currentness without
+    # an arbitrary UI cache purge. Mirror the native registry file identity.
+    path = Path(TAXONOMY_PATH).resolve()
+    stat = path.stat()
+    return _taxonomy_at_signature(str(path), (stat.st_mtime_ns, stat.st_size, stat.st_ino))
 
 
 # Offline review scopes are context-local: never replace the production cache or
@@ -382,8 +404,8 @@ def get_default_taxonomy() -> CapabilityTaxonomy:
     return _review_taxonomy.get() or _production_taxonomy()
 
 
-get_default_taxonomy.cache_clear = _production_taxonomy.cache_clear
-get_default_taxonomy.cache_info = _production_taxonomy.cache_info
+get_default_taxonomy.cache_clear = _taxonomy_at_signature.cache_clear
+get_default_taxonomy.cache_info = _taxonomy_at_signature.cache_info
 
 
 @contextmanager
@@ -427,13 +449,29 @@ def classify_requirement_record(
         all_terms = matcher.get("all_terms", []) or []
         if all_terms and not all(_contains(text, term) for term in all_terms):
             continue
-        if any_terms and not _contains_any(text, any_terms):
+        variants = matcher.get("contextual_phrase_variants", [])
+        variant_match = False
+        if variants:
+            # Only governed temporary variants opt in. Native production terms
+            # and all evidence/scoring predicates retain their existing contract.
+            from taxonomy_discovery.candidate_refinement import capability_context
+            # A shortened atomic focus cannot strip the product's identity and
+            # turn a fragment of its name into independent capability evidence.
+            original = _clean(requirement.get("text")) or _clean(requirement.get("atomic_focus"))
+            def variant_present(v):
+                names = v.get("excluded_product_names")
+                context = capability_context(original,include_research_aliases=names is None,extra_product_names=names or (),product_span_replacement=" tqd3_product_span ")
+                return v.get("product_context_guard") == "exclude_recognized_multiword_technology_spans" and _contains(context,v.get("phrase",""))
+            variant_match = any(
+                variant_present(v) for v in variants
+            )
+        if (any_terms or variants) and not (_contains_any(text, any_terms) or variant_match):
             continue
         if not _matches_groups(text, matcher.get("all_groups", [])):
             continue
         if item.get("evidence_policy") == "c_cpp_v1" and not re.search(r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])", text.lower()):
             continue
-        if not any_terms and not all_terms:
+        if not any_terms and not all_terms and not variants:
             continue
         return item
     return None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,21 @@ def _connect(db_path=None) -> sqlite3.Connection:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def publication_rebuild_inputs(job_id, snapshot_id, *, db_path=None):
+    """Read exact approved historical inputs and today's hash-matched JD only."""
+    path = Path(db_path or DB_PATH).resolve()
+    with closing(sqlite3.connect(path.as_uri()+"?mode=ro",uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        snapshot = conn.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?",(snapshot_id,job_id)).fetchone()
+        job = conn.execute("SELECT * FROM discovered_jobs WHERE id=?",(job_id,)).fetchone()
+        if not snapshot or not job or job["content_hash"] != snapshot["job_content_hash"]:
+            raise ValueError("Approved snapshot/current JD hash differs or inputs unavailable")
+        decoded = _decode_row(snapshot)
+        if not decoded.get("jd_profile") or not decoded.get("evidence_snapshot") or not job["description"]:
+            raise ValueError("Persisted JD extraction/evidence unavailable")
+        return dict(job), decoded
 
 
 def init_job_match_schema(db_path=None) -> None:

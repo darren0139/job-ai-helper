@@ -481,6 +481,12 @@ def _temporary_impact(corpus, draft):
                   corpus_fingerprint=fingerprint(corpus), draft_fingerprint=fingerprint(draft),
                   affected_jobs=[j["job_id"] for j in report["jobs"] if j.get("requirement_changes")])
     if draft["kind"] == "resolver_improvement":
+        from taxonomy_discovery.candidate_refinement import product_context_names
+        from tailoring.capability_taxonomy import PRODUCT_CONTEXT_GUARD_VERSION
+        names = product_context_names()
+        report["resolver_guard_contract_version"] = PRODUCT_CONTEXT_GUARD_VERSION
+        report["resolver_product_context_names"] = names
+        report["resolver_product_context_fingerprint"] = fingerprint(names)
         source_ids = {(p["job_id"],p["requirement_id"]) for p in draft["source_job_snapshot_provenance"]}
         changes = [(j,c) for j in report["jobs"] for c in j.get("requirement_changes",[])]
         report.update(temporary_resolver_identity=shadow.version,
@@ -489,6 +495,12 @@ def _temporary_impact(corpus, draft):
             unchanged_count=sum(len(j["requirements"]) for j in baseline["jobs"])-len(changes),
             unexpectedly_changed_requirements=[{"job_id":j["job_id"],**c} for j,c in changes
                 if (j["job_id"],c["requirement_id"]) not in source_ids or (c.get("after") or {}).get("capability_id") != draft["target_capability_id"]])
+        unexpected_ids = {(c["job_id"],c["requirement_id"]) for c in report["unexpectedly_changed_requirements"]}
+        report["intended_changed_requirements"] = [{"job_id":j["job_id"],**c} for j,c in changes
+            if (j["job_id"],c["requirement_id"]) not in unexpected_ids]
+        report["publication_blockers"] = (["unexpected_requirement_changes"] if unexpected_ids else []) + (
+            ["missing_or_invalid_regression"] if not report["jobs"] or any(not j.get("available") for j in report["jobs"]) else []) + (
+            ["duplicate_credit_violations"] if any(j.get("duplicate_credit_violations") for j in report["jobs"]) else [])
     else:
         report["temporary_registry_identity"] = shadow.version
     report["regression_fingerprint"] = fingerprint(report)

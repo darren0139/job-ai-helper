@@ -3,7 +3,8 @@ from copy import deepcopy
 from tailoring.capability_taxonomy import CapabilityTaxonomy, get_default_taxonomy, normalise, _contains
 from taxonomy_discovery.corpus_expansion import fingerprint
 
-RESOLVER_DRAFT_VERSION = "tqd3-resolver-improvement-h1.1-v1"
+RESOLVER_DRAFT_VERSION = "tqd3-resolver-improvement-h1.2-v1"
+PRODUCT_CONTEXT_GUARD = "exclude_recognized_multiword_technology_spans"
 
 
 def resolver_draft(result):
@@ -28,7 +29,8 @@ def resolver_draft(result):
         "source_gap_ids":deepcopy(c["source_gap_ids"]),"source_job_snapshot_provenance":deepcopy(c["provenance"]),
         "current_versions":deepcopy(result["current_versions"]),"knowledge_fingerprint":result["knowledge_fingerprint"],
         "target_capability_id":cid,"observed_requirement_text":deepcopy(c["examples"]),"normalized_concept":c["concept_key"],
-        "proposed_resolver_change":{"type":"native_requirement_phrase_plural_support","add_requirement_phrases":variants},
+        "proposed_resolver_change":{"type":"native_requirement_phrase_plural_support","add_requirement_phrases":variants,
+            "product_context_guard":PRODUCT_CONTEXT_GUARD,"phrase_boundary":"whole_normalized_phrase"},
         "proposal_rationale":"Observed regular plural of an existing whole native requirement phrase; no new capability or evidence policy.",
         "deterministic_supporting_evidence":deepcopy(hypotheses),"requirement_phrase_evidence":matched,
         "does_not_match":deepcopy(entry.get("does_not_prove",[])),"guard_conditions":deepcopy(entry["requirement"]),
@@ -57,7 +59,10 @@ def resolver_overlay(draft):
     if not set(draft["requirement_phrase_evidence"]).issubset(entry["requirement"].get("any_terms",[])):
         raise ValueError("Supporting phrases are not native target requirements")
     phrases = draft["proposed_resolver_change"]["add_requirement_phrases"]
+    if draft["proposed_resolver_change"].get("product_context_guard") != PRODUCT_CONTEXT_GUARD or draft["proposed_resolver_change"].get("phrase_boundary") != "whole_normalized_phrase":
+        raise ValueError("Safe product-context and whole-phrase guards required")
     if not phrases or any(p not in {normalise(q)+"s" for q in draft["requirement_phrase_evidence"]} for p in phrases):
         raise ValueError("Unsupported resolver phrase change")
-    entry["requirement"]["any_terms"] = sorted(set(entry["requirement"].get("any_terms",[]) + phrases))
+    entry["requirement"]["contextual_phrase_variants"] = [
+        {"phrase":p,"product_context_guard":PRODUCT_CONTEXT_GUARD} for p in phrases]
     return CapabilityTaxonomy("tqd3-temporary-resolver-"+draft["draft_fingerprint"][:24],tuple(entries))
