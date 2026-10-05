@@ -85,7 +85,7 @@ class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
         self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d16")
         self.assertEqual(
             result["input_fingerprint"],
-            "f74ad3408f047c3c2dfd2a99859c8b946c5b09fa767b04aa598c3a67418e7805",
+            "a20c0fea8dbdac02270b5b0ba2c05acf9bd729b49a67f121008ed9e56d9bcf4b",
         )
         self.assertEqual(
             JD_STRUCTURE_INFERENCE_VERSION,

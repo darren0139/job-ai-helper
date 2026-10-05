@@ -17,9 +17,15 @@ class TechnologyRegistryTests(unittest.TestCase):
         registry = get_default_registry()
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.1",
+            "technology-registry-v1.2",
         )
         self.assertGreaterEqual(len(registry.entries), 10)
+
+    def test_cpp_governed_mapping_is_preserved(self) -> None:
+        result = resolve_requirement_text("Experience with C++")
+        self.assertEqual(result["status"], "resolved")
+        self.assertEqual(result["technology_id"], "focused.cedb1bac7efcd7db")
+        self.assertEqual(result["capability_id"], "language.modern_cpp")
 
     def test_kafka_resolves_to_existing_messaging_capability(self) -> None:
         result = resolve_requirement_text("Experience with Kafka")

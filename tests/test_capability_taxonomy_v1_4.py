@@ -1,9 +1,8 @@
 from __future__ import annotations
 from copy import deepcopy
-import json
 import unittest
 from unittest.mock import patch
-from tailoring.capability_taxonomy import TAXONOMY_PATH, classify_requirement, evaluate_evidence, get_default_taxonomy
+from tailoring.capability_taxonomy import classify_requirement, evaluate_evidence, get_default_taxonomy
 from tailoring.phase6d_stable_scoring_adapter import cap_requirement_with_taxonomy
 
 # Cases are deliberately independent of identities, employers and project names.
@@ -81,8 +80,7 @@ OVERLAPS = [
 
 class CapabilityTaxonomyV14Tests(unittest.TestCase):
     def test_version(self):
-        expected=json.loads(TAXONOMY_PATH.read_bytes())["taxonomy_version"]
-        self.assertEqual(get_default_taxonomy().version,expected)
+        self.assertEqual(get_default_taxonomy().version,"phase6d-capability-taxonomy-v1.5")
 
     def test_unrecognised_context_stays_unrecognised(self):
         for text in ("Graphics programming", "External clients", "Client requirements", "C# programming"):

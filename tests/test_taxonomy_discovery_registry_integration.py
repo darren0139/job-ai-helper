@@ -51,7 +51,7 @@ class TechnologyRegistryTriageIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             enriched["technology_registry_version"],
-            "technology-registry-v1.1",
+            "technology-registry-v1.2",
         )
         self.assertEqual(
             enriched["registry_resolved_candidate_count"],

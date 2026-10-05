@@ -21,9 +21,9 @@ class TechnologyRegistryTranche1PromotionTests(unittest.TestCase):
         registry = get_default_registry()
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.1",
+            "technology-registry-v1.2",
         )
-        self.assertEqual(len(registry.entries), 27)
+        self.assertEqual(len(registry.entries), 28)
 
     def test_tranche1_mappings_are_present(self) -> None:
         by_id = get_default_registry().by_id()
@@ -93,7 +93,7 @@ class TechnologyRegistryTranche1PromotionTests(unittest.TestCase):
         registry = load_registry(path)
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.1",
+            "technology-registry-v1.2",
         )
 
     def test_promotion_manifest_matches_registry(self) -> None:

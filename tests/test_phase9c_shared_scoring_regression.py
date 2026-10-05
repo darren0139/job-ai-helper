@@ -105,7 +105,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         # a semantic dependency. Scoring semantics above remain unchanged.
         self.assertEqual(
             result["input_fingerprint"],
-            "f74ad3408f047c3c2dfd2a99859c8b946c5b09fa767b04aa598c3a67418e7805",
+            "a20c0fea8dbdac02270b5b0ba2c05acf9bd729b49a67f121008ed9e56d9bcf4b",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

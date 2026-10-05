@@ -231,10 +231,10 @@ class EvolutionTests(unittest.TestCase):
         with patch.dict(sys.modules,{"streamlit":fake}), patch("database.taxonomy_discovery_review_manager.list_taxonomy_evolution_proposals",return_value=[]), \
             patch("database.taxonomy_discovery_review_manager.save_taxonomy_evolution_proposal") as save, \
             patch("database.taxonomy_discovery_review_manager.save_taxonomy_evolution_review") as decide, \
+            patch("taxonomy_discovery.governed_publication.publish_approved_change") as publish, \
             patch.object(evolution,"research_with_transport") as research:
             render_taxonomy_evolution()
-            save.assert_not_called(); decide.assert_not_called(); research.assert_not_called()
-        self.assertFalse(any("Publish" in label for label,_ in fake.buttons))
+            save.assert_not_called(); decide.assert_not_called(); publish.assert_not_called(); research.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -598,7 +598,7 @@ class Phase9EStreamlitAcceptanceTests(unittest.TestCase):
         )
         selection.set_value("base_resume").run()
         self.assertEqual(list(app.exception), [])
-        self.assertTrue(any(button.label == "Use Base Resume as tailoring base" for button in app.button))
+        self.assertTrue(any(button.label == "Use Master résumé as tailoring base" for button in app.button))
         self.assertFalse(any("selected blueprint is unsuitable" in str(item.value).lower() for item in app.warning))
         app = self.confirm_and_bind(app)
         self.assertEqual(list(app.exception), [])

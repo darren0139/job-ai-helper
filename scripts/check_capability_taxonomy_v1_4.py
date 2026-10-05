@@ -1,9 +1,11 @@
 """Offline rule smoke; no application/model/database imports."""
 from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
 
+EXPECTED_TAXONOMY_VERSION = "phase6d-capability-taxonomy-v1.5"
+
 
 def main():
-    assert get_default_taxonomy().version == "phase6d-capability-taxonomy-v1.4"
+    assert get_default_taxonomy().version == EXPECTED_TAXONOMY_VERSION
     cases = [
         ("Android application development using Kotlin", "Built an Android application using Kotlin", "direct"),
         ("Android application development", "Kotlin", "none"),
@@ -13,7 +15,7 @@ def main():
     ]
     for requirement, evidence, expected in cases:
         assert evaluate_evidence({"text": requirement}, evidence)["label"] == expected
-    print("Taxonomy v1.4 smoke PASS: 5 cases; model=0 embedding=0 Chroma=0 network=0 writes=0")
+    print("Taxonomy v1.5 smoke PASS: 5 cases; model=0 embedding=0 Chroma=0 network=0 writes=0")
     return 0
 
 

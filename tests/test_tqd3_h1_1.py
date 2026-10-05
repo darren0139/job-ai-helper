@@ -46,7 +46,7 @@ def old_result(f,name,rows):
 
 class ResolverTests(unittest.TestCase):
     def test_local_resolver_record_does_not_depend_on_external_authority_update(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result=local_result(f)
             result["authority_rules_fingerprint"]="older-external-authority-rules"
             result.pop("result_fingerprint"); result.pop("research_result_id")
@@ -55,7 +55,7 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(draft["target_capability_id"],"backend.api_development")
 
     def test_real_shape_deterministic_existing_capability_draft_no_mutation(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             taxonomy=TAXONOMY_PATH.read_bytes(); registry=f.registry_path.read_bytes()
             result=local_result(f)
             self.assertEqual(result["recommended_next_action"],"resolver_improvement")
@@ -81,7 +81,7 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(TAXONOMY_PATH.read_bytes(),taxonomy); self.assertEqual(f.registry_path.read_bytes(),registry)
 
     def test_ambiguous_targets_and_unsupported_change_fail_closed(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result=local_result(f,"web services and software system level integration")
             self.assertGreater(len(result["existing_capability_assessment"]["high_overlap_candidates"]),1)
             with self.assertRaises(ValueError): h1.create_draft(result,explicit_creation=True)
@@ -91,7 +91,7 @@ class ResolverTests(unittest.TestCase):
             with self.assertRaises(ValueError): resolver_overlay(draft)
 
     def test_native_temp_impact_unrelated_changes_visible_and_duplicates_retained(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result=local_result(f); draft=h1.create_draft(result,explicit_creation=True)
             first=frozen_snapshot(REST)
             second=frozen_snapshot("Maintain web services")
@@ -112,7 +112,7 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(f.real_registry.read_bytes(),f.real_registry_bytes)
 
     def test_not_exact_sentence_rule_and_human_approval_separate(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             text="Design and operate reliable web services"
             snapshot=frozen_snapshot(text)
             corpus=build_regression_corpus([snapshot])
@@ -128,10 +128,23 @@ class ResolverTests(unittest.TestCase):
             options=dict(result_fingerprint=result["result_fingerprint"],decision="approve_for_publication",reviewer="TEST ONLY",db_path=f.tmp/"h11.sqlite")
             with self.assertRaises(ValueError): save_governed_research_review(result["research_result_id"],**options)
             report=h1.temporary_impact(corpus,draft)
+            report["unexpectedly_changed_requirements"]=[{
+                "requirement_text":"Amazon Web Services",
+                "reason":"Unsafe H.1.1 plural resolver collateral",
+            }]
+            report["regression_fingerprint"]=fingerprint({
+                key:value for key,value in report.items()
+                if key!="regression_fingerprint"
+            })
             from database.taxonomy_discovery_review_manager import save_governed_temporary_impact
             save_governed_temporary_impact(result["research_result_id"],report,db_path=f.tmp/"h11.sqlite")
-            review=save_governed_research_review(result["research_result_id"],regression=report,**options)
-            self.assertFalse(review["publication"])
+            with self.assertRaisesRegex(
+                ValueError,
+                "Resolver approval blocked: missing regression identity or unexpected requirement changes",
+            ):
+                save_governed_research_review(result["research_result_id"],regression=report,**options)
+            saved=list_governed_research_results(db_path=f.tmp/"h11.sqlite")[0]
+            self.assertEqual(saved["review"]["decision"],"undecided")
 
 
 class CachedAuthorityTests(unittest.TestCase):
@@ -247,7 +260,7 @@ class AtomicityPreflightTests(unittest.TestCase):
             fake.assert_not_called(); self.assertFalse((f.tmp/"h11.sqlite").exists())
 
     def test_global_missing_key_fails_before_any_local_or_external_execution(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             cs=[candidate(REST),candidate("UnknownNovelTool")]
             plan=h1.research_plan(cs,selected_candidate_ids=[c["candidate_id"] for c in cs])
             with patch.dict(os.environ,{"TAVILY_API_KEY":""}),patch.object(h1,"tavily_transport") as provider:
