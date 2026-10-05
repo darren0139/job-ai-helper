@@ -192,7 +192,12 @@ def _prepare(conn, result_id, proposal_db_path=None):
         change = {"technology_id":proposal["technology_id"],"proposal":proposal,"native_source_fingerprint":native_fingerprint}
     else:
         raise ValueError("Proposal family has no safe native publication contract")
-    encoded = (json.dumps(raw,ensure_ascii=False,indent=2,sort_keys=True)+"\n").encode()
+    # Taxonomy entries are maintained in a stable, human-reviewed field order.
+    # They are mutated in place above, so sorting every mapping here creates a
+    # repository-wide formatting diff for a one-field publication.  Registry
+    # previews retain their established canonical sorted representation.
+    sort_keys = kind in {"technology_identity", "technology_relationship"}
+    encoded = (json.dumps(raw,ensure_ascii=False,indent=2,sort_keys=sort_keys)+"\n").encode()
     return {"kind":kind,"result":result,"draft":draft,"review":review,"regression":report,"path":path,"original":original,
         "encoded":encoded,"version_before":before_version,"version_after":after_version,"change":change}
 

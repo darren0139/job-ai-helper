@@ -24,6 +24,9 @@ class PublicationFixture:
     name = "V17CPPTool"
     capability = "language.modern_cpp"
 
+    def __init__(self, *, pre_resolver_publication=False):
+        self.pre_resolver_publication = pre_resolver_publication
+
     def __enter__(self):
         self.stack = ExitStack()
         self.tmp = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
@@ -35,6 +38,21 @@ class PublicationFixture:
         self.review_db = self.tmp / "verification.sqlite3"
         self.stack.enter_context(patch.object(production, "REGISTRY_PATH", self.registry_path))
         self.stack.enter_context(patch.object(job_match_manager, "DB_PATH", self.tmp / "jobs.sqlite3"))
+        if self.pre_resolver_publication:
+            from tailoring import capability_taxonomy as capability_taxonomy
+            from taxonomy_discovery import taxonomy_evolution
+            self.taxonomy_path = self.tmp / "capability_taxonomy_v1.json"
+            raw = json.loads(Path(capability_taxonomy.TAXONOMY_PATH).read_bytes())
+            target = next(c for c in raw["capabilities"]
+                          if c["capability_id"] == "backend.api_development")
+            if target["requirement"].pop("contextual_phrase_variants", None):
+                prefix, minor = raw["taxonomy_version"].rsplit(".", 1)
+                raw["taxonomy_version"] = prefix + "." + str(int(minor) - 1)
+            self.taxonomy_path.write_bytes(
+                (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode())
+            self.stack.enter_context(patch.object(capability_taxonomy, "TAXONOMY_PATH", self.taxonomy_path))
+            self.stack.enter_context(patch.object(taxonomy_evolution, "TAXONOMY_PATH", self.taxonomy_path))
+            capability_taxonomy.get_default_taxonomy.cache_clear()
         self.stack.enter_context(patch.dict(os.environ, {"CAPABILITY_RAG_MODE": "off"}))
         self.network_guard = self.stack.enter_context(patch("socket.socket.connect", side_effect=AssertionError("Runtime network call")))
         self.embedding_guard = self.stack.enter_context(patch("tailoring.phase6d5_retrieval.retrieve_taxonomy_candidates",
@@ -66,6 +84,9 @@ class PublicationFixture:
         return self
 
     def __exit__(self, *args):
+        if self.pre_resolver_publication:
+            from tailoring.capability_taxonomy import get_default_taxonomy as current_taxonomy
+            current_taxonomy.cache_clear()
         production.get_default_registry.cache_clear()
         return self.stack.__exit__(*args)
 

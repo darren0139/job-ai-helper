@@ -1,6 +1,7 @@
 """Only copied native knowledge and temporary databases; no real publication."""
 from contextlib import contextmanager, closing, nullcontext
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -10,7 +11,6 @@ from unittest.mock import patch, Mock
 
 from tailoring import capability_taxonomy as taxonomy
 from taxonomy_discovery import governed_research as h1, governed_publication as publication
-from taxonomy_discovery import taxonomy_evolution as evolution
 from database import taxonomy_discovery_review_manager as reviews
 from database import job_match_manager as matches
 from job_discovery.matching import current_match_versions, inspect_job_match, build_profile_evidence_context
@@ -23,11 +23,8 @@ from tests.test_tqd3_publication_ui import FakeStreamlit
 def isolated():
     real_path=Path(taxonomy.TAXONOMY_PATH)
     before=real_path.read_bytes()
-    with PublicationFixture() as f:
-        f.taxonomy_path=f.tmp/"capability_taxonomy_v1.json"
-        f.taxonomy_path.write_bytes(before)
-        with patch.object(taxonomy,"TAXONOMY_PATH",f.taxonomy_path),patch.object(evolution,"TAXONOMY_PATH",f.taxonomy_path):
-            yield f
+    with PublicationFixture(pre_resolver_publication=True) as f:
+        yield f
         taxonomy.get_default_taxonomy.cache_clear()
         assert real_path.read_bytes()==before
         assert f.real_registry.read_bytes()==f.real_registry_bytes
@@ -79,6 +76,63 @@ def approved_capability(f, *, aliases=None):
 
 
 class ResolverPublicationTests(unittest.TestCase):
+    @staticmethod
+    def _capability_source(text, capability_id):
+        marker='    {\n      "capability_id": '+json.dumps(capability_id)
+        start=text.index(marker)+4
+        _,length=json.JSONDecoder().raw_decode(text[start:])
+        return text[start:start+length]
+
+    def test_taxonomy_publication_preserves_layout_and_only_expected_semantics(self):
+        with isolated() as f:
+            result,_,_,_=approved(f)
+            db=f.tmp/"h11.sqlite"
+            before=f.taxonomy_path.read_bytes()
+            before_json=json.loads(before)
+            unrelated_before=self._capability_source(before.decode(),"motivation.subjective")
+
+            receipt=publication.publish_approved_change(
+                result["research_result_id"],explicit_publish=True,db_path=db)
+            after=f.taxonomy_path.read_bytes()
+            after_json=json.loads(after)
+
+            expected=deepcopy(before_json)
+            expected["taxonomy_version"]=publication._next_version(
+                before_json["taxonomy_version"],"phase6d-capability-taxonomy-v")
+            target=next(c for c in expected["capabilities"] if c["capability_id"]==TARGET)
+            target["requirement"]["contextual_phrase_variants"]=receipt["change_applied"]["contextual_phrase_variants"]
+            self.assertEqual(after_json,expected)
+            self.assertEqual(receipt["version_before"],before_json["taxonomy_version"])
+            self.assertEqual(receipt["version_after"],expected["taxonomy_version"])
+            self.assertEqual(
+                self._capability_source(after.decode(),"motivation.subjective"),
+                unrelated_before,
+            )
+
+    def test_receipt_reads_and_repeated_publication_do_not_rewrite_artifact(self):
+        with isolated() as f:
+            result,_,_,_=approved(f)
+            db=f.tmp/"h11.sqlite"
+            receipt=publication.publish_approved_change(
+                result["research_result_id"],explicit_publish=True,db_path=db)
+            artifact=f.taxonomy_path.read_bytes()
+            artifact_hash=hashlib.sha256(artifact).hexdigest()
+            artifact_mtime=f.taxonomy_path.stat().st_mtime_ns
+            db_before=db.read_bytes()
+
+            self.assertEqual(publication.list_publications(db_path=db),[receipt])
+            self.assertEqual(db.read_bytes(),db_before)
+            self.assertEqual(f.taxonomy_path.read_bytes(),artifact)
+            self.assertEqual(f.taxonomy_path.stat().st_mtime_ns,artifact_mtime)
+
+            repeated=publication.publish_approved_change(
+                result["research_result_id"],explicit_publish=True,db_path=db)
+            self.assertEqual(repeated,receipt)
+            self.assertEqual(len(publication.list_publications(db_path=db)),1)
+            self.assertEqual(hashlib.sha256(f.taxonomy_path.read_bytes()).hexdigest(),artifact_hash)
+            self.assertEqual(f.taxonomy_path.stat().st_mtime_ns,artifact_mtime)
+            self.assertEqual(json.loads(artifact)["taxonomy_version"],receipt["version_after"])
+
     def test_unrelated_snapshot_is_preserved_and_not_rebuilt(self):
         from job_discovery.matching import _default_stable_builder, summarize_stable_match
         with isolated() as f:

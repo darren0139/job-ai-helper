@@ -42,7 +42,7 @@ def fixture(f):
 
 class PhraseTests(unittest.TestCase):
     def test_native_singular_guarded_plural_boundaries_and_product_context(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result,draft,corpus=fixture(f)
             taxonomy=TAXONOMY_PATH.read_bytes()
             self.assertEqual(draft,h1.create_draft(result,explicit_creation=True))
@@ -70,7 +70,7 @@ class PhraseTests(unittest.TestCase):
             f.network_guard.assert_not_called(); f.model_guard.assert_not_called()
 
     def test_guard_fingerprinted_and_unguarded_legacy_draft_rejected(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             _,draft,_=fixture(f)
             changed=deepcopy(draft)
             changed["proposed_resolver_change"].pop("product_context_guard")
@@ -82,7 +82,7 @@ class PhraseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"guards"): resolver_overlay(changed)
 
     def test_job_566_native_replay_one_intended_change_no_collateral(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             _,draft,corpus=fixture(f)
             before=deepcopy(corpus)
             with patch.object(h1,"tavily_transport",Mock(side_effect=AssertionError("No Tavily"))):
@@ -106,7 +106,7 @@ class ApprovalTests(unittest.TestCase):
         import sqlite3
         import json
         from contextlib import closing
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result,draft,_=fixture(f)
             db=f.tmp/"h11.sqlite"
             old=deepcopy(draft)
@@ -131,7 +131,7 @@ class ApprovalTests(unittest.TestCase):
             self.assertEqual(json.loads(archived[1])["decision"],"reject")
 
     def test_clean_explicit_review_and_missing_stale_collateral_duplicate_blockers(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_resolver_publication=True) as f:
             result,draft,corpus=fixture(f)
             db=f.tmp/"h11.sqlite"
             save_governed_research_draft(result,draft,db_path=db)
