@@ -6,7 +6,10 @@ from typing import Any
 import streamlit as st
 
 from database.db_manager import create_empty_application_session
-from database.job_match_manager import init_job_match_schema
+from database.job_match_manager import (
+    init_job_match_schema,
+    list_current_job_match_snapshots,
+)
 from database.job_discovery_manager import (
     delete_hide_rule,
     delete_target_company,
@@ -25,6 +28,7 @@ from database.job_discovery_manager import (
 )
 from job_discovery.hide_filters import job_identity, partition_hidden_jobs, rule_description
 from job_discovery.faceted_search import (
+    apply_job_finder_filters,
     company_counts,
     employment_type_counts,
     filter_jobs_by_companies,
@@ -42,7 +46,22 @@ from job_discovery.ranking import lexical_relevance
 from job_discovery.matching import (
     analyze_job_match,
     current_evidence_context,
+    current_match_versions,
     inspect_job_match,
+    inspect_job_matches,
+)
+from job_discovery.match_ranking import best_match_sort_key
+from job_discovery.batch_matching import (
+    classify_batch_jobs,
+    match_display_label,
+    select_pending_batch_jobs,
+)
+from job_discovery.result_pagination import paginate_jobs
+from job_discovery.location_display import display_job_location
+from job_discovery.ui_busy import render_busy_overlay
+from job_discovery.view_performance import (
+    clamp_page,
+    match_state_cache_key,
 )
 from job_discovery.text_utils import matches_query
 
@@ -87,6 +106,33 @@ def _safe_timestamp(value: Any) -> float:
         return parsed.timestamp()
     except (ValueError, OSError, OverflowError):
         return 0.0
+
+
+@st.cache_data(
+    ttl=20,
+    show_spinner=False,
+)
+def _cached_query_jobs_v16(
+    active_query: str,
+) -> list[dict[str, Any]]:
+    """Cache the expensive 10k-row local index scan across page reruns."""
+    query = str(active_query or "").strip()
+    if not query:
+        return []
+
+    all_jobs = list_discovered_jobs(
+        limit=10000
+    )
+    return [
+        job
+        for job in all_jobs
+        if matches_query(
+            query,
+            job.get("title"),
+            job.get("company"),
+            job.get("description"),
+        )
+    ]
 
 
 def _job_event_label(job: dict[str, Any]) -> str:
@@ -430,7 +476,12 @@ def render_job_finder() -> None:
     if last_refresh_feedback:
         refresh_feedback_slot.success(last_refresh_feedback)
 
-    with st.expander("Source management & refresh", expanded=False):
+    if st.checkbox(
+        "Load source management & refresh",
+        value=False,
+        key="job_finder_load_source_management_v16",
+        help="Loads refresh controls and the target-company registry only when needed.",
+    ):
         st.caption(
             "Refresh updates the local index. ATS companies can be refreshed concurrently, "
             "while database writes remain serialized for SQLite safety."
@@ -642,6 +693,7 @@ def render_job_finder() -> None:
                     state="error" if error_count else "complete",
                 )
 
+            _cached_query_jobs_v16.clear()
             refresh_summary_text = (
                 f"Last refresh: {completed_count} completed, "
                 f"{skipped_count} skipped, {error_count} failed."
@@ -678,7 +730,12 @@ def render_job_finder() -> None:
         st.write("### Target company registry")
         _render_target_company_registry()
 
-    with st.expander("Job discovery diagnostics", expanded=False):
+    if st.checkbox(
+        "Load job discovery diagnostics",
+        value=False,
+        key="job_finder_load_diagnostics_v16",
+        help="Runs stored-record/lifecycle/run diagnostics only when enabled.",
+    ):
         st.write("### Stored records")
         st.dataframe(get_job_discovery_source_counts(), width="stretch")
         st.write("### Lifecycle state")
@@ -699,18 +756,11 @@ def render_job_finder() -> None:
         )
         return
 
-    # Query is the stable base result set. Everything below is a live facet.
-    all_jobs = list_discovered_jobs(limit=10000)
-    query_jobs = [
-        job
-        for job in all_jobs
-        if matches_query(
-            active_query,
-            job.get("title"),
-            job.get("company"),
-            job.get("description"),
-        )
-    ]
+    # Query results are stable across Previous/Next reruns. Cache the
+    # expensive 10k-row local index scan briefly; source refresh invalidates it.
+    query_jobs = _cached_query_jobs_v16(
+        active_query
+    )
 
     st.divider()
     result_head_col, clear_col = st.columns([0.78, 0.22])
@@ -734,126 +784,213 @@ def render_job_finder() -> None:
         st.session_state["job_finder_filter_events_v123"] = []
         st.session_state["job_finder_filter_entry_v123"] = False
         st.session_state["job_finder_show_hidden_v123"] = False
+        st.rerun()
 
-    # Persistent hide rules are a preference layer, not a temporary facet.
-    # Show hidden bypasses that preference for inspection without deleting rules.
-    show_hidden = st.checkbox(
-        "Show hidden jobs",
-        value=False,
-        key="job_finder_show_hidden_v123",
-        help="Hidden jobs remain stored. Turn this on to inspect them temporarily.",
+    active_hide_rules = list_hide_rules(
+        include_disabled=False
     )
-    active_hide_rules = list_hide_rules(include_disabled=False)
-    visible_jobs, hidden_jobs = partition_hidden_jobs(query_jobs, active_hide_rules)
+    visible_jobs, hidden_jobs = partition_hidden_jobs(
+        query_jobs,
+        active_hide_rules,
+    )
     hidden_count = len(hidden_jobs)
-    facetable_jobs = visible_jobs + hidden_jobs if show_hidden else visible_jobs
-    filter_trace: list[dict[str, Any]] = [
-        {"Stage": "Text query + hide preference", "Jobs": len(facetable_jobs)}
-    ]
 
-    st.caption(
-        f"{len(query_jobs)} indexed job(s) match the text query before live filters. "
-        + (
-            f"{hidden_count} hidden job(s) are included for inspection."
-            if show_hidden
-            else f"{hidden_count} job(s) are suppressed by persistent hide rules."
+    filter_defaults = {
+        "job_finder_filter_sources_v123": [],
+        "job_finder_filter_companies_v123": [],
+        "job_finder_filter_freshness_v123": "Any time",
+        "job_finder_filter_experience_v123": "Any",
+        "job_finder_filter_employment_v123": [],
+        "job_finder_filter_lifecycle_v123": ["active"],
+        "job_finder_filter_events_v123": [],
+        "job_finder_filter_entry_v123": False,
+        "job_finder_show_hidden_v123": False,
+    }
+    for _filter_key, _filter_default in filter_defaults.items():
+        if _filter_key not in st.session_state:
+            if isinstance(_filter_default, list):
+                st.session_state[_filter_key] = list(_filter_default)
+            else:
+                st.session_state[_filter_key] = _filter_default
+
+    def _reset_result_page_v15() -> None:
+        st.session_state["job_finder_page_v15"] = 1
+        st.session_state.pop(
+            "_job_finder_match_state_cache_v15",
+            None,
         )
-    )
+
+    def _clear_result_filters_v15() -> None:
+        for _filter_key, _filter_default in filter_defaults.items():
+            if isinstance(_filter_default, list):
+                st.session_state[_filter_key] = list(_filter_default)
+            else:
+                st.session_state[_filter_key] = _filter_default
+        _reset_result_page_v15()
 
     st.write("### Filters")
-
-    # SOURCE FACET: blank = All, and every change reruns Streamlit immediately.
-    source_count_map = source_counts(facetable_jobs)
-    selected_sources = st.multiselect(
-        "Filter results by source",
-        options=list(SOURCE_LABELS),
-        default=[],
-        format_func=lambda value: (
-            f"{SOURCE_LABELS.get(value, value)} ({source_count_map.get(value, 0)})"
-        ),
-        key="job_finder_filter_sources_v123",
-        help="Leave blank for All sources. Remove a source and its jobs disappear immediately.",
+    st.caption(
+        "Filter changes are applied atomically when you press **Apply filters**. "
+        "This prevents partial/stale reruns while several controls are changing."
     )
-    jobs = filter_jobs_by_sources(facetable_jobs, selected_sources)
-    filter_trace.append({"Stage": "Source", "Jobs": len(jobs)})
 
-    # COMPANY FACET: options come from the currently selected source scope.
-    company_count_map = company_counts(jobs)
-    company_options = sorted(
-        company_count_map,
-        key=lambda value: (-company_count_map[value], value.casefold()),
-    )
-    existing_companies = list(st.session_state.get("job_finder_filter_companies_v123", []))
-    valid_companies = [value for value in existing_companies if value in company_count_map]
-    if valid_companies != existing_companies:
-        st.session_state["job_finder_filter_companies_v123"] = valid_companies
-
-    selected_companies = st.multiselect(
-        "Filter results by company",
-        options=company_options,
-        default=[],
-        format_func=lambda value: f"{value} ({company_count_map.get(value, 0)})",
-        key="job_finder_filter_companies_v123",
-        help="Leave blank for All companies in the current source scope.",
-    )
-    jobs = filter_jobs_by_companies(jobs, selected_companies)
-    filter_trace.append({"Stage": "Company", "Jobs": len(jobs)})
-
-    if selected_companies:
-        selected_company_names = {
-            str(value or "").strip().casefold()
-            for value in selected_companies
-            if str(value or "").strip()
-        }
-        unexpected_companies = sorted(
-            {
-                str(job.get("company") or "").strip()
-                for job in jobs
-                if str(job.get("company") or "").strip().casefold()
-                not in selected_company_names
-            },
-            key=str.casefold,
-        )
-        if unexpected_companies:
-            st.error(
-                "Company filter integrity check failed. Unexpected displayed companies: "
-                + ", ".join(unexpected_companies)
-            )
-        else:
-            st.caption(
-                "Company result filter active: "
-                + ", ".join(selected_companies)
-                + f" · {len(jobs)} query-matching job(s) remain before other filters."
-            )
-
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
-    with filter_col1:
-        freshness = st.selectbox(
-            "Date posted",
-            options=["Any time", "Today", "Last 3 days", "Last 7 days", "Last 14 days"],
-            index=0,
-            key="job_finder_filter_freshness_v123",
-        )
-    with filter_col2:
-        experience_choice = st.selectbox(
-            "Maximum explicit minimum experience",
-            options=["Any", "1 year", "2 years", "3 years", "5 years"],
-            index=0,
-            key="job_finder_filter_experience_v123",
+    with st.form(
+        "job_finder_filters_form_v15",
+        clear_on_submit=False,
+    ):
+        show_hidden = st.checkbox(
+            "Show hidden jobs",
+            key="job_finder_show_hidden_v123",
             help=(
-                "Jobs with an unknown parsed minimum are kept. A job is excluded only when its explicit "
-                "minimum is above your selected ceiling."
+                "Hidden jobs remain stored. Enable this only when you want "
+                "them included in the result set."
             ),
         )
-    with filter_col3:
-        lifecycle_filter = st.multiselect(
-            "Availability",
-            options=["active", "removed", "expired"],
-            default=["active"],
-            format_func=lambda value: value.title(),
-            key="job_finder_filter_lifecycle_v123",
-            help="Active is the normal current-job view. Add Removed/Expired when reviewing history.",
+
+        facetable_preview = (
+            visible_jobs + hidden_jobs
+            if show_hidden
+            else visible_jobs
         )
+
+        source_count_map = source_counts(
+            facetable_preview
+        )
+        selected_sources = st.multiselect(
+            "Filter results by source",
+            options=list(SOURCE_LABELS),
+            format_func=lambda value: (
+                f"{SOURCE_LABELS.get(value, value)} "
+                f"({source_count_map.get(value, 0)})"
+            ),
+            key="job_finder_filter_sources_v123",
+            help="Leave blank for All sources.",
+        )
+
+        company_count_map = company_counts(
+            facetable_preview
+        )
+        company_options = sorted(
+            company_count_map,
+            key=lambda value: (
+                -company_count_map[value],
+                value.casefold(),
+            ),
+        )
+        selected_companies = st.multiselect(
+            "Filter results by company",
+            options=company_options,
+            format_func=lambda value: (
+                f"{value} ({company_count_map.get(value, 0)})"
+            ),
+            key="job_finder_filter_companies_v123",
+            help=(
+                "Leave blank for All companies. Source + company are applied "
+                "together when the form is submitted."
+            ),
+        )
+
+        filter_col1, filter_col2, filter_col3 = st.columns(3)
+        with filter_col1:
+            freshness = st.selectbox(
+                "Date posted",
+                options=[
+                    "Any time",
+                    "Today",
+                    "Last 3 days",
+                    "Last 7 days",
+                    "Last 14 days",
+                ],
+                key="job_finder_filter_freshness_v123",
+            )
+        with filter_col2:
+            experience_choice = st.selectbox(
+                "Maximum explicit minimum experience",
+                options=[
+                    "Any",
+                    "1 year",
+                    "2 years",
+                    "3 years",
+                    "5 years",
+                ],
+                key="job_finder_filter_experience_v123",
+                help=(
+                    "Unknown experience remains visible. A job is excluded only "
+                    "when its parsed explicit minimum is above the ceiling."
+                ),
+            )
+        with filter_col3:
+            lifecycle_filter = st.multiselect(
+                "Availability",
+                options=[
+                    "active",
+                    "removed",
+                    "expired",
+                ],
+                format_func=lambda value: value.title(),
+                key="job_finder_filter_lifecycle_v123",
+            )
+
+        detail_col1, detail_col2 = st.columns(2)
+        with detail_col1:
+            event_filter = st.multiselect(
+                "Last refresh event",
+                options=[
+                    "new",
+                    "changed",
+                    "reactivated",
+                    "unchanged",
+                ],
+                format_func=lambda value: value.title(),
+                key="job_finder_filter_events_v123",
+                help="Leave blank for All refresh events.",
+            )
+        with detail_col2:
+            entry_only = st.checkbox(
+                "Entry / junior / graduate only",
+                key="job_finder_filter_entry_v123",
+            )
+
+        employment_count_map = employment_type_counts(
+            facetable_preview
+        )
+        employment_options = sorted(
+            employment_count_map,
+            key=lambda value: (
+                -employment_count_map[value],
+                value.casefold(),
+            ),
+        )
+        selected_employment = st.multiselect(
+            "Employment type",
+            options=employment_options,
+            format_func=lambda value: (
+                f"{value} ({employment_count_map.get(value, 0)})"
+            ),
+            key="job_finder_filter_employment_v123",
+            help="Leave blank for All employment types.",
+        )
+
+        apply_col, clear_col = st.columns(2)
+        with apply_col:
+            st.form_submit_button(
+                "Apply filters",
+                type="primary",
+                width="stretch",
+                on_click=_reset_result_page_v15,
+            )
+        with clear_col:
+            st.form_submit_button(
+                "Clear filters",
+                width="stretch",
+                on_click=_clear_result_filters_v15,
+            )
+
+    facetable_jobs = (
+        visible_jobs + hidden_jobs
+        if show_hidden
+        else visible_jobs
+    )
 
     freshness_days = {
         "Today": 1,
@@ -861,8 +998,6 @@ def render_job_finder() -> None:
         "Last 7 days": 7,
         "Last 14 days": 14,
     }.get(freshness)
-    jobs = filter_jobs_by_freshness(jobs, freshness_days)
-    filter_trace.append({"Stage": "Posting freshness", "Jobs": len(jobs)})
 
     experience_ceiling = {
         "Any": None,
@@ -871,57 +1006,47 @@ def render_job_finder() -> None:
         "3 years": 3.0,
         "5 years": 5.0,
     }[experience_choice]
-    jobs = filter_jobs_by_max_explicit_minimum_experience(jobs, experience_ceiling)
-    filter_trace.append({"Stage": "Experience ceiling", "Jobs": len(jobs)})
 
-    jobs = filter_jobs_by_lifecycle(jobs, lifecycle_filter)
-    filter_trace.append({"Stage": "Availability", "Jobs": len(jobs)})
-
-    detail_col1, detail_col2 = st.columns(2)
-    with detail_col1:
-        event_filter = st.multiselect(
-            "Last refresh event",
-            options=["new", "changed", "reactivated", "unchanged"],
-            default=[],
-            format_func=lambda value: value.title(),
-            key="job_finder_filter_events_v123",
-            help="Leave blank for All refresh events.",
-        )
-    with detail_col2:
-        entry_only = st.checkbox(
-            "Entry / junior / graduate only",
-            value=False,
-            key="job_finder_filter_entry_v123",
-        )
-
-    jobs = filter_jobs_by_events(jobs, event_filter)
-    filter_trace.append({"Stage": "Last refresh event", "Jobs": len(jobs)})
-
-    employment_count_map = employment_type_counts(jobs)
-    employment_options = sorted(
-        employment_count_map,
-        key=lambda value: (-employment_count_map[value], value.casefold()),
+    authoritative_filters = apply_job_finder_filters(
+        facetable_jobs,
+        selected_sources=selected_sources,
+        selected_companies=selected_companies,
+        max_age_days=freshness_days,
+        max_experience_years=experience_ceiling,
+        selected_lifecycle_statuses=lifecycle_filter,
+        selected_events=event_filter,
+        selected_employment_types=selected_employment,
+        entry_only=entry_only,
     )
-    existing_employment = list(st.session_state.get("job_finder_filter_employment_v123", []))
-    valid_employment = [value for value in existing_employment if value in employment_count_map]
-    if valid_employment != existing_employment:
-        st.session_state["job_finder_filter_employment_v123"] = valid_employment
+    jobs = authoritative_filters["jobs"]
+    filter_trace = [
+        {
+            "Stage": "Text query + hide preference",
+            "Jobs": len(facetable_jobs),
+        },
+        *authoritative_filters["trace"][1:],
+    ]
 
-    selected_employment = st.multiselect(
-        "Employment type",
-        options=employment_options,
-        default=[],
-        format_func=lambda value: f"{value} ({employment_count_map.get(value, 0)})",
-        key="job_finder_filter_employment_v123",
-        help="Leave blank for All employment types.",
+    st.caption(
+        f"{len(query_jobs)} indexed job(s) match the text query · "
+        f"{len(facetable_jobs)} after hide preference · "
+        f"{len(jobs)} after applied filters."
     )
-    jobs = filter_jobs_by_employment_types(jobs, selected_employment)
-    filter_trace.append({"Stage": "Employment type", "Jobs": len(jobs)})
+    if hidden_count:
+        st.caption(
+            (
+                f"{hidden_count} hidden job(s) are included."
+                if show_hidden
+                else f"{hidden_count} hidden job(s) are suppressed."
+            )
+        )
 
-    jobs = filter_jobs_by_entry_level(jobs, entry_only)
-    filter_trace.append({"Stage": "Entry / junior / graduate", "Jobs": len(jobs)})
-
-    with st.expander("Hide / exclusion rules", expanded=False):
+    if st.checkbox(
+        "Load hide / exclusion rule manager",
+        value=False,
+        key="job_finder_load_hide_manager_v16",
+        help="Loads the full hide-rule editor only when enabled.",
+    ):
         _render_hide_rule_manager()
 
     active_filter_bits: list[str] = []
@@ -935,6 +1060,11 @@ def render_job_finder() -> None:
         active_filter_bits.append(f"Date: {freshness}")
     if experience_choice != "Any":
         active_filter_bits.append(f"Experience: ≤ {experience_choice} explicit minimum")
+    if lifecycle_filter:
+        active_filter_bits.append(
+            "Availability: "
+            + ", ".join(value.title() for value in lifecycle_filter)
+        )
     if event_filter:
         active_filter_bits.append("Event: " + ", ".join(value.title() for value in event_filter))
     if selected_employment:
@@ -951,8 +1081,9 @@ def render_job_finder() -> None:
 
     with st.expander("Filter pipeline diagnostics", expanded=False):
         st.caption(
-            "These counts are recomputed on every Streamlit rerun. Changing any result filter "
-            "should change the applicable stage immediately without pressing Search."
+            "Authoritative filter pipeline. Every count below is recomputed "
+            "from the same post-query/post-hide base set on every Streamlit "
+            "rerun. The final count is the exact input to sorting."
         )
         st.dataframe(filter_trace, width="stretch", hide_index=True)
         if freshness_days is not None:
@@ -965,288 +1096,1145 @@ def render_job_finder() -> None:
                 "Experience is conservative: jobs with no parsed explicit minimum remain visible."
             )
 
-    jobs.sort(
-        key=lambda job: (
-            lexical_relevance(job, active_query),
-            _safe_timestamp(job.get("posted_at")),
-            _safe_timestamp(job.get("last_seen_at")),
-        ),
-        reverse=True,
-    )
+    filtered_jobs = list(jobs)
+    total_filtered_jobs = len(filtered_jobs)
 
-    result_limit = st.slider(
-        "Maximum results shown",
-        10,
-        250,
-        75,
-        step=5,
-        key="job_finder_result_limit_v123",
-    )
-    total_after_filters = len(jobs)
-    jobs = jobs[: int(result_limit)]
-
-    st.write(f"### {total_after_filters} result(s)")
-    if not jobs:
-        st.info(
-            "No jobs match the current live filters. Remove a filter or clear filters; "
-            "you do not need to press Search again unless you want a different text query."
+    navigation_busy = bool(
+        st.session_state.pop(
+            "_job_finder_navigation_busy_v16",
+            False,
         )
-        return
+    )
+    navigation_busy_slot = st.empty()
+    if navigation_busy:
+        with navigation_busy_slot.container():
+            render_busy_overlay(
+                st,
+                "Loading the requested Job Finder page...",
+            )
+
+    if st.session_state.pop(
+        "_job_finder_best_match_after_batch_v15",
+        False,
+    ):
+        st.session_state["job_finder_sort_v1"] = "Best match"
+        st.session_state["job_finder_page_v15"] = 1
+
+    if "job_finder_sort_v1" not in st.session_state:
+        st.session_state["job_finder_sort_v1"] = "Search relevance"
+    if "job_finder_page_size_v15" not in st.session_state:
+        st.session_state["job_finder_page_size_v15"] = 20
+
+    def _reset_view_page_v16() -> None:
+        st.session_state["job_finder_page_v15"] = 1
+        st.session_state[
+            "_job_finder_navigation_busy_v16"
+        ] = True
+
+    with st.form(
+        "job_finder_view_form_v15",
+        clear_on_submit=False,
+    ):
+        view_col1, view_col2 = st.columns(2)
+        with view_col1:
+            sort_choice = st.selectbox(
+                "Sort results by",
+                options=[
+                    "Search relevance",
+                    "Best match",
+                    "Newest",
+                ],
+                key="job_finder_sort_v1",
+                help=(
+                    "Sort is applied to the complete filtered result set before "
+                    "pagination. Press Apply sort / page size to commit changes."
+                ),
+            )
+        with view_col2:
+            page_size = int(
+                st.selectbox(
+                    "Results per page",
+                    options=[10, 20, 30, 50],
+                    key="job_finder_page_size_v15",
+                )
+            )
+
+        st.form_submit_button(
+            "Apply sort / page size",
+            width="stretch",
+            on_click=_reset_view_page_v16,
+        )
 
     match_context = current_evidence_context()
-    evidence_count = int(match_context.get("evidence_item_count", 0) or 0)
+    evidence_count = int(
+        match_context.get("evidence_item_count", 0) or 0
+    )
+    match_versions = current_match_versions()
+
+    def _cached_match_states_v16(
+        job_rows: list[dict[str, Any]],
+    ) -> dict[int, dict[str, Any]]:
+        cache_key = match_state_cache_key(
+            job_rows,
+            evidence_fingerprint=str(
+                match_context.get("evidence_fingerprint") or ""
+            ),
+            versions=match_versions,
+        )
+        cache = st.session_state.get(
+            "_job_finder_match_state_cache_v15"
+        )
+        if not isinstance(cache, dict):
+            cache = {}
+
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+
+        states = inspect_job_matches(
+            job_rows,
+            context=match_context,
+            versions=match_versions,
+        )
+        cache[cache_key] = states
+
+        while len(cache) > 8:
+            oldest_key = next(iter(cache))
+            cache.pop(oldest_key, None)
+
+        st.session_state[
+            "_job_finder_match_state_cache_v15"
+        ] = cache
+        return states
+
+    all_match_states: dict[int, dict[str, Any]] | None = None
+
+    if sort_choice == "Best match":
+        with st.spinner(
+            "Loading lightweight match summaries for Best Match sorting..."
+        ):
+            all_match_states = _cached_match_states_v16(
+                filtered_jobs
+            )
+
+        def _current_snapshot_for_sort(
+            job: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            state = (all_match_states or {}).get(
+                int(job.get("id", 0) or 0),
+                {},
+            )
+            if state.get("status") != "current":
+                return None
+            snapshot = state.get("snapshot")
+            return snapshot if isinstance(snapshot, dict) else None
+
+        sorted_jobs = sorted(
+            filtered_jobs,
+            key=lambda job: best_match_sort_key(
+                _current_snapshot_for_sort(job),
+                search_relevance=lexical_relevance(
+                    job,
+                    active_query,
+                ),
+                freshness_timestamp=(
+                    _safe_timestamp(job.get("posted_at"))
+                    or _safe_timestamp(job.get("last_seen_at"))
+                ),
+                discovered_job_id=int(job.get("id", 0) or 0),
+            ),
+            reverse=True,
+        )
+    elif sort_choice == "Newest":
+        sorted_jobs = sorted(
+            filtered_jobs,
+            key=lambda job: (
+                _safe_timestamp(job.get("posted_at"))
+                or _safe_timestamp(job.get("last_seen_at")),
+                lexical_relevance(job, active_query),
+                -int(job.get("id", 0) or 0),
+            ),
+            reverse=True,
+        )
+    else:
+        sorted_jobs = sorted(
+            filtered_jobs,
+            key=lambda job: (
+                lexical_relevance(job, active_query),
+                _safe_timestamp(job.get("posted_at"))
+                or _safe_timestamp(job.get("last_seen_at")),
+                -int(job.get("id", 0) or 0),
+            ),
+            reverse=True,
+        )
+
+    total_pages = max(
+        1,
+        (len(sorted_jobs) + page_size - 1) // page_size,
+    )
+    current_page = clamp_page(
+        int(
+            st.session_state.get(
+                "job_finder_page_v15",
+                1,
+            )
+            or 1
+        ),
+        total_pages,
+    )
+    st.session_state["job_finder_page_v15"] = current_page
+
+    def _move_page_v16(delta: int) -> None:
+        current = int(
+            st.session_state.get(
+                "job_finder_page_v15",
+                1,
+            )
+            or 1
+        )
+        st.session_state["job_finder_page_v15"] = clamp_page(
+            current + int(delta),
+            total_pages,
+        )
+        st.session_state[
+            "_job_finder_navigation_busy_v16"
+        ] = True
+
+    nav_col1, nav_col2, nav_col3 = st.columns(
+        [0.2, 0.6, 0.2]
+    )
+    with nav_col1:
+        st.button(
+            "← Previous",
+            key="job_finder_prev_page_v15",
+            disabled=(current_page <= 1),
+            width="stretch",
+            on_click=_move_page_v16,
+            args=(-1,),
+        )
+    with nav_col2:
+        st.markdown(
+            f"<div style='text-align:center; padding-top:0.45rem;'>"
+            f"<strong>Page {current_page} of {total_pages}</strong>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with nav_col3:
+        st.button(
+            "Next →",
+            key="job_finder_next_page_v15",
+            disabled=(current_page >= total_pages),
+            width="stretch",
+            on_click=_move_page_v16,
+            args=(1,),
+        )
+
+    page_result = paginate_jobs(
+        sorted_jobs,
+        page=current_page,
+        page_size=page_size,
+    )
+    page_jobs = page_result["jobs"]
+    page_start_index = int(page_result["start_index"])
+
+    first_visible = page_start_index + 1 if page_jobs else 0
+    last_visible = int(page_result["end_index"])
+
+    st.write(f"### {total_filtered_jobs} matching job(s)")
+    st.caption(
+        f"Showing {first_visible}–{last_visible} · "
+        f"Page {current_page}/{total_pages} · "
+        f"Applied sort: {sort_choice}."
+    )
+
+    if sort_choice == "Best match":
+        page_match_states = {
+            int(job.get("id", 0) or 0): (all_match_states or {}).get(
+                int(job.get("id", 0) or 0),
+                {
+                    "status": "none",
+                    "snapshot": None,
+                    "stale_reasons": [],
+                },
+            )
+            for job in page_jobs
+        }
+    else:
+        page_match_states = _cached_match_states_v16(
+            page_jobs
+        )
+
+    if navigation_busy:
+        navigation_busy_slot.empty()
+
+    integrity_errors: list[str] = []
+
+    if selected_sources:
+        allowed_sources = {
+            str(value or "").strip().casefold()
+            for value in selected_sources
+        }
+        wrong_sources = sorted(
+            {
+                str(job.get("source") or "").strip()
+                for job in page_jobs
+                if str(job.get("source") or "").strip().casefold()
+                not in allowed_sources
+            }
+        )
+        if wrong_sources:
+            integrity_errors.append(
+                "source mismatch: " + ", ".join(wrong_sources)
+            )
+
+    if selected_companies:
+        allowed_companies = {
+            str(value or "").strip().casefold()
+            for value in selected_companies
+        }
+        wrong_companies = sorted(
+            {
+                str(job.get("company") or "").strip()
+                for job in page_jobs
+                if str(job.get("company") or "").strip().casefold()
+                not in allowed_companies
+            }
+        )
+        if wrong_companies:
+            integrity_errors.append(
+                "company mismatch: " + ", ".join(wrong_companies)
+            )
+
+    if integrity_errors:
+        st.error(
+            "Rendered-result filter integrity failure · "
+            + " · ".join(integrity_errors)
+        )
+
+    show_view_diagnostics = st.checkbox(
+        "Show view / sort diagnostics",
+        value=False,
+        key="job_finder_show_view_diagnostics_v15",
+    )
+
+    if show_view_diagnostics:
+        diagnostic_rows = []
+        for offset, diagnostic_job in enumerate(
+            page_jobs,
+            start=1,
+        ):
+            state = page_match_states.get(
+                int(diagnostic_job.get("id", 0) or 0),
+                {},
+            )
+            snapshot = (
+                state.get("snapshot")
+                if state.get("status") == "current"
+                else None
+            )
+            summary = (
+                snapshot.get("summary")
+                if isinstance(snapshot, dict)
+                and isinstance(snapshot.get("summary"), dict)
+                else {}
+            )
+            diagnostic_rows.append(
+                {
+                    "Rank": page_start_index + offset,
+                    "Title": str(diagnostic_job.get("title") or ""),
+                    "Company": str(diagnostic_job.get("company") or ""),
+                    "Source": str(diagnostic_job.get("source") or ""),
+                    "Match state": str(state.get("status") or "none"),
+                    "Ranking status": str(summary.get("ranking_status") or ""),
+                    "Alignment": (
+                        summary.get("deterministic_alignment_score")
+                        if summary
+                        else None
+                    ),
+                    "Important taxonomy %": (
+                        summary.get("important_taxonomy_coverage_pct")
+                        if summary
+                        else None
+                    ),
+                    "Search relevance": round(
+                        lexical_relevance(
+                            diagnostic_job,
+                            active_query,
+                        ),
+                        2,
+                    ),
+                    "Posted": str(
+                        diagnostic_job.get("posted_at") or ""
+                    ),
+                }
+            )
+
+        st.dataframe(
+            diagnostic_rows,
+            width="stretch",
+            hide_index=True,
+        )
+
+    if not page_jobs:
+        st.info("No jobs are available on this page.")
+        return
+
+    if all_match_states is not None:
+        visible_match_coverage = classify_batch_jobs(
+            sorted_jobs,
+            all_match_states,
+        )
+        visible_coverage_label = "Filtered-result Candidate Match coverage"
+    else:
+        visible_match_coverage = classify_batch_jobs(
+            page_jobs,
+            page_match_states,
+        )
+        visible_coverage_label = "Current-page Candidate Match coverage"
+
+    st.write(f"#### {visible_coverage_label}")
+    coverage_col1, coverage_col2, coverage_col3, coverage_col4 = st.columns(4)
+    coverage_col1.metric(
+        "Current",
+        visible_match_coverage["current_count"],
+    )
+    coverage_col2.metric(
+        "Stale",
+        visible_match_coverage["stale_count"],
+    )
+    coverage_col3.metric(
+        "Not analyzed",
+        visible_match_coverage["not_analyzed_count"],
+    )
+    coverage_col4.metric(
+        "Not analyzable",
+        visible_match_coverage["not_analyzable_count"],
+    )
+
+    if all_match_states is not None:
+        analyzable_total = (
+            visible_match_coverage["current_count"]
+            + visible_match_coverage["pending_count"]
+        )
+        st.caption(
+            f"Best Match currently has current candidate-fit snapshots for "
+            f"{visible_match_coverage['current_count']}/{max(1, analyzable_total)} "
+            "analyzable filtered jobs. Missing/stale jobs can be processed from "
+            "Batch candidate matching below."
+        )
+    else:
+        st.caption(
+            "This coverage is for the current page only. Choose Best Match or "
+            "select All filtered results in Batch candidate matching to load "
+            "full filtered-set coverage."
+        )
+
+    st.write("### Page results")
+
+    result_rows: list[dict[str, Any]] = []
+    page_job_by_id: dict[int, dict[str, Any]] = {}
+
+    for offset, result_job in enumerate(page_jobs, start=1):
+        job_id = int(result_job.get("id", 0) or 0)
+        page_job_by_id[job_id] = result_job
+        state = page_match_states.get(job_id, {})
+        snapshot = (
+            state.get("snapshot")
+            if state.get("status") == "current"
+            else None
+        )
+        summary = (
+            snapshot.get("summary")
+            if isinstance(snapshot, dict)
+            and isinstance(snapshot.get("summary"), dict)
+            else {}
+        )
+        match_label = match_display_label(
+            result_job,
+            state,
+        )
+
+        result_rows.append(
+            {
+                "Rank": page_start_index + offset,
+                "Title": str(result_job.get("title") or ""),
+                "Company": str(result_job.get("company") or ""),
+                "Source": SOURCE_LABELS.get(
+                    str(result_job.get("source") or ""),
+                    str(result_job.get("source") or ""),
+                ),
+                "Location": display_job_location(result_job),
+                "Match": match_label,
+                "Alignment": (
+                    summary.get("deterministic_alignment_score")
+                    if summary
+                    else None
+                ),
+                "Important taxonomy %": (
+                    summary.get("important_taxonomy_coverage_pct")
+                    if summary
+                    else None
+                ),
+                "Posted": str(result_job.get("posted_at") or ""),
+            }
+        )
+
+    st.dataframe(
+        result_rows,
+        width="stretch",
+        hide_index=True,
+    )
+
+    page_job_ids = [
+        int(job.get("id", 0) or 0)
+        for job in page_jobs
+        if int(job.get("id", 0) or 0) > 0
+    ]
+    selected_job_key = "job_finder_selected_job_v16"
+    if st.session_state.get(selected_job_key) not in page_job_ids:
+        st.session_state[selected_job_key] = page_job_ids[0]
+
+    def _selected_job_label_v16(job_id: int) -> str:
+        option_job = page_job_by_id.get(int(job_id), {})
+        option_offset = page_job_ids.index(int(job_id)) + 1
+        return (
+            f"#{page_start_index + option_offset} · "
+            f"{option_job.get('title') or 'Untitled'} — "
+            f"{option_job.get('company') or 'Unknown Company'}"
+        )
+
+    selected_job_id = int(
+        st.selectbox(
+            "Open job details",
+            options=page_job_ids,
+            format_func=_selected_job_label_v16,
+            key=selected_job_key,
+            help=(
+                "Only this selected job renders the full description, match "
+                "metrics, diagnostics and actions."
+            ),
+        )
+    )
+    job = page_job_by_id[selected_job_id]
+    page_offset = page_job_ids.index(selected_job_id) + 1
+    display_rank = page_start_index + page_offset
+
+    st.divider()
+    st.subheader(
+        f"#{display_rank} · "
+        f"{job.get('title') or 'Untitled'} — "
+        f"{job.get('company') or 'Unknown Company'}"
+    )
+
+    score = lexical_relevance(job, active_query)
+    state_label = _job_event_label(job)
+    hidden_reasons = list(job.get("_hide_reasons") or [])
+    source_label = SOURCE_LABELS.get(
+        str(job.get("source") or ""),
+        str(job.get("source") or ""),
+    )
+
+    if hidden_reasons:
+        st.warning("Hidden because: " + " · ".join(hidden_reasons))
+
+    st.markdown(
+        f"**Source:** {source_label} · **State:** {state_label}"
+    )
+    meta = [
+        display_job_location(job),
+        str(job.get("employment_type") or ""),
+    ]
+    if any(meta):
+        st.caption(" · ".join(part for part in meta if part))
+
+    scope = str(job.get("source_scope") or "").strip()
+    if scope and ":" in scope:
+        st.caption(f"Source scope: {scope}")
+
+    lifecycle_bits = [
+        f"first seen {job.get('first_seen_at')}" if job.get("first_seen_at") else "",
+        f"last seen {job.get('last_seen_at')}" if job.get("last_seen_at") else "",
+        f"last changed {job.get('last_changed_at')}" if job.get("last_changed_at") else "",
+        f"removed {job.get('removed_at')}" if job.get("removed_at") else "",
+    ]
+    st.caption(" · ".join(bit for bit in lifecycle_bits if bit))
+    st.caption(f"Deterministic search relevance: {score:.1f}")
+
+    st.markdown("#### Candidate evidence match")
+    match_state = page_match_states.get(
+        selected_job_id,
+        {
+            "status": "none",
+            "snapshot": None,
+            "stale_reasons": [],
+        },
+    )
+
+    analyze_label = (
+        "Refresh Match"
+        if match_state.get("status") == "stale"
+        else "Analyze Match"
+    )
+    analyze_clicked = st.button(
+        analyze_label,
+        key=f"job_finder_analyze_match_v16_{selected_job_id}",
+        disabled=(
+            evidence_count <= 0
+            or len(str(job.get("description") or "").strip()) < 100
+        ),
+    )
+
+    if analyze_clicked:
+        match_busy_slot = st.empty()
+        with match_busy_slot.container():
+            render_busy_overlay(
+                st,
+                "Analyzing the selected job...",
+            )
+        try:
+            with st.status(
+                "Analyzing requirements against Profile & Evidence...",
+                expanded=True,
+            ) as match_status:
+                match_result = analyze_job_match(
+                    job,
+                    context=match_context,
+                )
+                st.session_state.pop(
+                    "_job_finder_match_state_cache_v15",
+                    None,
+                )
+                match_status.update(
+                    label="Candidate evidence match ready.",
+                    state="complete",
+                )
+            match_state = {
+                "status": "current",
+                "snapshot": match_result.get("snapshot"),
+                "stale_reasons": [],
+            }
+        except (ValueError, RuntimeError) as exc:
+            st.warning(str(exc))
+        except Exception as exc:
+            st.error(f"Unexpected job-match error: {exc}")
+        finally:
+            match_busy_slot.empty()
+
+    if match_state.get("status") == "stale":
+        st.warning(
+            "Saved match is stale: "
+            + ", ".join(
+                match_state.get("stale_reasons")
+                or ["cache identity changed"]
+            )
+            + ". Refresh Match to recompute it."
+        )
+    elif match_state.get("status") == "none":
+        st.caption(
+            "Not analyzed yet. Search relevance is not candidate fit; "
+            "Analyze Match uses your full Profile & Evidence library."
+        )
+
+    snapshot = (
+        match_state.get("snapshot")
+        if match_state.get("status") == "current"
+        else None
+    )
+
+    if isinstance(snapshot, dict):
+        match_summary = snapshot.get("summary") or {}
+        ranking_eligible = bool(
+            match_summary.get("ranking_eligible")
+        )
+        raw_alignment = int(
+            match_summary.get(
+                "deterministic_alignment_score",
+                0,
+            )
+            or 0
+        )
+
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+        metric_col1.metric("Alignment", f"{raw_alignment}/100")
+        metric_col2.metric(
+            "Required/core",
+            f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
+        )
+        metric_col3.metric(
+            "Preferred",
+            f"{int(match_summary.get('preferred_coverage_score', 0) or 0)}%",
+        )
+        metric_col4.metric(
+            "Evidence strength",
+            f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
+        )
+
+        quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+        quality_col1.metric(
+            "Important taxonomy",
+            f"{int(match_summary.get('important_taxonomy_coverage_pct', 0) or 0)}%",
+        )
+        quality_col2.metric(
+            "Overall taxonomy",
+            f"{int(match_summary.get('overall_taxonomy_coverage_pct', 0) or 0)}%",
+        )
+        quality_col3.metric(
+            "Taxonomy gaps",
+            int(match_summary.get("taxonomy_gap_count", 0) or 0),
+        )
+        quality_col4.metric(
+            "Ranking status",
+            "Eligible" if ranking_eligible else "Provisional",
+        )
+
+        if not ranking_eligible:
+            ranking_quality = (
+                match_summary.get("ranking_quality")
+                if isinstance(match_summary.get("ranking_quality"), dict)
+                else {}
+            )
+            min_important = round(
+                float(
+                    ranking_quality.get(
+                        "minimum_important_taxonomy_coverage",
+                        0.75,
+                    )
+                    or 0.75
+                )
+                * 100
+            )
+            min_overall = round(
+                float(
+                    ranking_quality.get(
+                        "minimum_overall_taxonomy_coverage",
+                        0.65,
+                    )
+                    or 0.65
+                )
+                * 100
+            )
+            st.warning(
+                f"Provisional alignment: {raw_alignment}/100. "
+                "It stays visible but does not drive the trusted Best Match "
+                f"tier until taxonomy coverage reaches ≥{min_important}% "
+                f"important and ≥{min_overall}% overall."
+            )
+
+        important_evidence_gaps = (
+            match_summary.get("important_evidence_gaps")
+            or []
+        )
+        if important_evidence_gaps:
+            st.write("**Important evidence gaps**")
+            st.dataframe(
+                [
+                    {
+                        "Importance": gap.get("importance"),
+                        "Requirement": gap.get("text"),
+                        "Capability": gap.get("capability_id"),
+                    }
+                    for gap in important_evidence_gaps
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+
+        important_taxonomy_gaps = (
+            match_summary.get("important_taxonomy_gaps")
+            or []
+        )
+        if important_taxonomy_gaps:
+            st.write("**Important taxonomy gaps**")
+            st.dataframe(
+                [
+                    {
+                        "Importance": gap.get("importance"),
+                        "Requirement": gap.get("text"),
+                        "Capability": gap.get("capability_id"),
+                    }
+                    for gap in important_taxonomy_gaps
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+
+        load_full_diagnostics = st.checkbox(
+            "Load full match diagnostics",
+            value=False,
+            key=f"job_finder_full_match_diag_v16_{selected_job_id}",
+            help=(
+                "Loads the full saved snapshot only for this selected job."
+            ),
+        )
+        if load_full_diagnostics:
+            full_state = inspect_job_match(
+                job,
+                context=match_context,
+                versions=match_versions,
+            )
+            full_snapshot = (
+                full_state.get("snapshot")
+                if full_state.get("status") == "current"
+                else None
+            )
+            if isinstance(full_snapshot, dict):
+                st.json(
+                    {
+                        "snapshot_id": full_snapshot.get("id"),
+                        "job_content_hash": full_snapshot.get("job_content_hash"),
+                        "evidence_fingerprint": full_snapshot.get("evidence_fingerprint"),
+                        "match_version": full_snapshot.get("match_version"),
+                        "scoring_version": full_snapshot.get("scoring_version"),
+                        "taxonomy_version": full_snapshot.get("taxonomy_version"),
+                        "summary": full_snapshot.get("summary") or {},
+                        "canonical_requirements": (
+                            (full_snapshot.get("stable_analysis") or {}).get(
+                                "canonical_requirements",
+                                [],
+                            )
+                        ),
+                        "validation_warnings": (
+                            (full_snapshot.get("stable_analysis") or {}).get(
+                                "validation_warnings",
+                                [],
+                            )
+                        ),
+                    }
+                )
+
+    salary = _salary_label(job)
+    if salary:
+        st.write(f"**Salary:** {salary}")
+    if job.get("seniority"):
+        st.write(
+            f"**Seniority / experience:** {job.get('seniority')}"
+        )
+
+    st.text_area(
+        "Normalized job description",
+        value=str(job.get("description") or ""),
+        height=220,
+        disabled=True,
+        key=f"job_description_preview_v16_{selected_job_id}",
+    )
+
+    action_col1, action_col2, action_col3, action_col4 = st.columns(
+        [1.45, 1.10, 0.75, 0.85]
+    )
+    with action_col1:
+        if st.button(
+            "Use in new Application Session",
+            key=f"job_finder_use_v16_{selected_job_id}",
+            width="stretch",
+            disabled=len(str(job.get("description") or "").strip()) < 100,
+        ):
+            _handoff_to_new_application(job)
+
+    with action_col2:
+        source_url = str(
+            job.get("source_url") or job.get("apply_url") or ""
+        ).strip()
+        if source_url:
+            st.link_button(
+                "Open original posting",
+                source_url,
+                width="stretch",
+            )
+        else:
+            st.button(
+                "No source URL",
+                key=f"job_finder_no_url_v16_{selected_job_id}",
+                disabled=True,
+                width="stretch",
+            )
+
+    with action_col3:
+        if st.button(
+            "Hide job",
+            key=f"job_finder_hide_job_v16_{selected_job_id}",
+            width="stretch",
+            disabled=bool(hidden_reasons),
+        ):
+            upsert_hide_rule(
+                rule_type="job",
+                value=job_identity(job),
+                label=(
+                    f"{job.get('title') or 'Untitled'} — "
+                    f"{job.get('company') or 'Unknown Company'}"
+                ),
+            )
+            st.rerun()
+
+    with action_col4:
+        company_name = str(job.get("company") or "").strip()
+        if st.button(
+            "Hide company",
+            key=f"job_finder_hide_company_v16_{selected_job_id}",
+            width="stretch",
+            disabled=not company_name or bool(hidden_reasons),
+        ):
+            upsert_hide_rule(
+                rule_type="company",
+                value=company_name,
+                label=company_name,
+            )
+            st.rerun()
+
+    previous_batch_feedback = str(
+        st.session_state.get(
+            "job_finder_batch_rank_feedback_v17",
+            "",
+        )
+        or ""
+    ).strip()
+    if previous_batch_feedback:
+        st.success(previous_batch_feedback)
+
+    with st.expander(
+        "Batch candidate matching",
+        expanded=False,
+    ):
+        if "job_finder_batch_scope_v17" not in st.session_state:
+            st.session_state["job_finder_batch_scope_v17"] = "Current page"
+        if "job_finder_batch_chunk_size_v17" not in st.session_state:
+            st.session_state["job_finder_batch_chunk_size_v17"] = 25
+
+        with st.form(
+            "job_finder_batch_form_v17",
+            clear_on_submit=False,
+        ):
+            batch_scope = st.radio(
+                "Batch analysis scope",
+                options=[
+                    "Current page",
+                    "All filtered results",
+                ],
+                horizontal=True,
+                key="job_finder_batch_scope_v17",
+            )
+            batch_chunk_size = int(
+                st.selectbox(
+                    "Safe batch size",
+                    options=[10, 25, 50],
+                    key="job_finder_batch_chunk_size_v17",
+                    help=(
+                        "Analyze next batch processes at most this many "
+                        "missing/stale jobs. Completed snapshots persist "
+                        "immediately, so the next run resumes automatically."
+                    ),
+                )
+            )
+            confirm_long_batch = st.checkbox(
+                "I understand Analyze all missing/stale may make many "
+                "model-backed JD extraction calls and take a long time.",
+                value=False,
+                key="job_finder_confirm_long_batch_v17",
+            )
+
+            button_col1, button_col2 = st.columns(2)
+            with button_col1:
+                analyze_next_clicked = st.form_submit_button(
+                    "Analyze next missing/stale batch",
+                    type="primary",
+                    width="stretch",
+                    disabled=(evidence_count <= 0),
+                )
+            with button_col2:
+                analyze_all_clicked = st.form_submit_button(
+                    "Analyze all missing/stale",
+                    width="stretch",
+                    disabled=(evidence_count <= 0),
+                )
+
+        batch_source_jobs = (
+            page_jobs
+            if batch_scope == "Current page"
+            else sorted_jobs
+        )
+
+        if batch_scope == "Current page":
+            batch_match_states = page_match_states
+        else:
+            if all_match_states is None:
+                with st.spinner(
+                    "Loading lightweight match coverage for all filtered jobs..."
+                ):
+                    all_match_states = _cached_match_states_v16(
+                        sorted_jobs
+                    )
+            batch_match_states = all_match_states or {}
+
+        batch_coverage = classify_batch_jobs(
+            batch_source_jobs,
+            batch_match_states,
+        )
+
+        batch_metric1, batch_metric2, batch_metric3, batch_metric4 = st.columns(4)
+        batch_metric1.metric(
+            "Current",
+            batch_coverage["current_count"],
+        )
+        batch_metric2.metric(
+            "Stale",
+            batch_coverage["stale_count"],
+        )
+        batch_metric3.metric(
+            "Not analyzed",
+            batch_coverage["not_analyzed_count"],
+        )
+        batch_metric4.metric(
+            "Not analyzable",
+            batch_coverage["not_analyzable_count"],
+        )
+
+        st.caption(
+            f"{batch_scope}: {batch_coverage['pending_count']} missing/stale "
+            "analyzable job(s) remain. Current snapshots are skipped rather "
+            "than recomputed."
+        )
+
+        if batch_coverage["not_analyzable_count"]:
+            st.caption(
+                f"{batch_coverage['not_analyzable_count']} job(s) cannot be "
+                "analyzed because their persisted ID/content hash/normalized "
+                "description is not sufficient for the current Job Match contract."
+            )
+
+        if analyze_next_clicked or analyze_all_clicked:
+            pending_jobs = list(
+                batch_coverage["pending_jobs"]
+            )
+
+            if not pending_jobs:
+                st.success(
+                    "No missing/stale analyzable jobs remain in this scope."
+                )
+            elif (
+                analyze_all_clicked
+                and len(pending_jobs) > batch_chunk_size
+                and not confirm_long_batch
+            ):
+                st.warning(
+                    "Confirm the long-batch checkbox before analyzing all "
+                    f"{len(pending_jobs)} remaining jobs. Use Analyze next "
+                    f"missing/stale batch to process only {batch_chunk_size}."
+                )
+            else:
+                jobs_to_process = (
+                    pending_jobs
+                    if analyze_all_clicked
+                    else select_pending_batch_jobs(
+                        batch_source_jobs,
+                        batch_match_states,
+                        limit=batch_chunk_size,
+                    )
+                )
+
+                batch_busy_slot = st.empty()
+                with batch_busy_slot.container():
+                    render_busy_overlay(
+                        st,
+                        (
+                            "Analyzing "
+                            f"{len(jobs_to_process)} missing/stale job(s)..."
+                        ),
+                    )
+
+                ready = 0
+                unexpectedly_current = 0
+                refreshed = 0
+                failed = 0
+
+                try:
+                    with st.status(
+                        "Candidate Match batch in progress...",
+                        expanded=True,
+                    ) as batch_status:
+                        progress = st.progress(0.0)
+                        progress_text = st.empty()
+
+                        for index, batch_job in enumerate(
+                            jobs_to_process,
+                            start=1,
+                        ):
+                            title = str(
+                                batch_job.get("title")
+                                or f"Job #{batch_job.get('id')}"
+                            )
+                            company = str(
+                                batch_job.get("company")
+                                or "Unknown company"
+                            )
+                            progress_text.caption(
+                                f"{index}/{len(jobs_to_process)} · "
+                                f"{title} — {company}"
+                            )
+
+                            try:
+                                match_result = analyze_job_match(
+                                    batch_job,
+                                    context=match_context,
+                                    versions=match_versions,
+                                )
+                            except Exception as exc:
+                                failed += 1
+                                batch_status.write(
+                                    f"Failed {title} — {company}: {exc}"
+                                )
+                            else:
+                                ready += 1
+                                if match_result.get("cache_hit"):
+                                    unexpectedly_current += 1
+                                else:
+                                    refreshed += 1
+
+                            progress.progress(
+                                index / max(1, len(jobs_to_process))
+                            )
+
+                        progress_text.empty()
+                        batch_status.update(
+                            label="Candidate Match batch complete.",
+                            state="error" if failed else "complete",
+                        )
+                finally:
+                    batch_busy_slot.empty()
+
+                st.session_state.pop(
+                    "_job_finder_match_state_cache_v15",
+                    None,
+                )
+
+                attempted = len(jobs_to_process)
+                feedback = (
+                    f"Batch complete: {ready}/{attempted} ready · "
+                    f"{refreshed} analyzed/refreshed"
+                    + (
+                        f" · {unexpectedly_current} became current before processing"
+                        if unexpectedly_current
+                        else ""
+                    )
+                    + (f" · {failed} failed" if failed else "")
+                    + ". Re-run this batch action to resume; already-current "
+                    "snapshots will be skipped."
+                )
+
+                st.session_state[
+                    "job_finder_batch_rank_feedback_v17"
+                ] = feedback
+                st.session_state[
+                    "_job_finder_best_match_after_batch_v15"
+                ] = True
+                st.rerun()
+
     if evidence_count:
         st.caption(
-            f"Candidate evidence match uses all {evidence_count} item(s) in Profile & Evidence. "
-            "Analyzing a new/stale job may call the configured analysis model for JD extraction; "
-            "the taxonomy/evidence score after extraction is deterministic and cached."
+            f"Candidate evidence match uses all "
+            f"{evidence_count} item(s) in Profile & Evidence."
         )
     else:
         st.warning(
-            "Profile & Evidence is empty. Add truthful evidence before using Analyze Match."
+            "Profile & Evidence is empty. Add truthful evidence before "
+            "using Analyze Match."
         )
-
-    for job in jobs:
-        score = lexical_relevance(job, active_query)
-        state_label = _job_event_label(job)
-        hidden_reasons = list(job.get("_hide_reasons") or [])
-        hidden_prefix = "[HIDDEN] " if hidden_reasons else ""
-        source_label = SOURCE_LABELS.get(
-            str(job.get("source") or ""),
-            str(job.get("source") or ""),
-        )
-        label = (
-            f"{hidden_prefix}[{state_label}] {job.get('title') or 'Untitled'} — "
-            f"{job.get('company') or 'Unknown Company'}"
-        )
-
-        with st.expander(label):
-            if hidden_reasons:
-                st.warning("Hidden because: " + " · ".join(hidden_reasons))
-
-            st.markdown(f"**Source:** {source_label}")
-            meta = [
-                str(job.get("location") or ""),
-                str(job.get("employment_type") or ""),
-            ]
-            if any(meta):
-                st.caption(" · ".join(part for part in meta if part))
-
-            scope = str(job.get("source_scope") or "").strip()
-            if scope and ":" in scope:
-                st.caption(f"Source scope: {scope}")
-
-            lifecycle_bits = [
-                f"first seen {job.get('first_seen_at')}" if job.get("first_seen_at") else "",
-                f"last seen {job.get('last_seen_at')}" if job.get("last_seen_at") else "",
-                f"last changed {job.get('last_changed_at')}" if job.get("last_changed_at") else "",
-                f"removed {job.get('removed_at')}" if job.get("removed_at") else "",
-            ]
-            st.caption(" · ".join(bit for bit in lifecycle_bits if bit))
-            st.caption(f"Deterministic search relevance: {score:.1f}")
-
-            st.markdown("#### Candidate evidence match")
-            match_state = inspect_job_match(job, context=match_context)
-            analyze_label = (
-                "Refresh Match"
-                if match_state.get("status") == "stale"
-                else "Analyze Match"
-            )
-            analyze_clicked = st.button(
-                analyze_label,
-                key=f"job_finder_analyze_match_v200_{job['id']}",
-                disabled=(
-                    evidence_count <= 0
-                    or len(str(job.get("description") or "").strip()) < 100
-                ),
-                help=(
-                    "On a cache miss this runs the existing two-pass JD extractor, then "
-                    "the shared deterministic taxonomy/evidence scorer. It does not run "
-                    "the old LLM keyword-match step."
-                ),
-            )
-            if analyze_clicked:
-                try:
-                    with st.status(
-                        "Analyzing requirements against Profile & Evidence...",
-                        expanded=True,
-                    ) as match_status:
-                        match_result = analyze_job_match(
-                            job,
-                            context=match_context,
-                        )
-                        if match_result.get("cache_hit"):
-                            match_status.write("Reused current cached match snapshot.")
-                        else:
-                            match_status.write(
-                                "JD profile extracted; deterministic taxonomy/evidence scoring completed."
-                            )
-                        match_status.update(
-                            label="Candidate evidence match ready.",
-                            state="complete",
-                        )
-                    match_state = {
-                        "status": "current",
-                        "snapshot": match_result.get("snapshot"),
-                        "stale_reasons": [],
-                    }
-                except (ValueError, RuntimeError) as exc:
-                    st.warning(str(exc))
-                except Exception as exc:
-                    st.error(f"Unexpected job-match error: {exc}")
-
-            if match_state.get("status") == "stale":
-                st.warning(
-                    "Saved match is stale: "
-                    + ", ".join(match_state.get("stale_reasons") or ["cache identity changed"])
-                    + ". Refresh Match to recompute it."
-                )
-            elif match_state.get("status") == "none":
-                st.caption(
-                    "Not analyzed yet. Search relevance is not candidate fit; Analyze Match "
-                    "uses your full Profile & Evidence library."
-                )
-
-            snapshot = (
-                match_state.get("snapshot")
-                if match_state.get("status") == "current"
-                else None
-            )
-            if isinstance(snapshot, dict):
-                match_summary = snapshot.get("summary") or {}
-                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                metric_col1.metric(
-                    "Alignment",
-                    f"{int(match_summary.get('deterministic_alignment_score', 0) or 0)}/100",
-                )
-                metric_col2.metric(
-                    "Required/core",
-                    f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
-                )
-                metric_col3.metric(
-                    "Preferred",
-                    f"{int(match_summary.get('preferred_coverage_score', 0) or 0)}%",
-                )
-                metric_col4.metric(
-                    "Evidence strength",
-                    f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
-                )
-
-                important_gaps = match_summary.get("important_gaps") or []
-                if important_gaps:
-                    st.write("**Important evidence gaps**")
-                    st.dataframe(
-                        [
-                            {
-                                "Importance": gap.get("importance"),
-                                "Requirement": gap.get("text"),
-                                "Capability": gap.get("capability_id"),
-                            }
-                            for gap in important_gaps
-                        ],
-                        width="stretch",
-                        hide_index=True,
-                    )
-                else:
-                    st.caption("No unmatched required/core/deal-breaker rows in this snapshot.")
-
-                with st.expander("Match diagnostics", expanded=False):
-                    st.json(
-                        {
-                            "snapshot_id": snapshot.get("id"),
-                            "job_content_hash": snapshot.get("job_content_hash"),
-                            "evidence_fingerprint": snapshot.get("evidence_fingerprint"),
-                            "match_version": snapshot.get("match_version"),
-                            "scoring_version": snapshot.get("scoring_version"),
-                            "taxonomy_version": snapshot.get("taxonomy_version"),
-                            "summary": match_summary,
-                            "canonical_requirements": (
-                                (snapshot.get("stable_analysis") or {}).get(
-                                    "canonical_requirements",
-                                    [],
-                                )
-                            ),
-                            "validation_warnings": (
-                                (snapshot.get("stable_analysis") or {}).get(
-                                    "validation_warnings",
-                                    [],
-                                )
-                            ),
-                        }
-                    )
-
-            salary = _salary_label(job)
-            if salary:
-                st.write(f"**Salary:** {salary}")
-            if job.get("seniority"):
-                st.write(f"**Seniority / experience:** {job.get('seniority')}")
-
-            st.text_area(
-                "Normalized job description",
-                value=str(job.get("description") or ""),
-                height=220,
-                disabled=True,
-                key=f"job_description_preview_v123_{job['id']}",
-            )
-
-            action_col1, action_col2, action_col3, action_col4 = st.columns(
-                [1.45, 1.10, 0.75, 0.85]
-            )
-            with action_col1:
-                if st.button(
-                    "Use in new Application Session",
-                    key=f"job_finder_use_v123_{job['id']}",
-                    width="stretch",
-                    disabled=len(str(job.get("description") or "").strip()) < 100,
-                ):
-                    _handoff_to_new_application(job)
-            with action_col2:
-                source_url = str(
-                    job.get("source_url") or job.get("apply_url") or ""
-                ).strip()
-                if source_url:
-                    st.link_button(
-                        "Open original posting",
-                        source_url,
-                        width="stretch",
-                    )
-                else:
-                    st.button(
-                        "No source URL",
-                        key=f"job_finder_no_url_v123_{job['id']}",
-                        disabled=True,
-                        width="stretch",
-                    )
-            with action_col3:
-                if st.button(
-                    "Hide job",
-                    key=f"job_finder_hide_job_v123_{job['id']}",
-                    width="stretch",
-                    disabled=bool(hidden_reasons),
-                    help="Hide only this source/job ID. The stored job is not deleted.",
-                ):
-                    upsert_hide_rule(
-                        rule_type="job",
-                        value=job_identity(job),
-                        label=(
-                            f"{job.get('title') or 'Untitled'} — "
-                            f"{job.get('company') or 'Unknown Company'}"
-                        ),
-                    )
-                    st.rerun()
-            with action_col4:
-                company_name = str(job.get("company") or "").strip()
-                if st.button(
-                    "Hide company",
-                    key=f"job_finder_hide_company_v123_{job['id']}",
-                    width="stretch",
-                    disabled=not company_name or bool(hidden_reasons),
-                    help="Hide all jobs whose normalized company name exactly matches this company.",
-                ):
-                    upsert_hide_rule(
-                        rule_type="company",
-                        value=company_name,
-                        label=company_name,
-                    )
-                    st.rerun()
 

@@ -242,3 +242,66 @@ def filter_jobs_by_entry_level(
         return [dict(job) for job in jobs]
     return [dict(job) for job in jobs if is_entry_level_job(job)]
 
+
+def apply_job_finder_filters(
+    jobs: Iterable[dict[str, Any]],
+    *,
+    selected_sources: Iterable[str] = (),
+    selected_companies: Iterable[str] = (),
+    max_age_days: int | None = None,
+    max_experience_years: float | None = None,
+    selected_lifecycle_statuses: Iterable[str] = (),
+    selected_events: Iterable[str] = (),
+    selected_employment_types: Iterable[str] = (),
+    entry_only: bool = False,
+    now_timestamp: float | None = None,
+) -> dict[str, Any]:
+    """Apply the complete Job Finder filter state from one immutable base set."""
+    rows = [dict(job) for job in jobs]
+    trace: list[dict[str, Any]] = [
+        {"Stage": "Filter base", "Jobs": len(rows)}
+    ]
+
+    rows = filter_jobs_by_sources(rows, selected_sources)
+    trace.append({"Stage": "Source", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_companies(rows, selected_companies)
+    trace.append({"Stage": "Company", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_freshness(
+        rows,
+        max_age_days,
+        now_timestamp=now_timestamp,
+    )
+    trace.append({"Stage": "Posting freshness", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_max_explicit_minimum_experience(
+        rows,
+        max_experience_years,
+    )
+    trace.append({"Stage": "Experience ceiling", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_lifecycle(
+        rows,
+        selected_lifecycle_statuses,
+    )
+    trace.append({"Stage": "Availability", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_events(rows, selected_events)
+    trace.append({"Stage": "Last refresh event", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_employment_types(
+        rows,
+        selected_employment_types,
+    )
+    trace.append({"Stage": "Employment type", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_entry_level(rows, bool(entry_only))
+    trace.append({"Stage": "Entry / junior / graduate", "Jobs": len(rows)})
+
+    return {
+        "jobs": rows,
+        "trace": trace,
+        "input_count": trace[0]["Jobs"],
+        "output_count": len(rows),
+    }
