@@ -168,11 +168,13 @@ def _render_corpus_resolution(st, bulk):
     """Normal local-first entry point; every expensive/write action stays explicit."""
     from taxonomy_discovery.corpus_gap_resolution import (
         audit_corpus_resolution,
+        build_capability_closure_matrix,
         build_gap_resolution_queue,
         build_native_regression_handoff,
         create_local_proposals,
         load_bulk_technology_seed,
         plan_bulk_technology_bootstrap,
+        preview_capability_closure,
         preview_bulk_technology_bootstrap,
         preview_local_resolution,
         select_bulk_bootstrap_proposals,
@@ -328,6 +330,78 @@ def _render_corpus_resolution(st, bulk):
             })
 
     st.markdown("##### C. Resolve Batch")
+    st.markdown("###### Capability closure matrix")
+    st.caption(
+        "Diagnose each priority gap across identity, relationship, and capability layers. "
+        "New-capability impact is a copied-knowledge scenario and remains research-dependent."
+    )
+    if st.button("Build corpus-driven capability closure matrix", key="tqd3_capability_closure"):
+        try:
+            with st.spinner("Inspecting taxonomy boundaries and replaying hypothetical closure scenarios..."):
+                closure = build_capability_closure_matrix(
+                    audit,
+                    bootstrap_plan=st.session_state.get("tqd3_bootstrap_plan"),
+                )
+                closure_preview = preview_capability_closure(audit, closure)
+            st.session_state["tqd3_capability_closure"] = closure
+            st.session_state["tqd3_capability_closure_preview"] = closure_preview
+
+            prepared = st.session_state.get("tqd3_bulk_prepared") or {
+                "corpus": audit["corpus"], "candidates": [], "coverage_audit": audit,
+            }
+            candidate_index = {
+                row["candidate_id"]: row
+                for row in prepared.get("candidates", []) + closure["research_candidates"]
+            }
+            prepared["candidates"] = list(candidate_index.values())
+            st.session_state["tqd3_bulk_prepared"] = prepared
+            st.session_state["tqd3_bulk_queue"] = bulk.build_candidate_queue(
+                prepared["candidates"], include_hidden=True
+            )
+            st.success("Closure matrix prepared; research-required candidates joined the existing governed queue.")
+        except Exception as exc:
+            st.error(f"Capability closure failed closed: {exc}")
+
+    closure = st.session_state.get("tqd3_capability_closure")
+    closure_preview = st.session_state.get("tqd3_capability_closure_preview")
+    if closure and closure_preview:
+        st.write("Closure summary", {
+            "priority concepts analyzed": closure["top_gap_count"],
+            **closure["failure_type_counts"],
+            "safe relationship drafts": len(closure["safe_relationship_drafts"]),
+            "possible new capability drafts": len(closure["possible_new_capability_drafts"]),
+            "research-required actions": closure["research_required_actions"],
+        })
+        st.dataframe([{
+            "concept": row["display_concept"],
+            "failure type": f"{row['failure_type_code']}. {row['failure_type'].replace('_', ' ')}",
+            "identity": row["identity"],
+            "relationship": row["relationship"],
+            "capability": row["capability"],
+            "technology_id": row["current_technology_id"],
+            "closest capabilities": ", ".join(
+                item["capability_id"] for item in row["relevant_existing_capabilities"]
+            ),
+            "jobs": row["job_count"],
+            "occurrences": row["occurrence_count"],
+            "required/core impact": row["required_core_impact"],
+            "why unresolved": row["why_existing_insufficient"],
+        } for row in closure["matrix"]], hide_index=True, width="stretch")
+        st.write("Projected requirement-resolution coverage", closure_preview["coverage_curve"])
+        st.markdown("**Top capability/relationship fixes by projected Job Match impact**")
+        st.dataframe(closure_preview["top_20_highest_impact_fixes"], hide_index=True, width="stretch")
+        if closure_preview["false_positive_collateral_matches"]:
+            st.warning("The hypothetical overlay produced collateral matches. Review diagnostics before any approval.")
+        with st.expander("Capability definitions, boundaries, overlap, and collateral diagnostics"):
+            st.json({
+                "safe_relationship_drafts": closure["safe_relationship_drafts"],
+                "possible_new_capability_drafts": closure["possible_new_capability_drafts"],
+                "false_positive_collateral_matches": closure_preview["false_positive_collateral_matches"],
+                "blocked_capability_scenarios": closure_preview["blocked_capability_scenarios"],
+                "coverage_still_blocked_percent": closure_preview["coverage_still_blocked_percent"],
+                "unresolved_meaningful_after_scenario": closure_preview["unresolved_meaningful_after_scenario"],
+            })
+
     local_rows = [row for row in resolution_queue["rows"] if row["local_safe"]]
     st.dataframe([{
         "candidate": row["concept"],

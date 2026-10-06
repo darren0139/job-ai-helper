@@ -22,6 +22,7 @@ from analysis_stability.stable_evidence_scoring import (
 from job_discovery.matching import current_match_versions
 from tailoring.capability_taxonomy import (
     CapabilityTaxonomy,
+    _validate_capability,
     get_default_taxonomy,
     normalise as taxonomy_normalise,
     temporary_taxonomy_scope,
@@ -57,6 +58,10 @@ LOCAL_PROPOSAL_VERSION = "tqd3-local-gap-proposal-v1"
 BULK_BOOTSTRAP_VERSION = "tqd3-bulk-technology-bootstrap-v1"
 BULK_TECHNOLOGY_SEED_PATH = (
     Path(__file__).resolve().parent / "seeds" / "tqd3_bulk_technology_seed_v1.json"
+)
+CAPABILITY_CLOSURE_VERSION = "tqd3-capability-closure-v1"
+CAPABILITY_CLOSURE_PROFILE_PATH = (
+    Path(__file__).resolve().parent / "seeds" / "tqd3_capability_closure_profiles_v1.json"
 )
 
 OPERATIONAL_ROUTES = (
@@ -1342,6 +1347,721 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
         "production_mutations": 0,
         "scoring_influence": False,
         "score_changes_claimed": False,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def load_capability_closure_profiles(
+    path: str | Path = CAPABILITY_CLOSURE_PROFILE_PATH,
+) -> dict[str, Any]:
+    """Load bounded closure hypotheses and validate them against current taxonomy."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if payload.get("profile_version") != "tqd3-capability-closure-profiles-v1":
+        raise ValueError("Unsupported capability closure profile version")
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, list):
+        raise ValueError("Capability closure profiles must be a list")
+    taxonomy = get_default_taxonomy()
+    taxonomy_ids = set(taxonomy.by_id())
+    domains = {row["domain"] for row in taxonomy.capabilities}
+    known_new_ids = {
+        row.get("new_capability", {}).get("capability_id")
+        for row in profiles if isinstance(row.get("new_capability"), dict)
+    }
+    seen: set[str] = set()
+    alias_owners: dict[str, str] = {}
+    cleaned = []
+    for raw in profiles:
+        if not isinstance(raw, dict):
+            raise ValueError("Every capability closure profile must be an object")
+        canonical = " ".join(str(raw.get("canonical_concept") or "").split())
+        key = normalise(canonical)
+        if not key or key in seen:
+            raise ValueError(f"Duplicate or blank capability closure concept: {canonical!r}")
+        seen.add(key)
+        aliases = sorted({canonical, *(" ".join(str(value).split()) for value in raw.get("aliases", []) if str(value).strip())})
+        for alias in aliases:
+            alias_key = normalise(alias)
+            owner = alias_owners.get(alias_key)
+            if owner and owner != key:
+                raise ValueError(f"Capability closure alias collision: {alias!r}")
+            alias_owners[alias_key] = key
+        failure_type = raw.get("failure_type")
+        if failure_type not in {"identity_only_missing", "relationship_missing", "capability_missing", "contextual_ambiguous"}:
+            raise ValueError(f"{canonical}: invalid failure_type")
+        closest = list(dict.fromkeys(raw.get("closest_capability_ids") or []))
+        if any(capability_id not in taxonomy_ids for capability_id in closest):
+            raise ValueError(f"{canonical}: unknown closest capability")
+        new_capability = deepcopy(raw.get("new_capability"))
+        reference = raw.get("new_capability_ref")
+        if reference and reference not in known_new_ids:
+            raise ValueError(f"{canonical}: unknown new capability reference {reference!r}")
+        if new_capability:
+            required = {"capability_id", "label", "domain", "definition", "requirement_terms",
+                        "does_not_prove", "boundaries", "overlap_risks"}
+            if not required.issubset(new_capability):
+                raise ValueError(f"{canonical}: incomplete new capability hypothesis")
+            if new_capability["capability_id"] in taxonomy_ids or new_capability["domain"] not in domains:
+                raise ValueError(f"{canonical}: invalid new capability identity/domain")
+            if any(value not in taxonomy_ids for value in new_capability["overlap_risks"]):
+                raise ValueError(f"{canonical}: unknown overlap risk")
+        safe_capability = raw.get("safe_existing_capability_id")
+        if safe_capability and safe_capability not in taxonomy_ids:
+            raise ValueError(f"{canonical}: unknown safe relationship capability")
+        cleaned.append({
+            **deepcopy(raw),
+            "canonical_concept": canonical,
+            "aliases": aliases,
+            "closest_capability_ids": closest,
+        })
+    return {
+        "profile_version": payload["profile_version"],
+        "profiles": cleaned,
+        "profile_count": len(cleaned),
+        "network_calls": 0,
+        "model_calls": 0,
+        "production_mutations": 0,
+    }
+
+
+def _profile_index(profile_report: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    aliases = {}
+    capabilities = {}
+    for profile in profile_report["profiles"]:
+        for alias in profile["aliases"]:
+            aliases[normalise(alias)] = profile
+            aliases[_closure_match_key(alias)] = profile
+        if profile.get("new_capability"):
+            capabilities[profile["new_capability"]["capability_id"]] = profile["new_capability"]
+    return aliases, capabilities
+
+
+def _closure_match_key(value: str) -> str:
+    """Match atomicized punctuation variants without broad substring matching."""
+    return " ".join(re.sub(r"[^a-z0-9+#]+", " ", normalise(value)).split())
+
+
+def _closure_candidate(
+    rows: list[dict[str, Any]],
+    *,
+    capability: dict[str, Any],
+) -> dict[str, Any]:
+    representative = deepcopy(rows[0]["candidate"])
+    provenance_index = {}
+    for row in rows:
+        for source in row["provenance"]:
+            key = (source.get("job_id"), source.get("snapshot_id"), source.get("requirement_id"),
+                   source.get("parent_candidate_id"))
+            provenance_index[key] = deepcopy(source)
+    provenance = [provenance_index[key] for key in sorted(provenance_index, key=lambda value: tuple(str(v) for v in value))]
+    examples = sorted({example for row in rows for example in row["candidate"].get("examples", [])})
+    representative.update(
+        normalized_cluster=normalise(capability["label"]),
+        concept_key=normalise(capability["label"]),
+        examples=examples,
+        provenance=provenance,
+        occurrence_count=len(provenance),
+        observed_occurrence_count=len(provenance),
+        job_count=len({source.get("job_id") for source in provenance if source.get("job_id") is not None}),
+        observed_job_count=len({source.get("job_id") for source in provenance if source.get("job_id") is not None}),
+        candidate_route="possible_new_capability",
+        routing_reason="Current taxonomy cannot represent this recurring requirement without semantic distortion",
+        overlap=overlap_check(" ".join(capability["requirement_terms"])),
+        source_gap_ids=sorted({gap_id for row in rows for gap_id in row["candidate"].get("source_gap_ids", [])}),
+        operational_route="possible_new_capability",
+        operational_reason="Candidate enters existing governed capability research",
+    )
+    representative["candidate_fingerprint"] = fingerprint({
+        key: value for key, value in representative.items()
+        if key not in {"candidate_id", "candidate_fingerprint"}
+    })
+    representative["candidate_id"] = "tqd3taxgap_" + representative["candidate_fingerprint"][:24]
+    return representative
+
+
+def build_capability_closure_matrix(
+    audit: dict[str, Any],
+    *,
+    top_n: int = 30,
+    bootstrap_plan: dict[str, Any] | None = None,
+    profile_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Explain identity, relationship, and capability state for priority gaps."""
+    if audit.get("audit_version") != CORPUS_GAP_RESOLUTION_VERSION:
+        raise ValueError("Current corpus gap audit required")
+    if not 1 <= int(top_n) <= 100:
+        raise ValueError("top_n must be between 1 and 100")
+    profiles = profile_report or load_capability_closure_profiles()
+    profile_aliases, capability_definitions = _profile_index(profiles)
+    bootstrap = bootstrap_plan or plan_bulk_technology_bootstrap(audit)
+    taxonomy = get_default_taxonomy()
+    taxonomy_by_id = taxonomy.by_id()
+    registry = get_default_registry()
+    bootstrap_identity_by_name = {
+        normalise(row["technology"]): row for row in bootstrap["identity_only_proposals"]
+    }
+    seed_by_alias = {}
+    for seed in bootstrap["seed"]["entries"]:
+        for alias in seed["aliases"]:
+            seed_by_alias[normalise(alias)] = seed
+
+    priority_rows = [
+        row for row in audit["queue"]
+        if row["operational_route"] != "noise_or_non_capability"
+    ]
+    selected = list(priority_rows[:int(top_n)])
+    required_profile_names = {
+        "python", "sql", "amazon web services", "microsoft azure", "javascript", "mongodb",
+        "typescript", "c#", ".net", "elasticsearch", "google cloud platform", "java",
+        "node.js", "ansible", "hcl bigfix", "distributed systems",
+    }
+    selected_ids = {row["candidate_id"] for row in selected}
+    for row in priority_rows:
+        profile = profile_aliases.get(normalise(row["concept"])) or profile_aliases.get(_closure_match_key(row["concept"]))
+        if profile and normalise(profile["canonical_concept"]) in required_profile_names and row["candidate_id"] not in selected_ids:
+            selected.append(row)
+            selected_ids.add(row["candidate_id"])
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    group_profiles: dict[str, dict[str, Any] | None] = {}
+    for row in selected:
+        profile = profile_aliases.get(normalise(row["concept"])) or profile_aliases.get(_closure_match_key(row["concept"]))
+        canonical = normalise(profile["canonical_concept"]) if profile else normalise(row["concept"])
+        grouped[canonical].append(row)
+        group_profiles[canonical] = profile
+
+    matrix = []
+    relationship_drafts = []
+    capability_groups: dict[str, dict[str, Any]] = {}
+    research_candidates = []
+    for canonical, rows in grouped.items():
+        profile = group_profiles[canonical]
+        aliases = profile["aliases"] if profile else sorted({row["concept"] for row in rows})
+        seed = next((seed_by_alias.get(normalise(alias)) for alias in aliases if seed_by_alias.get(normalise(alias))), None)
+        resolver = resolve_requirement_text(rows[0]["example_jd_text"], registry=registry)
+        closest_ids = list((profile or {}).get("closest_capability_ids") or [])
+        if not closest_ids:
+            closest_ids = [
+                item["capability_id"] for item in rows[0]["current_taxonomy_result"].get("concept_overlap", [])
+                if item.get("capability_id") in taxonomy_by_id
+            ][:5]
+        closest = [{
+            "capability_id": capability_id,
+            "label": taxonomy_by_id[capability_id]["label"],
+            "domain": taxonomy_by_id[capability_id]["domain"],
+            "definition": taxonomy_by_id[capability_id].get("definition"),
+            "does_not_prove": deepcopy(taxonomy_by_id[capability_id].get("does_not_prove") or []),
+        } for capability_id in closest_ids]
+        failure_type = (profile or {}).get("failure_type")
+        safe_capability = (profile or {}).get("safe_existing_capability_id")
+        if not failure_type:
+            if rows[0]["operational_route"] == "possible_new_capability":
+                failure_type = "capability_missing"
+            elif safe_capability and resolver.get("status") == "unresolved":
+                failure_type = "identity_only_missing"
+            elif safe_capability:
+                failure_type = "relationship_missing"
+            else:
+                failure_type = "contextual_ambiguous"
+        affected_keys = sorted({
+            (source.get("job_id"), source.get("requirement_id"))
+            for row in rows for source in row["provenance"]
+        })
+        jobs = sorted({job_id for job_id, _ in affected_keys if job_id is not None})
+        required_core = sum(row["required_core_impact"] for row in rows)
+        new_capability = deepcopy((profile or {}).get("new_capability"))
+        if not new_capability and (profile or {}).get("new_capability_ref"):
+            new_capability = deepcopy(capability_definitions[(profile or {})["new_capability_ref"]])
+        identity_proposal = next((
+            proposal for name, proposal in bootstrap_identity_by_name.items()
+            if name == normalise((seed or {}).get("canonical_name") or (profile or {}).get("canonical_concept") or canonical)
+        ), None)
+        identity_state = (
+            "production_resolved" if resolver.get("status") == "resolved" else
+            "production_recognized_unmapped" if resolver.get("status") == "recognized_unmapped" else
+            "proposal_ready" if identity_proposal else
+            "research_required"
+        )
+        relationship_state = (
+            "production_approved" if resolver.get("status") == "resolved" else
+            "safe_draft_ready" if safe_capability else
+            "missing_requires_capability" if failure_type == "capability_missing" else
+            "contextual" if failure_type == "contextual_ambiguous" else
+            "research_required"
+        )
+        capability_state = (
+            "current_capability_fits" if safe_capability else
+            "possible_new_capability" if failure_type == "capability_missing" else
+            "contextual_no_universal_capability"
+        )
+        matrix_row = {
+            "normalized_concept": canonical,
+            "display_concept": (profile or {}).get("canonical_concept") or rows[0]["concept"],
+            "aliases": aliases,
+            "failure_type": failure_type,
+            "failure_type_code": {
+                "identity_only_missing": "A",
+                "relationship_missing": "B",
+                "capability_missing": "C",
+                "contextual_ambiguous": "D",
+            }[failure_type],
+            "identity": identity_state,
+            "relationship": relationship_state,
+            "capability": capability_state,
+            "current_technology_identity_status": resolver.get("status"),
+            "current_technology_id": resolver.get("technology_id"),
+            "current_resolver_outcome": deepcopy(resolver),
+            "current_candidate_routes": sorted({row["candidate"]["candidate_route"] for row in rows}),
+            "operational_routes": sorted({row["operational_route"] for row in rows}),
+            "relevant_existing_capabilities": closest,
+            "appropriate_existing_capability_exists": bool(safe_capability),
+            "safe_relationship_capability_id": safe_capability,
+            "safe_relationship_can_be_proposed": bool(safe_capability),
+            "relationship_research_required": bool((profile or {}).get("relationship_research_required", not safe_capability)),
+            "taxonomy_lacks_appropriate_capability": failure_type == "capability_missing",
+            "possible_new_capability_required": failure_type == "capability_missing",
+            "why_existing_insufficient": (profile or {}).get(
+                "why_existing_insufficient", "No deterministic current-taxonomy equivalence was established"
+            ),
+            "contextual_guidance": (profile or {}).get("contextual_guidance"),
+            "candidate_definition": deepcopy(new_capability),
+            "affected_requirement_keys": affected_keys,
+            "affected_requirements": sorted({row["example_jd_text"] for row in rows}),
+            "affected_jobs": jobs,
+            "job_count": len(jobs),
+            "occurrence_count": sum(row["occurrences"] for row in rows),
+            "required_core_impact": required_core,
+            "source_candidate_ids": sorted({row["candidate_id"] for row in rows}),
+        }
+        matrix.append(matrix_row)
+
+        if safe_capability:
+            technology_id = resolver.get("technology_id") or _technology_id_for(
+                (seed or {}).get("canonical_name") or matrix_row["display_concept"]
+            )
+            seed_record = seed or {
+                "seed_id": "tqd3closure_" + fingerprint(matrix_row["display_concept"])[:20],
+                "canonical_name": matrix_row["display_concept"],
+            }
+            relationship = _bootstrap_proposal(
+                seed_record,
+                resolution_type="add_technology_relationship",
+                proposed_change={
+                    "possible": True,
+                    "resolution_type": "add_technology_relationship",
+                    "local_safe": True,
+                    "technology_id": technology_id,
+                    "technology": matrix_row["display_concept"],
+                    "relationship": {
+                        "capability_id": safe_capability,
+                        "relationship_type": "maps_to_capability",
+                        "reason": (profile or {}).get("relationship_rationale", "Current taxonomy boundary supports this relationship"),
+                        "taxonomy_boundary_checks": (profile or {}).get("boundary_checks", []),
+                        "conflicting_capabilities": [],
+                        "safe_for_local_review": True,
+                        "external_research_recommended": False,
+                    },
+                    "taxonomy_definition": closest[0] if closest else None,
+                    "corpus_requirements_affected": len(affected_keys),
+                    "jobs_affected": jobs,
+                    "required_core_impact": required_core,
+                    "external_research_recommended": False,
+                    "reason": (profile or {}).get("relationship_rationale", "Current taxonomy boundary supports this relationship"),
+                },
+                matched=[
+                    requirement for requirement in audit["requirements"]
+                    if (requirement["job_id"], requirement["requirement_id"]) in set(affected_keys)
+                ],
+                dependency_ids=[identity_proposal["proposal_id"]] if identity_proposal else [],
+            )
+            relationship_drafts.append(relationship)
+
+        if failure_type == "capability_missing":
+            if new_capability:
+                capability_id = new_capability["capability_id"]
+                group = capability_groups.setdefault(capability_id, {
+                    "definition": new_capability,
+                    "rows": [],
+                    "technologies": [],
+                    "matrix_rows": [],
+                })
+                group["rows"].extend(rows)
+                group["matrix_rows"].append(matrix_row)
+                if seed:
+                    group["technologies"].append({
+                        "technology_id": resolver.get("technology_id") or _technology_id_for(seed["canonical_name"]),
+                        "canonical_name": seed["canonical_name"],
+                        "aliases": seed["aliases"],
+                        "technology_kind": seed["technology_kind"],
+                    })
+            else:
+                candidate = deepcopy(rows[0]["candidate"])
+                candidate["candidate_route"] = "possible_new_capability"
+                candidate["routing_reason"] = "Existing taxonomy lacks a confirmed non-overlapping capability definition"
+                candidate["candidate_fingerprint"] = fingerprint({
+                    key: value for key, value in candidate.items()
+                    if key not in {"candidate_id", "candidate_fingerprint"}
+                })
+                candidate["candidate_id"] = "tqd3taxgap_" + candidate["candidate_fingerprint"][:24]
+                research_candidates.append(candidate)
+
+    capability_drafts = []
+    for capability_id, group in capability_groups.items():
+        definition = group["definition"]
+        candidate = _closure_candidate(group["rows"], capability=definition)
+        research_candidates.append(candidate)
+        keys = sorted({key for matrix_row in group["matrix_rows"] for key in matrix_row["affected_requirement_keys"]})
+        jobs = sorted({key[0] for key in keys if key[0] is not None})
+        key_set = set(keys)
+        potential_collateral = [
+            {"job_id": requirement["job_id"], "requirement_id": requirement["requirement_id"],
+             "requirement_text": requirement["requirement_text"]}
+            for requirement in audit["requirements"]
+            if (requirement["job_id"], requirement["requirement_id"]) not in key_set
+            and any(phrase_present(requirement["requirement_text"], term)
+                    for term in definition["requirement_terms"])
+        ]
+        draft = {
+            "closure_draft_version": CAPABILITY_CLOSURE_VERSION,
+            "draft_kind": "possible_new_capability_candidate",
+            "status": "research_required",
+            "publishable": False,
+            "candidate": candidate,
+            "candidate_capability_concept": definition["label"],
+            "proposed_capability_id": capability_id,
+            "candidate_definition": definition["definition"],
+            "candidate_boundaries": definition["boundaries"],
+            "does_not_prove": definition["does_not_prove"],
+            "requirement_terms": definition["requirement_terms"],
+            "closest_existing_capabilities": sorted({
+                item["capability_id"] for row in group["matrix_rows"]
+                for item in row["relevant_existing_capabilities"]
+            }),
+            "why_existing_insufficient": sorted({row["why_existing_insufficient"] for row in group["matrix_rows"]}),
+            "overlap_risks": definition["overlap_risks"],
+            "overlap_diagnostics": overlap_check(" ".join(definition["requirement_terms"])),
+            "technologies": list({item["technology_id"]: item for item in group["technologies"]}.values()),
+            "affected_requirement_keys": keys,
+            "affected_jobs": jobs,
+            "required_core_impact": sum(row["required_core_impact"] for row in group["matrix_rows"]),
+            "estimated_corpus_impact": len(keys),
+            "potential_collateral_requirements": potential_collateral,
+            "scenario_preview_eligible": not potential_collateral,
+            "scenario_blockers": (["taxonomy_phrase_would_match_outside_declared_gap_provenance"]
+                                  if potential_collateral else []),
+            "research_requirement": "Existing route-aware governed capability research with first-party/authoritative evidence",
+            "requires_human_review": True,
+            "requires_human_approval": True,
+            "approval": False,
+            "publication": False,
+        }
+        draft["draft_fingerprint"] = fingerprint(draft)
+        draft["draft_id"] = "tqd3closure_" + draft["draft_fingerprint"][:24]
+        capability_drafts.append(draft)
+
+    matrix.sort(key=lambda row: (-row["required_core_impact"], -row["job_count"],
+                                 -row["occurrence_count"], row["normalized_concept"]))
+    counts = Counter(row["failure_type"] for row in matrix)
+    report = {
+        "closure_version": CAPABILITY_CLOSURE_VERSION,
+        "matrix": matrix,
+        "top_gap_count": len(matrix),
+        "failure_type_counts": {
+            "identity_only_missing": counts["identity_only_missing"],
+            "relationship_missing": counts["relationship_missing"],
+            "capability_missing": counts["capability_missing"],
+            "contextual_ambiguous": counts["contextual_ambiguous"],
+        },
+        "safe_relationship_drafts": relationship_drafts,
+        "possible_new_capability_drafts": capability_drafts,
+        "research_candidates": research_candidates,
+        "research_required_actions": sum(
+            row["relationship_research_required"] or row["possible_new_capability_required"] for row in matrix
+        ),
+        "bootstrap_plan": bootstrap,
+        "current_coverage": deepcopy(audit["summary"]),
+        "review_only": True,
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "scoring_semantics_changed": False,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+    report["matrix_fingerprint"] = fingerprint({key: value for key, value in report.items() if key != "matrix_fingerprint"})
+    return report
+
+
+def _closure_scenario_knowledge(
+    identity_proposals: list[dict[str, Any]],
+    relationship_proposals: list[dict[str, Any]],
+    capability_drafts: list[dict[str, Any]],
+) -> tuple[CapabilityTaxonomy, TechnologyRegistry]:
+    shadow_taxonomy, shadow_registry = _temporary_knowledge(identity_proposals + relationship_proposals)
+    capabilities = deepcopy(list(shadow_taxonomy.capabilities))
+    seen = {row["capability_id"] for row in capabilities}
+    next_priority = max(row["priority"] for row in capabilities) + 1
+    for index, draft in enumerate(sorted(capability_drafts, key=lambda row: row["proposed_capability_id"])):
+        definition = draft["candidate_definition"]
+        profile = next(
+            row for row in load_capability_closure_profiles()["profiles"]
+            if (row.get("new_capability") or {}).get("capability_id") == draft["proposed_capability_id"]
+        )
+        entry = {
+            "capability_id": draft["proposed_capability_id"],
+            "label": draft["candidate_capability_concept"],
+            "domain": profile["new_capability"]["domain"],
+            "priority": next_priority + index,
+            "definition": definition,
+            "requirement": {"any_terms": deepcopy(draft["requirement_terms"]), "all_terms": []},
+            "evidence_tiers": [{
+                "label": "direct",
+                "any_terms": sorted({alias for technology in draft["technologies"] for alias in technology["aliases"]}
+                                    or set(draft["requirement_terms"])),
+                "reason": "hypothetical_closure_scenario_only",
+                "concepts": [draft["proposed_capability_id"]],
+            }],
+            "does_not_prove": deepcopy(draft["does_not_prove"]),
+        }
+        _validate_capability(entry, seen)
+        seen.add(entry["capability_id"])
+        capabilities.append(entry)
+
+    entries = deepcopy(list(shadow_registry.entries))
+    by_id = {row["technology_id"]: row for row in entries}
+    for draft in capability_drafts:
+        for technology in draft["technologies"]:
+            entry = by_id.get(technology["technology_id"])
+            if entry is None:
+                entry = {
+                    "technology_id": technology["technology_id"],
+                    "label": technology["canonical_name"],
+                    "entry_kind": technology["technology_kind"],
+                    "aliases": deepcopy(technology["aliases"]),
+                    "status": "approved",
+                    "capability_relationships": [],
+                    "notes": "Temporary capability closure scenario",
+                }
+                entries.append(entry)
+                by_id[technology["technology_id"]] = entry
+            approved = [row for row in entry.get("capability_relationships", [])
+                        if row.get("relationship_type") == "maps_to_capability" and row.get("status") == "approved"]
+            if not approved:
+                entry.setdefault("capability_relationships", []).append({
+                    "capability_id": draft["proposed_capability_id"],
+                    "relationship_type": "maps_to_capability",
+                    "status": "approved",
+                })
+    taxonomy = CapabilityTaxonomy(shadow_taxonomy.version + "+closure-scenario", tuple(capabilities))
+    with temporary_taxonomy_scope(taxonomy):
+        _validate_registry({"registry_version": shadow_registry.version + "+closure-scenario", "entries": entries})
+    registry = TechnologyRegistry(shadow_registry.version + "+closure-scenario", tuple(entries))
+    return taxonomy, registry
+
+
+def _preview_closure_scenario(
+    audit: dict[str, Any],
+    *,
+    taxonomy: CapabilityTaxonomy,
+    registry: TechnologyRegistry,
+    intended_keys: set[tuple[Any, Any]],
+) -> dict[str, Any]:
+    output = []
+    with temporary_taxonomy_scope(taxonomy), temporary_registry_scope(registry):
+        for row in audit["requirements"]:
+            before = deepcopy(row["current_resolution"])
+            after = _resolution({"text": row["requirement_text"], "atomic_focus": row["requirement_text"]})
+            semantic_fields = ("status", "resolution_source", "capability_id", "technology_id",
+                               "technology_label", "registry_status", "registry_reason")
+            changed = any(before.get(field) != after.get(field) for field in semantic_fields)
+            output.append({
+                "job_id": row["job_id"], "requirement_id": row["requirement_id"],
+                "requirement_text": row["requirement_text"], "importance": row["importance"],
+                "group_weight_fraction": row.get("group_weight_fraction", 1.0),
+                "before": before, "after": after, "changed": changed,
+                "would_resolve": before["status"] != "resolved" and after["status"] == "resolved",
+            })
+    noise_keys = {
+        (source.get("job_id"), source.get("requirement_id"))
+        for queue_row in audit["queue"]
+        if not queue_row.get("parent_candidate_id") and queue_row["operational_route"] == "noise_or_non_capability"
+        for source in queue_row["provenance"]
+    }
+    before_rows = [row for row in audit["requirements"] if (row["job_id"], row["requirement_id"]) not in noise_keys]
+    by_key = {(row["job_id"], row["requirement_id"]): row for row in output}
+    after_rows = []
+    for row in before_rows:
+        copied = deepcopy(row)
+        copied["current_resolution"] = by_key[(row["job_id"], row["requirement_id"])]["after"]
+        after_rows.append(copied)
+    changed = [row for row in output if row["changed"]]
+    conflicts = [
+        {"job_id": row["job_id"], "requirement_id": row["requirement_id"],
+         "requirement_text": row["requirement_text"], "reason": "changed_outside_declared_gap_provenance"}
+        for row in changed if (row["job_id"], row["requirement_id"]) not in intended_keys
+    ]
+    before_overall = _coverage(before_rows, {"deal_breaker", "required", "core", "preferred"})
+    after_overall = _coverage(after_rows, {"deal_breaker", "required", "core", "preferred"})
+    before_required = _coverage(before_rows, {"deal_breaker", "required", "core"})
+    after_required = _coverage(after_rows, {"deal_breaker", "required", "core"})
+    return {
+        "requirements_evaluated": len(output),
+        "rows": output,
+        "newly_scorable_requirements": sum(row["would_resolve"] for row in output),
+        "affected_jobs": sorted({row["job_id"] for row in changed}),
+        "unchanged_requirements": sum(not row["changed"] for row in output),
+        "conflicts_ambiguity": conflicts,
+        "coverage_before_percent": before_overall["percent"],
+        "coverage_after_percent": after_overall["percent"],
+        "required_core_before_percent": before_required["percent"],
+        "required_core_after_percent": after_required["percent"],
+        "review_only": True,
+        "hypothetical_research_required": True,
+        "scoring_influence": False,
+        "production_mutations": 0,
+    }
+
+
+def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -> dict[str, Any]:
+    """Preview safe relationships and research-dependent capabilities separately."""
+    if closure.get("closure_version") != CAPABILITY_CLOSURE_VERSION:
+        raise ValueError("Current capability closure matrix required")
+    identities = closure["bootstrap_plan"]["identity_only_proposals"]
+    relationships = closure["safe_relationship_drafts"]
+    identity_preview = _preview_or_baseline(audit, identities)
+    safe_preview = _preview_or_baseline(audit, identities + relationships)
+    eligible_capability_drafts = [
+        draft for draft in closure["possible_new_capability_drafts"]
+        if draft.get("scenario_preview_eligible") is True
+    ]
+    taxonomy, registry = _closure_scenario_knowledge(
+        identities, relationships, eligible_capability_drafts
+    )
+    intended = {
+        tuple(key) for draft in eligible_capability_drafts
+        for key in draft["affected_requirement_keys"]
+    } | {
+        tuple(key) for proposal in relationships for key in proposal["affected_requirement_keys"]
+    } | {
+        tuple(key) for proposal in identities for key in proposal["affected_requirement_keys"]
+    }
+    capability_preview = _preview_closure_scenario(
+        audit, taxonomy=taxonomy, registry=registry, intended_keys=intended
+    )
+    changed_by_key = {
+        (row["job_id"], row["requirement_id"]): row
+        for row in capability_preview["rows"] if row["would_resolve"]
+    }
+    ranked = []
+    for draft in closure["possible_new_capability_drafts"]:
+        keys = {tuple(key) for key in draft["affected_requirement_keys"]}
+        changed = [row for key, row in changed_by_key.items() if key in keys]
+        ranked.append({
+            "fix_id": draft["draft_id"],
+            "fix_type": "possible_new_capability",
+            "concept": draft["candidate_capability_concept"],
+            "target": draft["proposed_capability_id"],
+            "requirements_newly_scorable": len(changed),
+            "required_core_weight_impact": round(sum(
+                IMPORTANCE_WEIGHTS.get(str(row["importance"] or "").lower(), 0.0)
+                * float(row.get("group_weight_fraction", 1.0) or 1.0)
+                for row in changed if str(row["importance"] or "").lower() in {"deal_breaker", "required", "core"}
+            ), 6),
+            "jobs_affected": sorted({row["job_id"] for row in changed}),
+            "occurrence_count": draft["estimated_corpus_impact"],
+            "semantic_confidence": "research_required",
+            "regression_safety": (
+                "hypothetical_only" if draft.get("scenario_preview_eligible") is True
+                else "fail_closed_collateral_phrase_match"
+            ),
+        })
+    for proposal in relationships:
+        keys = {tuple(key) for key in proposal["affected_requirement_keys"]}
+        changed = [row for key, row in changed_by_key.items() if key in keys]
+        ranked.append({
+            "fix_id": proposal["proposal_id"],
+            "fix_type": "safe_existing_capability_relationship",
+            "concept": proposal["technology"],
+            "target": proposal["proposed_change"]["relationship"]["capability_id"],
+            "requirements_newly_scorable": len(changed),
+            "required_core_weight_impact": round(sum(
+                IMPORTANCE_WEIGHTS.get(str(row["importance"] or "").lower(), 0.0)
+                * float(row.get("group_weight_fraction", 1.0) or 1.0)
+                for row in changed if str(row["importance"] or "").lower() in {"deal_breaker", "required", "core"}
+            ), 6),
+            "jobs_affected": sorted({row["job_id"] for row in changed}),
+            "occurrence_count": len(keys),
+            "semantic_confidence": "local_boundary_supported",
+            "regression_safety": "temporary_overlay_clean" if not capability_preview["conflicts_ambiguity"] else "review_conflicts",
+        })
+    ranked_capability_ids = {row["target"] for row in ranked if row["fix_type"] == "possible_new_capability"}
+    ranked_relationship_concepts = {normalise(row["concept"]) for row in ranked
+                                    if row["fix_type"] == "safe_existing_capability_relationship"}
+    for matrix_row in closure["matrix"]:
+        definition = matrix_row.get("candidate_definition") or {}
+        if definition.get("capability_id") in ranked_capability_ids:
+            continue
+        if matrix_row.get("safe_relationship_capability_id") and normalise(matrix_row["display_concept"]) in ranked_relationship_concepts:
+            continue
+        ranked.append({
+            "fix_id": "tqd3closure_action_" + fingerprint({
+                "concept": matrix_row["normalized_concept"], "failure_type": matrix_row["failure_type"]
+            })[:20],
+            "fix_type": (
+                "possible_new_capability_research"
+                if matrix_row["failure_type"] == "capability_missing"
+                else "contextual_decomposition_or_manual_review"
+            ),
+            "concept": matrix_row["display_concept"],
+            "target": matrix_row.get("safe_relationship_capability_id") or "no_universal_mapping",
+            "requirements_newly_scorable": 0,
+            "required_core_weight_impact": 0.0,
+            "jobs_affected": [],
+            "occurrence_count": matrix_row["occurrence_count"],
+            "semantic_confidence": "research_required" if matrix_row["failure_type"] == "capability_missing" else "contextual_manual",
+            "regression_safety": "fail_closed_no_resolution_claimed",
+        })
+    ranked.sort(key=lambda row: (
+        -row["required_core_weight_impact"], -len(row["jobs_affected"]),
+        -row["occurrence_count"], row["concept"].casefold()
+    ))
+    resolved_after = sum(row["after"]["status"] == "resolved" for row in capability_preview["rows"])
+    meaningful = audit["summary"]["meaningful_technical_requirements"]
+    return {
+        "preview_version": "tqd3-capability-closure-impact-v1",
+        "coverage_curve": [
+            {"stage": "current_production", "overall_percent": audit["summary"]["overall_weighted_coverage"]["percent"],
+             "required_core_percent": audit["summary"]["required_core_weighted_coverage"]["percent"]},
+            {"stage": "identity_only", "overall_percent": identity_preview["projected_coverage_after_percent"],
+             "required_core_percent": identity_preview["required_core_coverage_after_percent"]},
+            {"stage": "safe_existing_capability_relationships", "overall_percent": safe_preview["projected_coverage_after_percent"],
+             "required_core_percent": safe_preview["required_core_coverage_after_percent"]},
+            {"stage": "research_dependent_new_capabilities", "overall_percent": capability_preview["coverage_after_percent"],
+             "required_core_percent": capability_preview["required_core_after_percent"]},
+        ],
+        "identity_only": identity_preview,
+        "safe_relationships": safe_preview,
+        "new_capability_scenario": capability_preview,
+        "additional_coverage_potential_percent": round(
+            capability_preview["coverage_after_percent"] - safe_preview["projected_coverage_after_percent"], 2
+        ),
+        "coverage_still_blocked_percent": round(100.0 - capability_preview["coverage_after_percent"], 2),
+        "unresolved_meaningful_after_scenario": max(0, meaningful - resolved_after),
+        "top_20_highest_impact_fixes": ranked[:20],
+        "false_positive_collateral_matches": capability_preview["conflicts_ambiguity"],
+        "blocked_capability_scenarios": [
+            {"draft_id": draft["draft_id"], "concept": draft["candidate_capability_concept"],
+             "blockers": draft["scenario_blockers"],
+             "potential_collateral_requirements": draft["potential_collateral_requirements"]}
+            for draft in closure["possible_new_capability_drafts"]
+            if draft.get("scenario_preview_eligible") is not True
+        ],
+        "review_only": True,
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "scoring_semantics_changed": False,
         "network_calls": 0,
         "model_calls": 0,
     }

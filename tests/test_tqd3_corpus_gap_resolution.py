@@ -287,6 +287,139 @@ class LocalProposalAndSeedTests(unittest.TestCase):
         self.assertFalse(preview["scoring_influence"])
         self.assertFalse(preview["score_changes_claimed"])
 
+
+class CapabilityClosureTests(unittest.TestCase):
+    @staticmethod
+    def _profile(name, aliases, failure_type, *, safe_capability=None):
+        return {"profile_version": "fixture", "profiles": [{
+            "canonical_concept": name,
+            "aliases": aliases,
+            "failure_type": failure_type,
+            "closest_capability_ids": [safe_capability or "backend.api_development"],
+            "why_existing_insufficient": "Fixture boundary analysis",
+            "safe_existing_capability_id": safe_capability,
+            "relationship_rationale": "Fixture relationship supported by the existing capability definition",
+            "boundary_checks": ["Fixture boundary only"],
+        }]}
+
+    def test_identity_exists_but_relationship_missing_and_existing_capability_fits(self):
+        seed = {"entries": [{"canonical_name": "Node.js", "aliases": ["Node.js", "NodeJS"],
+                             "technology_kind": "runtime", "relationship_hypotheses": []}]}
+        with PublicationFixture() as f:
+            audit = gaps.audit_corpus_resolution(corpus=corpus("Node.js"))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            closure = gaps.build_capability_closure_matrix(
+                audit, top_n=1, bootstrap_plan=bootstrap,
+                profile_report=self._profile("Node.js", ["Node.js", "NodeJS"],
+                                             "relationship_missing", safe_capability="backend.api_development"),
+            )
+        row = next(item for item in closure["matrix"] if item["display_concept"] == "Node.js")
+        self.assertEqual(row["current_technology_identity_status"], "recognized_unmapped")
+        self.assertEqual(row["failure_type_code"], "B")
+        self.assertTrue(row["appropriate_existing_capability_exists"])
+        self.assertEqual(row["safe_relationship_capability_id"], "backend.api_development")
+        self.assertEqual(len(closure["safe_relationship_drafts"]), 1)
+        f.network_guard.assert_not_called()
+        f.model_guard.assert_not_called()
+
+    def test_identity_only_missing_can_depend_on_safe_relationship_draft(self):
+        seed = {"entries": [{"canonical_name": "BigFix", "aliases": ["BigFix"],
+                             "technology_kind": "product", "relationship_hypotheses": []}]}
+        with PublicationFixture():
+            audit = gaps.audit_corpus_resolution(corpus=corpus("BigFix"))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            closure = gaps.build_capability_closure_matrix(
+                audit, top_n=1, bootstrap_plan=bootstrap,
+                profile_report=self._profile("BigFix", ["BigFix"], "identity_only_missing",
+                                             safe_capability="operations.configuration"),
+            )
+        row = next(item for item in closure["matrix"] if item["display_concept"] == "BigFix")
+        relationship = closure["safe_relationship_drafts"][0]
+        self.assertEqual(row["failure_type_code"], "A")
+        self.assertEqual(row["identity"], "proposal_ready")
+        self.assertTrue(relationship["depends_on_proposal_ids"])
+
+    def test_missing_capability_enters_existing_research_and_overlap_contract(self):
+        from taxonomy_discovery.taxonomy_evolution import research_target
+        seed = {"entries": [{"canonical_name": "HCL BigFix", "aliases": ["HCL BigFix", "BigFix"],
+                             "technology_kind": "product", "relationship_hypotheses": [],
+                             "gap_route": "possible_new_capability"}]}
+        with PublicationFixture() as f:
+            audit = gaps.audit_corpus_resolution(corpus=corpus("BigFix"))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            closure = gaps.build_capability_closure_matrix(audit, top_n=1, bootstrap_plan=bootstrap)
+            row = next(item for item in closure["matrix"] if item["display_concept"] == "HCL BigFix")
+            draft = next(item for item in closure["possible_new_capability_drafts"]
+                         if item["proposed_capability_id"] == "operations.endpoint_management")
+            target = research_target(draft["candidate"])
+        self.assertEqual(row["failure_type_code"], "C")
+        self.assertFalse(row["appropriate_existing_capability_exists"])
+        self.assertIn("operations.configuration", draft["closest_existing_capabilities"])
+        self.assertTrue(draft["overlap_diagnostics"]["diagnostic_only"])
+        self.assertTrue(target["research_input_only"])
+        self.assertFalse(draft["publishable"])
+        f.network_guard.assert_not_called()
+        f.model_guard.assert_not_called()
+
+    def test_broad_platform_remains_contextual_without_universal_relationship(self):
+        seed = {"entries": [{"canonical_name": "Amazon Web Services", "aliases": ["AWS", "Amazon Web Services"],
+                             "technology_kind": "platform", "relationship_hypotheses": []}]}
+        with PublicationFixture():
+            audit = gaps.audit_corpus_resolution(corpus=corpus("AWS"))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            closure = gaps.build_capability_closure_matrix(audit, top_n=1, bootstrap_plan=bootstrap)
+        row = next(item for item in closure["matrix"] if item["display_concept"] == "Amazon Web Services")
+        self.assertEqual(row["failure_type_code"], "D")
+        self.assertEqual(row["relationship"], "contextual")
+        self.assertFalse(row["safe_relationship_can_be_proposed"])
+        self.assertFalse(any(item["technology"] == "Amazon Web Services"
+                             for item in closure["safe_relationship_drafts"]))
+
+    def test_temporary_new_capability_impact_is_read_only_and_score_neutral(self):
+        seed = {"entries": [{"canonical_name": "HCL BigFix", "aliases": ["HCL BigFix", "BigFix"],
+                             "technology_kind": "product", "relationship_hypotheses": [],
+                             "gap_route": "possible_new_capability"}]}
+        with PublicationFixture() as f:
+            from tailoring import capability_taxonomy
+            taxonomy_path = Path(capability_taxonomy.TAXONOMY_PATH)
+            registry_before = f.real_registry.read_bytes()
+            taxonomy_before = taxonomy_path.read_bytes()
+            audit = gaps.audit_corpus_resolution(corpus=corpus("BigFix"))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            closure = gaps.build_capability_closure_matrix(audit, top_n=1, bootstrap_plan=bootstrap)
+            preview = gaps.preview_capability_closure(audit, closure)
+            self.assertEqual(f.real_registry.read_bytes(), registry_before)
+            self.assertEqual(taxonomy_path.read_bytes(), taxonomy_before)
+            f.network_guard.assert_not_called()
+            f.model_guard.assert_not_called()
+        curve = {row["stage"]: row for row in preview["coverage_curve"]}
+        self.assertEqual(curve["current_production"]["overall_percent"], 0.0)
+        self.assertEqual(curve["identity_only"]["overall_percent"], 0.0)
+        self.assertEqual(curve["safe_existing_capability_relationships"]["overall_percent"], 0.0)
+        self.assertEqual(curve["research_dependent_new_capabilities"]["overall_percent"], 100.0)
+        self.assertEqual(preview["new_capability_scenario"]["newly_scorable_requirements"], 1)
+        self.assertFalse(preview["scoring_semantics_changed"])
+        self.assertEqual(preview["production_mutations"], 0)
+
+    def test_new_capability_phrase_collateral_blocks_hypothetical_resolution(self):
+        with PublicationFixture():
+            audit = gaps.audit_corpus_resolution(corpus=corpus(
+                "distributed systems",
+                "Web platforms, application hosting, or distributed systems",
+            ))
+            bootstrap = gaps.plan_bulk_technology_bootstrap(audit, seed={"entries": []})
+            closure = gaps.build_capability_closure_matrix(audit, top_n=2, bootstrap_plan=bootstrap)
+            draft = next(item for item in closure["possible_new_capability_drafts"]
+                         if item["proposed_capability_id"] == "systems.distributed_systems")
+            preview = gaps.preview_capability_closure(audit, closure)
+        self.assertFalse(draft["scenario_preview_eligible"])
+        self.assertEqual(len(draft["potential_collateral_requirements"]), 1)
+        self.assertEqual(preview["new_capability_scenario"]["newly_scorable_requirements"], 0)
+        self.assertTrue(preview["blocked_capability_scenarios"])
+        self.assertEqual(preview["false_positive_collateral_matches"], [])
+
+
+class LocalProposalCompatibilityTests(unittest.TestCase):
     def test_common_identity_is_local_proposal_with_zero_network_and_no_mapping(self):
         with PublicationFixture() as f:
             audit = gaps.audit_corpus_resolution(corpus=corpus("Python"))
@@ -398,6 +531,10 @@ class MaintenanceUIContractTests(unittest.TestCase):
         self.assertIn("bulk.preview_bulk_regression", source)
         self.assertIn("Prepare bundled technology bootstrap", source)
         self.assertIn("Bulk review selection · identity-only safe and relationship-safe groups", source)
+        self.assertIn("Build corpus-driven capability closure matrix", source)
+        self.assertIn("Identity", source)
+        self.assertIn("Relationship", source)
+        self.assertIn("Capability", source)
 
 
 if __name__ == "__main__":

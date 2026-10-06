@@ -1,0 +1,163 @@
+{
+  "profile_version": "tqd3-capability-closure-profiles-v1",
+  "description": "Corpus-driven proposal hypotheses. All new capability definitions require governed research and human review before publication.",
+  "profiles": [
+    {
+      "canonical_concept": "Python",
+      "aliases": ["Python"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["backend.api_development", "data.processing", "ai.rag_application"],
+      "why_existing_insufficient": "The existing capabilities describe particular uses of Python. A Python requirement does not establish API, data-processing, AI, or RAG work.",
+      "new_capability": {"capability_id": "language.python_development", "label": "Python development", "domain": "general", "definition": "Implementation, maintenance, or substantial scripting in the Python programming language.", "requirement_terms": ["python development", "python programming"], "does_not_prove": ["A generic programming claim without Python evidence", "Use of a Python-based product without writing Python"], "boundaries": ["Does not imply backend, data engineering, AI, or automation without context"], "overlap_risks": ["backend.api_development", "data.processing", "ai.rag_application"]}
+    },
+    {
+      "canonical_concept": "SQL",
+      "aliases": ["SQL", "structured query language"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["database.design", "data.processing", "database.access_control"],
+      "why_existing_insufficient": "SQL querying is distinct from schema design, generic data processing, and database authorization.",
+      "new_capability": {"capability_id": "database.sql_querying", "label": "SQL querying", "domain": "database", "definition": "Writing, reviewing, and optimizing SQL queries against relational data stores.", "requirement_terms": ["sql querying", "write sql queries", "sql query development"], "does_not_prove": ["Database use without SQL query evidence", "Schema design alone", "Spreadsheet formulas"], "boundaries": ["Does not imply database design, administration, or access-control policy"], "overlap_risks": ["database.design", "data.processing", "database.access_control"]}
+    },
+    {
+      "canonical_concept": "JavaScript",
+      "aliases": ["JavaScript", "JS"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["frontend.ui_development", "backend.api_development", "fullstack.integration"],
+      "why_existing_insufficient": "JavaScript can be used in frontend, backend, automation, and tooling; none of the current functional capabilities represents language-specific implementation.",
+      "new_capability": {"capability_id": "language.javascript_development", "label": "JavaScript development", "domain": "general", "definition": "Implementation and maintenance of software in the JavaScript programming language.", "requirement_terms": ["javascript development", "javascript programming"], "does_not_prove": ["HTML or CSS without JavaScript", "Use of a JavaScript application without implementation"], "boundaries": ["Does not imply frontend, backend, or full-stack scope without context"], "overlap_risks": ["frontend.ui_development", "backend.api_development", "fullstack.integration"]}
+    },
+    {
+      "canonical_concept": "TypeScript",
+      "aliases": ["TypeScript"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["frontend.ui_development", "backend.api_development", "fullstack.integration"],
+      "why_existing_insufficient": "TypeScript is a language used across frontend and backend contexts, while current capabilities are functional rather than language-specific.",
+      "new_capability": {"capability_id": "language.typescript_development", "label": "TypeScript development", "domain": "general", "definition": "Implementation and maintenance of typed JavaScript software using TypeScript.", "requirement_terms": ["typescript development", "typescript programming"], "does_not_prove": ["JavaScript experience without TypeScript", "Use of a TypeScript application without implementation"], "boundaries": ["Does not imply frontend, backend, or full-stack scope without context"], "overlap_risks": ["frontend.ui_development", "backend.api_development", "fullstack.integration"]}
+    },
+    {
+      "canonical_concept": "Java",
+      "aliases": ["Java"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["backend.api_development", "mobile.android_development"],
+      "why_existing_insufficient": "Java requirements can concern backend, Android, desktop, or platform work; current capabilities cover only some contexts.",
+      "new_capability": {"capability_id": "language.java_development", "label": "Java development", "domain": "general", "definition": "Implementation and maintenance of software in the Java programming language.", "requirement_terms": ["java development", "java programming"], "does_not_prove": ["JavaScript experience", "Use of a Java application without implementation"], "boundaries": ["Does not imply backend or Android scope without context"], "overlap_risks": ["backend.api_development", "mobile.android_development"]}
+    },
+    {
+      "canonical_concept": "C#",
+      "aliases": ["C#", "C Sharp"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["backend.api_development", "fullstack.integration", "language.modern_cpp"],
+      "why_existing_insufficient": "C# is explicitly distinct from the existing C/C++ capability and can be used across backend, desktop, game, and other contexts.",
+      "new_capability": {"capability_id": "language.csharp_development", "label": "C# development", "domain": "general", "definition": "Implementation and maintenance of software in the C# programming language.", "requirement_terms": ["c# development", "c sharp development", "c# programming"], "does_not_prove": ["C or C++ experience", ".NET platform use without C# implementation"], "boundaries": ["Does not imply backend, desktop, or game-development scope without context"], "overlap_risks": ["backend.api_development", "fullstack.integration", "language.modern_cpp"]}
+    },
+    {
+      "canonical_concept": "MongoDB",
+      "aliases": ["MongoDB"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["database.design", "data.processing"],
+      "why_existing_insufficient": "A MongoDB requirement may cover document modeling, querying, integration, or operations. Database design alone is too narrow and generic data processing is not equivalent.",
+      "new_capability": {"capability_id": "database.mongodb_engineering", "label": "MongoDB engineering", "domain": "database", "definition": "Application development, data modeling, querying, or operational engineering using MongoDB.", "requirement_terms": ["mongodb engineering", "mongodb development"], "does_not_prove": ["Generic NoSQL familiarity", "Use of a MongoDB-backed application without MongoDB work"], "boundaries": ["Does not automatically imply relational schema design or generic data engineering"], "overlap_risks": ["database.design", "data.processing"]}
+    },
+    {
+      "canonical_concept": "Node.js",
+      "aliases": ["Node.js", "NodeJS"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["backend.api_development", "fullstack.integration"],
+      "why_existing_insufficient": "Node.js can support APIs, command-line tools, build systems, and services; backend API development is not unconditional.",
+      "new_capability": {"capability_id": "runtime.nodejs_development", "label": "Node.js development", "domain": "general", "definition": "Implementation and maintenance of JavaScript or TypeScript software running on Node.js.", "requirement_terms": ["node.js development", "nodejs development"], "does_not_prove": ["Browser-only JavaScript", "Use of Node-based tooling without Node.js implementation"], "boundaries": ["Does not imply API or full-stack delivery without context"], "overlap_risks": ["backend.api_development", "fullstack.integration"]}
+    },
+    {
+      "canonical_concept": "Ansible",
+      "aliases": ["Ansible", "Red Hat Ansible"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["operations.configuration", "devops.ci_cd"],
+      "why_existing_insufficient": "Ansible automation spans configuration management and infrastructure automation; product configuration and CI/CD do not cover that boundary.",
+      "new_capability": {"capability_id": "devops.infrastructure_automation", "label": "Infrastructure and configuration automation", "domain": "cloud_devops", "definition": "Automating infrastructure provisioning or system configuration through declarative code, playbooks, or equivalent controlled automation.", "requirement_terms": ["infrastructure as code", "infrastructure automation", "configuration automation"], "does_not_prove": ["Manual system configuration", "CI/CD pipeline use without infrastructure automation"], "boundaries": ["Separates infrastructure/configuration automation from application delivery pipelines"], "overlap_risks": ["operations.configuration", "devops.ci_cd"]}
+    },
+    {
+      "canonical_concept": "HCL BigFix",
+      "aliases": ["HCL BigFix", "IBM BigFix", "BigFix"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["operations.configuration", "operations.daily", "security.bug_hack_handling"],
+      "why_existing_insufficient": "Endpoint management and patch/compliance operations are not represented by generic product configuration, daily operations, or exploit handling.",
+      "new_capability": {"capability_id": "operations.endpoint_management", "label": "Enterprise endpoint management", "domain": "operations", "definition": "Managing enterprise endpoint inventory, configuration, patching, compliance, and software deployment through endpoint-management platforms.", "requirement_terms": ["endpoint management", "endpoint configuration management", "endpoint patch management"], "does_not_prove": ["Generic help-desk support", "Application configuration without endpoint fleet responsibility"], "boundaries": ["Does not imply vulnerability research or generic cloud administration"], "overlap_risks": ["operations.configuration", "operations.daily", "security.bug_hack_handling"]}
+    },
+    {
+      "canonical_concept": "distributed systems",
+      "aliases": ["distributed systems", "distributed system design"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["realtime.messaging_streaming", "backend.api_development", "systems.data_oriented_programming"],
+      "why_existing_insufficient": "Distributed-systems architecture covers coordination, partitioning, consistency, resilience, and scale beyond messaging, APIs, or data-oriented programming.",
+      "new_capability": {"capability_id": "systems.distributed_systems", "label": "Distributed systems engineering", "domain": "distributed_systems", "definition": "Designing or implementing systems whose components coordinate across process or network boundaries with explicit consistency, resilience, and scaling concerns.", "requirement_terms": ["distributed systems", "distributed system design", "distributed systems engineering"], "does_not_prove": ["A single REST API", "Use of a message broker without distributed-system design responsibility"], "boundaries": ["Requires explicit distributed coordination, consistency, resilience, or scale context"], "overlap_risks": ["realtime.messaging_streaming", "backend.api_development", "systems.data_oriented_programming"]}
+    },
+    {
+      "canonical_concept": "network access control",
+      "aliases": ["network access control", "NAC"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["database.access_control", "network.packet_analysis", "network.dns_dhcp"],
+      "why_existing_insufficient": "Network admission and access policy is distinct from database authorization, packet analysis, and DNS/DHCP fundamentals.",
+      "new_capability": {"capability_id": "network.access_control", "label": "Network access control", "domain": "networking", "definition": "Designing, administering, or enforcing network admission, segmentation, authentication, and device-access policy.", "requirement_terms": ["network access control", "network admission control"], "does_not_prove": ["Database role policy", "Packet capture without access-policy work"], "boundaries": ["Excludes application and database authorization unless network admission is explicit"], "overlap_risks": ["database.access_control", "network.packet_analysis", "network.dns_dhcp"]}
+    },
+    {
+      "canonical_concept": "Microsoft Power BI",
+      "aliases": ["Microsoft Power BI", "Power BI", "PowerBI"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["data.processing"],
+      "why_existing_insufficient": "Business-intelligence modeling and visualization are not equivalent to data cleaning or transformation.",
+      "new_capability": {"capability_id": "analytics.business_intelligence", "label": "Business intelligence and analytics", "domain": "data_engineering", "definition": "Building governed analytical models, reports, dashboards, and decision-support views using business-intelligence tooling.", "requirement_terms": ["business intelligence", "bi dashboard development", "analytics dashboard development"], "does_not_prove": ["Spreadsheet use without analytical modeling", "Data cleaning without reporting or analysis"], "boundaries": ["Separates analytical delivery from upstream data processing"], "overlap_risks": ["data.processing"]}
+    },
+    {
+      "canonical_concept": "Tableau",
+      "aliases": ["Tableau"],
+      "failure_type": "capability_missing",
+      "closest_capability_ids": ["data.processing"],
+      "why_existing_insufficient": "Business-intelligence visualization is not represented by the current data-processing capability.",
+      "new_capability_ref": "analytics.business_intelligence"
+    },
+    {
+      "canonical_concept": "Amazon Web Services",
+      "aliases": ["Amazon Web Services", "AWS"],
+      "failure_type": "contextual_ambiguous",
+      "closest_capability_ids": ["backend.api_development", "devops.containerisation", "devops.kubernetes", "devops.ci_cd", "devops.observability", "data.processing"],
+      "why_existing_insufficient": "AWS spans hundreds of services and many capability domains. A platform mention cannot support one universal capability relationship.",
+      "contextual_guidance": "Decompose service plus activity when present; otherwise retain recognized-unmapped/manual status.",
+      "relationship_research_required": true
+    },
+    {
+      "canonical_concept": "Microsoft Azure",
+      "aliases": ["Microsoft Azure", "Azure"],
+      "failure_type": "contextual_ambiguous",
+      "closest_capability_ids": ["backend.api_development", "devops.containerisation", "devops.kubernetes", "devops.ci_cd", "devops.observability", "data.processing"],
+      "why_existing_insufficient": "Azure spans application, infrastructure, data, identity, and operations services. A platform mention cannot support one universal capability relationship.",
+      "contextual_guidance": "Decompose service plus activity when present; otherwise retain recognized-unmapped/manual status.",
+      "relationship_research_required": true
+    },
+    {
+      "canonical_concept": "Google Cloud Platform",
+      "aliases": ["Google Cloud Platform", "GCP"],
+      "failure_type": "contextual_ambiguous",
+      "closest_capability_ids": ["backend.api_development", "devops.containerisation", "devops.kubernetes", "devops.ci_cd", "devops.observability", "data.processing"],
+      "why_existing_insufficient": "GCP spans application, infrastructure, data, ML, and operations services. A platform mention cannot support one universal capability relationship.",
+      "contextual_guidance": "Decompose service plus activity when present; otherwise retain recognized-unmapped/manual status.",
+      "relationship_research_required": true
+    },
+    {
+      "canonical_concept": ".NET",
+      "aliases": [".NET", "Dotnet", "Dot Net"],
+      "failure_type": "contextual_ambiguous",
+      "closest_capability_ids": ["backend.api_development", "fullstack.integration", "mobile.android_development", "game.engine_systems"],
+      "why_existing_insufficient": ".NET is a broad platform spanning backend, desktop, mobile, cloud, and game workloads. It cannot map universally to one current capability.",
+      "contextual_guidance": "Use C#, ASP.NET, MAUI, Unity, or another contextual technology/activity when available.",
+      "relationship_research_required": true
+    },
+    {
+      "canonical_concept": "Elasticsearch",
+      "aliases": ["Elasticsearch", "Elastic Search"],
+      "failure_type": "contextual_ambiguous",
+      "closest_capability_ids": ["devops.observability", "database.design", "data.processing"],
+      "why_existing_insufficient": "Elasticsearch may be used for search, observability, analytics, or data storage. None is an unconditional relationship.",
+      "contextual_guidance": "Require search, logging/observability, analytics, or storage context before capability resolution.",
+      "relationship_research_required": true
+    }
+  ]
+}
