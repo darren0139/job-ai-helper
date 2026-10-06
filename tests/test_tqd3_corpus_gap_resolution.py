@@ -102,6 +102,16 @@ class CorpusGapAuditTests(unittest.TestCase):
         self.assertTrue(all(not row["local_safe"] for row in children
                             if row["operational_route"] == "noise_or_non_capability"))
 
+    def test_open_ended_example_list_cannot_claim_complete_decomposition(self):
+        text = ("proven experience building efficient secure restful apis with frameworks such as "
+                "express js fastify fastapi spring boot or equivalent enterprise grade tools")
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=corpus(text))
+        parent = next(row for row in report["queue"] if not row.get("parent_candidate_id"))
+        self.assertEqual(parent["operational_route"], "needs_decomposition")
+        self.assertFalse(parent["local_safe"])
+        self.assertIn("Open-ended example list", parent["local_plan"]["reason"])
+
     def test_arbitrary_prose_is_not_split_and_cloud_identity_does_not_force_mapping(self):
         with PublicationFixture():
             report = gaps.audit_corpus_resolution(corpus=corpus(
@@ -165,6 +175,118 @@ class CorpusGapAuditTests(unittest.TestCase):
 
 
 class LocalProposalAndSeedTests(unittest.TestCase):
+    def test_bundled_seed_is_broad_unique_and_keeps_required_top_corpus_technologies(self):
+        with PublicationFixture():
+            report = gaps.load_bulk_technology_seed()
+        names = {row["canonical_name"] for row in report["entries"]}
+        self.assertEqual(report["seed_technology_count"], report["unique_canonical_technologies"])
+        self.assertGreaterEqual(report["unique_canonical_technologies"], 100)
+        self.assertGreater(report["aliases_proposed"], report["unique_canonical_technologies"])
+        self.assertTrue({"Python", "SQL", "Amazon Web Services", "Microsoft Azure", "JavaScript",
+                         "MongoDB", "TypeScript", "C#", ".NET", "Elasticsearch",
+                         "Google Cloud Platform", "Java", "Node.js", "Ansible"}.issubset(names))
+        self.assertEqual(report["alias_collisions"], [])
+
+    def test_seed_rejects_duplicate_identity_and_alias_collision(self):
+        duplicate = {"entries": [
+            {"canonical_name": "Fixture Tool", "aliases": ["Fixture Tool"], "technology_kind": "tool",
+             "relationship_hypotheses": []},
+            {"canonical_name": "fixture tool", "aliases": ["Other"], "technology_kind": "tool",
+             "relationship_hypotheses": []},
+        ]}
+        collision = {"entries": [
+            {"canonical_name": "Fixture One", "aliases": ["Shared Alias"], "technology_kind": "tool",
+             "relationship_hypotheses": []},
+            {"canonical_name": "Fixture Two", "aliases": ["Shared Alias"], "technology_kind": "tool",
+             "relationship_hypotheses": []},
+        ]}
+        with PublicationFixture():
+            with self.assertRaisesRegex(ValueError, "Duplicate bulk seed identity"):
+                gaps.import_bulk_seed(duplicate)
+            with self.assertRaisesRegex(ValueError, "alias collision"):
+                gaps.import_bulk_seed(collision)
+
+    def test_bootstrap_separates_identity_relationship_and_broad_platform(self):
+        seed = {"entries": [
+            {"canonical_name": "Fixture Observe", "aliases": ["Fixture Observe"], "technology_kind": "tool",
+             "category": "observability", "confidence": 1.0, "review_status": "proposed",
+             "relationship_hypotheses": [{"capability_id": "devops.observability",
+                 "reason": "Focused monitoring fixture", "taxonomy_boundary_checks": ["monitoring only"],
+                 "safe_for_local_review": True, "external_research_recommended": False}]},
+            {"canonical_name": "Fixture Cloud", "aliases": ["Fixture Cloud"], "technology_kind": "platform",
+             "category": "cloud", "confidence": 1.0, "review_status": "proposed",
+             "relationship_hypotheses": []},
+        ]}
+        with PublicationFixture() as f:
+            audit = gaps.audit_corpus_resolution(corpus=corpus("Fixture Observe", "Fixture Cloud"))
+            plan = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            observe_identity = next(row for row in plan["identity_only_proposals"]
+                                    if row["technology"] == "Fixture Observe")
+            observe_relationship = next(row for row in plan["safe_relationship_proposals"]
+                                        if row["technology"] == "Fixture Observe")
+            cloud_identity = next(row for row in plan["identity_only_proposals"]
+                                  if row["technology"] == "Fixture Cloud")
+            selected = gaps.select_bulk_bootstrap_proposals(
+                plan, selected_proposal_ids=[observe_relationship["proposal_id"]], explicit_creation=True)
+            preview = gaps.preview_local_resolution(audit, selected["proposals"])
+        self.assertIn(observe_identity["proposal_id"], observe_relationship["depends_on_proposal_ids"])
+        self.assertIn(observe_identity["proposal_id"], selected["dependency_proposal_ids"])
+        self.assertNotIn("relationship", cloud_identity["proposed_change"])
+        self.assertEqual(preview["would_resolve_after"], 1)
+        self.assertFalse(preview["scoring_influence"])
+        self.assertEqual(preview["production_mutations"], 0)
+        f.network_guard.assert_not_called()
+        f.model_guard.assert_not_called()
+
+    def test_conflicting_relationships_and_missing_capability_fail_closed(self):
+        seed = {"entries": [
+            {"canonical_name": "Fixture Ambiguous", "aliases": ["Fixture Ambiguous"], "technology_kind": "platform",
+             "relationship_hypotheses": [
+                 {"capability_id": "devops.observability", "safe_for_local_review": True},
+                 {"capability_id": "data.processing", "safe_for_local_review": True},
+             ]},
+            {"canonical_name": "Fixture IaC", "aliases": ["Fixture IaC"], "technology_kind": "tool",
+             "relationship_hypotheses": [], "gap_route": "possible_new_capability"},
+        ]}
+        with PublicationFixture():
+            audit = gaps.audit_corpus_resolution(corpus=corpus("Fixture Ambiguous", "Fixture IaC"))
+            plan = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+        manual = plan["groups"]["E_ambiguous_manual"]
+        new_capability = plan["groups"]["D_possible_new_capability"]
+        self.assertTrue(any(row["technology"] == "Fixture Ambiguous" and
+                            row["reason"] == "conflicting_relationship_candidates" for row in manual))
+        self.assertTrue(any(row["technology"] == "Fixture IaC" for row in new_capability))
+        self.assertFalse(any(row["technology"] == "Fixture Ambiguous"
+                             for row in plan["safe_relationship_proposals"]))
+
+    def test_bootstrap_curve_is_temporary_and_does_not_mutate_production_or_scoring(self):
+        seed = {"entries": [{
+            "canonical_name": "BigFix", "aliases": ["BigFix"], "technology_kind": "tool",
+            "relationship_hypotheses": [{"capability_id": "devops.observability",
+                "reason": "Focused monitoring fixture", "taxonomy_boundary_checks": ["monitoring only"],
+                "safe_for_local_review": True, "external_research_recommended": False}],
+        }]}
+        with PublicationFixture() as f:
+            from tailoring import capability_taxonomy
+            before_registry = f.real_registry.read_bytes()
+            taxonomy_path = Path(capability_taxonomy.TAXONOMY_PATH)
+            before_taxonomy = taxonomy_path.read_bytes()
+            audit = gaps.audit_corpus_resolution(corpus=corpus("BigFix"))
+            plan = gaps.plan_bulk_technology_bootstrap(audit, seed=seed)
+            preview = gaps.preview_bulk_technology_bootstrap(audit, plan)
+            self.assertEqual(f.real_registry.read_bytes(), before_registry)
+            self.assertEqual(taxonomy_path.read_bytes(), before_taxonomy)
+            f.network_guard.assert_not_called()
+            f.model_guard.assert_not_called()
+        stages = {row["stage"]: row for row in preview["coverage_curve"]}
+        self.assertEqual(stages["current_production"]["overall_percent"], 0.0)
+        self.assertEqual(stages["identity_only_proposals"]["overall_percent"], 0.0)
+        self.assertEqual(stages["safe_relationship_proposals"]["overall_percent"], 100.0)
+        self.assertEqual(preview["newly_scorable_requirements"], 1)
+        self.assertEqual(preview["production_mutations"], 0)
+        self.assertFalse(preview["scoring_influence"])
+        self.assertFalse(preview["score_changes_claimed"])
+
     def test_common_identity_is_local_proposal_with_zero_network_and_no_mapping(self):
         with PublicationFixture() as f:
             audit = gaps.audit_corpus_resolution(corpus=corpus("Python"))
@@ -274,6 +396,8 @@ class MaintenanceUIContractTests(unittest.TestCase):
                       "D. Needs Research", "E. Proposals / regression", "F. Review / Publish"):
             self.assertIn(label, source)
         self.assertIn("bulk.preview_bulk_regression", source)
+        self.assertIn("Prepare bundled technology bootstrap", source)
+        self.assertIn("Bulk review selection · identity-only safe and relationship-safe groups", source)
 
 
 if __name__ == "__main__":

@@ -171,7 +171,11 @@ def _render_corpus_resolution(st, bulk):
         build_gap_resolution_queue,
         build_native_regression_handoff,
         create_local_proposals,
+        load_bulk_technology_seed,
+        plan_bulk_technology_bootstrap,
+        preview_bulk_technology_bootstrap,
         preview_local_resolution,
+        select_bulk_bootstrap_proposals,
     )
 
     def research_candidates(candidates):
@@ -255,6 +259,73 @@ def _render_corpus_resolution(st, bulk):
             st.success("Seed validated and added to the review queue. Production knowledge is unchanged.")
         except Exception as exc:
             st.error(f"Bulk seed rejected: {exc}")
+
+    st.markdown("###### Broad technology bootstrap")
+    st.caption(
+        "The bundled seed spans common software, data, cloud, IT, security, and embedded technologies. "
+        "Preparing it creates review-only identity and relationship drafts against copied knowledge."
+    )
+    if st.button("Prepare bundled technology bootstrap", key="tqd3_bootstrap_prepare"):
+        try:
+            with st.spinner("Validating identities, taxonomy boundaries, and read-only corpus impact..."):
+                seed_report = load_bulk_technology_seed()
+                bootstrap_plan = plan_bulk_technology_bootstrap(audit, seed=seed_report["entries"])
+                bootstrap_preview = preview_bulk_technology_bootstrap(audit, bootstrap_plan)
+            st.session_state["tqd3_bootstrap_plan"] = bootstrap_plan
+            st.session_state["tqd3_bootstrap_preview"] = bootstrap_preview
+            st.success("Broad seed prepared for review. Production knowledge and Job Match snapshots are unchanged.")
+        except Exception as exc:
+            st.error(f"Technology bootstrap failed closed: {exc}")
+
+    bootstrap_plan = st.session_state.get("tqd3_bootstrap_plan")
+    bootstrap_preview = st.session_state.get("tqd3_bootstrap_preview")
+    if bootstrap_plan and bootstrap_preview:
+        seed_report = bootstrap_plan["seed"]
+        st.write("Seed and review groups", {
+            "seed technologies": seed_report["seed_technology_count"],
+            "unique canonical technologies": seed_report["unique_canonical_technologies"],
+            "aliases proposed": seed_report["aliases_proposed"],
+            **bootstrap_plan["group_counts"],
+        })
+        st.dataframe(bootstrap_preview["coverage_curve"], hide_index=True, width="stretch")
+        st.markdown("**Highest-impact safe relationship drafts**")
+        st.dataframe(bootstrap_preview["top_20_highest_impact_changes"], hide_index=True, width="stretch")
+
+        selectable = bootstrap_plan["identity_only_proposals"] + bootstrap_plan["safe_relationship_proposals"]
+        by_proposal_id = {row["proposal_id"]: row for row in selectable}
+        selected_bootstrap = st.multiselect(
+            "Bulk review selection · identity-only safe and relationship-safe groups",
+            list(by_proposal_id),
+            key="tqd3_bootstrap_selected",
+            format_func=lambda proposal_id: (
+                f"{by_proposal_id[proposal_id]['technology']} · "
+                f"{by_proposal_id[proposal_id]['resolution_type'].replace('_', ' ')}"
+            ),
+        ) or []
+        if st.button("Prepare selected bootstrap review drafts", key="tqd3_bootstrap_select",
+                     disabled=not selected_bootstrap):
+            try:
+                outcome = select_bulk_bootstrap_proposals(
+                    bootstrap_plan,
+                    selected_proposal_ids=selected_bootstrap,
+                    explicit_creation=True,
+                )
+                impact = preview_local_resolution(audit, outcome["proposals"])
+                handoff = build_native_regression_handoff(outcome["proposals"])
+                st.session_state["tqd3_local_gap_proposals"] = outcome
+                st.session_state["tqd3_local_gap_impact"] = impact
+                st.session_state["tqd3_local_regression_handoff"] = handoff
+                st.success("Selected drafts and dependency identities are ready for human review.")
+            except Exception as exc:
+                st.error(f"Bootstrap selection failed closed: {exc}")
+        with st.expander("Review groups, boundaries, conflicts, and false-positive diagnostics"):
+            st.json({
+                "groups": bootstrap_plan["groups"],
+                "conflicts_ambiguity": bootstrap_preview["conflicts_ambiguity"],
+                "false_positive_diagnostics": bootstrap_preview["false_positive_diagnostics"],
+                "research_required_remainder": bootstrap_preview["research_required_remainder"],
+                "possible_new_capability_remainder": bootstrap_preview["possible_new_capability_remainder"],
+            })
 
     st.markdown("##### C. Resolve Batch")
     local_rows = [row for row in resolution_queue["rows"] if row["local_safe"]]

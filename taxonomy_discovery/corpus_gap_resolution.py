@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from contextlib import ExitStack
 from copy import deepcopy
+import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -52,6 +54,10 @@ from taxonomy_discovery.technology_registry import (
 
 CORPUS_GAP_RESOLUTION_VERSION = "tqd3-corpus-gap-resolution-v1"
 LOCAL_PROPOSAL_VERSION = "tqd3-local-gap-proposal-v1"
+BULK_BOOTSTRAP_VERSION = "tqd3-bulk-technology-bootstrap-v1"
+BULK_TECHNOLOGY_SEED_PATH = (
+    Path(__file__).resolve().parent / "seeds" / "tqd3_bulk_technology_seed_v1.json"
+)
 
 OPERATIONAL_ROUTES = (
     "phrase_or_alias_gap",
@@ -262,7 +268,14 @@ def _local_plan(candidate: dict[str, Any], route: str, *, seed: dict[str, Any] |
                     "identity": identity, "reason": "Bounded common-technology identity vocabulary or reviewed bulk seed"}
     if route == "technology_relationship_missing":
         hypotheses = list((seed or {}).get("relationship_hypotheses") or [])
-        valid = [row for row in hypotheses if isinstance(row, dict) and row.get("capability_id") in get_default_taxonomy().by_id()]
+        valid = [
+            row for row in hypotheses
+            if isinstance(row, dict)
+            and row.get("capability_id") in get_default_taxonomy().by_id()
+            and row.get("safe_for_local_review", True) is True
+            and not row.get("conflicting_capabilities")
+            and row.get("external_research_recommended", False) is not True
+        ]
         if len(valid) == 1:
             return {"possible": True, "resolution_type": "add_technology_relationship", "local_safe": True,
                     "technology_id": registry.get("technology_id"), "relationship": deepcopy(valid[0]),
@@ -270,6 +283,10 @@ def _local_plan(candidate: dict[str, Any], route: str, *, seed: dict[str, Any] |
     if route == "needs_decomposition":
         children = _compound_entities(candidate)
         if len(children) > 1:
+            source_text = " ".join(candidate.get("examples") or [])
+            if re.search(r"\b(?:such as|including|for example|e\.g\.?|or equivalent)\b", source_text, re.I):
+                return {"possible": False, "resolution_type": None, "local_safe": False,
+                        "reason": "Open-ended example list cannot prove complete deterministic decomposition"}
             return {"possible": True, "resolution_type": "deterministic_decomposition", "local_safe": True,
                     "atomic_children": children, "reason": "Multiple concrete entity boundaries are already known"}
     if route == "noise_or_non_capability":
@@ -506,13 +523,21 @@ def import_bulk_seed(payload: dict[str, Any] | list[dict[str, Any]]) -> dict[str
     if not isinstance(raw_entries, list):
         raise ValueError("Bulk seed must be a list or an object with entries")
     allowed_kinds = {"framework", "runtime", "platform", "product", "protocol", "tool", "language", "architecture_pattern"}
+    taxonomy_ids = set(get_default_taxonomy().by_id())
+    registry = get_default_registry()
+    production_aliases = {
+        normalise(alias): entry["technology_id"]
+        for entry in registry.entries
+        for alias in entry.get("aliases", [])
+    }
     cleaned = []
     seen = set()
+    seen_aliases: dict[str, str] = {}
     for index, raw in enumerate(raw_entries):
         if not isinstance(raw, dict):
             raise ValueError("Every bulk seed entry must be an object")
         name = " ".join(str(raw.get("canonical_name") or "").split())
-        aliases = sorted({" ".join(str(value).split()) for value in raw.get("aliases", []) if str(value).strip()})
+        aliases = sorted({name, *(" ".join(str(value).split()) for value in raw.get("aliases", []) if str(value).strip())})
         kind = str(raw.get("technology_kind") or "").strip()
         if not name or not aliases or kind not in allowed_kinds:
             raise ValueError(f"Bulk seed entry {index} requires canonical_name, aliases, and a valid technology_kind")
@@ -520,13 +545,93 @@ def import_bulk_seed(payload: dict[str, Any] | list[dict[str, Any]]) -> dict[str
         if key in seen:
             raise ValueError(f"Duplicate bulk seed identity: {name}")
         seen.add(key)
+        canonical_resolution = resolve_requirement_text(name, registry=registry)
+        canonical_owner = canonical_resolution.get("technology_id")
+        for alias in aliases:
+            alias_key = normalise(alias)
+            seed_owner = seen_aliases.get(alias_key)
+            if seed_owner and seed_owner != key:
+                raise ValueError(f"Bulk seed alias collision: {alias!r} belongs to {seed_owner!r} and {name!r}")
+            seen_aliases[alias_key] = key
+            production_owner = production_aliases.get(alias_key)
+            if production_owner and production_owner != canonical_owner:
+                raise ValueError(
+                    f"Bulk seed alias collision: {alias!r} is already owned by production technology {production_owner!r}"
+                )
         relationships = raw.get("relationship_hypotheses", [])
         if not isinstance(relationships, list) or any(not isinstance(row, dict) or not row.get("capability_id") for row in relationships):
             raise ValueError(f"{name}: relationship_hypotheses must be capability objects")
-        cleaned.append({"canonical_name": name, "aliases": aliases, "technology_kind": kind,
-                        "relationship_hypotheses": deepcopy(relationships), "source": "bulk_seed"})
-    return {"seed_version": "tqd3-bulk-technology-seed-v1", "entries": cleaned,
-            "dry_run": True, "production_mutations": 0, "network_calls": 0, "model_calls": 0}
+        clean_relationships = []
+        for relationship in relationships:
+            capability_id = str(relationship["capability_id"]).strip()
+            if capability_id not in taxonomy_ids:
+                raise ValueError(f"{name}: unknown capability_id {capability_id!r}")
+            relationship_type = str(relationship.get("relationship_type") or "maps_to_capability")
+            if relationship_type != "maps_to_capability":
+                raise ValueError(f"{name}: unsupported relationship_type {relationship_type!r}")
+            conflicts = sorted({str(value).strip() for value in relationship.get("conflicting_capabilities", []) if str(value).strip()})
+            unknown_conflicts = [value for value in conflicts if value not in taxonomy_ids]
+            if unknown_conflicts:
+                raise ValueError(f"{name}: unknown conflicting capabilities {unknown_conflicts}")
+            safe = bool(relationship.get("safe_for_local_review", True)) and not conflicts
+            clean_relationships.append({
+                "capability_id": capability_id,
+                "relationship_type": relationship_type,
+                "reason": " ".join(str(relationship.get("reason") or relationship.get("basis") or
+                                            "Curated seed hypothesis for human review").split()),
+                "taxonomy_boundary_checks": sorted({
+                    " ".join(str(value).split())
+                    for value in relationship.get("taxonomy_boundary_checks", [])
+                    if str(value).strip()
+                }),
+                "conflicting_capabilities": conflicts,
+                "safe_for_local_review": safe,
+                "external_research_recommended": bool(
+                    relationship.get("external_research_recommended", not safe)
+                ),
+            })
+        confidence = float(raw.get("confidence", 1.0))
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"{name}: confidence must be between 0 and 1")
+        review_status = str(raw.get("review_status") or "proposed")
+        if review_status not in {"proposed", "needs_research", "manual_review", "rejected"}:
+            raise ValueError(f"{name}: unsupported review_status {review_status!r}")
+        gap_route = raw.get("gap_route")
+        if gap_route not in {None, "possible_new_capability", "manual_review"}:
+            raise ValueError(f"{name}: unsupported gap_route {gap_route!r}")
+        seed_id = "tqd3seed_" + fingerprint({"canonical_name": name, "aliases": aliases})[:20]
+        cleaned.append({
+            "seed_id": seed_id,
+            "canonical_name": name,
+            "aliases": aliases,
+            "technology_kind": kind,
+            "category": str(raw.get("category") or "uncategorized").strip(),
+            "relationship_hypotheses": clean_relationships,
+            "source": "bulk_seed",
+            "confidence": confidence,
+            "review_status": review_status,
+            "gap_route": gap_route,
+        })
+    return {
+        "seed_version": "tqd3-bulk-technology-seed-v1",
+        "entries": cleaned,
+        "seed_technology_count": len(raw_entries),
+        "unique_canonical_technologies": len(cleaned),
+        "aliases_proposed": sum(len(entry["aliases"]) for entry in cleaned),
+        "alias_collisions": [],
+        "dry_run": True,
+        "production_mutations": 0,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def load_bulk_technology_seed(path: str | Path = BULK_TECHNOLOGY_SEED_PATH) -> dict[str, Any]:
+    """Load and validate the bundled proposal seed without creating knowledge."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    report = import_bulk_seed(payload)
+    report["seed_path"] = str(Path(path).resolve())
+    return report
 
 
 def build_gap_resolution_queue(audit: dict[str, Any], *, bulk_seed=None, broad_candidates=None) -> dict[str, Any]:
@@ -703,6 +808,27 @@ def _temporary_knowledge(proposals: list[dict[str, Any]]) -> tuple[CapabilityTax
     registry = get_default_registry()
     entries = deepcopy(list(registry.entries))
     by_technology = {row["technology_id"]: row for row in entries}
+    # Identities/aliases are applied first so a separate relationship draft can
+    # safely depend on a new identity without proposal ordering becoming a
+    # hidden contract.
+    for proposal in proposals:
+        change = proposal["proposed_change"]
+        kind = proposal["resolution_type"]
+        if kind != "add_technology_identity":
+            continue
+        identity = change["identity"]
+        technology_id = change.get("technology_id") or re.sub(
+            r"[^a-z0-9]+", ".", normalise(identity["canonical_name"])
+        ).strip(".")
+        entry = by_technology.get(technology_id)
+        if entry is None:
+            entry = {"technology_id": technology_id, "label": identity["canonical_name"],
+                     "entry_kind": identity["technology_kind"], "aliases": [], "status": "approved",
+                     "capability_relationships": [], "notes": "Temporary local proposal preview"}
+            entries.append(entry)
+            by_technology[technology_id] = entry
+        entry["aliases"] = sorted(set(entry.get("aliases", []) + identity["aliases"]))
+
     for proposal in proposals:
         change = proposal["proposed_change"]
         kind = proposal["resolution_type"]
@@ -711,22 +837,11 @@ def _temporary_knowledge(proposals: list[dict[str, Any]]) -> tuple[CapabilityTax
             phrases = entry["requirement"].setdefault("any_terms", [])
             if change["proposed_phrase"] not in phrases:
                 phrases.append(change["proposed_phrase"])
-        elif kind == "add_technology_identity":
-            identity = change["identity"]
-            technology_id = re.sub(r"[^a-z0-9]+", ".", normalise(identity["canonical_name"])).strip(".")
-            entry = by_technology.get(technology_id)
-            if entry is None:
-                entry = {"technology_id": technology_id, "label": identity["canonical_name"],
-                         "entry_kind": identity["technology_kind"], "aliases": [], "status": "approved",
-                         "capability_relationships": [], "notes": "Temporary local proposal preview"}
-                entries.append(entry)
-                by_technology[technology_id] = entry
-            entry["aliases"] = sorted(set(entry.get("aliases", []) + identity["aliases"]))
         elif kind == "add_technology_relationship":
             technology_id = change.get("technology_id")
             entry = by_technology.get(technology_id)
             if entry is None:
-                raise ValueError("Relationship proposal requires an existing production technology identity")
+                raise ValueError("Relationship proposal requires a production or selected draft technology identity")
             relationship = change["relationship"]
             approved = [row for row in entry.get("capability_relationships", [])
                         if row.get("status") == "approved" and row.get("relationship_type") == "maps_to_capability"]
@@ -798,6 +913,8 @@ def preview_local_resolution(audit: dict[str, Any], proposals: list[dict[str, An
         after_meaningful.append(copied)
     before_cov = _coverage(before_meaningful, {"deal_breaker", "required", "core", "preferred"})
     after_cov = _coverage(after_meaningful, {"deal_breaker", "required", "core", "preferred"})
+    before_required = _coverage(before_meaningful, {"deal_breaker", "required", "core"})
+    after_required = _coverage(after_meaningful, {"deal_breaker", "required", "core"})
     changed = [row for row in output if row["changed"]]
     intended = {(key[0], key[1]) for proposal in proposals for key in proposal["affected_requirement_keys"]}
     conflicts = [{"job_id": row["job_id"], "requirement_id": row["requirement_id"], "reason": "changed_outside_source_provenance"}
@@ -815,12 +932,416 @@ def preview_local_resolution(audit: dict[str, Any], proposals: list[dict[str, An
         "rows": output,
         "coverage_before_percent": before_cov["percent"],
         "projected_coverage_after_percent": after_cov["percent"],
+        "required_core_coverage_before_percent": before_required["percent"],
+        "required_core_coverage_after_percent": after_required["percent"],
         "scoring_influence": False,
         "score_changes_claimed": False,
         "review_only": True,
         "approval": False,
         "publication": False,
         "production_mutations": 0,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def _technology_id_for(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", ".", normalise(name)).strip(".")
+
+
+def _seed_requirement_matches(audit: dict[str, Any], aliases: list[str]) -> list[dict[str, Any]]:
+    """Return traceable corpus mentions without treating tiny prose tokens as aliases."""
+    matched = []
+    for requirement in audit["requirements"]:
+        text = requirement["requirement_text"]
+        text_key = normalise(text)
+        padded_text = f" {text_key} "
+        for alias in aliases:
+            alias_key = normalise(alias)
+            if text_key == alias_key or (
+                len(alias_key) >= 3
+                and alias_key not in {"and", "the", "for", "with", "go"}
+                and f" {alias_key} " in padded_text
+            ):
+                matched.append(requirement)
+                break
+    return matched
+
+
+def _bootstrap_proposal(
+    seed: dict[str, Any],
+    *,
+    resolution_type: str,
+    proposed_change: dict[str, Any],
+    matched: list[dict[str, Any]],
+    dependency_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    keys = sorted({(row.get("job_id"), row.get("requirement_id")) for row in matched})
+    jobs = sorted({row.get("job_id") for row in matched if row.get("job_id") is not None})
+    proposal = {
+        "proposal_version": LOCAL_PROPOSAL_VERSION,
+        "bootstrap_version": BULK_BOOTSTRAP_VERSION,
+        "candidate_id": seed["seed_id"],
+        "candidate_fingerprint": fingerprint(seed),
+        "concept": normalise(seed["canonical_name"]),
+        "technology": seed["canonical_name"],
+        "resolution_type": resolution_type,
+        "proposed_change": deepcopy(proposed_change),
+        "affected_requirement_keys": keys,
+        "corpus_requirements_affected": [
+            {"job_id": row.get("job_id"), "requirement_id": row.get("requirement_id"),
+             "requirement_text": row.get("requirement_text"), "importance": row.get("importance")}
+            for row in matched
+        ],
+        "affected_jobs": jobs,
+        "source_provenance": [{"source": "bulk_seed", "seed_id": seed["seed_id"]}],
+        "depends_on_proposal_ids": sorted(set(dependency_ids or [])),
+        "current_versions": current_match_versions(),
+        "status": "draft",
+        "requires_human_review": True,
+        "requires_human_approval": True,
+        "approval": False,
+        "publication": False,
+    }
+    proposal["proposal_fingerprint"] = fingerprint(proposal)
+    proposal["proposal_id"] = "tqd3bootstrap_" + proposal["proposal_fingerprint"][:24]
+    return proposal
+
+
+def plan_bulk_technology_bootstrap(
+    audit: dict[str, Any],
+    *,
+    seed: dict[str, Any] | list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Prepare route-aware identity and relationship drafts for human review.
+
+    The seed stays proposal input. Existing production knowledge determines
+    whether an identity, alias, or relationship action is still needed.
+    """
+    if audit.get("audit_version") != CORPUS_GAP_RESOLUTION_VERSION:
+        raise ValueError("Current corpus gap audit required")
+    seed_report = load_bulk_technology_seed() if seed is None else import_bulk_seed(seed)
+    registry = get_default_registry()
+    taxonomy = get_default_taxonomy()
+    registry_by_id = registry.by_id()
+    groups = {key: [] for key in (
+        "A_identity_only_safe", "B_relationship_safe_for_review",
+        "C_needs_external_research", "D_possible_new_capability",
+        "E_ambiguous_manual", "F_rejected_noise_or_no_change",
+    )}
+    identity_proposals: dict[str, dict[str, Any]] = {}
+    relationship_proposals: list[dict[str, Any]] = []
+    seed_rows = []
+
+    for entry in seed_report["entries"]:
+        matched = _seed_requirement_matches(audit, entry["aliases"])
+        resolutions = [resolve_requirement_text(alias, registry=registry) for alias in entry["aliases"]]
+        owner_ids = sorted({row.get("technology_id") for row in resolutions if row.get("technology_id")})
+        ambiguous = any(row.get("status") == "ambiguous" for row in resolutions) or len(owner_ids) > 1
+        production_id = owner_ids[0] if len(owner_ids) == 1 else None
+        production_entry = registry_by_id.get(production_id) if production_id else None
+        proposed_id = production_id or _technology_id_for(entry["canonical_name"])
+        production_alias_keys = {normalise(value) for value in (production_entry or {}).get("aliases", [])}
+        missing_aliases = [alias for alias in entry["aliases"] if normalise(alias) not in production_alias_keys]
+        approved = [
+            row for row in (production_entry or {}).get("capability_relationships", [])
+            if row.get("relationship_type") == "maps_to_capability" and row.get("status") == "approved"
+        ]
+        row_summary = {
+            "seed_id": entry["seed_id"],
+            "technology": entry["canonical_name"],
+            "category": entry["category"],
+            "technology_kind": entry["technology_kind"],
+            "aliases": entry["aliases"],
+            "confidence": entry["confidence"],
+            "review_status": entry["review_status"],
+            "production_technology_id": production_id,
+            "production_status": resolutions[0].get("status") if resolutions else "unresolved",
+            "corpus_requirements_affected": len(matched),
+            "jobs_affected": sorted({item.get("job_id") for item in matched if item.get("job_id") is not None}),
+        }
+        seed_rows.append(row_summary)
+        if ambiguous or entry["review_status"] == "manual_review":
+            groups["E_ambiguous_manual"].append({**row_summary, "reason": "ambiguous_identity_or_manual_seed_review"})
+            continue
+        if entry["review_status"] == "rejected":
+            groups["F_rejected_noise_or_no_change"].append({**row_summary, "reason": "seed_marked_rejected"})
+            continue
+
+        identity_proposal = None
+        if production_entry is None or missing_aliases:
+            identity = {
+                "canonical_name": entry["canonical_name"],
+                "aliases": entry["aliases"] if production_entry is None else missing_aliases,
+                "technology_kind": entry["technology_kind"],
+                "source": "bulk_seed",
+                "confidence": entry["confidence"],
+                "review_status": entry["review_status"],
+            }
+            identity_proposal = _bootstrap_proposal(
+                entry,
+                resolution_type="add_technology_identity",
+                proposed_change={
+                    "possible": True,
+                    "resolution_type": "add_technology_identity",
+                    "local_safe": True,
+                    "technology_id": proposed_id,
+                    "identity": identity,
+                    "reason": "Curated identity or non-colliding alias proposal; no capability mapping asserted",
+                },
+                matched=matched,
+            )
+            identity_proposals[proposed_id] = identity_proposal
+            groups["A_identity_only_safe"].append({**row_summary, "proposal": identity_proposal,
+                                                     "reason": identity_proposal["proposed_change"]["reason"]})
+
+        hypotheses = entry["relationship_hypotheses"]
+        if len(hypotheses) > 1:
+            groups["E_ambiguous_manual"].append({**row_summary, "reason": "conflicting_relationship_candidates",
+                                                  "relationship_hypotheses": hypotheses})
+            continue
+        if hypotheses:
+            hypothesis = hypotheses[0]
+            if approved and approved[0].get("capability_id") == hypothesis["capability_id"]:
+                groups["F_rejected_noise_or_no_change"].append({**row_summary, "reason": "relationship_already_approved"})
+                continue
+            if approved and approved[0].get("capability_id") != hypothesis["capability_id"]:
+                groups["E_ambiguous_manual"].append({
+                    **row_summary,
+                    "reason": "proposal_conflicts_with_approved_relationship",
+                    "approved_capability_id": approved[0].get("capability_id"),
+                    "relationship_hypothesis": hypothesis,
+                })
+                continue
+            if hypothesis["conflicting_capabilities"]:
+                groups["E_ambiguous_manual"].append({**row_summary, "reason": "conflicting_relationship_candidates",
+                                                      "relationship_hypothesis": hypothesis})
+                continue
+            if hypothesis["safe_for_local_review"] and entry["review_status"] == "proposed":
+                dependency_ids = [identity_proposal["proposal_id"]] if identity_proposal else []
+                relationship = _bootstrap_proposal(
+                    entry,
+                    resolution_type="add_technology_relationship",
+                    proposed_change={
+                        "possible": True,
+                        "resolution_type": "add_technology_relationship",
+                        "local_safe": True,
+                        "technology_id": proposed_id,
+                        "technology": entry["canonical_name"],
+                        "relationship": deepcopy(hypothesis),
+                        "taxonomy_boundary_checks": deepcopy(hypothesis["taxonomy_boundary_checks"]),
+                        "conflicting_capabilities": [],
+                        "corpus_requirements_affected": len(matched),
+                        "jobs_affected": row_summary["jobs_affected"],
+                        "safe_for_local_review": True,
+                        "external_research_recommended": False,
+                        "reason": hypothesis["reason"],
+                    },
+                    matched=matched,
+                    dependency_ids=dependency_ids,
+                )
+                relationship_proposals.append(relationship)
+                groups["B_relationship_safe_for_review"].append({**row_summary, "proposal": relationship,
+                                                                  "relationship_hypothesis": hypothesis,
+                                                                  "reason": hypothesis["reason"]})
+            elif entry.get("gap_route") == "possible_new_capability":
+                groups["D_possible_new_capability"].append({**row_summary, "reason": "taxonomy_boundary_missing",
+                                                             "relationship_hypothesis": hypothesis})
+            else:
+                groups["C_needs_external_research"].append({**row_summary, "reason": "relationship_boundary_requires_governed_research",
+                                                             "relationship_hypothesis": hypothesis})
+        elif entry.get("gap_route") == "possible_new_capability":
+            groups["D_possible_new_capability"].append({**row_summary, "reason": "no_safe_current_taxonomy_capability"})
+        elif production_entry is not None and not approved and matched:
+            groups["C_needs_external_research"].append({**row_summary, "reason": "existing_identity_has_no_safe_relationship"})
+        elif identity_proposal is None:
+            groups["F_rejected_noise_or_no_change"].append({**row_summary, "reason": "identity_already_known_no_change"})
+
+    local_proposals = list(identity_proposals.values()) + relationship_proposals
+    report = {
+        "bootstrap_version": BULK_BOOTSTRAP_VERSION,
+        "seed": seed_report,
+        "seed_rows": seed_rows,
+        "groups": groups,
+        "group_counts": {key: len(value) for key, value in groups.items()},
+        "identity_only_proposals": list(identity_proposals.values()),
+        "safe_relationship_proposals": relationship_proposals,
+        "local_proposals": local_proposals,
+        "taxonomy_version": taxonomy.version,
+        "registry_version": registry.version,
+        "review_only": True,
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "scoring_semantics_changed": False,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+    report["plan_fingerprint"] = fingerprint({key: value for key, value in report.items() if key != "plan_fingerprint"})
+    return report
+
+
+def select_bulk_bootstrap_proposals(
+    plan: dict[str, Any],
+    *,
+    selected_proposal_ids: list[str],
+    explicit_creation: bool = False,
+) -> dict[str, Any]:
+    """Select review drafts from groups A/B and pull required identity dependencies."""
+    if explicit_creation is not True:
+        raise ValueError("Explicit bulk bootstrap proposal creation required")
+    proposals = {row["proposal_id"]: row for row in plan.get("local_proposals", [])}
+    selected = list(dict.fromkeys(selected_proposal_ids))
+    if not selected or any(proposal_id not in proposals for proposal_id in selected):
+        raise ValueError("Select known identity or safe relationship proposals")
+    required = set(selected)
+    for proposal_id in list(required):
+        required.update(proposals[proposal_id].get("depends_on_proposal_ids", []))
+    output = [proposals[proposal_id] for proposal_id in proposals if proposal_id in required]
+    return {
+        "bootstrap_version": BULK_BOOTSTRAP_VERSION,
+        "proposals": output,
+        "explicitly_selected_proposal_ids": selected,
+        "dependency_proposal_ids": sorted(required - set(selected)),
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def _preview_or_baseline(audit: dict[str, Any], proposals: list[dict[str, Any]]) -> dict[str, Any]:
+    if proposals:
+        return preview_local_resolution(audit, proposals)
+    overall = audit["summary"]["overall_weighted_coverage"]["percent"]
+    required = audit["summary"]["required_core_weighted_coverage"]["percent"]
+    return {
+        "requirements_evaluated": len(audit["requirements"]),
+        "would_resolve_after": 0,
+        "affected_jobs": [],
+        "unchanged_requirements": len(audit["requirements"]),
+        "conflicts_ambiguity": [],
+        "rows": [],
+        "coverage_before_percent": overall,
+        "projected_coverage_after_percent": overall,
+        "required_core_coverage_before_percent": required,
+        "required_core_coverage_after_percent": required,
+    }
+
+
+def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Build a cumulative, read-only coverage curve through native overlays."""
+    if plan.get("bootstrap_version") != BULK_BOOTSTRAP_VERSION:
+        raise ValueError("Current bulk bootstrap plan required")
+    identities = plan["identity_only_proposals"]
+    relationships = plan["safe_relationship_proposals"]
+    identity_preview = _preview_or_baseline(audit, identities)
+    relationship_preview = _preview_or_baseline(audit, identities + relationships)
+
+    queue = build_gap_resolution_queue(audit)
+    decomposition_ids = [
+        row["candidate_id"] for row in queue["rows"]
+        if row["operational_route"] == "needs_decomposition"
+        and not row.get("parent_candidate_id") and row["local_safe"]
+    ]
+    decompositions = []
+    if decomposition_ids:
+        decompositions = create_local_proposals(
+            queue, selected_candidate_ids=decomposition_ids, explicit_creation=True
+        )["proposals"]
+    decomposition_preview = _preview_or_baseline(audit, identities + relationships + decompositions)
+
+    changed_by_key = {
+        (row["job_id"], row["requirement_id"]): row
+        for row in relationship_preview["rows"] if row["would_resolve"]
+    }
+    top_changes = []
+    for relationship in relationships:
+        intended = {tuple(key) for key in relationship["affected_requirement_keys"]}
+        changed = [row for key, row in changed_by_key.items() if key in intended]
+        required_core = sum(
+            1 for row in changed if str(row.get("importance") or "").lower() in {"deal_breaker", "required", "core"}
+        )
+        top_changes.append({
+            "proposal_id": relationship["proposal_id"],
+            "technology": relationship["technology"],
+            "capability_id": relationship["proposed_change"]["relationship"]["capability_id"],
+            "newly_scorable_requirements": len(changed),
+            "required_core_requirements": required_core,
+            "affected_jobs": sorted({row["job_id"] for row in changed}),
+            "conflicts_ambiguity": [
+                conflict for conflict in relationship_preview["conflicts_ambiguity"]
+                if (conflict["job_id"], conflict["requirement_id"]) in intended
+            ],
+        })
+    decomposition_by_id = {proposal["proposal_id"]: proposal for proposal in decompositions}
+    decomposition_changed: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in decomposition_preview["rows"]:
+        proposal_id = row.get("responsible_proposal_id")
+        if row["would_resolve"] and proposal_id in decomposition_by_id:
+            decomposition_changed[proposal_id].append(row)
+    for proposal_id, changed in decomposition_changed.items():
+        proposal = decomposition_by_id[proposal_id]
+        top_changes.append({
+            "proposal_id": proposal_id,
+            "technology": proposal["concept"],
+            "capability_id": "deterministic_atomic_children",
+            "newly_scorable_requirements": len(changed),
+            "required_core_requirements": sum(
+                1 for row in changed
+                if str(row.get("importance") or "").lower() in {"deal_breaker", "required", "core"}
+            ),
+            "affected_jobs": sorted({row["job_id"] for row in changed}),
+            "conflicts_ambiguity": [],
+        })
+    top_changes.sort(key=lambda row: (
+        -row["required_core_requirements"], -row["newly_scorable_requirements"], row["technology"].casefold()
+    ))
+    conflicts = (
+        identity_preview["conflicts_ambiguity"]
+        + relationship_preview["conflicts_ambiguity"]
+        + decomposition_preview["conflicts_ambiguity"]
+    )
+    return {
+        "preview_version": "tqd3-bulk-technology-bootstrap-impact-v1",
+        "coverage_curve": [
+            {"stage": "current_production", "overall_percent": audit["summary"]["overall_weighted_coverage"]["percent"],
+             "required_core_percent": audit["summary"]["required_core_weighted_coverage"]["percent"],
+             "newly_scorable_requirements": 0},
+            {"stage": "identity_only_proposals", "overall_percent": identity_preview["projected_coverage_after_percent"],
+             "required_core_percent": identity_preview["required_core_coverage_after_percent"],
+             "newly_scorable_requirements": identity_preview["would_resolve_after"]},
+            {"stage": "safe_relationship_proposals", "overall_percent": relationship_preview["projected_coverage_after_percent"],
+             "required_core_percent": relationship_preview["required_core_coverage_after_percent"],
+             "newly_scorable_requirements": relationship_preview["would_resolve_after"]},
+            {"stage": "decomposition_resolutions", "overall_percent": decomposition_preview["projected_coverage_after_percent"],
+             "required_core_percent": decomposition_preview["required_core_coverage_after_percent"],
+             "newly_scorable_requirements": decomposition_preview["would_resolve_after"]},
+        ],
+        "identity_only": identity_preview,
+        "safe_relationships": relationship_preview,
+        "decomposition": decomposition_preview,
+        "research_required_remainder": plan["group_counts"]["C_needs_external_research"],
+        "possible_new_capability_remainder": plan["group_counts"]["D_possible_new_capability"],
+        "top_20_highest_impact_changes": top_changes[:20],
+        "newly_scorable_requirements": decomposition_preview["would_resolve_after"],
+        "affected_jobs": decomposition_preview["affected_jobs"],
+        "new_matches": decomposition_preview["potential_new_matches"],
+        "unchanged_requirements": decomposition_preview["unchanged_requirements"],
+        "conflicts_ambiguity": conflicts,
+        "false_positive_diagnostics": {
+            "changed_outside_declared_corpus_mentions": conflicts,
+            "ambiguous_after_overlay": [
+                row for row in relationship_preview["rows"] if row["after"].get("status") == "ambiguous"
+            ],
+        },
+        "review_only": True,
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "scoring_influence": False,
+        "score_changes_claimed": False,
         "network_calls": 0,
         "model_calls": 0,
     }
