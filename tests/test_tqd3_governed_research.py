@@ -2,6 +2,7 @@
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import json
+from pathlib import Path
 import sqlite3
 import sys
 import unittest
@@ -22,10 +23,19 @@ from tests.test_tqd3_publication_ui import FakeStreamlit
 from tests.tqd3_publication_fixture_support import PublicationFixture
 
 
+LIVE_CANARY_FIXTURE = Path(__file__).with_name("fixtures") / "tqd3_route_evidence_live_canary_v1.json"
+
+
+def live_canary(name):
+    payload = json.loads(LIVE_CANARY_FIXTURE.read_text(encoding="utf-8"))
+    return deepcopy(next(row for row in payload["cases"] if row["name"] == name))
+
+
 def rules(f, names):
     path = f.tmp/"h1_authority.json"
     path.write_text(json.dumps({"version":"test-only", "technology_domains":[
-        {"technology_aliases":[n], "official_domains":["fixture.example"]} for n in names]}))
+        {"technology_aliases":[n], "official_domains":["fixture.example"]} for n in names],
+        "authoritative_definition_sources": [{"domain": "fixture.example"}]}))
     return path
 
 
@@ -278,6 +288,147 @@ class RouteEvidenceTests(unittest.TestCase):
             self.assertEqual([s["source_class"] for s in classified], ["first_party_official_docs","first_party_official_repository","secondary_supporting"])
             del raw["results"][0]
             self.assertTrue(all(s["source_class"]=="secondary_supporting" for s in h1.classify_sources("ZetaNovelTool",raw,authority_registry_path=authority)))
+
+
+class RouteAwareEvidenceSufficiencyTests(unittest.TestCase):
+    def _interpret_live(self, name):
+        case = live_canary(name)
+        source_route = case["route"] if case["route"] in {
+            "technology_identity", "technology_relationship"
+        } else "capability_gap"
+        item = candidate(case["candidate_text"], source_route)
+        self.assertEqual(item["candidate_route"], case["route"])
+        target = h1.research_plan([item], selected_candidate_ids=[item["candidate_id"]])["targets"][0]
+        interpreted = h1.interpret(target, {"raw_provider_evidence": case["raw_provider_evidence"]})
+        return case, item, target, interpreted
+
+    def test_live_csharp_first_party_identity_does_not_prove_relationship(self):
+        case, _, _, result = self._interpret_live("csharp_relationship")
+        self.assertEqual(len(result["sources"]), 5)
+        self.assertEqual(sum(source["source_class"] == "first_party_official_docs"
+                             for source in result["sources"]), 4)
+        self.assertTrue(result["identity_finding"]["verified"])
+        self.assertFalse(result["relationship_finding"]["verified"])
+        self.assertEqual(result["relationship_finding"]["supported_existing_capability_ids"], [])
+        self.assertEqual(result["conflicts_blockers"], case["before"]["blockers"])
+        self.assertEqual(result["recommended_next_action"], "research_more")
+        self.assertFalse(result["proposal_eligible"])
+        self.assertFalse(result["automatic_approval"])
+        self.assertFalse(result["automatic_publication"])
+
+    def test_live_bigfix_candidate_authority_supports_identity_review_only(self):
+        _, _, _, result = self._interpret_live("bigfix_identity")
+        self.assertEqual(len(result["sources"]), 5)
+        self.assertEqual(sum(source["source_class"] in h1.SOURCE_CLASSES[:2]
+                             for source in result["sources"]), 0)
+        self.assertFalse(result["identity_finding"]["verified"])
+        self.assertTrue(result["identity_finding"]["identity_verified_for_review"])
+        self.assertEqual(set(result["identity_finding"]["candidate_official_domains"]), {
+            "help.hcl-software.com", "support.bigfix.com", "www.ibm.com",
+        })
+        self.assertFalse(result["authority_discovery"]["discovered_domains_are_governed"])
+        self.assertTrue(result["authority_discovery"]["ownership_evidence"])
+        self.assertEqual(result["relationship_finding"]["supported_existing_capability_ids"], [])
+        self.assertEqual(result["evidence_outcome"], "identity_supported_for_review")
+        self.assertEqual(result["recommended_next_action"], "technology_identity_proposal")
+        self.assertTrue(result["proposal_eligible"])
+        self.assertFalse(result["automatic_approval"])
+        self.assertFalse(result["automatic_publication"])
+
+    def test_identity_route_uses_identity_specific_authority_blocker(self):
+        item = candidate("BigFix", "technology_identity")
+        target = h1.research_plan([item], selected_candidate_ids=[item["candidate_id"]])["targets"][0]
+        result = h1.interpret(target, {"raw_provider_evidence": {"results": [{
+            "url": "https://random.example/article",
+            "content": "BigFix is an endpoint management product.",
+        }]}})
+        self.assertEqual(result["conflicts_blockers"], [
+            "Canonical owner/official authority not sufficiently established"
+        ])
+        self.assertEqual(result["recommended_next_action"], "research_more")
+        self.assertNotIn("first-party definition", result["conflicts_blockers"][0])
+
+    def test_live_distributed_systems_secondary_sources_remain_insufficient(self):
+        _, _, _, result = self._interpret_live("distributed_systems_capability")
+        self.assertEqual(len(result["sources"]), 5)
+        self.assertTrue(all(
+            source["definition_authority"]["definition_source_class"] == "definition_supporting"
+            for source in result["sources"]
+        ))
+        self.assertFalse(result["capability_finding"]["capability_definition_supported_for_review"])
+        self.assertEqual(result["capability_finding"]["authoritative_definition_evidence"], [])
+        self.assertEqual(result["conflicts_blockers"], [
+            "Authoritative definition/boundaries not sufficiently established"
+        ])
+        self.assertEqual(result["recommended_next_action"], "research_more")
+        self.assertFalse(result["proposal_eligible"])
+        self.assertFalse(result["automatic_approval"])
+        self.assertFalse(result["automatic_publication"])
+
+    def test_non_owned_capability_accepts_only_configured_definition_authority(self):
+        with PublicationFixture() as f:
+            authority = f.tmp / "definition-authority.json"
+            authority.write_text(json.dumps({
+                "version": "definition-test",
+                "technology_domains": [],
+                "authoritative_definition_sources": [{"domain": "standards.example"}],
+                "secondary_domains": [{"domain": "medium.example", "kind": "community_editorial"}],
+            }), encoding="utf-8")
+            item = candidate("distributed systems", "capability_gap")
+            target = h1.research_plan(
+                [item], selected_candidate_ids=[item["candidate_id"]], authority_registry_path=authority
+            )["targets"][0]
+            sufficient = h1.interpret(target, {"raw_provider_evidence": {"results": [{
+                "url": "https://standards.example/distributed-systems",
+                "content": "Distributed systems are independent nodes coordinating toward a shared goal. "
+                           "Distributed systems include coordination failures and consistency boundaries.",
+            }]}}, authority_registry_path=authority)
+            blog = h1.interpret(target, {"raw_provider_evidence": {"results": [{
+                "url": "https://medium.example/distributed-systems",
+                "content": "Distributed systems are independent nodes coordinating toward a shared goal. "
+                           "Distributed systems include coordination failures and consistency boundaries.",
+                "authoritative": True,
+            }]}}, authority_registry_path=authority)
+        self.assertTrue(sufficient["capability_finding"]["capability_definition_supported_for_review"])
+        self.assertEqual(sufficient["evidence_outcome"], "capability_definition_supported_for_review")
+        self.assertEqual(sufficient["recommended_next_action"], "new_capability_proposal")
+        self.assertFalse(sufficient["identity_finding"]["identity_verified_for_review"])
+        self.assertFalse(sufficient["automatic_approval"])
+        self.assertFalse(sufficient["automatic_publication"])
+        self.assertFalse(blog["capability_finding"]["capability_definition_supported_for_review"])
+        self.assertEqual(blog["recommended_next_action"], "research_more")
+        self.assertEqual(blog["conflicts_blockers"], [
+            "Authoritative definition/boundaries not sufficiently established"
+        ])
+
+    def test_saved_evidence_reinterpretation_is_offline_and_history_preserving(self):
+        case = live_canary("bigfix_identity")
+        with PublicationFixture() as f:
+            item = candidate(case["candidate_text"], "technology_identity")
+            plan = h1.research_plan([item], selected_candidate_ids=[item["candidate_id"]])
+            provider = Mock(return_value=case["raw_provider_evidence"])
+            db = f.tmp / "route-evidence.sqlite3"
+            receipt = h1.execute_plan(
+                plan, [item], explicit_execution=True, transport=provider, db_path=db
+            )
+            original = receipt["results"][0]
+            provider.assert_called_once()
+            before_rows = list_governed_research_results(db_path=db)
+            updated = h1.re_evaluate_saved_evidence(original, explicit_execution=True)
+            provider.assert_called_once()
+            self.assertEqual(list_governed_research_results(db_path=db), before_rows)
+            self.assertEqual(updated["research"]["raw_provider_evidence"],
+                             original["research"]["raw_provider_evidence"])
+            self.assertTrue(updated["identity_finding"]["identity_verified_for_review"])
+            self.assertFalse(updated["relationship_finding"]["supported_existing_capability_ids"])
+            self.assertFalse(updated["approval"])
+            with self.assertRaises(ValueError):
+                h1.create_draft(updated)
+            draft = h1.create_draft(updated, explicit_creation=True)
+            self.assertTrue(draft["requires_human_approval"])
+            self.assertIsNone(draft["proposal_bundle"]["proposals"][0]["proposed_capability_id"])
+            f.network_guard.assert_not_called()
+            f.model_guard.assert_not_called()
 
 
 class GovernanceImpactTests(unittest.TestCase):

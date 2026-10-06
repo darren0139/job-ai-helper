@@ -6,12 +6,15 @@ import unittest
 from pathlib import Path
 
 from taxonomy_discovery.source_authority import (
+    AUTHORITATIVE_DEFINITION,
+    DEFINITION_SUPPORTING,
     FIRST_PARTY_OTHER,
     PRIMARY_OFFICIAL,
     SECONDARY,
     UNCLASSIFIED,
     assess_candidate_source_authority,
     classify_candidate_source_url,
+    classify_definition_source_url,
 )
 
 
@@ -45,6 +48,9 @@ def _registry(tmp: str) -> Path:
                         "kind": "technical_secondary",
                     }
                 ],
+                "authoritative_definition_sources": [
+                    {"domain": "standards.example", "path_prefixes": ["/definitions"]}
+                ],
             }
         ),
         encoding="utf-8",
@@ -63,6 +69,21 @@ def _candidate() -> dict:
 
 
 class SourceAuthorityTests(unittest.TestCase):
+    def test_definition_authority_is_separate_from_product_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            authoritative = classify_definition_source_url(
+                "https://standards.example/definitions/distributed-systems",
+                registry_path=_registry(tmp),
+            )
+            blog = classify_definition_source_url(
+                "https://www.geeksforgeeks.org/distributed-systems/",
+                registry_path=_registry(tmp),
+            )
+        self.assertEqual(authoritative["definition_source_class"], AUTHORITATIVE_DEFINITION)
+        self.assertTrue(authoritative["authoritative_definition"])
+        self.assertEqual(blog["definition_source_class"], DEFINITION_SUPPORTING)
+        self.assertFalse(blog["authoritative_definition"])
+
     def test_candidate_official_domain_is_primary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             row = classify_candidate_source_url(

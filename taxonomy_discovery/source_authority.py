@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.2.0"
+SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.3.0"
 PRIMARY_OFFICIAL = "primary_official"
 FIRST_PARTY_OTHER = "first_party_other_technology"
 SECONDARY = "secondary"
 UNCLASSIFIED = "unclassified"
+AUTHORITATIVE_DEFINITION = "authoritative_definition"
+DEFINITION_SUPPORTING = "definition_supporting"
 
 _WS_RE = re.compile(r"\s+")
 
@@ -159,6 +161,54 @@ def candidate_official_domains(candidate, *, registry_path=None) -> list[str]:
 def candidate_official_source_scopes(candidate, *, registry_path=None) -> list[dict[str, Any]]:
     """Return governed candidate-specific domain/path scopes for audits and diagnostics."""
     return deepcopy(_candidate_official_sources(candidate, load_source_authority_registry(registry_path)))
+
+
+def _authoritative_definition_sources(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    scopes = [_normalise_scope(value) for value in registry.get("authoritative_definition_sources", []) or []]
+    unique = {(row["domain"], tuple(row["path_prefixes"])): row for row in scopes if row}
+    return [unique[key] for key in sorted(unique)]
+
+
+def classify_definition_source_url(
+    url: str,
+    *,
+    registry_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Classify concept-definition authority independently from product ownership.
+
+    Only human-versioned standards, government, professional-body, or academic
+    scopes qualify. Provider labels and arbitrary technical blogs never do.
+    """
+    registry = load_source_authority_registry(registry_path)
+    host = _hostname(url)
+    parsed = urlsplit(_clean(url))
+    path = parsed.path or "/"
+    matched = next((scope for scope in _authoritative_definition_sources(registry)
+                    if _scope_matches(host, path, scope)), None)
+    secondary_kind = _secondary_kind(host, registry)
+    if matched:
+        source_class = AUTHORITATIVE_DEFINITION
+        reason = "source matches a versioned authoritative-definition scope"
+        matched_rule_domain = matched["domain"]
+    else:
+        source_class = DEFINITION_SUPPORTING
+        reason = (
+            "known secondary source is definition-supporting only"
+            if secondary_kind else
+            "source is not in a versioned authoritative-definition scope"
+        )
+        matched_rule_domain = host if secondary_kind else ""
+    return {
+        "url": _clean(url),
+        "hostname": host,
+        "definition_source_class": source_class,
+        "authoritative_definition": source_class == AUTHORITATIVE_DEFINITION,
+        "secondary_kind": secondary_kind,
+        "matched_rule_domain": matched_rule_domain,
+        "reason": reason,
+        "authority_version": SOURCE_AUTHORITY_VERSION,
+        "registry_version": _clean(registry.get("version")),
+    }
 
 
 def _secondary_kind(

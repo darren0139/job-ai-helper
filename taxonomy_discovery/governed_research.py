@@ -11,13 +11,19 @@ from tailoring.capability_taxonomy import get_default_taxonomy, classify_require
 from taxonomy_discovery.corpus_expansion import fingerprint
 from taxonomy_discovery.candidate_refinement import candidate_report, candidate_csv
 from taxonomy_discovery.taxonomy_evolution import gap_candidates, research_with_transport, overlap_check
-from taxonomy_discovery.source_authority import classify_candidate_source_url, PRIMARY_OFFICIAL, FIRST_PARTY_OTHER
+from taxonomy_discovery.source_authority import (
+    AUTHORITATIVE_DEFINITION,
+    FIRST_PARTY_OTHER,
+    PRIMARY_OFFICIAL,
+    classify_candidate_source_url,
+    classify_definition_source_url,
+)
 from taxonomy_discovery.focused_verification import _definition_sentences, _configured_safe_identity_aliases
 from taxonomy_discovery.source_authority import load_source_authority_registry
 from taxonomy_discovery.technology_registry import get_default_registry, resolve_requirement_text, normalise
 
 RESEARCH_VERSION = "tqd3-governed-research-h1-v1"
-INTERPRETATION_VERSION = "tqd3-governed-interpretation-h1.1-v1"
+INTERPRETATION_VERSION = "tqd3-governed-interpretation-h1.3-v1"
 PLAN_VERSION = "tqd3-governed-research-plan-h1-v2"
 MAX_BATCH = 3
 MAX_ATTEMPTS = 2
@@ -216,103 +222,338 @@ def classify_sources(subject, raw, *, authority_registry_path=None):
     return classified
 
 
+def _evidence_text(source):
+    return ".\n".join(str(source.get(key) or "") for key in ("title", "content", "raw_content")
+                      if str(source.get(key) or "").strip())
+
+
+def _sentences(content):
+    return [sentence.strip() for sentence in re.split(r"[\n.!?](?:\s+|$)", content) if sentence.strip()]
+
+
+def _identity_candidate_sentences(aliases, content):
+    definitions = {sentence for name in aliases for sentence in _definition_sentences(name, content)}
+    names = "|".join(re.escape(name) for name in sorted(aliases, key=len, reverse=True))
+    pattern = re.compile(
+        rf"^(?:[\w&.-]+\s+){{0,3}}(?:{names})\s+"
+        r"(?:is\s+|are\s+|provides\s+|supports\s+|aims\s+to\s+|offers\s+|enables\s+|helps\s+)",
+        re.I,
+    )
+    definitions.update(sentence for sentence in _sentences(content)
+                       if pattern.search(sentence) and not re.search(
+                           r"\b(?:not|never|unrelated|different|discontinued)\b", sentence, re.I))
+    return sorted(definitions)
+
+
+def _identity_authority_evidence(source, aliases):
+    evidence = source["evidence"]
+    content = _evidence_text(evidence)
+    parsed = urlsplit(str(evidence.get("url") or ""))
+    url_key = re.sub(r"[^a-z0-9]+", "", (parsed.hostname or "") + parsed.path, flags=re.I).lower()
+    alias_pattern = "|".join(re.escape(name) for name in sorted(aliases, key=len, reverse=True))
+    subject_in_url = any(re.sub(r"[^a-z0-9]+", "", name, flags=re.I).lower() in url_key for name in aliases)
+    documentation_marker = bool(re.search(
+        r"\b(?:documentation|docs|support|user(?:'s)? guide|getting started|platform documentation)\b",
+        content,
+        re.I,
+    ))
+    ownership = [sentence for sentence in _sentences(content) if (
+        re.search(rf"^(?:[A-Z][\w&.-]+\s+){{1,3}}(?:{alias_pattern})\b", sentence)
+        or (re.search(rf"\b(?:{alias_pattern})\b", sentence, re.I)
+            and re.search(r"\b(?:maintain(?:ed|er|s)?|own(?:ed|er|s)?|develop(?:ed|er|s)?|copyright|foundation|project)\b",
+                          sentence, re.I))
+    )]
+    candidate_authority = (
+        parsed.scheme in {"http", "https"}
+        and not (
+            parsed.hostname == "learn.microsoft.com"
+            and re.match(r"/(?:[a-z]{2}-[a-z]{2}/)?answers/", parsed.path, re.I)
+        )
+        and (bool(ownership) or (subject_in_url and documentation_marker))
+    )
+    return {
+        "candidate_authority_evidence": candidate_authority,
+        "subject_in_source_location": subject_in_url,
+        "documentation_marker": documentation_marker,
+        "ownership_evidence": sorted(set(ownership)),
+        "governed_first_party_authority": source["classification"].get("authority") == PRIMARY_OFFICIAL,
+    }
+
+
+def _capability_subject_variants(subject):
+    values = {" ".join(str(subject or "").split()).strip()}
+    if subject.lower().endswith(" systems"):
+        values.add(subject[:-1])
+    return sorted({value for value in values if value}, key=len, reverse=True)
+
+
+def _capability_definition_sentences(subject, content):
+    variants = "|".join(re.escape(value) for value in _capability_subject_variants(subject))
+    return sorted({sentence for sentence in _sentences(content)
+                   if re.search(rf"\b(?:{variants})\b\s+(?:is|are|refers\s+to|means|describes|involves)\b", sentence, re.I)
+                   and not re.search(r"\b(?:not|never|unrelated)\b", sentence, re.I)})
+
+
+def _capability_boundary_sentences(subject, content):
+    variants = "|".join(re.escape(value) for value in _capability_subject_variants(subject))
+    return sorted({sentence for sentence in _sentences(content)
+                   if re.search(rf"\b(?:{variants})\b", sentence, re.I)
+                   and re.search(r"\b(?:boundar|scope|distinct|include|exclude|responsibil|coordination|consistency|failure|trade-off|tradeoff)\w*\b",
+                                 sentence, re.I)})
+
+
 def interpret(target, research, *, authority_registry_path=None):
     c, subject = target["candidate"], target["subject"]
+    route = c["candidate_route"]
     from taxonomy_discovery.research_atomicity import candidate_atomicity
     atomicity = candidate_atomicity(c)
     raw = research["raw_provider_evidence"]
     rules = load_source_authority_registry(authority_registry_path)
     aliases = _configured_safe_identity_aliases(subject, rules)
     sources = classify_sources(subject, raw, authority_registry_path=authority_registry_path)
-    definitions, candidate_identity_definitions, ownership_evidence, conflicts = [], [], [], []
-    for s in sources:
-        content = "\n".join(str(s["evidence"].get(k) or "") for k in ("content", "raw_content"))
-        primary = s["source_class"] in SOURCE_CLASSES[:2] or (c["candidate_route"] == "possible_new_capability" and s["source_class"] == "authoritative_supporting")
-        candidate_sentences = sorted({sentence for name in aliases for sentence in _definition_sentences(name, content)})
-        s["candidate_identity_sentences"] = candidate_sentences
-        candidate_identity_definitions.extend(candidate_sentences)
-        ownership_evidence.extend(sentence.strip() for sentence in re.split(r"[\n.!?](?:\s+|$)", content)
-                                  if any(normalise(name) in normalise(sentence) for name in aliases)
-                                  and re.search(r"\b(?:maintain(?:ed|er|s)?|own(?:ed|er|s)?|develop(?:ed|er|s)?|foundation|project)\b",
-                                                sentence, re.I))
-        sentences = sorted({sentence for name in aliases for sentence in _definition_sentences(name,content)}) if primary else []
-        s["accepted_definition_sentences"] = sentences
-        definitions.extend(sentences)
-        if primary and any(re.search(re.escape(name)+r"\s+is\s+(?:not|a different)\b", content, re.I) for name in aliases):
-            conflicts.append("Contradictory first-party identity evidence")
+    governed_definitions = []
+    observed_identity_definitions = []
+    candidate_identity_definitions = []
+    ownership_evidence = []
+    candidate_official_domains = []
+    capability_definitions = []
+    capability_boundaries = []
+    identity_conflicts = []
+    for source in sources:
+        content = _evidence_text(source["evidence"])
+        governed = source["source_class"] in SOURCE_CLASSES[:2]
+        governed_sentences = sorted({sentence for name in aliases
+                                     for sentence in _definition_sentences(name, content)}) if governed else []
+        identity_sentences = _identity_candidate_sentences(aliases, content)
+        identity_authority = (
+            _identity_authority_evidence(source, aliases)
+            if route == "technology_identity" else {
+                "candidate_authority_evidence": False,
+                "subject_in_source_location": False,
+                "documentation_marker": False,
+                "ownership_evidence": [],
+                "governed_first_party_authority": False,
+            }
+        )
+        definition_authority = classify_definition_source_url(
+            source["evidence"].get("url", ""), registry_path=authority_registry_path
+        )
+        capability_sentences = (
+            _capability_definition_sentences(subject, content)
+            if definition_authority["authoritative_definition"] else []
+        )
+        boundary_sentences = (
+            _capability_boundary_sentences(subject, content)
+            if definition_authority["authoritative_definition"] else []
+        )
+        source.update(
+            identity_authority=identity_authority,
+            definition_authority=definition_authority,
+            candidate_identity_sentences=identity_sentences,
+            capability_definition_sentences=capability_sentences,
+            capability_boundary_sentences=boundary_sentences,
+        )
+        if route == "technology_relationship":
+            accepted = governed_sentences
+        elif route == "technology_identity":
+            accepted = identity_sentences if (governed or identity_authority["candidate_authority_evidence"]) else []
+        elif route == "possible_new_capability":
+            accepted = capability_sentences
+        else:
+            accepted = governed_sentences
+        source["accepted_definition_sentences"] = accepted
+        governed_definitions.extend(governed_sentences)
+        observed_identity_definitions.extend(identity_sentences)
+        candidate_identity_definitions.extend(
+            identity_sentences if (governed or identity_authority["candidate_authority_evidence"]) else []
+        )
+        ownership_evidence.extend(identity_authority["ownership_evidence"])
+        if identity_authority["candidate_authority_evidence"]:
+            hostname = urlsplit(str(source["evidence"].get("url") or "")).hostname or ""
+            if hostname:
+                candidate_official_domains.append(hostname)
+        capability_definitions.extend(capability_sentences)
+        capability_boundaries.extend(boundary_sentences)
+        if ((governed or identity_authority["candidate_authority_evidence"])
+                and any(re.search(re.escape(name) + r"\s+is\s+(?:not|a different)\b", content, re.I)
+                        for name in aliases)):
+            identity_conflicts.append("Conflicting identity evidence")
+
     local = overlap_check(" ".join(c["examples"]))
-    ids = set(local["exact_matches"]) | {r["capability_id"] for r in local["high_overlap_candidates"]}
-    local["governed_capability_definitions"] = [deepcopy(get_default_taxonomy().by_id()[cid]) for cid in sorted(ids)]
+    overlap_ids = set(local["exact_matches"]) | {row["capability_id"] for row in local["high_overlap_candidates"]}
+    local["governed_capability_definitions"] = [
+        deepcopy(get_default_taxonomy().by_id()[capability_id]) for capability_id in sorted(overlap_ids)
+    ]
     local["requirement_decomposition_context"] = deepcopy(c["examples"])
     known = resolve_requirement_text(subject)
-    supported = sorted({r["capability_id"] for sentence in definitions
-                        if (r := classify_requirement_record({"text":sentence}, get_default_taxonomy()))})
-    relationship_supported = supported if c["candidate_route"] == "technology_relationship" else []
-    blockers = list(conflicts)
-    if target["requires_decomposition"] or atomicity["atomicity_status"] == "compound_requires_decomposition":
-        blockers.append("Multiple technology entities require explicit decomposition")
-    candidate_identity_supported = (
-        bool(candidate_identity_definitions)
-        and (bool(definitions) or bool(ownership_evidence))
-        and not conflicts
+    supported = sorted({row["capability_id"] for sentence in governed_definitions
+                        if (row := classify_requirement_record({"text": sentence}, get_default_taxonomy()))})
+    relationship_supported = supported if route == "technology_relationship" else []
+    decomposition_blocked = (
+        target["requires_decomposition"]
+        or atomicity["atomicity_status"] == "compound_requires_decomposition"
     )
-    if (not definitions and c["candidate_route"] != "existing_capability_resolver_issue"
-            and not (c["candidate_route"] == "technology_identity" and candidate_identity_supported)):
-        blockers.append("No affirmative subject-specific first-party definition")
-    identity_supported = bool(definitions) and not blockers
+    blockers = []
     action = "research_more"
-    if c["candidate_route"] == "existing_capability_resolver_issue":
-        action = "no_change" if local["exact_matches"] else "resolver_improvement" if local["high_overlap_candidates"] else "requirement_decomposition_review"
-    elif not blockers:
+    evidence_outcome = "research_more"
+    identity_review_supported = False
+    capability_review_supported = False
+
+    if decomposition_blocked:
+        blockers.append("Multiple technology entities require explicit decomposition")
+    elif route == "existing_capability_resolver_issue":
+        action = ("no_change" if local["exact_matches"] else
+                  "resolver_improvement" if local["high_overlap_candidates"] else
+                  "requirement_decomposition_review")
+        evidence_outcome = action
+    elif route == "technology_relationship":
+        if identity_conflicts:
+            blockers.append("Conflicting governed relationship evidence")
+            evidence_outcome = "conflicting_relationship_evidence"
+        if not governed_definitions:
+            blockers.append("Candidate-specific governed first-party definition not established")
+        if len(relationship_supported) != 1:
+            blockers.append("Relationship to one existing capability is not established")
+        if not blockers:
+            action = "relationship_proposal"
+            evidence_outcome = "relationship_supported_for_review"
+    elif route == "technology_identity":
         if known["status"] == "resolved":
             action = "no_change"
-        elif c["candidate_route"] == "technology_identity":
-            action = "technology_identity_proposal"
-        elif c["candidate_route"] == "technology_relationship":
-            action = "relationship_proposal" if len(supported) == 1 else "research_more"
-            if len(supported) != 1:
-                blockers.append("Relationship to one existing capability is not established")
-        elif not local["exact_matches"] and not local["high_overlap_candidates"] and any(
-                s["source_class"] in {"first_party_official_docs", "authoritative_supporting"}
-                and any(re.search(r"\b(?:capability|practice|engineering (?:discipline|activity|process))\b", sentence, re.I)
-                        for sentence in s["accepted_definition_sentences"]) for s in sources):
-            # Distinctness is explicitly UNVERIFIED; primary evidence permits a
-            # governed draft for review, never a new production concept.
-            action = "new_capability_proposal"
-        elif local["exact_matches"] or local["high_overlap_candidates"]:
-            action = "requirement_decomposition_review"
+            evidence_outcome = "no_change"
+        elif identity_conflicts:
+            blockers.append("Conflicting identity evidence")
+            evidence_outcome = "conflicting_identity_evidence"
+        elif not observed_identity_definitions:
+            blockers.append("Canonical identity definition not sufficiently established")
+        elif (not candidate_identity_definitions
+              or (not governed_definitions and (not candidate_official_domains or not ownership_evidence))):
+            blockers.append("Canonical owner/official authority not sufficiently established")
         else:
-            blockers.append("Distinct engineering capability is not established by entity/repository evidence")
-    rules = load_source_authority_registry(authority_registry_path)
-    canonical = next((r["canonical_name"] for r in rules.get("technology_domains",[]) if r.get("canonical_name")
-        and normalise(subject) in {normalise(a) for a in r.get("technology_aliases",[])}),subject)
-    return {"atomicity":atomicity,"sources": sources, "authoritative_evidence_summary": definitions,
-            "supporting_evidence_summary": [s["evidence"] for s in sources if s["source_class"] not in SOURCE_CLASSES[:2]],
-            "identity_finding": {"canonical_name": canonical, "verified": identity_supported,
-                "maintainer":"Not inferred; review first-party definitions and ownership evidence",
-                "official_repositories":[s["evidence"].get("url") for s in sources if s["source_class"] == "first_party_official_repository"]},
-            "relationship_finding": {"verified":action == "relationship_proposal" or known["status"] == "resolved",
-                "supported_existing_capability_ids": relationship_supported,
-                "relationship_type": "maps_to_capability", "production_knowledge": known},
-            "existing_capability_assessment": local,
-            "possible_new_capability_assessment": {"distinctness": "unverified_requires_human_review", "recurrence_is_metadata_only": True},
-            "authority_discovery": {
-                "candidate_domains": sorted({urlsplit(str(s["evidence"].get("url") or "")).hostname or ""
-                                             for s in sources if urlsplit(str(s["evidence"].get("url") or "")).hostname}),
-                "canonical_identity_evidence": sorted(set(candidate_identity_definitions)),
-                "ownership_evidence": sorted(set(ownership_evidence)),
-                "source_classifications": [{
-                    "url": s["evidence"].get("url"),
-                    "source_class": s["source_class"],
-                    "authority": s["classification"].get("authority"),
-                } for s in sources],
-                "confidence_status": "candidate_evidence_requires_human_review",
-                "discovered_domains_are_governed": False,
-                "human_review_required": True,
-            },
-            "aliases": _configured_safe_identity_aliases(subject, rules), "conflicts_blockers": blockers,
-            "quality_diagnostics": {"primary_definitions": len(definitions), "provider_labels_ignored": True, "popularity_ignored": True},
-            "recommended_next_action": action}
+            identity_review_supported = True
+            action = "technology_identity_proposal"
+            evidence_outcome = "identity_supported_for_review"
+    elif route == "possible_new_capability":
+        provenance_ready = bool(c.get("provenance"))
+        if not provenance_ready:
+            blockers.append("Observed requirement provenance is required")
+        if not capability_definitions or not capability_boundaries:
+            blockers.append("Authoritative definition/boundaries not sufficiently established")
+        if local["exact_matches"] or local["high_overlap_candidates"]:
+            blockers.append("Existing taxonomy overlap requires human boundary review")
+            evidence_outcome = "overlaps_existing_capability"
+            action = "requirement_decomposition_review"
+        elif not blockers:
+            capability_review_supported = True
+            action = "new_capability_proposal"
+            evidence_outcome = "capability_definition_supported_for_review"
+        elif evidence_outcome != "overlaps_existing_capability":
+            evidence_outcome = "research_more"
+
+    canonical = next((row["canonical_name"] for row in rules.get("technology_domains", [])
+                      if row.get("canonical_name") and normalise(subject) in {
+                          normalise(alias) for alias in row.get("technology_aliases", [])
+                      }), subject)
+    governed_identity_verified = bool(governed_definitions) and not identity_conflicts
+    review_eligible = action in {
+        "relationship_proposal", "technology_identity_proposal", "new_capability_proposal",
+    } and not blockers
+    capability_finding = {
+        "capability_definition_supported_for_review": capability_review_supported,
+        "authoritative_definition_evidence": sorted(set(capability_definitions)),
+        "boundary_evidence": sorted(set(capability_boundaries)),
+        "distinctness": (
+            "overlaps_existing_capability" if local["exact_matches"] or local["high_overlap_candidates"]
+            else "supported_for_human_review" if capability_review_supported
+            else "insufficient_distinctness"
+        ),
+        "recurrence_is_priority_metadata_only": True,
+        "provenance_present": bool(c.get("provenance")),
+    }
+    return {
+        "atomicity": atomicity,
+        "sources": sources,
+        "authoritative_evidence_summary": (
+            sorted(set(capability_definitions + capability_boundaries))
+            if route == "possible_new_capability" else
+            sorted(set(candidate_identity_definitions))
+            if route == "technology_identity" else
+            sorted(set(governed_definitions))
+        ),
+        "supporting_evidence_summary": [
+            source["evidence"] for source in sources if not source["accepted_definition_sentences"]
+        ],
+        "identity_finding": {
+            "canonical_name": canonical,
+            "verified": governed_identity_verified,
+            "identity_verified_for_review": identity_review_supported,
+            "maintainer": (
+                "Candidate ownership evidence requires human review"
+                if route == "technology_identity" else
+                "Governed production identity; maintainer not inferred from relationship research"
+                if route == "technology_relationship" else
+                "Not applicable to capability-definition research"
+            ),
+            "candidate_official_domains": sorted(set(candidate_official_domains)),
+            "candidate_authority_status": (
+                "candidate_authority_evidence" if route == "technology_identity" else
+                "governed_authority_only" if route == "technology_relationship" else
+                "not_applicable"
+            ),
+            "governed_first_party_authority": any(
+                source["classification"].get("authority") == PRIMARY_OFFICIAL for source in sources
+            ),
+            "official_repositories": [
+                source["evidence"].get("url") for source in sources
+                if source["source_class"] == "first_party_official_repository"
+            ],
+        },
+        "relationship_finding": {
+            "verified": action == "relationship_proposal",
+            "supported_existing_capability_ids": relationship_supported,
+            "relationship_type": "maps_to_capability",
+            "production_knowledge": known,
+        },
+        "capability_finding": capability_finding,
+        "existing_capability_assessment": local,
+        "possible_new_capability_assessment": deepcopy(capability_finding),
+        "authority_discovery": {
+            "candidate_domains": sorted({urlsplit(str(source["evidence"].get("url") or "")).hostname or ""
+                                         for source in sources
+                                         if urlsplit(str(source["evidence"].get("url") or "")).hostname}),
+            "candidate_official_domains": sorted(set(candidate_official_domains)),
+            "canonical_identity_evidence": sorted(set(candidate_identity_definitions)),
+            "ownership_evidence": sorted(set(ownership_evidence)),
+            "source_classifications": [{
+                "url": source["evidence"].get("url"),
+                "source_class": source["source_class"],
+                "authority": source["classification"].get("authority"),
+                "definition_source_class": source["definition_authority"]["definition_source_class"],
+                "candidate_authority_evidence": source["identity_authority"]["candidate_authority_evidence"],
+            } for source in sources],
+            "confidence_status": "candidate_evidence_requires_human_review",
+            "discovered_domains_are_governed": False,
+            "human_review_required": True,
+        },
+        "aliases": aliases,
+        "conflicts_blockers": list(dict.fromkeys(blockers)),
+        "quality_diagnostics": {
+            "primary_definitions": len(governed_definitions),
+            "governed_first_party_definitions": len(governed_definitions),
+            "candidate_identity_definitions": len(candidate_identity_definitions),
+            "observed_identity_definitions": len(observed_identity_definitions),
+            "authoritative_capability_definitions": len(capability_definitions),
+            "authoritative_capability_boundaries": len(capability_boundaries),
+            "provider_labels_ignored": True,
+            "popularity_ignored": True,
+        },
+        "evidence_outcome": evidence_outcome,
+        "review_eligible": review_eligible,
+        "proposal_eligible": review_eligible,
+        "automatic_approval": False,
+        "automatic_publication": False,
+        "recommended_next_action": action,
+    }
 
 
 def validate_result(result, *, allow_stale_authority=False):
@@ -498,7 +739,7 @@ def create_draft(result, *, explicit_creation=False, capability_fields=None):
          "summary":"H.1 identity/relationship research draft; authority evidence and production changes require explicit human review.",
          "sources":[{"url":s["evidence"]["url"], "title":s["evidence"].get("title") or subject,
                      "publisher":s["classification"]["hostname"]} for s in result["sources"]
-                    if s["accepted_definition_sentences"] or s.get("candidate_identity_sentences")],
+                    if s["accepted_definition_sentences"]],
          "governed_research":provenance}
     bundle = validate_proposal_bundle({"proposal_bundle_version":PROPOSAL_CONTRACT_VERSION,
         "taxonomy_version":get_default_taxonomy().version, "registry_version":get_default_registry().version,

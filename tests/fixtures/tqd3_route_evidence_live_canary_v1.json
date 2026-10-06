@@ -1,0 +1,124 @@
+{
+  "fixture_version": "tqd3-route-evidence-live-canary-v1",
+  "captured_from_persisted_raw_evidence": true,
+  "network_calls": 0,
+  "cases": [
+    {
+      "name": "csharp_relationship",
+      "candidate_text": "write and maintain code build apis work on bug fixes and monitor the technical performance of our internal systems primarily using c#",
+      "route": "technology_relationship",
+      "before": {
+        "recommended_next_action": "research_more",
+        "blockers": ["Relationship to one existing capability is not established"]
+      },
+      "raw_provider_evidence": {
+        "request_id": "b33a510a-c144-43ef-9c46-93363447b83f",
+        "results": [
+          {
+            "url": "https://learn.microsoft.com/en-my/answers/questions/5919323/learning-to-code",
+            "title": "learning to code - Microsoft Q&A",
+            "content": "Official C# documentation is available on Microsoft Learn."
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/dotnet/csharp",
+            "title": "C# Guide - .NET managed language - C# | Microsoft Learn",
+            "content": "The C# guide contains articles, tutorials, code samples, language references, and specifications."
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp/overview",
+            "title": "Overview - A tour of C# | Microsoft Learn",
+            "content": "C# is a cross-platform general purpose language. C# is a strongly typed language."
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/documentation-comments",
+            "title": "Documentation comments - C# language specification | Microsoft Learn",
+            "content": "C# provides a mechanism for programmers to document their code using XML comments."
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp",
+            "title": "C# docs - get started, tutorials, reference",
+            "content": "C# documentation explains how to write applications using the C# programming language."
+          }
+        ]
+      }
+    },
+    {
+      "name": "bigfix_identity",
+      "candidate_text": "bigfix",
+      "route": "technology_identity",
+      "before": {
+        "recommended_next_action": "research_more",
+        "blockers": ["No affirmative subject-specific first-party definition"]
+      },
+      "raw_provider_evidence": {
+        "request_id": "5a0ebc79-7df6-48e9-9fe8-2ac07a945d82",
+        "results": [
+          {
+            "url": "https://support.bigfix.com/bes/install/quickreference-production.html",
+            "title": "BigFix Deployment Quick Reference",
+            "content": "BigFix Documentation explains how to install, deploy, configure, and maintain BigFix. Copyright HCL 2026."
+          },
+          {
+            "url": "https://help.hcl-software.com/bigfix/11.0/platform/index.html",
+            "title": "BigFix Platform",
+            "content": "HCL BigFix Documentation. BigFix aims to keep critical systems updated, compatible, and free of security issues."
+          },
+          {
+            "url": "https://www.ibm.com/docs/SSQL82_9.2.0/com.ibm.tivoli.tem.doc_9.2/Tivoli_Endpoint_Manager_Getting_Started_Guide_PDF.pdf",
+            "title": "[PDF] IBM BigFix: Getting Started",
+            "content": "IBM BigFix provides a single intelligent agent for continuous endpoint assessment and policy enforcement."
+          },
+          {
+            "url": "https://support.bigfix.com/product/documents/Patch_Management_Windows_80.pdf",
+            "title": "BigFix Patch Management for Windows User's Guide",
+            "content": "BigFix offers support and product documentation for licensed BigFix software. Copyright BigFix, Inc."
+          },
+          {
+            "url": "https://help.hcl-software.com/bigfix/landing/index.html",
+            "title": "HCL BigFix Documentation",
+            "content": "HCL BigFix Documentation describes BigFix Enterprise as an endpoint management solution."
+          }
+        ]
+      }
+    },
+    {
+      "name": "distributed_systems_capability",
+      "candidate_text": "distributed systems",
+      "route": "possible_new_capability",
+      "before": {
+        "recommended_next_action": "research_more",
+        "blockers": ["No affirmative subject-specific first-party definition"]
+      },
+      "raw_provider_evidence": {
+        "request_id": "33845ae3-d1a9-4e76-b4af-4201c79a2837",
+        "results": [
+          {
+            "url": "https://rahulsuryawanshi.com/distributed-systems",
+            "title": "Distributed Systems: Complete Engineering Guide",
+            "content": "A distributed system is a group of independent computers that communicate over a network despite failures and delays."
+          },
+          {
+            "url": "https://www.atlassian.com/microservices/microservices-architecture/distributed-architecture",
+            "title": "What is a distributed system? | Atlassian",
+            "content": "A distributed system is a collection of programs across separate computation nodes working toward a shared goal."
+          },
+          {
+            "url": "https://ably.com/blog/what-is-a-distributed-systems-engineer",
+            "title": "What is a distributed systems engineer?",
+            "content": "Distributed systems involve state distributed across nodes while reacting to failures and topology changes."
+          },
+          {
+            "url": "https://www.contentful.com/blog/explaining-distributed-systems",
+            "title": "Explaining distributed systems",
+            "content": "A distributed system has components on different machines, independent failures, and separate views of time."
+          },
+          {
+            "url": "https://medium.com/ably-realtime/what-is-a-distributed-systems-engineer-f6c1d921acf8",
+            "title": "What is a distributed systems engineer? | Medium",
+            "content": "A distributed systems engineer needs systems engineering fundamentals and distributed-systems knowledge."
+          }
+        ]
+      }
+    }
+  ]
+}

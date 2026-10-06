@@ -1,11 +1,21 @@
 {
-  "version": "source-authority-registry-v1.4",
+  "version": "source-authority-registry-v1.5",
   "contract": {
     "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain_and_optional_path_prefix",
+    "definition_authority_matching": "explicit_versioned_domain_and_optional_path_scope_only",
     "network_calls": 0,
     "model_calls": 0,
     "provider_authority_claim_trusted": false
   },
+  "authoritative_definition_sources": [
+    {"domain": "acm.org"},
+    {"domain": "dl.acm.org"},
+    {"domain": "computer.org"},
+    {"domain": "ieee.org"},
+    {"domain": "ietf.org"},
+    {"domain": "nist.gov"},
+    {"domain": "rfc-editor.org"}
+  ],
   "technology_domains": [
     {
       "technology_aliases": ["Keycloak"],
