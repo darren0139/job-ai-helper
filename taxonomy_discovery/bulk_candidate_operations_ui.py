@@ -1,18 +1,24 @@
 """Thin Streamlit workflow for bounded TQ-D3 bulk operations."""
 from __future__ import annotations
 
+import json
+
 
 ACTIVE_STAGE_KEY = "tqd3_bulk_active_stage"
 _STAGE_NAV_KEY = "tqd3_bulk_stage_navigation"
 _PENDING_STAGE_KEY = "tqd3_bulk_pending_stage"
+WORKFLOW_SECTIONS = (
+    "A. Corpus Coverage", "B. Unresolved Gaps", "C. Resolve Batch",
+    "D. Needs Research", "E. Proposals / regression", "F. Review / Publish",
+)
 STAGES = ("select", "plan", "research", "proposals", "review", "publish")
 STAGE_LABELS = {
-    "select": "1. Prioritize & select",
-    "plan": "2. Plan research",
-    "research": "3. Research",
-    "proposals": "4. Proposals & regression",
-    "review": "5. Review",
-    "publish": "6. Publish",
+    "select": "A–C. Coverage, gaps & resolve batch",
+    "plan": "D. Needs research · plan",
+    "research": "D. Needs research · run",
+    "proposals": "E. Proposals / regression",
+    "review": "F. Review",
+    "publish": "F. Publish",
 }
 
 READINESS_LABELS = {
@@ -158,7 +164,152 @@ def _plan_blocked_count(plan):
     return sum(int(counts.get(state, 0)) for state in blocked_states)
 
 
+def _render_corpus_resolution(st, bulk):
+    """Normal local-first entry point; every expensive/write action stays explicit."""
+    from taxonomy_discovery.corpus_gap_resolution import (
+        audit_corpus_resolution,
+        build_gap_resolution_queue,
+        build_native_regression_handoff,
+        create_local_proposals,
+        preview_local_resolution,
+    )
+
+    def research_candidates(candidates):
+        eligible_routes = {
+            "existing_capability_resolver_issue", "technology_relationship",
+            "technology_identity", "possible_new_capability",
+        }
+        return [candidate for candidate in candidates
+                if candidate.get("operational_route") not in {
+                    "needs_decomposition", "noise_or_non_capability", "manual_review"
+                } and candidate.get("candidate_route") in eligible_routes]
+
+    st.markdown("##### A. Corpus Coverage")
+    st.caption(
+        "Re-evaluate every saved canonical Job Match requirement with the current "
+        "production taxonomy, registry, and resolver. The audit is read-only and offline."
+    )
+    if st.button("Run whole-corpus coverage audit", key="tqd3_corpus_gap_audit"):
+        try:
+            with st.spinner("Auditing saved requirements with current production knowledge..."):
+                audit = audit_corpus_resolution()
+                resolution_queue = build_gap_resolution_queue(audit)
+                candidates = research_candidates(audit["candidates"])
+                research_queue = bulk.build_candidate_queue(
+                    candidates, include_hidden=True
+                )
+            st.session_state["tqd3_corpus_gap_audit"] = audit
+            st.session_state["tqd3_gap_resolution_queue"] = resolution_queue
+            st.session_state["tqd3_bulk_prepared"] = {
+                "corpus": audit["corpus"],
+                "candidates": candidates,
+                "coverage_audit": audit,
+            }
+            st.session_state["tqd3_bulk_queue"] = research_queue
+            st.success("Current corpus audit and one shared resolution queue are ready.")
+        except Exception as exc:
+            st.error(f"Corpus resolution audit failed closed: {exc}")
+
+    audit = st.session_state.get("tqd3_corpus_gap_audit")
+    resolution_queue = st.session_state.get("tqd3_gap_resolution_queue")
+    if not audit or not resolution_queue:
+        st.info("Run the audit explicitly to load corpus coverage and unresolved gaps. Passive rendering performs no work.")
+        return
+
+    summary = audit["summary"]
+    st.write("Coverage summary", {
+        "total requirements": summary["total_requirements"],
+        "meaningful technical requirements": summary["meaningful_technical_requirements"],
+        "resolved/scorable": summary["resolved_scorable_requirements"],
+        "unresolved technical": summary["unresolved_technical_requirements"],
+        "required/core weighted coverage": f"{summary['required_core_weighted_coverage']['percent']:.2f}%",
+        "supporting/preferred weighted coverage": f"{summary['supporting_preferred_weighted_coverage']['percent']:.2f}%",
+        "overall weighted coverage": f"{summary['overall_weighted_coverage']['percent']:.2f}%",
+    })
+    st.download_button(
+        "Download corpus coverage and queue JSON",
+        data=json.dumps(audit, indent=2, ensure_ascii=False) + "\n",
+        file_name="tqd3_corpus_gap_resolution_audit.json",
+        mime="application/json",
+    )
+
+    st.markdown("##### B. Unresolved Gaps")
+    st.write("Operational route counts", audit["route_counts"])
+    st.dataframe(audit["top_unresolved_concepts"], hide_index=True, width="stretch")
+
+    uploaded = st.file_uploader(
+        "Optional proposed technology seed list · dry-run only",
+        type=["json"],
+        key="tqd3_bulk_seed_upload",
+    )
+    if st.button("Validate seed into the same queue", key="tqd3_bulk_seed_validate", disabled=uploaded is None):
+        try:
+            payload = json.loads(uploaded.getvalue())
+            resolution_queue = build_gap_resolution_queue(audit, bulk_seed=payload)
+            st.session_state["tqd3_gap_resolution_queue"] = resolution_queue
+            candidates = research_candidates(resolution_queue["candidates"])
+            st.session_state["tqd3_bulk_prepared"] = {
+                "corpus": audit["corpus"], "candidates": candidates, "coverage_audit": audit,
+            }
+            st.session_state["tqd3_bulk_queue"] = bulk.build_candidate_queue(candidates, include_hidden=True)
+            st.success("Seed validated and added to the review queue. Production knowledge is unchanged.")
+        except Exception as exc:
+            st.error(f"Bulk seed rejected: {exc}")
+
+    st.markdown("##### C. Resolve Batch")
+    local_rows = [row for row in resolution_queue["rows"] if row["local_safe"]]
+    st.dataframe([{
+        "candidate": row["concept"],
+        "example JD text": row["example_jd_text"],
+        "jobs": row["job_count"],
+        "occurrences": row["occurrences"],
+        "importance": row["importance"],
+        "current taxonomy": (row["current_taxonomy_result"].get("canonical_match")
+                             or [item.get("capability_id") for item in row["current_taxonomy_result"].get("high_overlap_candidates", [])]),
+        "current registry": row["current_registry_result"].get("status"),
+        "recommended resolution": row["recommended_resolution_type"],
+        "external research": row["external_research_required"],
+        "reason": row["blocker_reason"],
+    } for row in local_rows], hide_index=True, width="stretch")
+    selected = st.multiselect(
+        "Locally resolvable gaps for proposal preview",
+        [row["candidate_id"] for row in local_rows],
+        key="tqd3_local_gap_selected",
+        format_func=lambda candidate_id: next(row["concept"] for row in local_rows if row["candidate_id"] == candidate_id),
+    ) or []
+    if st.button("Preview selected local proposals", key="tqd3_local_gap_preview", disabled=not selected):
+        try:
+            outcome = create_local_proposals(
+                resolution_queue,
+                selected_candidate_ids=selected,
+                explicit_creation=True,
+            )
+            preview = preview_local_resolution(audit, outcome["proposals"])
+            st.session_state["tqd3_local_gap_proposals"] = outcome
+            st.session_state["tqd3_local_gap_impact"] = preview
+            st.session_state["tqd3_local_regression_handoff"] = build_native_regression_handoff(outcome["proposals"])
+        except Exception as exc:
+            st.error(f"Local proposal preview failed closed: {exc}")
+    preview = st.session_state.get("tqd3_local_gap_impact")
+    if preview:
+        st.write("Read-only Job Match requirement-resolution impact", {
+            "requirements evaluated": preview["requirements_evaluated"],
+            "unresolved before": preview["unresolved_before"],
+            "would resolve after": preview["would_resolve_after"],
+            "affected jobs": len(preview["affected_jobs"]),
+            "conflicts/ambiguity": len(preview["conflicts_ambiguity"]),
+            "coverage before": f"{preview['coverage_before_percent']:.2f}%",
+            "projected after": f"{preview['projected_coverage_after_percent']:.2f}%",
+        })
+        st.caption("Draft-only preview. Human review is required; no score, approval, publication, taxonomy, or registry state changed.")
+        with st.expander("Local proposal details and complete impact diagnostics"):
+            st.json({"proposals": st.session_state.get("tqd3_local_gap_proposals"), "preview": preview})
+
+
 def _render_select(st, bulk):
+    _render_corpus_resolution(st, bulk)
+    st.markdown("##### D. Needs Research")
+    st.caption("Hard cases continue through the existing route-aware governed TQ-D3 research path.")
     if st.button("Refresh candidate queue", key="tqd3_bulk_refresh"):
         try:
             from taxonomy_discovery.governed_research import prepare_gap_review
@@ -329,6 +480,25 @@ def _render_research(st, bulk):
 
 
 def _render_proposals(st, bulk):
+    local_handoff = st.session_state.get("tqd3_local_regression_handoff") or {}
+    native_items = local_handoff.get("result_drafts") or []
+    if local_handoff:
+        st.markdown("##### Local proposal regression handoff")
+        st.write({"native-compatible drafts": len(native_items),
+                  "unsupported local actions": len(local_handoff.get("unsupported") or [])})
+        st.caption("Compatible identity drafts use the existing bulk regression engine. Unsupported action types remain blocked from that path.")
+        if st.button("Run existing regression preview for local-compatible drafts",
+                     key="tqd3_local_native_regression", disabled=not native_items):
+            prepared = st.session_state.get("tqd3_bulk_prepared") or {}
+            try:
+                st.session_state["tqd3_local_native_regression"] = bulk.preview_bulk_regression(
+                    prepared.get("corpus"), native_items
+                )
+            except Exception as exc:
+                st.error(f"Existing regression preview failed closed: {exc}")
+        if st.session_state.get("tqd3_local_native_regression"):
+            st.json(st.session_state["tqd3_local_native_regression"])
+
     from database.taxonomy_discovery_review_manager import list_governed_research_results
     try:
         all_saved = list_governed_research_results()
@@ -500,8 +670,8 @@ def render_bulk_candidate_operations():
     import streamlit as st
     from taxonomy_discovery import bulk_candidate_operations as bulk
 
-    st.subheader("TQ-D3 Bulk Taxonomy Gap Operations")
-    st.caption("Local/cache-first planning, bounded explicit research, independent review, and separate explicit publication.")
+    st.subheader("Taxonomy Knowledge Maintenance")
+    st.caption("Corpus coverage, one local-first resolution queue, bounded governed research, regression preview, independent review, and separate publication.")
     stage = _render_navigation(st)
     st.markdown(f"#### {STAGE_LABELS[stage]}")
 
