@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.1.0"
+SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.2.0"
 PRIMARY_OFFICIAL = "primary_official"
 FIRST_PARTY_OTHER = "first_party_other_technology"
 SECONDARY = "secondary"
@@ -72,51 +72,71 @@ def _domain_matches(host: str, domain: str) -> bool:
     return host == domain or host.endswith("." + domain)
 
 
+def _normalise_scope(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, str):
+        domain = _clean(raw).lower()
+        prefixes: list[str] = []
+    elif isinstance(raw, dict):
+        domain = _clean(raw.get("domain")).lower()
+        prefixes = [
+            "/" + _clean(value).lstrip("/").lower()
+            for value in raw.get("path_prefixes", []) or []
+            if _clean(value)
+        ]
+    else:
+        return None
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if not domain:
+        return None
+    return {"domain": domain, "path_prefixes": sorted(set(prefixes))}
+
+
+def _rule_scopes(rule: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = list(rule.get("official_domains", []) or []) + list(rule.get("official_sources", []) or [])
+    scopes = [_normalise_scope(value) for value in raw]
+    unique = {(row["domain"], tuple(row["path_prefixes"])): row for row in scopes if row}
+    return [unique[key] for key in sorted(unique)]
+
+
+def _scope_matches(host: str, path: str, scope: dict[str, Any]) -> bool:
+    if not _domain_matches(host, scope.get("domain", "")):
+        return False
+    prefixes = scope.get("path_prefixes") or []
+    path = "/" + str(path or "").lstrip("/").lower()
+    return not prefixes or any(path.startswith(prefix.rstrip("/") + "/") or path == prefix.rstrip("/")
+                               for prefix in prefixes)
+
+
+def _candidate_official_sources(candidate: dict[str, Any], registry: dict[str, Any]) -> list[dict[str, Any]]:
+    canonical = _key(candidate.get("canonical_name"))
+    maintainers = {
+        _key(value)
+        for value in candidate.get("maintainers_vendors_or_standards_bodies", [])
+        if _clean(value)
+    }
+    scopes: list[dict[str, Any]] = []
+    for rule in registry.get("technology_domains", []) or []:
+        if not isinstance(rule, dict):
+            continue
+        aliases = {_key(value) for value in rule.get("technology_aliases", []) or [] if _clean(value)}
+        if canonical and canonical in aliases:
+            scopes.extend(_rule_scopes(rule))
+    for rule in registry.get("organization_domains", []) or []:
+        if not isinstance(rule, dict):
+            continue
+        aliases = {_key(value) for value in rule.get("organization_aliases", []) or [] if _clean(value)}
+        if maintainers.intersection(aliases):
+            scopes.extend(_rule_scopes(rule))
+    unique = {(row["domain"], tuple(row["path_prefixes"])): row for row in scopes}
+    return [unique[key] for key in sorted(unique)]
+
+
 def _candidate_official_domains(
     candidate: dict[str, Any],
     registry: dict[str, Any],
 ) -> set[str]:
-    canonical = _key(candidate.get("canonical_name"))
-    maintainers = {
-        _key(value)
-        for value in candidate.get(
-            "maintainers_vendors_or_standards_bodies",
-            [],
-        )
-        if _clean(value)
-    }
-    domains: set[str] = set()
-
-    for rule in registry.get("technology_domains", []) or []:
-        if not isinstance(rule, dict):
-            continue
-        aliases = {
-            _key(value)
-            for value in rule.get("technology_aliases", []) or []
-            if _clean(value)
-        }
-        if canonical and canonical in aliases:
-            domains.update(
-                str(value).lower().strip()
-                for value in rule.get("official_domains", []) or []
-                if _clean(value)
-            )
-
-    for rule in registry.get("organization_domains", []) or []:
-        if not isinstance(rule, dict):
-            continue
-        aliases = {
-            _key(value)
-            for value in rule.get("organization_aliases", []) or []
-            if _clean(value)
-        }
-        if maintainers.intersection(aliases):
-            domains.update(
-                str(value).lower().strip()
-                for value in rule.get("official_domains", []) or []
-                if _clean(value)
-            )
-    return domains
+    return {row["domain"] for row in _candidate_official_sources(candidate, registry)}
 
 
 def _all_known_official_domains(
@@ -127,17 +147,18 @@ def _all_known_official_domains(
         for rule in registry.get(collection, []) or []:
             if not isinstance(rule, dict):
                 continue
-            domains.update(
-                str(value).lower().strip()
-                for value in rule.get("official_domains", []) or []
-                if _clean(value)
-            )
+            domains.update(row["domain"] for row in _rule_scopes(rule))
     return domains
 
 
 def candidate_official_domains(candidate, *, registry_path=None) -> list[str]:
     """Versioned routing hints only; never infer authority from provider claims."""
     return sorted(_candidate_official_domains(candidate, load_source_authority_registry(registry_path)))
+
+
+def candidate_official_source_scopes(candidate, *, registry_path=None) -> list[dict[str, Any]]:
+    """Return governed candidate-specific domain/path scopes for audits and diagnostics."""
+    return deepcopy(_candidate_official_sources(candidate, load_source_authority_registry(registry_path)))
 
 
 def _secondary_kind(
@@ -161,27 +182,29 @@ def classify_candidate_source_url(
 ) -> dict[str, Any]:
     registry = load_source_authority_registry(registry_path)
     host = _hostname(url)
+    parsed = urlsplit(_clean(url))
+    path = parsed.path or "/"
 
-    candidate_domains = _candidate_official_domains(candidate, registry)
+    candidate_scopes = _candidate_official_sources(candidate, registry)
     all_official_domains = _all_known_official_domains(registry)
 
-    matched_candidate_domain = next(
+    matched_candidate_scope = next(
         (
-            domain
-            for domain in sorted(candidate_domains)
-            if _domain_matches(host, domain)
+            scope
+            for scope in candidate_scopes
+            if _scope_matches(host, path, scope)
         ),
-        "",
+        None,
     )
 
-    if matched_candidate_domain:
+    if matched_candidate_scope:
         authority = PRIMARY_OFFICIAL
         source_kind = "candidate_or_maintainer_primary"
         reason = (
             "source hostname matches a versioned official-domain rule "
             "for the exact candidate technology or declared maintainer"
         )
-        matched_rule_domain = matched_candidate_domain
+        matched_rule_domain = matched_candidate_scope["domain"]
     else:
         matched_other_domain = next(
             (

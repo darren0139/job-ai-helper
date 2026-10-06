@@ -18,7 +18,7 @@ from taxonomy_discovery.technology_registry import get_default_registry, resolve
 
 RESEARCH_VERSION = "tqd3-governed-research-h1-v1"
 INTERPRETATION_VERSION = "tqd3-governed-interpretation-h1.1-v1"
-PLAN_VERSION = "tqd3-governed-research-plan-h1-v1"
+PLAN_VERSION = "tqd3-governed-research-plan-h1-v2"
 MAX_BATCH = 3
 MAX_ATTEMPTS = 2
 ELIGIBLE_ROUTES = ("existing_capability_resolver_issue", "technology_relationship",
@@ -56,8 +56,10 @@ def validate_candidate(candidate):
         raise ValueError("Candidate knowledge versions changed; refresh Gap Review")
 
 
-def _questions(candidate, subject):
+def _questions(candidate, subject, query_strategy):
     route = candidate["candidate_route"]
+    if query_strategy.get("ready"):
+        return list(query_strategy["queries"])
     if route == "technology_identity":
         return [f"What concrete technology is {subject}; what is its canonical name and official maintainer?",
                 f"What official documentation or official repository defines {subject}, its documented aliases and engineering uses?"]
@@ -70,9 +72,10 @@ def _questions(candidate, subject):
             f"What responsibilities, adjacent boundaries, non-proving examples and observable implementation evidence distinguish {subject}?"]
 
 
-def research_plan(candidates, *, selected_candidate_ids, external_resolver=False, research_round=0):
-    if type(research_round) is not int or not 0 <= research_round <= 3:
-        raise ValueError("Research round must be 0 to 3; explicit follow-up only")
+def research_plan(candidates, *, selected_candidate_ids, external_resolver=False, research_round=0,
+                  authority_registry_path=None):
+    if type(research_round) is not int or not 0 <= research_round <= 2:
+        raise ValueError("Research round must be 0 to 2; explicit follow-up only")
     selected = sorted(set(selected_candidate_ids))
     if not selected or len(selected) > MAX_BATCH:
         raise ValueError("Select 1 to 3 research candidates explicitly")
@@ -88,18 +91,73 @@ def research_plan(candidates, *, selected_candidate_ids, external_resolver=False
         if atomicity["atomicity_status"] == "compound_requires_decomposition":
             raise ValueError("Needs decomposition before research")
         names = atomicity["detected_entities"]
+        from taxonomy_discovery.research_readiness import (
+            _identity_hypotheses,
+            audit_candidate,
+            build_capability_query_strategy,
+            build_identity_query_strategy,
+            build_query_strategy,
+        )
+        route_preflight = audit_candidate(
+            c,
+            queue_state=("local_review_required" if c["candidate_route"] == "existing_capability_resolver_issue"
+                         else "external_research_required"),
+            authority_registry_path=authority_registry_path,
+        )
+        if c["candidate_route"] != "existing_capability_resolver_issue" and not route_preflight["paid_research_eligible"]:
+            raise ValueError(f"Candidate did not pass route-aware readiness: {route_preflight['blocker_reason']}")
+        if c["candidate_route"] == "technology_identity":
+            names = _identity_hypotheses(c, atomicity)
+            if len(names) != 1:
+                raise ValueError("Identity research requires one concrete entity hypothesis")
         # Multiple entities must be decomposed by the human before identity research.
         subject = names[0] if len(names) == 1 else c["concept_key"]
-        t = {"candidate": deepcopy(c), "subject": subject, "questions": _questions(c, subject),
+        known = resolve_requirement_text(subject)
+        canonical = known.get("technology_label") or subject
+        from taxonomy_discovery.source_authority import candidate_official_domains
+        if c["candidate_route"] == "technology_identity":
+            domains = []
+            strategy = build_identity_query_strategy(subject)
+            purpose = "verify_technology_identity"
+            authority_state = "candidate_evidence_only_not_governed"
+        elif c["candidate_route"] == "possible_new_capability":
+            domains = []
+            strategy = build_capability_query_strategy(canonical)
+            purpose = "research_capability_definition_and_boundaries"
+            authority_state = "authoritative_definition_discovery"
+        elif c["candidate_route"] == "technology_relationship":
+            domains = candidate_official_domains({"canonical_name": canonical}, registry_path=authority_registry_path)
+            strategy = build_query_strategy(canonical, domains,
+                known_identity=known.get("status") in {"recognized_unmapped", "resolved"})
+            purpose = "research_capability_relationship"
+            authority_state = "governed_official_scope" if domains else "missing_governed_official_scope"
+        else:
+            domains = []
+            strategy = build_capability_query_strategy(canonical)
+            purpose = "local_resolver_review"
+            authority_state = "not_applicable"
+        query_index = min(research_round, max(0, len(strategy.get("queries", [])) - 1))
+        search_query = strategy.get("queries", [""])[query_index] if strategy.get("queries") else ""
+        t = {"candidate": deepcopy(c), "subject": canonical, "questions": _questions(c, canonical, strategy),
              "research_round":research_round,
              "current_versions": current_match_versions(), "research_input_only": True,
              "preferred_source_classes": list(SOURCE_CLASSES), "reason": c["routing_reason"],
              "external_requested": c["candidate_route"] != "existing_capability_resolver_issue" or bool(external_resolver),
-             "requires_decomposition": atomicity["atomicity_status"] == "compound_requires_decomposition"}
+             "requires_decomposition": atomicity["atomicity_status"] == "compound_requires_decomposition",
+             "known_technology_identity": known.get("status") in {"recognized_unmapped", "resolved"},
+             "known_identity_skips_rediscovery": known.get("status") in {"recognized_unmapped", "resolved"},
+             "technology_id": known.get("technology_id"), "query_strategy": strategy,
+             "research_purpose": purpose, "authority_state": authority_state,
+             "authority_discovery": c["candidate_route"] == "technology_identity",
+             "discovered_domains_are_governed": False,
+             "search_query": search_query, "fallback_queries": list(strategy.get("fallback_queries", [])),
+             "include_domains": domains,
+             "research_profile": "first_party_definition_rescue_v1" if domains else ""}
         t["target_fingerprint"] = fingerprint(t)
         targets.append(t)
     plan = {"plan_version": PLAN_VERSION, "current_versions": current_match_versions(), "knowledge_fingerprint":knowledge_fingerprint(),
             "targets": targets, "maximum_candidates": MAX_BATCH, "queries_per_candidate": 1,
+            "maximum_query_intents_per_candidate": 3,
             "maximum_attempts_per_candidate": MAX_ATTEMPTS}
     plan["plan_fingerprint"] = fingerprint(plan)
     return plan
@@ -111,12 +169,10 @@ def tavily_transport(target, *, explicit_execution=False):
         raise ValueError("Explicit execution required before provider adapter")
     from taxonomy_discovery.tavily_research import research_target_with_tavily
     adapted = {"target_id": "h1_"+target["target_fingerprint"][:24], "tavily_eligible": True,
-               "research_question": "\n".join(target["questions"])}
-    if target["research_round"]:
-        from taxonomy_discovery.source_authority import candidate_official_domains
-        adapted.update(research_profile="first_party_definition_rescue_v1",
-            search_query=f'"{target["subject"]}" official documentation definition. '+" ".join(target["questions"]),
-            include_domains=candidate_official_domains({"canonical_name":target["subject"]}))
+               "research_question": "\n".join(target["questions"]),
+               "research_profile": target.get("research_profile", ""),
+               "search_query": target.get("search_query") or "\n".join(target["questions"]),
+               "include_domains": list(target.get("include_domains") or [])}
     response = research_target_with_tavily(adapted, preserve_raw_response=True)
     raw = deepcopy(response["raw_provider_response"])
     # Retain original provider response alongside the adapter request identity.
@@ -168,10 +224,17 @@ def interpret(target, research, *, authority_registry_path=None):
     rules = load_source_authority_registry(authority_registry_path)
     aliases = _configured_safe_identity_aliases(subject, rules)
     sources = classify_sources(subject, raw, authority_registry_path=authority_registry_path)
-    definitions, conflicts = [], []
+    definitions, candidate_identity_definitions, ownership_evidence, conflicts = [], [], [], []
     for s in sources:
         content = "\n".join(str(s["evidence"].get(k) or "") for k in ("content", "raw_content"))
         primary = s["source_class"] in SOURCE_CLASSES[:2] or (c["candidate_route"] == "possible_new_capability" and s["source_class"] == "authoritative_supporting")
+        candidate_sentences = sorted({sentence for name in aliases for sentence in _definition_sentences(name, content)})
+        s["candidate_identity_sentences"] = candidate_sentences
+        candidate_identity_definitions.extend(candidate_sentences)
+        ownership_evidence.extend(sentence.strip() for sentence in re.split(r"[\n.!?](?:\s+|$)", content)
+                                  if any(normalise(name) in normalise(sentence) for name in aliases)
+                                  and re.search(r"\b(?:maintain(?:ed|er|s)?|own(?:ed|er|s)?|develop(?:ed|er|s)?|foundation|project)\b",
+                                                sentence, re.I))
         sentences = sorted({sentence for name in aliases for sentence in _definition_sentences(name,content)}) if primary else []
         s["accepted_definition_sentences"] = sentences
         definitions.extend(sentences)
@@ -184,10 +247,17 @@ def interpret(target, research, *, authority_registry_path=None):
     known = resolve_requirement_text(subject)
     supported = sorted({r["capability_id"] for sentence in definitions
                         if (r := classify_requirement_record({"text":sentence}, get_default_taxonomy()))})
+    relationship_supported = supported if c["candidate_route"] == "technology_relationship" else []
     blockers = list(conflicts)
     if target["requires_decomposition"] or atomicity["atomicity_status"] == "compound_requires_decomposition":
         blockers.append("Multiple technology entities require explicit decomposition")
-    if not definitions and c["candidate_route"] != "existing_capability_resolver_issue":
+    candidate_identity_supported = (
+        bool(candidate_identity_definitions)
+        and (bool(definitions) or bool(ownership_evidence))
+        and not conflicts
+    )
+    if (not definitions and c["candidate_route"] != "existing_capability_resolver_issue"
+            and not (c["candidate_route"] == "technology_identity" and candidate_identity_supported)):
         blockers.append("No affirmative subject-specific first-party definition")
     identity_supported = bool(definitions) and not blockers
     action = "research_more"
@@ -222,9 +292,24 @@ def interpret(target, research, *, authority_registry_path=None):
                 "maintainer":"Not inferred; review first-party definitions and ownership evidence",
                 "official_repositories":[s["evidence"].get("url") for s in sources if s["source_class"] == "first_party_official_repository"]},
             "relationship_finding": {"verified":action == "relationship_proposal" or known["status"] == "resolved",
-                "supported_existing_capability_ids": supported, "relationship_type": "maps_to_capability", "production_knowledge": known},
+                "supported_existing_capability_ids": relationship_supported,
+                "relationship_type": "maps_to_capability", "production_knowledge": known},
             "existing_capability_assessment": local,
             "possible_new_capability_assessment": {"distinctness": "unverified_requires_human_review", "recurrence_is_metadata_only": True},
+            "authority_discovery": {
+                "candidate_domains": sorted({urlsplit(str(s["evidence"].get("url") or "")).hostname or ""
+                                             for s in sources if urlsplit(str(s["evidence"].get("url") or "")).hostname}),
+                "canonical_identity_evidence": sorted(set(candidate_identity_definitions)),
+                "ownership_evidence": sorted(set(ownership_evidence)),
+                "source_classifications": [{
+                    "url": s["evidence"].get("url"),
+                    "source_class": s["source_class"],
+                    "authority": s["classification"].get("authority"),
+                } for s in sources],
+                "confidence_status": "candidate_evidence_requires_human_review",
+                "discovered_domains_are_governed": False,
+                "human_review_required": True,
+            },
             "aliases": _configured_safe_identity_aliases(subject, rules), "conflicts_blockers": blockers,
             "quality_diagnostics": {"primary_definitions": len(definitions), "provider_labels_ignored": True, "popularity_ignored": True},
             "recommended_next_action": action}
@@ -409,9 +494,11 @@ def create_draft(result, *, explicit_creation=False, capability_fields=None):
          "label":subject, "entry_kind":entry["entry_kind"] if entry else "tool", "aliases":result["aliases"],
          "proposal_classification":"safe_mapping_candidate" if cap else "recognized_unmapped",
          "proposed_capability_id":cap, "relationship_type":"maps_to_capability" if cap else None,
-         "confidence":0.8, "summary":"H.1 research draft; explicit human review required.",
+         "confidence":0.5 if result.get("authority_discovery",{}).get("candidate_domains") else 0.8,
+         "summary":"H.1 identity/relationship research draft; authority evidence and production changes require explicit human review.",
          "sources":[{"url":s["evidence"]["url"], "title":s["evidence"].get("title") or subject,
-                     "publisher":s["classification"]["hostname"]} for s in result["sources"] if s["accepted_definition_sentences"]],
+                     "publisher":s["classification"]["hostname"]} for s in result["sources"]
+                    if s["accepted_definition_sentences"] or s.get("candidate_identity_sentences")],
          "governed_research":provenance}
     bundle = validate_proposal_bundle({"proposal_bundle_version":PROPOSAL_CONTRACT_VERSION,
         "taxonomy_version":get_default_taxonomy().version, "registry_version":get_default_registry().version,

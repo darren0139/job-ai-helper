@@ -263,6 +263,9 @@ def render_taxonomy_evolution():
 
     render_production_resolver_inspector()
     st.divider()
+    from taxonomy_discovery.bulk_candidate_operations_ui import render_bulk_candidate_operations
+    render_bulk_candidate_operations()
+    st.divider()
     render_governed_research()
     from database.taxonomy_discovery_review_manager import (list_taxonomy_evolution_proposals,
         save_taxonomy_evolution_proposal, save_taxonomy_evolution_review)

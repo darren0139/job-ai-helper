@@ -1,7 +1,7 @@
 {
-  "version": "source-authority-registry-v1.3",
+  "version": "source-authority-registry-v1.4",
   "contract": {
-    "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain",
+    "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain_and_optional_path_prefix",
     "network_calls": 0,
     "model_calls": 0,
     "provider_authority_claim_trusted": false
@@ -10,13 +10,18 @@
     {
       "technology_aliases": ["Keycloak"],
       "safe_identity_aliases": ["Keycloak"],
-      "official_domains": ["keycloak.org", "docs.redhat.com"]
+      "official_domains": ["keycloak.org"],
+      "official_sources": [
+        {"domain": "docs.redhat.com", "path_prefixes": ["/en/documentation/red_hat_build_of_keycloak"]}
+      ]
     },
     {
       "technology_aliases": ["SCCM", "Microsoft SCCM", "Microsoft Configuration Manager", "Configuration Manager", "System Center Configuration Manager", "Microsoft System Center Configuration Manager", "Microsoft Endpoint Configuration Manager"],
       "canonical_name": "Microsoft Configuration Manager",
       "safe_identity_aliases": ["SCCM", "Microsoft SCCM", "Microsoft Configuration Manager", "Configuration Manager", "System Center Configuration Manager", "Microsoft System Center Configuration Manager", "Microsoft Endpoint Configuration Manager"],
-      "official_domains": ["learn.microsoft.com"]
+      "official_sources": [
+        {"domain": "learn.microsoft.com", "path_prefixes": ["/mem/configmgr", "/en-us/mem/configmgr"]}
+      ]
     },
     {
       "technology_aliases": [
@@ -169,6 +174,148 @@
       "safe_identity_aliases": [
         "C++ programming language"
       ]
+    },
+    {
+      "technology_aliases": ["Angular", "AngularJS"],
+      "official_domains": ["angular.dev", "angularjs.org"],
+      "maintainer": "Google"
+    },
+    {
+      "technology_aliases": ["Circle CI", "CircleCI"],
+      "official_domains": ["circleci.com"],
+      "maintainer": "Circle Internet Services"
+    },
+    {
+      "technology_aliases": ["C#", "C Sharp"],
+      "official_sources": [
+        {"domain": "learn.microsoft.com", "path_prefixes": ["/dotnet/csharp", "/en-us/dotnet/csharp"]}
+      ],
+      "maintainer": "Microsoft"
+    },
+    {
+      "technology_aliases": ["Docker Compose", "docker compose"],
+      "official_sources": [
+        {"domain": "docs.docker.com", "path_prefixes": ["/compose"]}
+      ],
+      "maintainer": "Docker"
+    },
+    {
+      "technology_aliases": [".NET", "Dotnet", "Dot Net"],
+      "official_domains": ["dotnet.microsoft.com"],
+      "official_sources": [
+        {"domain": "learn.microsoft.com", "path_prefixes": ["/dotnet", "/en-us/dotnet"]}
+      ],
+      "maintainer": "Microsoft"
+    },
+    {
+      "technology_aliases": ["GitHub Actions", "Github Actions"],
+      "official_sources": [
+        {"domain": "docs.github.com", "path_prefixes": ["/actions", "/en/actions"]}
+      ],
+      "maintainer": "GitHub"
+    },
+    {
+      "technology_aliases": ["GitLab CI", "GitLab CI/CD", "Gitlab CI", "Gitlab CI/CD"],
+      "official_sources": [
+        {"domain": "docs.gitlab.com", "path_prefixes": ["/ci"]}
+      ],
+      "maintainer": "GitLab"
+    },
+    {
+      "technology_aliases": ["Grafana"],
+      "official_domains": ["grafana.com"],
+      "maintainer": "Grafana Labs"
+    },
+    {
+      "technology_aliases": ["Jenkins"],
+      "official_domains": ["jenkins.io"],
+      "maintainer": "Jenkins project"
+    },
+    {
+      "technology_aliases": ["Kubernetes", "K8s"],
+      "official_domains": ["kubernetes.io"],
+      "maintainer": "Cloud Native Computing Foundation"
+    },
+    {
+      "technology_aliases": ["MongoDB"],
+      "official_domains": ["mongodb.com", "docs.mongodb.com"],
+      "maintainer": "MongoDB, Inc."
+    },
+    {
+      "technology_aliases": ["MQTT", "Message Queuing Telemetry Transport"],
+      "official_domains": ["mqtt.org"],
+      "official_sources": [
+        {"domain": "docs.oasis-open.org", "path_prefixes": ["/mqtt"]}
+      ],
+      "maintainer": "OASIS"
+    },
+    {
+      "technology_aliases": ["Node.js", "NodeJS", "Node JS"],
+      "official_domains": ["nodejs.org"],
+      "maintainer": "OpenJS Foundation"
+    },
+    {
+      "technology_aliases": ["OpenTelemetry", "OTel", "Open Telemetry"],
+      "official_domains": ["opentelemetry.io"],
+      "maintainer": "Cloud Native Computing Foundation"
+    },
+    {
+      "technology_aliases": ["Podman"],
+      "official_domains": ["podman.io"],
+      "maintainer": "Podman project"
+    },
+    {
+      "technology_aliases": ["Prometheus"],
+      "official_domains": ["prometheus.io"],
+      "maintainer": "Cloud Native Computing Foundation"
+    },
+    {
+      "technology_aliases": ["React", "React.js", "ReactJS"],
+      "official_domains": ["react.dev"],
+      "maintainer": "Meta"
+    },
+    {
+      "technology_aliases": ["Svelte"],
+      "official_domains": ["svelte.dev"],
+      "maintainer": "Svelte project"
+    },
+    {
+      "technology_aliases": ["Vue", "Vue.js", "VueJS"],
+      "official_domains": ["vuejs.org"],
+      "maintainer": "Vue project"
+    },
+    {
+      "technology_aliases": ["PostgreSQL", "Postgres"],
+      "official_domains": ["postgresql.org"]
+    },
+    {
+      "technology_aliases": ["Redis"],
+      "official_domains": ["redis.io"]
+    },
+    {
+      "technology_aliases": ["Amazon Web Services", "AWS"],
+      "official_domains": ["aws.amazon.com", "docs.aws.amazon.com"]
+    },
+    {
+      "technology_aliases": ["Microsoft Azure", "Azure"],
+      "official_domains": ["azure.microsoft.com"],
+      "official_sources": [
+        {"domain": "learn.microsoft.com", "path_prefixes": ["/azure", "/en-us/azure"]}
+      ]
+    },
+    {
+      "technology_aliases": ["Google Cloud Platform", "Google Cloud", "GCP"],
+      "official_domains": ["cloud.google.com"]
+    },
+    {
+      "technology_aliases": ["Terraform"],
+      "official_sources": [
+        {"domain": "developer.hashicorp.com", "path_prefixes": ["/terraform"]}
+      ]
+    },
+    {
+      "technology_aliases": ["Ansible"],
+      "official_domains": ["docs.ansible.com"]
     }
   ],
   "organization_domains": [

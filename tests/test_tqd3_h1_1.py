@@ -9,7 +9,11 @@ from unittest.mock import Mock, patch
 from taxonomy_discovery import governed_research as h1
 from taxonomy_discovery.research_atomicity import candidate_atomicity
 from taxonomy_discovery.resolver_improvement import resolver_overlay, RESOLVER_DRAFT_VERSION
-from taxonomy_discovery.source_authority import classify_candidate_source_url, default_source_authority_registry_path
+from taxonomy_discovery.source_authority import (
+    classify_candidate_source_url,
+    default_source_authority_registry_path,
+    load_source_authority_registry,
+)
 from taxonomy_discovery.regression_corpus import build_regression_corpus
 from taxonomy_discovery.corpus_expansion import fingerprint
 from tailoring.capability_taxonomy import TAXONOMY_PATH, get_default_taxonomy
@@ -180,7 +184,8 @@ class CachedAuthorityTests(unittest.TestCase):
             updated=h1.re_evaluate_saved_evidence(original,explicit_execution=True,authority_registry_path=default_source_authority_registry_path())
             self.assertTrue(updated["identity_finding"]["verified"])
             self.assertEqual(updated["identity_finding"]["canonical_name"],"Microsoft Configuration Manager")
-            self.assertEqual(updated["authority_rules_version"],"source-authority-registry-v1.3")
+            self.assertEqual(updated["authority_rules_version"],
+                             load_source_authority_registry()["version"])
             self.assertEqual(updated["provider_request_id"],original["provider_request_id"])
         with PublicationFixture() as f:
             original=old_result(f,"Microsoft SCCM",[{"url":"https://learn.microsoft.com/en-us/answers/questions/123/naming",
@@ -248,15 +253,13 @@ class AtomicityPreflightTests(unittest.TestCase):
             self.assertEqual(candidate_atomicity(candidate("Python or Java"))["logical_relation"],"or")
             self.assertEqual(candidate_atomicity(candidate("AWS Glue, Azure Data Factory, Google Dataflow or Databricks"))["logical_relation"],"alternative_list")
 
-    def test_server_rejects_preexisting_compound_plan_no_transport(self):
+    def test_server_rejects_compound_plan_before_transport(self):
         with PublicationFixture() as f:
             c=candidate("Python or Java")
-            # Simulate an old H.1 plan assembled before the new atomicity guard.
             with patch("taxonomy_discovery.research_atomicity.candidate_atomicity",return_value={"atomicity_status":"atomic","detected_entities":["Python","Java"]}):
-                plan=h1.research_plan([c],selected_candidate_ids=[c["candidate_id"]])
+                with self.assertRaisesRegex(ValueError,"route-aware readiness"):
+                    h1.research_plan([c],selected_candidate_ids=[c["candidate_id"]])
             fake=Mock()
-            with self.assertRaisesRegex(ValueError,"decomposition"):
-                h1.execute_plan(plan,[c],explicit_execution=True,transport=fake,db_path=f.tmp/"h11.sqlite")
             fake.assert_not_called(); self.assertFalse((f.tmp/"h11.sqlite").exists())
 
     def test_global_missing_key_fails_before_any_local_or_external_execution(self):

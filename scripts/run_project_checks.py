@@ -56,6 +56,8 @@ QUICK_TEST_MODULES = (
     "tests.test_tqd3_broad_mining_candidate_review_ui_contract",
     "tests.test_tqd3_broad_mining_persistence_ui_contract",
     "tests.test_tqd3_source_authority",
+    "tests.test_tqd3_research_readiness",
+    "tests.test_tqd3_bulk_candidate_operations",
     "tests.test_tqd3_broad_mining_source_authority_ui_contract",
     "tests.test_tqd3_broad_mining_candidate_ui_contract",
     "tests.test_tqd3_tavily_research_agent",

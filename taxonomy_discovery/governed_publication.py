@@ -363,7 +363,7 @@ def review_ledger(*, db_path=None):
         receipt = next((r for r in receipts if r["draft_fingerprint"] == fingerprint(draft)),None) if draft else None
         decision = review.get("decision","undecided")
         state = "published" if receipt and receipt["status"] == "published" else "superseded" if superseded_by else {
-            "reject":"rejected","approve_for_publication":"approved_pending_publication","research_more":"research_more"}.get(decision,"pending_review")
+            "reject":"rejected","defer":"deferred","approve_for_publication":"approved_pending_publication","research_more":"research_more"}.get(decision,"pending_review")
         report = review.get("regression") or ({} if superseded_by else latest_impact(result["research_result_id"],db_path=db_path)) or {}
         blockers = list(report.get("publication_blockers",[]))
         if report.get("unexpectedly_changed_requirements") and "unexpected_requirement_changes" not in blockers:

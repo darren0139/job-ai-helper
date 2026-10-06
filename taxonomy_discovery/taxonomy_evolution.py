@@ -26,7 +26,7 @@ from taxonomy_discovery.candidate_refinement import (concept_key, semantic_overl
 PROPOSAL_VERSION = "tqd3-taxonomy-proposal-v1"
 ROUTES = ("technology_identity", "technology_relationship", "existing_capability_resolver_issue",
     "possible_new_capability", "ambiguous_or_noise", "administrative_or_non_capability", "insufficient_signal")
-DECISIONS = ("undecided", "research_more", "reject", "approve_for_publication")
+DECISIONS = ("undecided", "research_more", "defer", "reject", "approve_for_publication")
 
 
 def overlap_check(text, *, taxonomy=None):
