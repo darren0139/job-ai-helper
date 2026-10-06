@@ -9,6 +9,10 @@ from tailoring.candidate_context import build_candidate_context, context_fingerp
 from database.job_match_manager import (
     get_job_match_snapshot,
     get_latest_job_match_snapshot,
+    list_current_job_match_snapshots,
+    list_latest_job_match_snapshots,
+    list_current_job_match_state_rows,
+    list_latest_job_match_state_rows,
     save_job_match_snapshot,
 )
 from taxonomy_discovery.observations import (
@@ -17,10 +21,11 @@ from taxonomy_discovery.observations import (
 from taxonomy_discovery.technology_registry import get_default_registry
 
 
-MATCH_VERSION = "job-match-snapshot-v2.2.0"
+MATCH_VERSION = "job-match-snapshot-v2.3.0"
 _JD_PROFILE_REUSE_COMPATIBLE_MATCH_CONTRACTS = {
     "job-match-snapshot-v2.1.0",
     "job-match-snapshot-v2.2.0",
+    "job-match-snapshot-v2.3.0",
 }
 
 
@@ -235,20 +240,45 @@ def _default_stable_builder(
 def summarize_stable_match(
     stable_analysis: dict[str, Any],
 ) -> dict[str, Any]:
-    from analysis_stability.stable_evidence_scoring import requirement_is_score_eligible
+    from analysis_stability.stable_evidence_scoring import (
+        requirement_is_score_eligible,
+    )
+    from job_discovery.match_ranking import build_ranking_quality
 
     rows = [
         row
         for row in stable_analysis.get("canonical_requirements", []) or []
         if isinstance(row, dict) and requirement_is_score_eligible(row)
     ]
+
+    taxonomy_resolution = build_taxonomy_resolution_diagnostics(
+        stable_analysis
+    )
+    resolution_by_requirement = {
+        _clean(row.get("requirement_id")): row
+        for row in taxonomy_resolution.get("rows", []) or []
+        if isinstance(row, dict)
+    }
+
     important_gaps: list[dict[str, Any]] = []
     all_gaps: list[dict[str, Any]] = []
+    evidence_gaps: list[dict[str, Any]] = []
+    important_evidence_gaps: list[dict[str, Any]] = []
+    taxonomy_gaps: list[dict[str, Any]] = []
+    important_taxonomy_gaps: list[dict[str, Any]] = []
+
     for row in rows:
         if str(row.get("match_label") or "none").lower() != "none":
             continue
+
+        requirement_id = _clean(row.get("requirement_id"))
+        resolution = resolution_by_requirement.get(requirement_id, {})
+        taxonomy_resolved = (
+            _clean(resolution.get("status")).lower() == "resolved"
+        )
+
         gap = {
-            "requirement_id": _clean(row.get("requirement_id")),
+            "requirement_id": requirement_id,
             "text": _clean(row.get("atomic_focus") or row.get("text")),
             "importance": _clean(row.get("importance")),
             "capability_id": _clean(
@@ -256,10 +286,26 @@ def summarize_stable_match(
                 or row.get("taxonomy_capability_id")
                 or row.get("canonical_capability_id")
             ),
+            "gap_type": (
+                "evidence_gap"
+                if taxonomy_resolved
+                else "taxonomy_gap"
+            ),
         }
         all_gaps.append(gap)
-        if gap["importance"].lower() in IMPORTANT_IMPORTANCE:
+
+        important = gap["importance"].lower() in IMPORTANT_IMPORTANCE
+        if important:
             important_gaps.append(gap)
+
+        if taxonomy_resolved:
+            evidence_gaps.append(gap)
+            if important:
+                important_evidence_gaps.append(gap)
+        else:
+            taxonomy_gaps.append(gap)
+            if important:
+                important_taxonomy_gaps.append(gap)
 
     counts = {
         label: sum(
@@ -270,12 +316,27 @@ def summarize_stable_match(
         for label in ("direct", "transferable", "weak", "none")
     }
 
-    taxonomy_resolution = build_taxonomy_resolution_diagnostics(
-        stable_analysis
-    )
+    ranking_quality = build_ranking_quality(taxonomy_resolution)
 
     return {
         "taxonomy_resolution": taxonomy_resolution,
+        "ranking_quality": ranking_quality,
+        "ranking_version": ranking_quality["ranking_version"],
+        "ranking_eligible": ranking_quality["ranking_eligible"],
+        "ranking_status": ranking_quality["ranking_status"],
+        "ranking_ineligible_reasons": ranking_quality[
+            "ranking_ineligible_reasons"
+        ],
+        "overall_taxonomy_coverage_pct": ranking_quality[
+            "overall_taxonomy_coverage_pct"
+        ],
+        "important_taxonomy_coverage_pct": ranking_quality[
+            "important_taxonomy_coverage_pct"
+        ],
+        "taxonomy_gap_count": ranking_quality["taxonomy_gap_count"],
+        "important_taxonomy_gap_count": ranking_quality[
+            "important_taxonomy_gap_count"
+        ],
         "deterministic_alignment_score": int(
             stable_analysis.get("deterministic_alignment_score", 0) or 0
         ),
@@ -297,11 +358,16 @@ def summarize_stable_match(
         "important_gap_count": len(important_gaps),
         "important_gaps": important_gaps[:12],
         "all_gaps": all_gaps[:30],
+        "evidence_gap_count": len(evidence_gaps),
+        "important_evidence_gap_count": len(important_evidence_gaps),
+        "evidence_gaps": evidence_gaps[:30],
+        "important_evidence_gaps": important_evidence_gaps[:12],
+        "taxonomy_gaps": taxonomy_gaps[:30],
+        "important_taxonomy_gaps": important_taxonomy_gaps[:12],
         "score_interpretation": _clean(
             stable_analysis.get("score_interpretation")
         ),
     }
-
 
 def _identity(
     job: dict[str, Any],
@@ -376,6 +442,113 @@ def inspect_job_match(
         "stale_reasons": stale_reasons or ["cache identity changed"],
         "identity": identity,
     }
+
+
+
+def inspect_job_matches(
+    jobs: list[dict[str, Any]] | None,
+    *,
+    context: dict[str, Any] | None = None,
+    versions: dict[str, str] | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Inspect many jobs using ID-scoped, summary-only snapshot queries."""
+    job_rows = [
+        job
+        for job in (jobs or [])
+        if isinstance(job, dict) and int(job.get("id", 0) or 0) > 0
+    ]
+    if not job_rows:
+        return {}
+
+    context = context or current_evidence_context()
+    versions = versions or current_match_versions()
+    job_ids = [
+        int(job.get("id", 0) or 0)
+        for job in job_rows
+    ]
+
+    identity_match_version = _match_identity_version(
+        versions.get("match_version") or MATCH_VERSION,
+        versions.get("technology_registry_version") or "",
+    )
+    current_rows = list_current_job_match_state_rows(
+        job_ids,
+        evidence_fingerprint=str(
+            context.get("evidence_fingerprint") or ""
+        ),
+        match_version=identity_match_version,
+        scoring_version=str(
+            versions.get("scoring_version") or ""
+        ),
+        taxonomy_version=str(
+            versions.get("taxonomy_version") or ""
+        ),
+    )
+    current_by_job = {
+        int(row.get("discovered_job_id", 0) or 0): row
+        for row in current_rows
+        if isinstance(row, dict)
+    }
+
+    latest_rows = list_latest_job_match_state_rows(
+        job_ids
+    )
+    latest_by_job = {
+        int(row.get("discovered_job_id", 0) or 0): row
+        for row in latest_rows
+        if isinstance(row, dict)
+    }
+
+    output: dict[int, dict[str, Any]] = {}
+
+    for job in job_rows:
+        job_id = int(job.get("id", 0) or 0)
+        identity = _identity(job, context, versions)
+        current = current_by_job.get(job_id)
+
+        if (
+            isinstance(current, dict)
+            and str(current.get("job_content_hash") or "")
+            == str(identity.get("job_content_hash") or "")
+        ):
+            output[job_id] = {
+                "status": "current",
+                "snapshot": current,
+                "stale_reasons": [],
+                "identity": identity,
+            }
+            continue
+
+        latest = latest_by_job.get(job_id)
+        if latest is None:
+            output[job_id] = {
+                "status": "none",
+                "snapshot": None,
+                "stale_reasons": [],
+                "identity": identity,
+            }
+            continue
+
+        stale_reasons: list[str] = []
+        comparisons = (
+            ("job_content_hash", "job description changed"),
+            ("evidence_fingerprint", "Profile & Evidence changed"),
+            ("match_version", "job-match pipeline changed"),
+            ("scoring_version", "stable scoring version changed"),
+            ("taxonomy_version", "capability taxonomy changed"),
+        )
+        for field, reason in comparisons:
+            if str(latest.get(field) or "") != str(identity.get(field) or ""):
+                stale_reasons.append(reason)
+
+        output[job_id] = {
+            "status": "stale",
+            "snapshot": latest,
+            "stale_reasons": stale_reasons or ["cache identity changed"],
+            "identity": identity,
+        }
+
+    return output
 
 
 def analyze_job_match(

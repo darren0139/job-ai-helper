@@ -193,6 +193,236 @@ def list_latest_compatible_job_match_snapshots(
         connection.close()
 
 
+
+def list_current_job_match_snapshots(
+    *,
+    evidence_fingerprint: str,
+    match_version: str,
+    scoring_version: str,
+    taxonomy_version: str,
+) -> list[dict[str, Any]]:
+    """Return one latest snapshot per job for the exact candidate identity."""
+    init_job_match_schema()
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """
+            SELECT current.*
+            FROM job_match_snapshots AS current
+            JOIN (
+                SELECT discovered_job_id, MAX(id) AS latest_id
+                FROM job_match_snapshots
+                WHERE evidence_fingerprint = ?
+                  AND match_version = ?
+                  AND scoring_version = ?
+                  AND taxonomy_version = ?
+                GROUP BY discovered_job_id
+            ) AS latest
+              ON latest.latest_id = current.id
+            ORDER BY current.discovered_job_id ASC, current.id ASC
+            """,
+            (
+                str(evidence_fingerprint or ""),
+                str(match_version or ""),
+                str(scoring_version or ""),
+                str(taxonomy_version or ""),
+            ),
+        ).fetchall()
+        return [
+            decoded
+            for decoded in (_decode_row(row) for row in rows)
+            if decoded is not None
+        ]
+    finally:
+        connection.close()
+
+
+def list_latest_job_match_snapshots(
+    discovered_job_ids: list[int] | tuple[int, ...],
+) -> list[dict[str, Any]]:
+    ids = sorted(
+        {
+            int(value)
+            for value in (discovered_job_ids or [])
+            if int(value or 0) > 0
+        }
+    )
+    if not ids:
+        return []
+
+    init_job_match_schema()
+    connection = _connect()
+    try:
+        placeholders = ", ".join("?" for _ in ids)
+        rows = connection.execute(
+            f"""
+            SELECT current.*
+            FROM job_match_snapshots AS current
+            JOIN (
+                SELECT discovered_job_id, MAX(id) AS latest_id
+                FROM job_match_snapshots
+                WHERE discovered_job_id IN ({placeholders})
+                GROUP BY discovered_job_id
+            ) AS latest
+              ON latest.latest_id = current.id
+            ORDER BY current.discovered_job_id ASC, current.id ASC
+            """,
+            tuple(ids),
+        ).fetchall()
+        return [
+            decoded
+            for decoded in (_decode_row(row) for row in rows)
+            if decoded is not None
+        ]
+    finally:
+        connection.close()
+
+
+def _decode_match_state_row(
+    row: sqlite3.Row | None,
+) -> dict[str, Any] | None:
+    """Decode only lightweight fields required by Job Finder list views."""
+    if row is None:
+        return None
+    item = dict(row)
+    raw_summary = item.pop("summary_json", "")
+    try:
+        item["summary"] = json.loads(raw_summary) if raw_summary else {}
+    except (TypeError, ValueError):
+        item["summary"] = {}
+    return item
+
+
+def list_current_job_match_state_rows(
+    discovered_job_ids: list[int] | tuple[int, ...],
+    *,
+    evidence_fingerprint: str,
+    match_version: str,
+    scoring_version: str,
+    taxonomy_version: str,
+) -> list[dict[str, Any]]:
+    """Return lightweight current snapshots scoped to requested job IDs."""
+    ids = sorted(
+        {
+            int(value)
+            for value in (discovered_job_ids or [])
+            if int(value or 0) > 0
+        }
+    )
+    if not ids:
+        return []
+
+    init_job_match_schema()
+    connection = _connect()
+    try:
+        output: list[dict[str, Any]] = []
+        for start in range(0, len(ids), 800):
+            chunk = ids[start:start + 800]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = connection.execute(
+                f"""
+                SELECT
+                    current.id,
+                    current.discovered_job_id,
+                    current.job_content_hash,
+                    current.evidence_fingerprint,
+                    current.match_version,
+                    current.scoring_version,
+                    current.taxonomy_version,
+                    current.summary_json,
+                    current.created_at
+                FROM job_match_snapshots AS current
+                JOIN (
+                    SELECT discovered_job_id, MAX(id) AS latest_id
+                    FROM job_match_snapshots
+                    WHERE discovered_job_id IN ({placeholders})
+                      AND evidence_fingerprint = ?
+                      AND match_version = ?
+                      AND scoring_version = ?
+                      AND taxonomy_version = ?
+                    GROUP BY discovered_job_id
+                ) AS latest
+                  ON latest.latest_id = current.id
+                ORDER BY current.discovered_job_id ASC, current.id ASC
+                """,
+                (
+                    *chunk,
+                    str(evidence_fingerprint or ""),
+                    str(match_version or ""),
+                    str(scoring_version or ""),
+                    str(taxonomy_version or ""),
+                ),
+            ).fetchall()
+            output.extend(
+                decoded
+                for decoded in (
+                    _decode_match_state_row(row)
+                    for row in rows
+                )
+                if decoded is not None
+            )
+        return output
+    finally:
+        connection.close()
+
+
+def list_latest_job_match_state_rows(
+    discovered_job_ids: list[int] | tuple[int, ...],
+) -> list[dict[str, Any]]:
+    """Return lightweight latest snapshots scoped to requested job IDs."""
+    ids = sorted(
+        {
+            int(value)
+            for value in (discovered_job_ids or [])
+            if int(value or 0) > 0
+        }
+    )
+    if not ids:
+        return []
+
+    init_job_match_schema()
+    connection = _connect()
+    try:
+        output: list[dict[str, Any]] = []
+        for start in range(0, len(ids), 800):
+            chunk = ids[start:start + 800]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = connection.execute(
+                f"""
+                SELECT
+                    current.id,
+                    current.discovered_job_id,
+                    current.job_content_hash,
+                    current.evidence_fingerprint,
+                    current.match_version,
+                    current.scoring_version,
+                    current.taxonomy_version,
+                    current.summary_json,
+                    current.created_at
+                FROM job_match_snapshots AS current
+                JOIN (
+                    SELECT discovered_job_id, MAX(id) AS latest_id
+                    FROM job_match_snapshots
+                    WHERE discovered_job_id IN ({placeholders})
+                    GROUP BY discovered_job_id
+                ) AS latest
+                  ON latest.latest_id = current.id
+                ORDER BY current.discovered_job_id ASC, current.id ASC
+                """,
+                tuple(chunk),
+            ).fetchall()
+            output.extend(
+                decoded
+                for decoded in (
+                    _decode_match_state_row(row)
+                    for row in rows
+                )
+                if decoded is not None
+            )
+        return output
+    finally:
+        connection.close()
+
 def save_job_match_snapshot(
     *,
     discovered_job_id: int,
