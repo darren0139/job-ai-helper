@@ -241,6 +241,39 @@ def _render_corpus_resolution(st, bulk):
     })
     st.dataframe(audit["evidence_taxonomy_cross_tab"], hide_index=True, width="stretch")
 
+    triage = audit["true_job_match_gap_triage"]
+    st.markdown("###### True no-evidence gap triage")
+    st.caption(
+        "Every score-eligible requirement with no selected Profile & Evidence row is classified "
+        "by its primary failure layer. Candidate evidence diagnostics reuse the production "
+        "deterministic selector and do not influence scores."
+    )
+    st.write("Primary reason counts", triage["summary_counts"])
+    st.markdown("**Top 20 fixes by expected Job Match quality impact**")
+    st.dataframe(
+        audit["top_20_job_match_quality_fixes"], hide_index=True, width="stretch"
+    )
+    eligibility = triage["score_eligibility_audit"]
+    st.write("Score-eligibility policy review", {
+        "all requirements currently score eligible": eligibility["all_currently_score_eligible"],
+        "current score-eligible requirements": eligibility["current_score_eligible"],
+        "requirements needing eligibility review": eligibility["potential_review_count"],
+        "behavior changed": eligibility["behavior_changed"],
+    })
+    with st.expander("Top-gap requirement diagnostics"):
+        st.caption(
+            "Includes the saved match result, best compatible saved evidence row, rejection or "
+            "absence reason, taxonomy effect, and recommended fix layer."
+        )
+        st.dataframe(
+            triage["attention_gap_diagnostics"], hide_index=True, width="stretch"
+        )
+    with st.expander("Advanced · all true no-evidence and eligibility diagnostics"):
+        st.dataframe(triage["requirements"], hide_index=True, width="stretch")
+        st.dataframe(
+            eligibility["requirements"], hide_index=True, width="stretch"
+        )
+
     st.markdown("###### Taxonomy Knowledge")
     st.caption("These metrics describe capability resolution and technology metadata. They do not claim score eligibility.")
     st.write("Resolution and identity", {

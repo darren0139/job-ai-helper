@@ -17,6 +17,9 @@ from typing import Any
 
 from analysis_stability.stable_evidence_scoring import (
     IMPORTANCE_WEIGHTS,
+    _best_resume_evidence,
+    _deterministic_weak_evidence_is_sufficient,
+    build_resume_evidence_index,
     requirement_is_score_eligible,
 )
 from job_discovery.matching import current_match_versions
@@ -64,6 +67,19 @@ CAPABILITY_CLOSURE_PROFILE_PATH = (
     Path(__file__).resolve().parent / "seeds" / "tqd3_capability_closure_profiles_v1.json"
 )
 JOB_MATCH_HEALTH_REPORT_VERSION = "tqd3-job-match-health-v1"
+TRUE_GAP_TRIAGE_VERSION = "tqd3-true-job-match-gap-triage-v1"
+
+TRUE_GAP_CATEGORIES = {
+    "A": "genuine_candidate_evidence_gap",
+    "B": "transferable_evidence_may_exist_matcher_did_not_connect",
+    "C": "semantic_eligibility_problem",
+    "D": "certification_or_credential_requirement",
+    "E": "application_process_or_admin_requirement",
+    "F": "compound_requirement_needing_decomposition",
+    "G": "taxonomy_or_evidence_boundary_problem",
+    "H": "resolver_or_matcher_problem",
+    "I": "manual_or_ambiguous",
+}
 
 TECHNOLOGY_CONCEPT_ALIASES = {
     "Python": ("Python",),
@@ -222,6 +238,321 @@ def _route_requirement_keys(row: dict[str, Any]) -> set[tuple[Any, Any]]:
 
 def _technology_concept_present(text: str, aliases: tuple[str, ...]) -> bool:
     return any(phrase_present(text, alias) for alias in aliases)
+
+
+_ADMIN_PROCESS_PATTERN = re.compile(
+    r"\b(?:apply now|apply online|submi(?:t|tting)(?: your| an| the)? "
+    r"(?:application|resume|cv)|application process|shortlisted|shortlisting|"
+    r"by applying|(?:applicants?|candidates?|you) (?:hereby )?consent|"
+    r"citizenship|citizen|work authori[sz]ation|eligible to work|visa|"
+    r"notice period|salary|shift availability|rotating shifts|working hours|"
+    r"coding assessment|online assessment|take home (?:test|assessment)|"
+    r"pre employment (?:test|assessment|screening)|interview process|"
+    r"ea licen[cs]e number)\b",
+    re.I,
+)
+_ADDRESS_PATTERN = re.compile(
+    r"\b\d+\s+[\w ]{1,65}\b(?:road|street|avenue|drive|boulevard|lane)\b|"
+    r"\bsingapore\s+\d{6}\b",
+    re.I,
+)
+_CREDENTIAL_PATTERN = re.compile(
+    r"\b(?:certifications?|certified|certificates?|credentials?|licen[cs]e[sd]?|"
+    r"degree(?!\s+of\b)|bachelors?|master(?:'s|s)?|phd|doctorate|diploma|"
+    r"academic qualifications?|educational background)\b",
+    re.I,
+)
+_SEMANTIC_ELIGIBILITY_PATTERN = re.compile(
+    r"\b(?:our company|our mission(?![- ]critical)|our vision|about us|join our|"
+    r"leading provider|"
+    r"our clients include|equal opportunity employer|job description only|"
+    r"other duties as assigned|this role reports to|"
+    r"you(?:'ll| will) be a key member|throughout .{0,80}you will gain|"
+    r"at .{0,60}we recognize)\b",
+    re.I,
+)
+_TECHNICAL_REQUIREMENT_PATTERN = re.compile(
+    r"\b(?:software|systems?|technical|technologies|data|database|security|"
+    r"cybersecurity|vapt|penetration|threat modell?ing|devsecops|network|cloud|"
+    r"code|coding|programming|api|backend|frontend|architecture|algorithm|"
+    r"automation|deployment|integration|infrastructure|platform|application|"
+    r"debug|troubleshoot|testing|quality assurance|qa|observability|monitoring|"
+    r"protocol|firmware|machine learning|artificial intelligence|kubernetes|"
+    r"aws|azure|gcp|python|java|javascript|typescript|sql)\b",
+    re.I,
+)
+
+
+def _attention_area(text: str) -> str | None:
+    checks = (
+        ("generic preferred certifications", r"\bpreferred\b.*\bcertif|\bcertif\w*\b.*\bpreferred\b"),
+        ("coding assessment requirements", r"\b(?:coding|online|technical) assessment\b|\btake home (?:test|assessment)\b"),
+        ("degree/background requirements", r"\b(?:degree|bachelor|master(?:'s|s)?|phd|academic|educational background|computer science background)\b"),
+        ("certifications", r"\b(?:certifications?|certified|certificates?|credentials?|licen[cs]e[sd]?)\b"),
+        ("Kubernetes", r"\bkubernetes\b"),
+        ("AWS architecture/implementation", r"\b(?:aws|amazon web services)\b.*\b(?:architect|architecture|implement|implementation|deploy|deployment|build)\w*\b|\b(?:architect|architecture|implement|implementation|deploy|deployment|build)\w*\b.*\b(?:aws|amazon web services)\b"),
+        ("QA/software testing", r"\b(?:quality assurance|software testing|test automation|qa)\b"),
+        ("DevSecOps", r"\bdevsecops\b"),
+        ("cybersecurity/VAPT/threat modelling", r"\b(?:cybersecurity|vapt|vulnerability assessment|penetration testing|threat modell?ing)\b"),
+        ("generic software-development experience", r"\b(?:software development|software engineering)\b.*\bexperience\b|\bexperience\b.*\b(?:software development|software engineering)\b"),
+    )
+    for label, pattern in checks:
+        if re.search(pattern, text, re.I):
+            return label
+    return None
+
+
+def _evidence_absence_reason(diagnostic: dict[str, Any]) -> str:
+    if not diagnostic.get("historical_evidence_available"):
+        return "Frozen Profile & Evidence context is unavailable; the audit fails closed and does not infer candidate evidence."
+    candidate = diagnostic.get("best_compatible_evidence")
+    if not candidate:
+        return "No compatible saved Profile & Evidence row had deterministic lexical overlap with this requirement."
+    if diagnostic.get("passes_production_weak_fallback_minima"):
+        return (
+            "A compatible saved evidence row met the production weak-fallback overlap minima, "
+            "but the saved final production result remained none; inspect the recorded matcher, "
+            "resolution, and evidence-policy guards."
+        )
+    missed = diagnostic.get("missed_weak_fallback_minima") or []
+    return (
+        "The best compatible saved evidence row was not selected because it missed production "
+        "weak-fallback minimum " + ", ".join(missed) + "."
+    )
+
+
+def _taxonomy_effect(row: dict[str, Any]) -> tuple[bool, str]:
+    diagnostics = row.get("scorer_diagnostics") or {}
+    if row.get("taxonomy_cap_status") == "applied":
+        return True, "Production taxonomy capped or rejected the preliminary match."
+    if diagnostics.get("capability_evidence_reselection"):
+        return True, "Production taxonomy selected a stronger compatible evidence row."
+    if diagnostics.get("capability_none_recovery"):
+        return True, "Production taxonomy recovered a grounded match from a preliminary none result."
+    if row["current_resolution"].get("status") == "resolved":
+        return False, "A capability resolves now, but the saved row records no taxonomy match intervention."
+    return False, "No production taxonomy effect is recorded for this saved match result."
+
+
+def _true_gap_category(
+    row: dict[str, Any],
+    *,
+    operational_route: str,
+    operational_reason: str,
+) -> tuple[str, str, str]:
+    text = row["requirement_text"]
+    evidence = row.get("evidence_diagnostic") or {}
+    resolution = row["current_resolution"]
+
+    if _ADMIN_PROCESS_PATTERN.search(text) or _ADDRESS_PATTERN.search(text):
+        return "E", "The text expresses application, assessment, eligibility, scheduling, notice, or address semantics.", "jd_semantic_eligibility_admin_filter"
+    if _CREDENTIAL_PATTERN.search(text):
+        return "D", "The requirement asks for a degree, certification, licence, or other credential.", "credential_evidence_and_policy"
+    if operational_route == "needs_decomposition":
+        return "F", "The existing deterministic atomicity route requires child requirements before matching.", "requirement_decomposition"
+    if _SEMANTIC_ELIGIBILITY_PATTERN.search(text) or (
+        operational_route == "noise_or_non_capability"
+        and "Employer/organisation/marketing narrative" in operational_reason
+    ):
+        return "C", "The text appears to be employer narrative or non-requirement prose that should likely not contribute to Job Match.", "jd_semantic_eligibility"
+    if row.get("taxonomy_cap_status") == "applied":
+        return "G", "The saved production result records an active taxonomy evidence cap or rejection.", "taxonomy_evidence_boundary"
+    if evidence.get("passes_production_weak_fallback_minima"):
+        if resolution.get("status") == "resolved":
+            return "G", "Compatible evidence met lexical minima for an existing capability but no grounded match survived its evidence boundary.", "taxonomy_evidence_boundary"
+        return "H", "Compatible evidence met production fallback minima but the final saved matcher result remained none.", "resolver_or_matcher"
+    best = evidence.get("best_compatible_evidence") or {}
+    if int(best.get("overlap_count") or 0) >= 2 and (
+        float(best.get("score") or 0.0) >= 0.20
+        or float(best.get("requirement_coverage") or 0.0) >= 0.15
+    ):
+        return "B", "A compatible saved evidence row has a multi-token near match, but it remains below production credit minima.", "deterministic_evidence_linker"
+    if operational_route == "local_resolver_issue":
+        return "H", "The existing deterministic queue already identifies a production resolver boundary for this requirement.", "resolver_or_matcher"
+    if (
+        resolution.get("status") == "resolved"
+        or row["technology_identity_resolution"].get("status") in {"resolved", "recognized_unmapped"}
+        or operational_route in {
+            "technology_identity_missing", "technology_relationship_missing",
+            "possible_new_capability", "phrase_or_alias_gap",
+        }
+        or _TECHNICAL_REQUIREMENT_PATTERN.search(text)
+    ):
+        return "A", "The requirement is technically or capability shaped and no compatible saved evidence row meets grounded-match minima.", "candidate_profile_evidence"
+    return "I", "The saved data does not support a safe automatic distinction between a real evidence gap and semantic noise.", "human_review"
+
+
+def _eligibility_review(row: dict[str, Any], *, operational_route: str) -> dict[str, str]:
+    text = row["requirement_text"]
+    if _ADMIN_PROCESS_PATTERN.search(text) or _ADDRESS_PATTERN.search(text):
+        return {"status": "likely_should_not_score", "reason": "Application/process/admin semantics."}
+    if _CREDENTIAL_PATTERN.search(text):
+        return {"status": "credential_policy_review", "reason": "Credential requirements need an explicit evidence and eligibility policy."}
+    if _SEMANTIC_ELIGIBILITY_PATTERN.search(text):
+        return {"status": "likely_should_not_score", "reason": "Employer narrative or non-requirement semantics."}
+    if operational_route == "needs_decomposition":
+        return {"status": "decompose_before_scoring", "reason": "Compound parent should not compete with its atomic children."}
+    return {"status": "no_issue_identified", "reason": "No deterministic eligibility concern identified by this audit."}
+
+
+def _quality_fix_ranking(triage_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    impact = {"H": 100, "B": 95, "C": 90, "E": 90, "F": 85, "G": 80, "D": 55, "A": 25, "I": 15}
+    impact_label = {
+        "H": "high · grounded false-negative investigation",
+        "B": "high · saved evidence near-match investigation",
+        "C": "high · denominator and semantic precision",
+        "E": "high · remove process text from match semantics",
+        "F": "high · prevent compound-parent distortion",
+        "G": "medium-high · evidence boundary correctness",
+        "D": "medium · credential evidence/policy clarity",
+        "A": "candidate-specific · evidence must be added by a human",
+        "I": "manual · ambiguity must be resolved first",
+    }
+    action = {
+        "H": "Reproduce the saved false negative through the production resolver/matcher and add a bounded regression before changing any gate.",
+        "B": "Review the saved near-match and its source guard; improve evidence linking only when the evidence independently proves the requirement.",
+        "C": "Review the extraction/semantic-eligibility boundary and exclude non-requirement prose in a separately approved scoring change.",
+        "D": "Define whether and how Profile & Evidence credentials should ground this requirement before changing eligibility or matching.",
+        "E": "Exclude application and process text at semantic eligibility in a separately approved scoring change.",
+        "F": "Use the existing deterministic decomposition contract and score only valid atomic children once.",
+        "G": "Review the existing capability evidence boundary against the compatible saved row; preserve conservative caps unless the row proves the capability.",
+        "A": "Add truthful candidate evidence through Profile & Evidence or retain the no-evidence result.",
+        "I": "Resolve the requirement meaning manually before changing deterministic policy.",
+    }
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in triage_rows:
+        target = row.get("attention_area") or concept_key(row["requirement_text"])
+        grouped[(row["category_code"], target)].append(row)
+    ranked = []
+    for (category, target), group in grouped.items():
+        required_core_weight = sum(
+            _weight(row) for row in group
+            if str(row.get("importance") or "").lower() in {"deal_breaker", "required", "core"}
+        )
+        ranked.append({
+            "fix_target": target,
+            "category_code": category,
+            "primary_reason": TRUE_GAP_CATEGORIES[category],
+            "recommended_fix_layer": group[0]["recommended_fix_layer"],
+            "expected_job_match_quality_impact": impact_label[category],
+            "recommended_action": action[category],
+            "requirement_count": len(group),
+            "job_count": len({row["job_id"] for row in group}),
+            "required_core_weight": round(required_core_weight, 6),
+            "example_requirement": sorted({row["requirement_text"] for row in group}, key=str.casefold)[0],
+            "quality_priority_score": impact[category] * 1_000 + required_core_weight * 10 + len(group),
+            "taxonomy_coverage_used_for_ranking": False,
+        })
+    ranked.sort(key=lambda row: (
+        -row["quality_priority_score"], -row["job_count"],
+        -row["requirement_count"], row["fix_target"].casefold(),
+    ))
+    for rank, row in enumerate(ranked[:20], 1):
+        row["rank"] = rank
+    return ranked[:20]
+
+
+def _true_job_match_gap_triage(
+    rows: list[dict[str, Any]],
+    *,
+    queue: list[dict[str, Any]],
+) -> dict[str, Any]:
+    route_by_key: dict[tuple[Any, Any], tuple[str, str]] = {}
+    for queue_row in queue:
+        if queue_row.get("parent_candidate_id"):
+            continue
+        for key in _route_requirement_keys(queue_row):
+            route_by_key[key] = (
+                str(queue_row.get("operational_route") or ""),
+                str(queue_row.get("blocker_reason") or ""),
+            )
+
+    triage_rows = []
+    eligibility_rows = []
+    for row in rows:
+        route, route_reason = route_by_key.get((row["job_id"], row["requirement_id"]), ("", ""))
+        eligibility = _eligibility_review(row, operational_route=route)
+        if eligibility["status"] != "no_issue_identified":
+            eligibility_rows.append({
+                "job_id": row["job_id"],
+                "requirement_id": row["requirement_id"],
+                "requirement_text": row["requirement_text"],
+                "importance": row["importance"],
+                "current_score_eligible": row["score_eligible"],
+                **eligibility,
+            })
+        if not row["score_eligible"] or row["has_grounded_evidence_reference"]:
+            continue
+        category, reason, fix_layer = _true_gap_category(
+            row, operational_route=route, operational_reason=route_reason
+        )
+        taxonomy_affected, taxonomy_effect = _taxonomy_effect(row)
+        triage_rows.append({
+            "category_code": category,
+            "primary_reason": TRUE_GAP_CATEGORIES[category],
+            "classification_reason": reason,
+            "recommended_fix_layer": fix_layer,
+            "attention_area": _attention_area(row["requirement_text"]),
+            "requirement_text": row["requirement_text"],
+            "job_id": row["job_id"],
+            "snapshot_id": row["snapshot_id"],
+            "requirement_id": row["requirement_id"],
+            "importance": row["importance"],
+            "group_weight_fraction": row.get("group_weight_fraction", 1.0),
+            "score_eligible": row["score_eligible"],
+            "current_match_result": {
+                "label": row["match_label"],
+                "value": row["match_value"],
+                "source": (row.get("scorer_diagnostics") or {}).get("match_source"),
+                "selected_evidence_count": len(row["selected_evidence"]),
+            },
+            "candidate_evidence_considered": deepcopy(row.get("evidence_diagnostic") or {}),
+            "why_evidence_was_rejected_or_absent": _evidence_absence_reason(row.get("evidence_diagnostic") or {}),
+            "taxonomy_result": deepcopy(row["current_resolution"]),
+            "taxonomy_affected_match": taxonomy_affected,
+            "taxonomy_effect": taxonomy_effect,
+            "operational_route": route or "not_in_taxonomy_gap_queue",
+            "eligibility_review": eligibility,
+        })
+
+    counts = Counter(row["category_code"] for row in triage_rows)
+    summary_counts = {
+        "genuine_evidence_gaps": counts["A"],
+        "likely_matcher_misses": counts["B"] + counts["H"],
+        "likely_semantic_eligibility_issues": counts["C"],
+        "certifications_or_credentials": counts["D"],
+        "admin_or_process": counts["E"],
+        "decomposition": counts["F"],
+        "taxonomy_boundary": counts["G"],
+        "manual_or_ambiguous": counts["I"],
+    }
+    attention_rows = [row for row in triage_rows if row["attention_area"]]
+    attention_rows.sort(key=lambda row: (
+        str(row["attention_area"]).casefold(), -_weight(row),
+        str(row["job_id"]), str(row["requirement_id"]),
+    ))
+    eligibility_counts = Counter(row["status"] for row in eligibility_rows)
+    return {
+        "triage_version": TRUE_GAP_TRIAGE_VERSION,
+        "category_definitions": deepcopy(TRUE_GAP_CATEGORIES),
+        "true_no_evidence_requirement_count": len(triage_rows),
+        "classification_counts": {code: counts[code] for code in TRUE_GAP_CATEGORIES},
+        "summary_counts": summary_counts,
+        "requirements": triage_rows,
+        "attention_gap_diagnostics": attention_rows,
+        "top_20_job_match_quality_fixes": _quality_fix_ranking(triage_rows),
+        "score_eligibility_audit": {
+            "all_currently_score_eligible": all(row["score_eligible"] for row in rows),
+            "total_requirements": len(rows),
+            "current_score_eligible": sum(row["score_eligible"] for row in rows),
+            "potential_review_count": len(eligibility_rows),
+            "review_status_counts": dict(sorted(eligibility_counts.items())),
+            "requirements": eligibility_rows,
+            "behavior_changed": False,
+        },
+        "read_only": True,
+        "scoring_semantics_changed": False,
+    }
 
 
 def _job_match_health_report(
@@ -806,8 +1137,24 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
     unresolved_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for job in frozen.get("jobs", []):
         versions = deepcopy(job.get("versions") or {})
+        stable = job.get("baseline_stable_analysis") or {}
+        context = (job.get("frozen_inputs") or {}).get("context")
+        historical_evidence_available = bool(
+            isinstance(context, dict)
+            and isinstance(context.get("resume_profile"), dict)
+            and isinstance(context.get("raw_resume_text"), str)
+        )
+        evidence_index = (
+            build_resume_evidence_index(
+                context.get("resume_profile"), context.get("raw_resume_text", "")
+            )
+            if historical_evidence_available else []
+        )
+        acronym_map = deepcopy(
+            (stable.get("canonicalisation_debug") or {}).get("acronym_map") or {}
+        )
         for requirement in job.get("requirements", []):
-            raw = next((row for row in (job.get("baseline_stable_analysis") or {}).get("canonical_requirements", [])
+            raw = next((row for row in stable.get("canonical_requirements", [])
                         if row.get("requirement_id") == requirement.get("requirement_id")), requirement)
             score_eligible = requirement_is_score_eligible(raw)
             text = str(requirement.get("requirement_text") or "").strip()
@@ -821,6 +1168,37 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
                 if isinstance(raw.get("evidence"), list)
                 else requirement.get("selected_evidence") or []
             )
+            best_evidence, best_score, best_coverage, best_overlap = _best_resume_evidence(
+                raw, "", evidence_index, acronym_map
+            ) if historical_evidence_available else (None, 0.0, 0.0, 0)
+            passes_weak_minima = bool(
+                best_evidence
+                and _deterministic_weak_evidence_is_sufficient(
+                    score=best_score,
+                    focus_coverage=best_coverage,
+                    overlap_count=best_overlap,
+                )
+            )
+            evidence_diagnostic = {
+                "historical_evidence_available": historical_evidence_available,
+                "saved_evidence_row_count": len(evidence_index),
+                "best_compatible_evidence": ({
+                    "evidence_id": best_evidence.get("evidence_id"),
+                    "section": best_evidence.get("section"),
+                    "source": best_evidence.get("source"),
+                    "text": best_evidence.get("text"),
+                    "score": round(best_score, 6),
+                    "requirement_coverage": round(best_coverage, 6),
+                    "overlap_count": best_overlap,
+                } if best_evidence else None),
+                "passes_production_weak_fallback_minima": passes_weak_minima,
+                "missed_weak_fallback_minima": (
+                    [] if passes_weak_minima or not best_evidence
+                    else ["combined score, requirement-coverage, or overlap gate"]
+                ),
+                "diagnostic_only": True,
+                "scoring_influence": False,
+            }
             row = {
                 "job_id": job.get("job_id"),
                 "snapshot_id": job.get("snapshot_id"),
@@ -838,6 +1216,17 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
                     and selected_evidence
                 ),
                 "taxonomy_cap_status": str(raw.get("capability_taxonomy_cap_status") or "unavailable"),
+                "evidence_diagnostic": evidence_diagnostic,
+                "scorer_diagnostics": {
+                    "match_source": raw.get("match_source"),
+                    "match_similarity": raw.get("match_similarity"),
+                    "match_coverage": raw.get("match_coverage"),
+                    "match_overlap_count": raw.get("match_overlap_count"),
+                    "matched_keyword": raw.get("matched_keyword"),
+                    "capability_none_recovery": deepcopy(raw.get("capability_none_recovery")),
+                    "capability_evidence_reselection": deepcopy(raw.get("capability_evidence_reselection")),
+                    "capability_retrieval": deepcopy(raw.get("capability_retrieval")),
+                },
                 "current_resolution": current,
                 "technology_identity_resolution": identity_resolution,
                 "provenance": {
@@ -931,6 +1320,7 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
     health_report = _job_match_health_report(
         rows, meaningful_keys=meaningful_keys, queue=queue
     )
+    gap_triage = _true_job_match_gap_triage(rows, queue=queue)
     maintenance_priorities = _taxonomy_maintenance_priorities(queue, rows)
     top = [{key: deepcopy(row[key]) for key in ("candidate_id", "concept", "operational_route", "required_core_impact", "job_count", "occurrences", "example_jd_text")}
            for row in queue if row["operational_route"] != "noise_or_non_capability"][:30]
@@ -946,6 +1336,8 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
         "evidence_taxonomy_cross_tab": health_report["cross_tab"],
         "technology_concept_audit": health_report["technology_concept_audit"],
         "top_20_true_evidence_gaps": health_report["top_20_true_evidence_gaps"],
+        "true_job_match_gap_triage": gap_triage,
+        "top_20_job_match_quality_fixes": gap_triage["top_20_job_match_quality_fixes"],
         "top_20_taxonomy_maintenance_priorities": maintenance_priorities,
         "metric_definitions": health_report["semantic_definitions"],
         "capability_draft_dispositions": deepcopy(list(CAPABILITY_DRAFT_DISPOSITIONS)),

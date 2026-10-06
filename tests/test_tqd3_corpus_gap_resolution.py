@@ -53,6 +53,24 @@ def corpus(*texts):
     }
 
 
+def with_saved_evidence(fixture, *evidence_texts):
+    updated = deepcopy(fixture)
+    profile = {
+        "education": [], "experience": [], "projects": [],
+        "skills": {"fixture": list(evidence_texts)},
+    }
+    updated["jobs"][0]["frozen_inputs"] = {
+        "context": {
+            "resume_profile": profile,
+            "raw_resume_text": "\n".join(evidence_texts),
+        }
+    }
+    updated["jobs"][0]["baseline_stable_analysis"]["canonicalisation_debug"] = {
+        "acronym_map": {}
+    }
+    return updated
+
+
 class CorpusGapAuditTests(unittest.TestCase):
     def test_whole_corpus_uses_current_production_resolver_and_exact_routes(self):
         fixture = corpus(
@@ -262,6 +280,116 @@ class JobMatchHealthReportingTests(unittest.TestCase):
         self.assertEqual(by_id["systems.distributed_systems"]["disposition"],
                          "research_only_blocked")
         self.assertEqual(report["production_mutations"], 0)
+
+
+class TrueJobMatchGapTriageTests(unittest.TestCase):
+    def test_every_true_no_evidence_row_has_one_primary_category(self):
+        fixture = with_saved_evidence(
+            corpus(
+                "Kubernetes cluster operations",
+                "Bachelor degree in computer science",
+                "Complete the coding assessment before interview",
+                "Python and SQL",
+                "Our company is a leading provider",
+                "Friendly and adaptable personality",
+            ),
+            "Unrelated product delivery evidence",
+        )
+        with PublicationFixture() as f:
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        triage = report["true_job_match_gap_triage"]
+        self.assertEqual(
+            triage["true_no_evidence_requirement_count"],
+            report["job_match_health"]["no_evidence_requirements"],
+        )
+        self.assertEqual(
+            sum(triage["classification_counts"].values()),
+            triage["true_no_evidence_requirement_count"],
+        )
+        by_text = {row["requirement_text"]: row for row in triage["requirements"]}
+        self.assertEqual(by_text["Kubernetes cluster operations"]["category_code"], "A")
+        self.assertEqual(by_text["Bachelor degree in computer science"]["category_code"], "D")
+        self.assertEqual(by_text["Complete the coding assessment before interview"]["category_code"], "E")
+        self.assertEqual(by_text["Python and SQL"]["category_code"], "F")
+        self.assertEqual(by_text["Our company is a leading provider"]["category_code"], "C")
+        self.assertEqual(by_text["Friendly and adaptable personality"]["category_code"], "I")
+        self.assertTrue(all(row["score_eligible"] for row in triage["requirements"]))
+        self.assertFalse(triage["scoring_semantics_changed"])
+        f.network_guard.assert_not_called()
+        f.model_guard.assert_not_called()
+
+    def test_saved_evidence_diagnostics_reuse_production_thresholds_read_only(self):
+        fixture = with_saved_evidence(
+            corpus(
+                "NovelWidget software deployment",
+                "Design and implement secure highly available Kubernetes deployment architecture across multiple production environments",
+                "React frontend development",
+                "This role reports to the engineering director",
+            ),
+            "NovelWidget software deployment",
+            "Kubernetes deployment",
+            "React frontend development",
+            "This role reports to the engineering director",
+        )
+        original = deepcopy(fixture)
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        self.assertEqual(fixture, original)
+        triage = report["true_job_match_gap_triage"]
+        by_text = {row["requirement_text"]: row for row in triage["requirements"]}
+        self.assertEqual(by_text["NovelWidget software deployment"]["category_code"], "H")
+        self.assertEqual(
+            by_text["Design and implement secure highly available Kubernetes deployment architecture across multiple production environments"]["category_code"],
+            "B",
+        )
+        self.assertEqual(by_text["React frontend development"]["category_code"], "G")
+        self.assertEqual(by_text["This role reports to the engineering director"]["category_code"], "C")
+        for row in by_text.values():
+            diagnostic = row["candidate_evidence_considered"]
+            self.assertTrue(diagnostic["historical_evidence_available"])
+            self.assertFalse(diagnostic["scoring_influence"])
+            self.assertIsNotNone(diagnostic["best_compatible_evidence"])
+        self.assertFalse(report["scoring_semantics_changed"])
+        self.assertEqual(report["production_mutations"], 0)
+
+    def test_eligibility_audit_identifies_review_categories_without_changing_behavior(self):
+        fixture = with_saved_evidence(
+            corpus(
+                "Only shortlisted candidates will be notified",
+                "Preferred AWS certification",
+                "Python and SQL",
+                "Our mission is to transform transport",
+                "Kubernetes administration",
+                "Ensure resilience of our mission-critical applications",
+                "Operate with a high degree of autonomy",
+            ),
+            "unrelated evidence",
+        )
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        eligibility = report["true_job_match_gap_triage"]["score_eligibility_audit"]
+        self.assertTrue(eligibility["all_currently_score_eligible"])
+        self.assertFalse(eligibility["behavior_changed"])
+        statuses = {row["requirement_text"]: row["status"] for row in eligibility["requirements"]}
+        self.assertEqual(statuses["Only shortlisted candidates will be notified"], "likely_should_not_score")
+        self.assertEqual(statuses["Preferred AWS certification"], "credential_policy_review")
+        self.assertEqual(statuses["Python and SQL"], "decompose_before_scoring")
+        self.assertEqual(statuses["Our mission is to transform transport"], "likely_should_not_score")
+        self.assertNotIn("Kubernetes administration", statuses)
+        self.assertNotIn("Ensure resilience of our mission-critical applications", statuses)
+        self.assertNotIn("Operate with a high degree of autonomy", statuses)
+
+    def test_quality_fix_ranking_is_not_taxonomy_coverage_ranking(self):
+        fixture = with_saved_evidence(
+            corpus("NovelWidget software deployment", "Our company is a leading provider"),
+            "NovelWidget software deployment",
+        )
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        fixes = report["top_20_job_match_quality_fixes"]
+        self.assertTrue(fixes)
+        self.assertTrue(all(not row["taxonomy_coverage_used_for_ranking"] for row in fixes))
+        self.assertEqual(fixes[0]["category_code"], "H")
 
 
 class LocalProposalAndSeedTests(unittest.TestCase):
@@ -629,6 +757,9 @@ class MaintenanceUIContractTests(unittest.TestCase):
         self.assertIn("Taxonomy Knowledge", source)
         self.assertIn("evidence-match coverage", source)
         self.assertIn("Top true Job Match evidence gaps", source)
+        self.assertIn("True no-evidence gap triage", source)
+        self.assertIn("Top 20 fixes by expected Job Match quality impact", source)
+        self.assertIn("Score-eligibility policy review", source)
         self.assertIn("Top taxonomy-maintenance priorities", source)
         self.assertNotIn("resolved/scorable", source)
 
@@ -647,6 +778,9 @@ class MaintenanceUIContractTests(unittest.TestCase):
         self.assertIn("Job Match Health", rendered)
         self.assertIn("Taxonomy Knowledge", rendered)
         self.assertIn("positive grounded evidence matches", rendered)
+        self.assertIn("True no-evidence gap triage", rendered)
+        self.assertIn("Primary reason counts", rendered)
+        self.assertIn("Score-eligibility policy review", rendered)
         self.assertIn("taxonomy resolved", rendered)
         self.assertNotIn("resolved/scorable", rendered)
 
