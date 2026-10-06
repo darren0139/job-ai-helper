@@ -174,6 +174,96 @@ class CorpusGapAuditTests(unittest.TestCase):
         self.assertTrue(all(target["external_requested"] for target in plan["targets"]))
 
 
+class JobMatchHealthReportingTests(unittest.TestCase):
+    @staticmethod
+    def _set_scoring_row(fixture, index, *, label="none", evidence=False, cap_status="unrecognised"):
+        row = fixture["jobs"][0]["baseline_stable_analysis"]["canonical_requirements"][index]
+        row.update({
+            "match_label": label,
+            "match_value": {"none": 0.0, "weak": 0.2, "transferable": 0.55, "direct": 1.0}[label],
+            "evidence": ([{"evidence_id": f"ev-{index}", "text": row["atomic_focus"]}]
+                         if evidence else []),
+            "capability_taxonomy_cap_status": cap_status,
+        })
+
+    def test_score_eligible_positive_match_does_not_require_capability_resolution(self):
+        fixture = corpus("BigFix")
+        self._set_scoring_row(fixture, 0, label="direct", evidence=True)
+        with PublicationFixture() as f:
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        health = report["job_match_health"]
+        knowledge = report["taxonomy_knowledge"]
+        self.assertEqual(health["score_eligible_requirements"], 1)
+        self.assertEqual(health["positive_grounded_evidence_matches"], 1)
+        self.assertEqual(health["taxonomy_unresolved_positive_evidence_matches"], 1)
+        self.assertEqual(knowledge["taxonomy_resolved_requirements"], 0)
+        self.assertIsNone(report["requirements"][0]["current_resolution"]["capability_id"])
+        self.assertFalse(report["scoring_semantics_changed"])
+        f.network_guard.assert_not_called()
+        f.model_guard.assert_not_called()
+
+    def test_recognized_unmapped_and_resolved_without_evidence_are_distinct(self):
+        fixture = corpus("C#", "React")
+        self._set_scoring_row(fixture, 0)
+        self._set_scoring_row(fixture, 1)
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        health = report["job_match_health"]
+        knowledge = report["taxonomy_knowledge"]
+        self.assertEqual(health["no_evidence_requirements"], 2)
+        self.assertEqual(knowledge["technology_recognized_unmapped_requirements"], 1)
+        self.assertEqual(knowledge["taxonomy_resolved_requirements"], 1)
+        cross_tab = {row["knowledge_state"]: row for row in report["evidence_taxonomy_cross_tab"]}
+        self.assertEqual(cross_tab["technology_recognized_unmapped"]["evidence_negative"], 1)
+        self.assertEqual(cross_tab["taxonomy_resolved"]["evidence_negative"], 1)
+
+    def test_taxonomy_cap_and_rejection_reporting_uses_final_grounded_match(self):
+        fixture = corpus("React", "C++")
+        self._set_scoring_row(fixture, 0, label="weak", evidence=True, cap_status="applied")
+        self._set_scoring_row(fixture, 1, label="none", evidence=True, cap_status="applied")
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        health = report["job_match_health"]
+        self.assertEqual(health["taxonomy_capped_or_rejected_pre_cap_positive_matches"], 2)
+        self.assertEqual(health["taxonomy_capped_but_still_positive_matches"], 1)
+        self.assertEqual(health["taxonomy_rejected_pre_cap_positive_matches"], 1)
+        self.assertEqual(health["positive_grounded_evidence_matches"], 1)
+        self.assertEqual(health["no_evidence_requirements"], 0)
+        self.assertEqual(health["no_positive_grounded_match_requirements"], 1)
+
+    def test_compatibility_alias_is_explicitly_taxonomy_resolution_only(self):
+        fixture = corpus("React", "BigFix", "Python")
+        self._set_scoring_row(fixture, 0)
+        self._set_scoring_row(fixture, 1, label="direct", evidence=True)
+        self._set_scoring_row(fixture, 2, label="direct", evidence=True)
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=fixture)
+        summary = report["summary"]
+        self.assertEqual(
+            summary["resolved_scorable_requirements"],
+            summary["taxonomy_resolved_requirements"],
+        )
+        self.assertNotEqual(
+            summary["taxonomy_resolved_requirements"],
+            summary["positive_grounded_evidence_matches"],
+        )
+        self.assertIn("score_eligible", report["metric_definitions"])
+
+    def test_validated_capability_dispositions_are_review_only(self):
+        with PublicationFixture():
+            report = gaps.audit_corpus_resolution(corpus=corpus("Python", "SQL", "MongoDB"))
+        by_id = {row["capability_id"]: row for row in report["capability_draft_dispositions"]}
+        self.assertEqual(by_id["language.python_development"]["disposition"],
+                         "drop_duplicate_technology_semantics")
+        self.assertEqual(by_id["database.sql_querying"]["disposition"],
+                         "retain_capability_candidate")
+        self.assertEqual(by_id["database.mongodb_engineering"]["disposition"],
+                         "contextual_relationship")
+        self.assertEqual(by_id["systems.distributed_systems"]["disposition"],
+                         "research_only_blocked")
+        self.assertEqual(report["production_mutations"], 0)
+
+
 class LocalProposalAndSeedTests(unittest.TestCase):
     def test_bundled_seed_is_broad_unique_and_keeps_required_top_corpus_technologies(self):
         with PublicationFixture():
@@ -535,6 +625,30 @@ class MaintenanceUIContractTests(unittest.TestCase):
         self.assertIn("Identity", source)
         self.assertIn("Relationship", source)
         self.assertIn("Capability", source)
+        self.assertIn("Job Match Health", source)
+        self.assertIn("Taxonomy Knowledge", source)
+        self.assertIn("evidence-match coverage", source)
+        self.assertIn("Top true Job Match evidence gaps", source)
+        self.assertIn("Top taxonomy-maintenance priorities", source)
+        self.assertNotIn("resolved/scorable", source)
+
+    def test_populated_overview_separates_job_match_health_from_taxonomy_knowledge(self):
+        from taxonomy_discovery import bulk_candidate_operations_ui as ui
+        from tests.test_tqd3_bulk_candidate_operations import BulkFakeStreamlit
+        with PublicationFixture():
+            audit = gaps.audit_corpus_resolution(corpus=corpus("React", "C#", "BigFix"))
+            queue = gaps.build_gap_resolution_queue(audit)
+        st = BulkFakeStreamlit()
+        st.session_state["tqd3_corpus_gap_audit"] = audit
+        st.session_state["tqd3_gap_resolution_queue"] = queue
+        with patch.dict(sys.modules, {"streamlit": st}):
+            ui.render_bulk_candidate_operations()
+        rendered = " ".join(str(args) for _, args in st.messages)
+        self.assertIn("Job Match Health", rendered)
+        self.assertIn("Taxonomy Knowledge", rendered)
+        self.assertIn("positive grounded evidence matches", rendered)
+        self.assertIn("taxonomy resolved", rendered)
+        self.assertNotIn("resolved/scorable", rendered)
 
 
 if __name__ == "__main__":

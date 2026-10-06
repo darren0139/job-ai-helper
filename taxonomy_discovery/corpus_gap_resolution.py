@@ -63,6 +63,72 @@ CAPABILITY_CLOSURE_VERSION = "tqd3-capability-closure-v1"
 CAPABILITY_CLOSURE_PROFILE_PATH = (
     Path(__file__).resolve().parent / "seeds" / "tqd3_capability_closure_profiles_v1.json"
 )
+JOB_MATCH_HEALTH_REPORT_VERSION = "tqd3-job-match-health-v1"
+
+TECHNOLOGY_CONCEPT_ALIASES = {
+    "Python": ("Python",),
+    "Java": ("Java",),
+    "C#": ("C#", "C Sharp"),
+    "JavaScript": ("JavaScript",),
+    "TypeScript": ("TypeScript",),
+    "SQL": ("SQL",),
+    "MongoDB": ("MongoDB",),
+    "Elasticsearch": ("Elasticsearch", "Elastic Search"),
+    "Node.js": ("Node.js", "NodeJS", "Node JS"),
+    "React": ("React", "React.js", "ReactJS"),
+    ".NET": (".NET", "Dotnet", "Dot Net"),
+    "AWS": ("AWS", "Amazon Web Services"),
+    "Azure": ("Azure", "Microsoft Azure"),
+    "GCP": ("GCP", "Google Cloud Platform"),
+    "C++": ("C++", "C++ programming language"),
+}
+
+CAPABILITY_DRAFT_DISPOSITIONS = (
+    *(
+        {
+            "capability_id": capability_id,
+            "disposition": "drop_duplicate_technology_semantics",
+            "reason": "Technology identity and same-technology evidence should not be duplicated as a capability.",
+        }
+        for capability_id in (
+            "language.python_development",
+            "language.java_development",
+            "language.csharp_development",
+            "language.javascript_development",
+            "language.typescript_development",
+        )
+    ),
+    *(
+        {
+            "capability_id": capability_id,
+            "disposition": "retain_capability_candidate",
+            "reason": "The draft describes bounded behavior with evidence boundaries beyond technology identity.",
+        }
+        for capability_id in (
+            "database.sql_querying",
+            "network.access_control",
+            "devops.infrastructure_automation",
+            "operations.endpoint_management",
+        )
+    ),
+    {
+        "capability_id": "database.mongodb_engineering",
+        "technology": "MongoDB",
+        "disposition": "contextual_relationship",
+        "reason": "MongoDB identity alone does not establish design, operations, processing, or application-development behavior.",
+    },
+    {
+        "capability_id": "runtime.nodejs_development",
+        "technology": "Node.js",
+        "disposition": "contextual_relationship",
+        "reason": "Node.js identity alone does not establish backend, API, or full-stack delivery.",
+    },
+    {
+        "capability_id": "systems.distributed_systems",
+        "disposition": "research_only_blocked",
+        "reason": "The concept is capability-shaped, but current phrase matching has a known compound-requirement collision.",
+    },
+)
 
 OPERATIONAL_ROUTES = (
     "phrase_or_alias_gap",
@@ -140,6 +206,324 @@ def _coverage(rows: list[dict[str, Any]], accepted: set[str]) -> dict[str, Any]:
         "total_weight": round(denominator, 6),
         "percent": round(100.0 * numerator / denominator, 2) if denominator else 0.0,
     }
+
+
+def _percent(numerator: int | float, denominator: int | float) -> float:
+    return round(100.0 * numerator / denominator, 2) if denominator else 0.0
+
+
+def _route_requirement_keys(row: dict[str, Any]) -> set[tuple[Any, Any]]:
+    return {
+        (source.get("job_id"), source.get("requirement_id"))
+        for source in row.get("provenance", [])
+        if source.get("job_id") is not None and source.get("requirement_id")
+    }
+
+
+def _technology_concept_present(text: str, aliases: tuple[str, ...]) -> bool:
+    return any(phrase_present(text, alias) for alias in aliases)
+
+
+def _job_match_health_report(
+    rows: list[dict[str, Any]],
+    *,
+    meaningful_keys: set[tuple[Any, Any]],
+    queue: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Describe saved scorer outcomes separately from current taxonomy knowledge."""
+    route_by_key: dict[tuple[Any, Any], str] = {}
+    for queue_row in queue:
+        if queue_row.get("parent_candidate_id"):
+            continue
+        for key in _route_requirement_keys(queue_row):
+            route_by_key[key] = str(queue_row.get("operational_route") or "")
+
+    eligible = [row for row in rows if row["score_eligible"]]
+    ineligible = [row for row in rows if not row["score_eligible"]]
+    meaningful = [
+        row for row in rows
+        if (row["job_id"], row["requirement_id"]) in meaningful_keys
+    ]
+    positive = [row for row in eligible if row["positive_grounded_evidence_match"]]
+    no_evidence = [row for row in eligible if not row["has_grounded_evidence_reference"]]
+    no_positive_match = [row for row in eligible if not row["positive_grounded_evidence_match"]]
+    taxonomy_resolved = [row for row in eligible if row["current_resolution"]["status"] == "resolved"]
+    recognized_unmapped = [
+        row for row in eligible
+        if row["technology_identity_resolution"].get("status") == "recognized_unmapped"
+        and row["current_resolution"]["status"] != "resolved"
+    ]
+    unresolved = [row for row in eligible if row["current_resolution"]["status"] != "resolved"]
+    capped = [row for row in eligible if row["taxonomy_cap_status"] == "applied"]
+    capped_rejected = [row for row in capped if not row["positive_grounded_evidence_match"]]
+    capped_positive = [row for row in capped if row["positive_grounded_evidence_match"]]
+    unresolved_positive = [
+        row for row in positive if row["current_resolution"]["status"] != "resolved"
+    ]
+
+    cross_tab = {
+        category: {"evidence_positive": 0, "evidence_negative": 0, "total": 0}
+        for category in (
+            "taxonomy_resolved",
+            "technology_recognized_unmapped",
+            "taxonomy_unresolved",
+            "contextual_or_non_capability",
+        )
+    }
+    for row in eligible:
+        key = (row["job_id"], row["requirement_id"])
+        route = route_by_key.get(key, "")
+        if row["current_resolution"]["status"] == "resolved":
+            category = "taxonomy_resolved"
+        elif row["technology_identity_resolution"].get("status") == "recognized_unmapped":
+            category = "technology_recognized_unmapped"
+        elif route in {"needs_decomposition", "manual_review", "noise_or_non_capability"}:
+            category = "contextual_or_non_capability"
+        else:
+            category = "taxonomy_unresolved"
+        evidence_key = (
+            "evidence_positive" if row["positive_grounded_evidence_match"]
+            else "evidence_negative"
+        )
+        cross_tab[category][evidence_key] += 1
+        cross_tab[category]["total"] += 1
+
+    concept_rows = []
+    for concept, aliases in TECHNOLOGY_CONCEPT_ALIASES.items():
+        selected = [
+            row for row in rows
+            if _technology_concept_present(row["requirement_text"], aliases)
+        ]
+        concept_rows.append({
+            "concept": concept,
+            "corpus_rows": len(selected),
+            "score_eligible_rows": sum(row["score_eligible"] for row in selected),
+            "positive_evidence_matches": sum(
+                row["positive_grounded_evidence_match"] for row in selected
+            ),
+            "taxonomy_resolved_rows": sum(
+                row["current_resolution"]["status"] == "resolved" for row in selected
+            ),
+            "identity_recognized_rows": sum(
+                row["technology_identity_resolution"].get("status")
+                in {"resolved", "recognized_unmapped"}
+                for row in selected
+            ),
+            "recognized_unmapped_rows": sum(
+                row["technology_identity_resolution"].get("status") == "recognized_unmapped"
+                for row in selected
+            ),
+            "taxonomy_capped_rows": sum(row["taxonomy_cap_status"] == "applied" for row in selected),
+            "true_no_evidence_rows": sum(
+                row["score_eligible"] and not row["has_grounded_evidence_reference"]
+                for row in selected
+            ),
+        })
+
+    evidence_gap_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in meaningful:
+        if row["score_eligible"] and not row["has_grounded_evidence_reference"]:
+            evidence_gap_groups[concept_key(row["requirement_text"])].append(row)
+    evidence_gaps = []
+    for concept, group in evidence_gap_groups.items():
+        evidence_gaps.append({
+            "concept": concept,
+            "occurrence_count": len(group),
+            "job_count": len({row["job_id"] for row in group}),
+            "required_core_weight": round(sum(
+                _weight(row) for row in group
+                if str(row.get("importance") or "").lower()
+                in {"deal_breaker", "required", "core"}
+            ), 6),
+            "taxonomy_resolved_rows": sum(
+                row["current_resolution"]["status"] == "resolved" for row in group
+            ),
+            "recognized_unmapped_rows": sum(
+                row["technology_identity_resolution"].get("status") == "recognized_unmapped"
+                for row in group
+            ),
+            "taxonomy_unresolved_rows": sum(
+                row["current_resolution"]["status"] != "resolved" for row in group
+            ),
+            "example_requirement": sorted(
+                {row["requirement_text"] for row in group}, key=str.casefold
+            )[0],
+        })
+    evidence_gaps.sort(key=lambda row: (
+        -row["required_core_weight"], -row["job_count"],
+        -row["occurrence_count"], row["concept"],
+    ))
+
+    return {
+        "report_version": JOB_MATCH_HEALTH_REPORT_VERSION,
+        "semantic_definitions": {
+            "score_eligible": "Production semantic eligibility; independent of taxonomy resolution.",
+            "positive_grounded_evidence_match": "Final deterministic direct, transferable, or weak match with selected evidence.",
+            "taxonomy_resolved": "Current production taxonomy or approved registry relationship supplied a capability_id.",
+            "technology_recognized_unmapped": "Current registry recognized the identity but has no approved capability relationship.",
+            "taxonomy_capped": "The production taxonomy lowered or rejected a pre-taxonomy positive match.",
+        },
+        "job_match_health": {
+            "total_requirements": len(rows),
+            "meaningful_requirements": len(meaningful),
+            "score_eligible_requirements": len(eligible),
+            "score_ineligible_requirements": len(ineligible),
+            "positive_grounded_evidence_matches": len(positive),
+            "direct_evidence_matches": sum(row["match_label"] == "direct" for row in positive),
+            "transferable_evidence_matches": sum(row["match_label"] == "transferable" for row in positive),
+            "weak_evidence_matches": sum(row["match_label"] == "weak" for row in positive),
+            "no_evidence_requirements": len(no_evidence),
+            "no_positive_grounded_match_requirements": len(no_positive_match),
+            "taxonomy_capped_or_rejected_pre_cap_positive_matches": len(capped),
+            "taxonomy_capped_but_still_positive_matches": len(capped_positive),
+            "taxonomy_rejected_pre_cap_positive_matches": len(capped_rejected),
+            "taxonomy_unresolved_positive_evidence_matches": len(unresolved_positive),
+            "evidence_match_percent": _percent(len(positive), len(eligible)),
+        },
+        "taxonomy_knowledge": {
+            "taxonomy_resolved_requirements": len(taxonomy_resolved),
+            "technology_recognized_unmapped_requirements": len(recognized_unmapped),
+            "taxonomy_unresolved_requirements": len(unresolved),
+            "taxonomy_resolution_percent_of_score_eligible": _percent(
+                len(taxonomy_resolved), len(eligible)
+            ),
+            "taxonomy_resolution_percent_of_meaningful": _percent(
+                sum(row["current_resolution"]["status"] == "resolved" for row in meaningful),
+                len(meaningful),
+            ),
+        },
+        "cross_tab": [
+            {"knowledge_state": category, **counts}
+            for category, counts in cross_tab.items()
+        ],
+        "technology_concept_audit": concept_rows,
+        "top_20_true_evidence_gaps": evidence_gaps[:20],
+        "read_only": True,
+        "scoring_semantics_changed": False,
+        "production_mutations": 0,
+    }
+
+
+def _taxonomy_maintenance_priorities(
+    queue: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rank taxonomy work by semantic/evidence utility, not resolution volume."""
+    by_key = {(row["job_id"], row["requirement_id"]): row for row in rows}
+    route_value = {
+        "local_resolver_issue": 55,
+        "needs_decomposition": 50,
+        "possible_new_capability": 25,
+        "technology_relationship_missing": 20,
+        "manual_review": 15,
+        "technology_identity_missing": 5,
+    }
+    route_reason = {
+        "local_resolver_issue": "correct a deterministic resolver boundary or false classification",
+        "possible_new_capability": "evaluate a bounded capability and evidence boundary",
+        "needs_decomposition": "prevent compound requirements from collapsing into one semantic claim",
+        "technology_relationship_missing": "improve capability provenance after boundary review",
+        "manual_review": "resolve semantic ambiguity before changing deterministic knowledge",
+        "technology_identity_missing": "improve identity metadata without claiming scoring coverage",
+    }
+    priorities = []
+    capped_by_capability: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        if row["taxonomy_cap_status"] != "applied":
+            continue
+        capability_id = str(
+            row["current_resolution"].get("capability_id")
+            or "snapshot_capability_requires_current_review"
+        )
+        capped_by_capability[capability_id].append(row)
+    for capability_id, affected in capped_by_capability.items():
+        priorities.append({
+            "candidate_id": "existing_capability:" + capability_id,
+            "concept": capability_id,
+            "operational_route": "existing_capability_evidence_boundary",
+            "maintenance_priority_score": 100 + len(affected) * 10,
+            "usefulness_reasons": [
+                "production evidence shows this taxonomy boundary actively caps or rejects positive matches"
+            ],
+            "positive_evidence_rows": sum(
+                row["positive_grounded_evidence_match"] for row in affected
+            ),
+            "true_no_evidence_rows": sum(
+                not row["has_grounded_evidence_reference"] for row in affected
+            ),
+            "taxonomy_capped_rows": len(affected),
+            "required_core_impact": round(sum(
+                _weight(row) for row in affected
+                if str(row.get("importance") or "").lower()
+                in {"deal_breaker", "required", "core"}
+            ), 6),
+            "job_count": len({row["job_id"] for row in affected}),
+            "occurrences": len(affected),
+        })
+
+    disposition_concepts = {
+        "network access control": "retain_capability_candidate",
+        "sql": "retain_capability_candidate",
+        "ansible": "retain_capability_candidate",
+        "bigfix": "retain_capability_candidate",
+        "sccm": "retain_capability_candidate",
+        "distributed systems": "research_only_blocked",
+        "mongodb": "contextual_relationship",
+        "node.js": "contextual_relationship",
+        "python": "drop_duplicate_technology_semantics",
+        "java": "drop_duplicate_technology_semantics",
+        "c#": "drop_duplicate_technology_semantics",
+        "javascript": "drop_duplicate_technology_semantics",
+        "typescript": "drop_duplicate_technology_semantics",
+    }
+    for queue_row in queue:
+        if queue_row.get("parent_candidate_id") or queue_row.get("operational_route") == "noise_or_non_capability":
+            continue
+        affected = [by_key[key] for key in _route_requirement_keys(queue_row) if key in by_key]
+        capped = sum(row["taxonomy_cap_status"] == "applied" for row in affected)
+        positive = sum(row["positive_grounded_evidence_match"] for row in affected)
+        no_evidence = sum(
+            row["score_eligible"] and not row["has_grounded_evidence_reference"]
+            for row in affected
+        )
+        route = str(queue_row.get("operational_route") or "")
+        normalized_concept = normalise(queue_row["concept"])
+        disposition = disposition_concepts.get(normalized_concept)
+        reasons = []
+        if capped:
+            reasons.append("existing taxonomy cap/rejection shows direct evidence-boundary value")
+        reasons.append(route_reason.get(route, "improve deterministic explanation and provenance"))
+        priority_score = route_value.get(route, 10) + capped * 100
+        if disposition == "retain_capability_candidate":
+            priority_score = max(priority_score, 70)
+            reasons.append("validated as a bounded capability candidate")
+        elif disposition == "research_only_blocked":
+            priority_score = min(priority_score, 20)
+            reasons.append("research-only and blocked from publication")
+        elif disposition == "contextual_relationship":
+            priority_score = min(priority_score, 20)
+            reasons.append("identity requires contextual relationship review")
+        elif disposition == "drop_duplicate_technology_semantics":
+            priority_score = 0
+            reasons.append("drop as duplicate technology semantics")
+        priorities.append({
+            "candidate_id": queue_row["candidate_id"],
+            "concept": queue_row["concept"],
+            "operational_route": route,
+            "maintenance_priority_score": priority_score,
+            "usefulness_reasons": reasons,
+            "positive_evidence_rows": positive,
+            "true_no_evidence_rows": no_evidence,
+            "taxonomy_capped_rows": capped,
+            "required_core_impact": queue_row["required_core_impact"],
+            "job_count": queue_row["job_count"],
+            "occurrences": queue_row["occurrences"],
+        })
+    priorities.sort(key=lambda row: (
+        -row["maintenance_priority_score"], -row["taxonomy_capped_rows"],
+        -row["required_core_impact"], -row["job_count"], row["concept"],
+    ))
+    return priorities[:20]
 
 
 def _candidate_base(group: list[dict[str, Any]]) -> dict[str, Any]:
@@ -425,12 +809,18 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
         for requirement in job.get("requirements", []):
             raw = next((row for row in (job.get("baseline_stable_analysis") or {}).get("canonical_requirements", [])
                         if row.get("requirement_id") == requirement.get("requirement_id")), requirement)
-            if not requirement_is_score_eligible(raw):
-                continue
+            score_eligible = requirement_is_score_eligible(raw)
             text = str(requirement.get("requirement_text") or "").strip()
             if not text:
                 continue
             current = _resolution({"text": text, "atomic_focus": text})
+            identity_resolution = resolve_requirement_text(text)
+            match_label = str(raw.get("match_label") or requirement.get("match_label") or "none").lower()
+            selected_evidence = deepcopy(
+                raw.get("evidence")
+                if isinstance(raw.get("evidence"), list)
+                else requirement.get("selected_evidence") or []
+            )
             row = {
                 "job_id": job.get("job_id"),
                 "snapshot_id": job.get("snapshot_id"),
@@ -438,7 +828,18 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
                 "requirement_text": text,
                 "importance": requirement.get("importance"),
                 "group_weight_fraction": raw.get("group_weight_fraction", 1.0),
+                "score_eligible": score_eligible,
+                "match_label": match_label,
+                "match_value": float(raw.get("match_value", requirement.get("match_value", 0.0)) or 0.0),
+                "selected_evidence": selected_evidence,
+                "has_grounded_evidence_reference": bool(selected_evidence),
+                "positive_grounded_evidence_match": bool(
+                    score_eligible and match_label in {"direct", "transferable", "weak"}
+                    and selected_evidence
+                ),
+                "taxonomy_cap_status": str(raw.get("capability_taxonomy_cap_status") or "unavailable"),
                 "current_resolution": current,
+                "technology_identity_resolution": identity_resolution,
                 "provenance": {
                     "job_id": job.get("job_id"), "snapshot_id": job.get("snapshot_id"),
                     "requirement_id": requirement.get("requirement_id"),
@@ -446,7 +847,7 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
                 },
             }
             rows.append(row)
-            if current["status"] != "resolved":
+            if score_eligible and current["status"] != "resolved":
                 unresolved_groups[concept_key(text)].append(row)
 
     candidates: list[dict[str, Any]] = []
@@ -473,7 +874,11 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
     queue = _merge_atomic_children(queue)
     candidates = [row["candidate"] for row in queue]
 
-    meaningful = [row for row in rows if (row["job_id"], row["requirement_id"]) not in noise_requirement_ids]
+    meaningful = [
+        row for row in rows
+        if row["score_eligible"]
+        and (row["job_id"], row["requirement_id"]) not in noise_requirement_ids
+    ]
     resolved = [row for row in meaningful if row["current_resolution"]["status"] == "resolved"]
     unresolved = [row for row in meaningful if row["current_resolution"]["status"] != "resolved"]
     queue.sort(key=lambda row: (-row["required_core_impact"], -row["job_count"], -row["occurrences"], row["concept"], row["candidate_id"]))
@@ -482,14 +887,33 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
     route_counts = Counter(row["operational_route"] for row in queue if not row.get("parent_candidate_id"))
     local_count = sum(row["local_safe"] for row in queue if row["operational_route"] != "noise_or_non_capability")
     local_safe_count = sum(row["local_safe"] for row in queue)
+    required_core_taxonomy_coverage = _coverage(meaningful, {"deal_breaker", "required", "core"})
+    preferred_taxonomy_coverage = _coverage(meaningful, {"preferred"})
+    overall_taxonomy_coverage = _coverage(meaningful, {"deal_breaker", "required", "core", "preferred"})
     summary = {
         "total_requirements": len(rows),
         "meaningful_technical_requirements": len(meaningful),
+        "score_eligible_requirements": sum(row["score_eligible"] for row in rows),
+        "score_ineligible_requirements": sum(not row["score_eligible"] for row in rows),
+        "taxonomy_resolved_requirements": len(resolved),
+        "taxonomy_unresolved_requirements": len(unresolved),
+        "positive_grounded_evidence_matches": sum(
+            row["positive_grounded_evidence_match"] for row in rows
+        ),
+        "no_evidence_requirements": sum(
+            row["score_eligible"] and not row["has_grounded_evidence_reference"]
+            for row in rows
+        ),
+        # Compatibility aliases retained for saved consumers. These count
+        # taxonomy resolution and must not be presented as scoring coverage.
         "resolved_scorable_requirements": len(resolved),
         "unresolved_technical_requirements": len(unresolved),
-        "required_core_weighted_coverage": _coverage(meaningful, {"deal_breaker", "required", "core"}),
-        "supporting_preferred_weighted_coverage": _coverage(meaningful, {"preferred"}),
-        "overall_weighted_coverage": _coverage(meaningful, {"deal_breaker", "required", "core", "preferred"}),
+        "taxonomy_resolution_required_core_weighted_coverage": required_core_taxonomy_coverage,
+        "taxonomy_resolution_supporting_preferred_weighted_coverage": preferred_taxonomy_coverage,
+        "taxonomy_resolution_overall_weighted_coverage": overall_taxonomy_coverage,
+        "required_core_weighted_coverage": required_core_taxonomy_coverage,
+        "supporting_preferred_weighted_coverage": preferred_taxonomy_coverage,
+        "overall_weighted_coverage": overall_taxonomy_coverage,
         "locally_resolvable_count": local_count,
         "local_safe_proposal_count": local_safe_count,
         "technology_identity_missing_count": route_counts["technology_identity_missing"],
@@ -501,6 +925,13 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
         "manual_review_count": route_counts["manual_review"],
         "noise_count": route_counts["noise_or_non_capability"],
     }
+    meaningful_keys = {
+        (row["job_id"], row["requirement_id"]) for row in meaningful
+    }
+    health_report = _job_match_health_report(
+        rows, meaningful_keys=meaningful_keys, queue=queue
+    )
+    maintenance_priorities = _taxonomy_maintenance_priorities(queue, rows)
     top = [{key: deepcopy(row[key]) for key in ("candidate_id", "concept", "operational_route", "required_core_impact", "job_count", "occurrences", "example_jd_text")}
            for row in queue if row["operational_route"] != "noise_or_non_capability"][:30]
     return {
@@ -510,6 +941,14 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
         "summary": summary,
         "route_counts": dict(sorted(route_counts.items())),
         "top_unresolved_concepts": top,
+        "job_match_health": health_report["job_match_health"],
+        "taxonomy_knowledge": health_report["taxonomy_knowledge"],
+        "evidence_taxonomy_cross_tab": health_report["cross_tab"],
+        "technology_concept_audit": health_report["technology_concept_audit"],
+        "top_20_true_evidence_gaps": health_report["top_20_true_evidence_gaps"],
+        "top_20_taxonomy_maintenance_priorities": maintenance_priorities,
+        "metric_definitions": health_report["semantic_definitions"],
+        "capability_draft_dispositions": deepcopy(list(CAPABILITY_DRAFT_DISPOSITIONS)),
         "requirements": rows,
         "candidates": candidates,
         "queue": queue,
@@ -931,10 +1370,17 @@ def preview_local_resolution(audit: dict[str, Any], proposals: list[dict[str, An
         "would_resolve_after": sum(row["would_resolve"] for row in output),
         "affected_requirement_ids": [row["requirement_id"] for row in changed],
         "affected_jobs": sorted({row["job_id"] for row in changed}),
+        "potential_new_taxonomy_resolutions": sum(row["would_resolve"] for row in output),
         "potential_new_matches": sum(row["would_resolve"] for row in output),
         "unchanged_requirements": sum(not row["changed"] for row in output),
         "conflicts_ambiguity": conflicts,
         "rows": output,
+        "taxonomy_resolution_before_percent": before_cov["percent"],
+        "projected_taxonomy_resolution_after_percent": after_cov["percent"],
+        "required_core_taxonomy_resolution_before_percent": before_required["percent"],
+        "required_core_taxonomy_resolution_after_percent": after_required["percent"],
+        # Compatibility aliases: these percentages describe taxonomy
+        # resolution, not score eligibility or evidence-match coverage.
         "coverage_before_percent": before_cov["percent"],
         "projected_coverage_after_percent": after_cov["percent"],
         "required_core_coverage_before_percent": before_required["percent"],
@@ -1228,6 +1674,10 @@ def _preview_or_baseline(audit: dict[str, Any], proposals: list[dict[str, Any]])
         "unchanged_requirements": len(audit["requirements"]),
         "conflicts_ambiguity": [],
         "rows": [],
+        "taxonomy_resolution_before_percent": overall,
+        "projected_taxonomy_resolution_after_percent": overall,
+        "required_core_taxonomy_resolution_before_percent": required,
+        "required_core_taxonomy_resolution_after_percent": required,
         "coverage_before_percent": overall,
         "projected_coverage_after_percent": overall,
         "required_core_coverage_before_percent": required,
@@ -1272,6 +1722,7 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
             "proposal_id": relationship["proposal_id"],
             "technology": relationship["technology"],
             "capability_id": relationship["proposed_change"]["relationship"]["capability_id"],
+            "newly_taxonomy_resolved_requirements": len(changed),
             "newly_scorable_requirements": len(changed),
             "required_core_requirements": required_core,
             "affected_jobs": sorted({row["job_id"] for row in changed}),
@@ -1292,6 +1743,7 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
             "proposal_id": proposal_id,
             "technology": proposal["concept"],
             "capability_id": "deterministic_atomic_children",
+            "newly_taxonomy_resolved_requirements": len(changed),
             "newly_scorable_requirements": len(changed),
             "required_core_requirements": sum(
                 1 for row in changed
@@ -1301,7 +1753,7 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
             "conflicts_ambiguity": [],
         })
     top_changes.sort(key=lambda row: (
-        -row["required_core_requirements"], -row["newly_scorable_requirements"], row["technology"].casefold()
+        -row["required_core_requirements"], -row["newly_taxonomy_resolved_requirements"], row["technology"].casefold()
     ))
     conflicts = (
         identity_preview["conflicts_ambiguity"]
@@ -1311,17 +1763,24 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
     return {
         "preview_version": "tqd3-bulk-technology-bootstrap-impact-v1",
         "coverage_curve": [
-            {"stage": "current_production", "overall_percent": audit["summary"]["overall_weighted_coverage"]["percent"],
+            {"stage": "current_production", "taxonomy_resolution_overall_percent": audit["summary"]["taxonomy_resolution_overall_weighted_coverage"]["percent"],
+             "overall_percent": audit["summary"]["taxonomy_resolution_overall_weighted_coverage"]["percent"],
              "required_core_percent": audit["summary"]["required_core_weighted_coverage"]["percent"],
-             "newly_scorable_requirements": 0},
-            {"stage": "identity_only_proposals", "overall_percent": identity_preview["projected_coverage_after_percent"],
+             "newly_taxonomy_resolved_requirements": 0, "newly_scorable_requirements": 0},
+            {"stage": "identity_only_proposals", "taxonomy_resolution_overall_percent": identity_preview["projected_coverage_after_percent"],
+             "overall_percent": identity_preview["projected_coverage_after_percent"],
              "required_core_percent": identity_preview["required_core_coverage_after_percent"],
+             "newly_taxonomy_resolved_requirements": identity_preview["would_resolve_after"],
              "newly_scorable_requirements": identity_preview["would_resolve_after"]},
-            {"stage": "safe_relationship_proposals", "overall_percent": relationship_preview["projected_coverage_after_percent"],
+            {"stage": "safe_relationship_proposals", "taxonomy_resolution_overall_percent": relationship_preview["projected_coverage_after_percent"],
+             "overall_percent": relationship_preview["projected_coverage_after_percent"],
              "required_core_percent": relationship_preview["required_core_coverage_after_percent"],
+             "newly_taxonomy_resolved_requirements": relationship_preview["would_resolve_after"],
              "newly_scorable_requirements": relationship_preview["would_resolve_after"]},
-            {"stage": "decomposition_resolutions", "overall_percent": decomposition_preview["projected_coverage_after_percent"],
+            {"stage": "decomposition_resolutions", "taxonomy_resolution_overall_percent": decomposition_preview["projected_coverage_after_percent"],
+             "overall_percent": decomposition_preview["projected_coverage_after_percent"],
              "required_core_percent": decomposition_preview["required_core_coverage_after_percent"],
+             "newly_taxonomy_resolved_requirements": decomposition_preview["would_resolve_after"],
              "newly_scorable_requirements": decomposition_preview["would_resolve_after"]},
         ],
         "identity_only": identity_preview,
@@ -1330,6 +1789,7 @@ def preview_bulk_technology_bootstrap(audit: dict[str, Any], plan: dict[str, Any
         "research_required_remainder": plan["group_counts"]["C_needs_external_research"],
         "possible_new_capability_remainder": plan["group_counts"]["D_possible_new_capability"],
         "top_20_highest_impact_changes": top_changes[:20],
+        "newly_taxonomy_resolved_requirements": decomposition_preview["would_resolve_after"],
         "newly_scorable_requirements": decomposition_preview["would_resolve_after"],
         "affected_jobs": decomposition_preview["affected_jobs"],
         "new_matches": decomposition_preview["potential_new_matches"],
@@ -1908,10 +2368,13 @@ def _preview_closure_scenario(
     return {
         "requirements_evaluated": len(output),
         "rows": output,
+        "newly_taxonomy_resolved_requirements": sum(row["would_resolve"] for row in output),
         "newly_scorable_requirements": sum(row["would_resolve"] for row in output),
         "affected_jobs": sorted({row["job_id"] for row in changed}),
         "unchanged_requirements": sum(not row["changed"] for row in output),
         "conflicts_ambiguity": conflicts,
+        "taxonomy_resolution_before_percent": before_overall["percent"],
+        "taxonomy_resolution_after_percent": after_overall["percent"],
         "coverage_before_percent": before_overall["percent"],
         "coverage_after_percent": after_overall["percent"],
         "required_core_before_percent": before_required["percent"],
@@ -1962,6 +2425,7 @@ def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -
             "fix_type": "possible_new_capability",
             "concept": draft["candidate_capability_concept"],
             "target": draft["proposed_capability_id"],
+            "requirements_newly_taxonomy_resolved": len(changed),
             "requirements_newly_scorable": len(changed),
             "required_core_weight_impact": round(sum(
                 IMPORTANCE_WEIGHTS.get(str(row["importance"] or "").lower(), 0.0)
@@ -1984,6 +2448,7 @@ def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -
             "fix_type": "safe_existing_capability_relationship",
             "concept": proposal["technology"],
             "target": proposal["proposed_change"]["relationship"]["capability_id"],
+            "requirements_newly_taxonomy_resolved": len(changed),
             "requirements_newly_scorable": len(changed),
             "required_core_weight_impact": round(sum(
                 IMPORTANCE_WEIGHTS.get(str(row["importance"] or "").lower(), 0.0)
@@ -2015,6 +2480,7 @@ def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -
             ),
             "concept": matrix_row["display_concept"],
             "target": matrix_row.get("safe_relationship_capability_id") or "no_universal_mapping",
+            "requirements_newly_taxonomy_resolved": 0,
             "requirements_newly_scorable": 0,
             "required_core_weight_impact": 0.0,
             "jobs_affected": [],
@@ -2030,8 +2496,18 @@ def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -
     meaningful = audit["summary"]["meaningful_technical_requirements"]
     return {
         "preview_version": "tqd3-capability-closure-impact-v1",
+        "taxonomy_resolution_curve": [
+            {"stage": "current_production", "overall_percent": audit["summary"]["taxonomy_resolution_overall_weighted_coverage"]["percent"],
+             "required_core_percent": audit["summary"]["required_core_weighted_coverage"]["percent"]},
+            {"stage": "identity_only", "overall_percent": identity_preview["projected_coverage_after_percent"],
+             "required_core_percent": identity_preview["required_core_coverage_after_percent"]},
+            {"stage": "safe_existing_capability_relationships", "overall_percent": safe_preview["projected_coverage_after_percent"],
+             "required_core_percent": safe_preview["required_core_coverage_after_percent"]},
+            {"stage": "research_dependent_new_capabilities", "overall_percent": capability_preview["coverage_after_percent"],
+             "required_core_percent": capability_preview["required_core_after_percent"]},
+        ],
         "coverage_curve": [
-            {"stage": "current_production", "overall_percent": audit["summary"]["overall_weighted_coverage"]["percent"],
+            {"stage": "current_production", "overall_percent": audit["summary"]["taxonomy_resolution_overall_weighted_coverage"]["percent"],
              "required_core_percent": audit["summary"]["required_core_weighted_coverage"]["percent"]},
             {"stage": "identity_only", "overall_percent": identity_preview["projected_coverage_after_percent"],
              "required_core_percent": identity_preview["required_core_coverage_after_percent"]},

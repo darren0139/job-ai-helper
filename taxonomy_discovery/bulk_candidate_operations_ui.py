@@ -190,14 +190,15 @@ def _render_corpus_resolution(st, bulk):
                     "needs_decomposition", "noise_or_non_capability", "manual_review"
                 } and candidate.get("candidate_route") in eligible_routes]
 
-    st.markdown("##### A. Corpus Coverage")
+    st.markdown("##### A. Job Match Health and Taxonomy Knowledge")
     st.caption(
-        "Re-evaluate every saved canonical Job Match requirement with the current "
-        "production taxonomy, registry, and resolver. The audit is read-only and offline."
+        "Read saved production scoring outcomes separately from current taxonomy, registry, "
+        "and resolver diagnostics. Taxonomy resolution is not presented as scoring coverage. "
+        "The audit is read-only and offline."
     )
-    if st.button("Run whole-corpus coverage audit", key="tqd3_corpus_gap_audit"):
+    if st.button("Run Job Match health and taxonomy audit", key="tqd3_corpus_gap_audit"):
         try:
-            with st.spinner("Auditing saved requirements with current production knowledge..."):
+            with st.spinner("Auditing saved scoring outcomes and current taxonomy knowledge..."):
                 audit = audit_corpus_resolution()
                 resolution_queue = build_gap_resolution_queue(audit)
                 candidates = research_candidates(audit["candidates"])
@@ -219,29 +220,61 @@ def _render_corpus_resolution(st, bulk):
     audit = st.session_state.get("tqd3_corpus_gap_audit")
     resolution_queue = st.session_state.get("tqd3_gap_resolution_queue")
     if not audit or not resolution_queue:
-        st.info("Run the audit explicitly to load corpus coverage and unresolved gaps. Passive rendering performs no work.")
+        st.info("Run the audit explicitly to load Job Match health and taxonomy diagnostics. Passive rendering performs no work.")
         return
 
     summary = audit["summary"]
-    st.write("Coverage summary", {
-        "total requirements": summary["total_requirements"],
-        "meaningful technical requirements": summary["meaningful_technical_requirements"],
-        "resolved/scorable": summary["resolved_scorable_requirements"],
-        "unresolved technical": summary["unresolved_technical_requirements"],
-        "required/core weighted coverage": f"{summary['required_core_weighted_coverage']['percent']:.2f}%",
-        "supporting/preferred weighted coverage": f"{summary['supporting_preferred_weighted_coverage']['percent']:.2f}%",
-        "overall weighted coverage": f"{summary['overall_weighted_coverage']['percent']:.2f}%",
+    health = audit["job_match_health"]
+    knowledge = audit["taxonomy_knowledge"]
+    st.markdown("###### Job Match Health")
+    st.caption("These metrics come from saved production scorer outcomes and grounded Profile & Evidence links.")
+    st.write("Scoring and evidence", {
+        "total requirements": health["total_requirements"],
+        "meaningful requirements": health["meaningful_requirements"],
+        "score eligible": health["score_eligible_requirements"],
+        "score ineligible": health["score_ineligible_requirements"],
+        "positive grounded evidence matches": health["positive_grounded_evidence_matches"],
+        "transferable evidence matches": health["transferable_evidence_matches"],
+        "true no-evidence requirements": health["no_evidence_requirements"],
+        "taxonomy capped or rejected": health["taxonomy_capped_or_rejected_pre_cap_positive_matches"],
+        "evidence-match coverage": f"{health['evidence_match_percent']:.2f}%",
     })
+    st.dataframe(audit["evidence_taxonomy_cross_tab"], hide_index=True, width="stretch")
+
+    st.markdown("###### Taxonomy Knowledge")
+    st.caption("These metrics describe capability resolution and technology metadata. They do not claim score eligibility.")
+    st.write("Resolution and identity", {
+        "taxonomy resolved": knowledge["taxonomy_resolved_requirements"],
+        "recognized technology, unmapped": knowledge["technology_recognized_unmapped_requirements"],
+        "taxonomy unresolved": knowledge["taxonomy_unresolved_requirements"],
+        "taxonomy resolution · score-eligible denominator": f"{knowledge['taxonomy_resolution_percent_of_score_eligible']:.2f}%",
+        "taxonomy resolution · meaningful denominator": f"{knowledge['taxonomy_resolution_percent_of_meaningful']:.2f}%",
+        "identity-gap candidates": summary["technology_identity_missing_count"],
+        "contextual/decomposition candidates": summary["decomposition_count"],
+        "capability candidates": summary["capability_candidate_count"],
+    })
+    with st.expander("Technology concept scoring and taxonomy diagnostics"):
+        st.dataframe(audit["technology_concept_audit"], hide_index=True, width="stretch")
+    with st.expander("Validated capability-draft disposition"):
+        st.caption("Review guidance only. No approval or publication is performed here.")
+        st.dataframe(audit["capability_draft_dispositions"], hide_index=True, width="stretch")
     st.download_button(
-        "Download corpus coverage and queue JSON",
+        "Download Job Match health and taxonomy audit JSON",
         data=json.dumps(audit, indent=2, ensure_ascii=False) + "\n",
         file_name="tqd3_corpus_gap_resolution_audit.json",
         mime="application/json",
     )
 
-    st.markdown("##### B. Unresolved Gaps")
+    st.markdown("##### B. Evidence Gaps and Taxonomy Priorities")
+    st.markdown("**Top true Job Match evidence gaps**")
+    st.caption("Score-eligible meaningful requirements with no grounded positive evidence match.")
+    st.dataframe(audit["top_20_true_evidence_gaps"], hide_index=True, width="stretch")
+    st.markdown("**Top taxonomy-maintenance priorities**")
+    st.caption("Ranked by evidence-boundary, disambiguation, and provenance value rather than resolution-count gain.")
+    st.dataframe(audit["top_20_taxonomy_maintenance_priorities"], hide_index=True, width="stretch")
     st.write("Operational route counts", audit["route_counts"])
-    st.dataframe(audit["top_unresolved_concepts"], hide_index=True, width="stretch")
+    with st.expander("Resolver-gap queue · diagnostics only"):
+        st.dataframe(audit["top_unresolved_concepts"], hide_index=True, width="stretch")
 
     uploaded = st.file_uploader(
         "Optional proposed technology seed list · dry-run only",
@@ -289,9 +322,21 @@ def _render_corpus_resolution(st, bulk):
             "aliases proposed": seed_report["aliases_proposed"],
             **bootstrap_plan["group_counts"],
         })
-        st.dataframe(bootstrap_preview["coverage_curve"], hide_index=True, width="stretch")
+        st.dataframe([
+            {
+                "stage": row["stage"],
+                "taxonomy resolution overall %": row["taxonomy_resolution_overall_percent"],
+                "required/core taxonomy resolution %": row["required_core_percent"],
+                "newly taxonomy-resolved requirements": row["newly_taxonomy_resolved_requirements"],
+            }
+            for row in bootstrap_preview["coverage_curve"]
+        ], hide_index=True, width="stretch")
         st.markdown("**Highest-impact safe relationship drafts**")
-        st.dataframe(bootstrap_preview["top_20_highest_impact_changes"], hide_index=True, width="stretch")
+        st.dataframe([{
+            **{key: value for key, value in row.items()
+               if key != "newly_scorable_requirements"},
+            "newly taxonomy-resolved requirements": row["newly_taxonomy_resolved_requirements"],
+        } for row in bootstrap_preview["top_20_highest_impact_changes"]], hide_index=True, width="stretch")
 
         selectable = bootstrap_plan["identity_only_proposals"] + bootstrap_plan["safe_relationship_proposals"]
         by_proposal_id = {row["proposal_id"]: row for row in selectable}
@@ -387,9 +432,13 @@ def _render_corpus_resolution(st, bulk):
             "required/core impact": row["required_core_impact"],
             "why unresolved": row["why_existing_insufficient"],
         } for row in closure["matrix"]], hide_index=True, width="stretch")
-        st.write("Projected requirement-resolution coverage", closure_preview["coverage_curve"])
-        st.markdown("**Top capability/relationship fixes by projected Job Match impact**")
-        st.dataframe(closure_preview["top_20_highest_impact_fixes"], hide_index=True, width="stretch")
+        st.write("Projected taxonomy-resolution coverage", closure_preview["taxonomy_resolution_curve"])
+        st.markdown("**Top capability/relationship fixes by projected taxonomy-resolution impact**")
+        st.dataframe([{
+            **{key: value for key, value in row.items()
+               if key not in {"requirements_newly_scorable"}},
+            "requirements newly taxonomy-resolved": row["requirements_newly_taxonomy_resolved"],
+        } for row in closure_preview["top_20_highest_impact_fixes"]], hide_index=True, width="stretch")
         if closure_preview["false_positive_collateral_matches"]:
             st.warning("The hypothetical overlay produced collateral matches. Review diagnostics before any approval.")
         with st.expander("Capability definitions, boundaries, overlap, and collateral diagnostics"):
@@ -437,14 +486,14 @@ def _render_corpus_resolution(st, bulk):
             st.error(f"Local proposal preview failed closed: {exc}")
     preview = st.session_state.get("tqd3_local_gap_impact")
     if preview:
-        st.write("Read-only Job Match requirement-resolution impact", {
+        st.write("Read-only taxonomy requirement-resolution impact", {
             "requirements evaluated": preview["requirements_evaluated"],
             "unresolved before": preview["unresolved_before"],
             "would resolve after": preview["would_resolve_after"],
             "affected jobs": len(preview["affected_jobs"]),
             "conflicts/ambiguity": len(preview["conflicts_ambiguity"]),
-            "coverage before": f"{preview['coverage_before_percent']:.2f}%",
-            "projected after": f"{preview['projected_coverage_after_percent']:.2f}%",
+            "taxonomy resolution before": f"{preview['taxonomy_resolution_before_percent']:.2f}%",
+            "projected taxonomy resolution after": f"{preview['projected_taxonomy_resolution_after_percent']:.2f}%",
         })
         st.caption("Draft-only preview. Human review is required; no score, approval, publication, taxonomy, or registry state changed.")
         with st.expander("Local proposal details and complete impact diagnostics"):
@@ -816,7 +865,7 @@ def render_bulk_candidate_operations():
     from taxonomy_discovery import bulk_candidate_operations as bulk
 
     st.subheader("Taxonomy Knowledge Maintenance")
-    st.caption("Corpus coverage, one local-first resolution queue, bounded governed research, regression preview, independent review, and separate publication.")
+    st.caption("Job Match health, taxonomy knowledge diagnostics, one local-first resolution queue, bounded governed research, regression preview, independent review, and separate publication.")
     stage = _render_navigation(st)
     st.markdown(f"#### {STAGE_LABELS[stage]}")
 
