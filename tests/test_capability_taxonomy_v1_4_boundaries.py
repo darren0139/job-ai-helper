@@ -4,12 +4,70 @@ from dataclasses import replace
 import os
 import unittest
 from unittest.mock import Mock, patch
-from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.capability_taxonomy import (
+    classify_requirement_record,
+    get_default_taxonomy,
+    strip_leading_alpha_list_marker,
+)
+from tailoring.production_requirement_resolver import resolve_requirement_with_production_knowledge
 from tailoring.phase6d5_retrieval import build_capability_retrieval_trace
 from rag import capability_taxonomy_rag as rag
 
 
 class CapabilityV14BoundaryTests(unittest.TestCase):
+    def test_leading_c_list_marker_does_not_resolve_as_c_language(self):
+        text = "(c) Front-end frameworks such as React, Node.js, or Angular 2"
+        requirement = {"text": text, "atomic_focus": text}
+        self.assertIsNone(classify_requirement_record(requirement))
+        resolution = resolve_requirement_with_production_knowledge(requirement)
+        self.assertNotEqual(
+            resolution["decision"].get("capability_id"),
+            "language.modern_cpp",
+        )
+
+    def test_list_marker_fix_preserves_real_c_cpp_csharp_and_react_boundaries(self):
+        cases = {
+            "C": "language.modern_cpp",
+            "(c) Knowledge of C programming": "language.modern_cpp",
+            "C programming": "language.modern_cpp",
+            "C/C++": "language.modern_cpp",
+            "C++": "language.modern_cpp",
+            "C++ development": "language.modern_cpp",
+            "C# development": None,
+            "(c) Proficiency in React": "frontend.ui_development",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                result = resolve_requirement_with_production_knowledge({
+                    "text": text,
+                    "atomic_focus": text,
+                })
+                self.assertEqual(result["decision"].get("capability_id"), expected)
+
+        react_marker = resolve_requirement_with_production_knowledge({
+            "text": "(c) React framework experience",
+            "atomic_focus": "(c) React framework experience",
+        })
+        self.assertNotEqual(
+            react_marker["decision"].get("capability_id"),
+            "language.modern_cpp",
+        )
+
+    def test_list_marker_fix_preserves_python_registry_resolution(self):
+        plain = resolve_requirement_with_production_knowledge({
+            "text": "Python",
+            "atomic_focus": "Python",
+        })
+        marked = resolve_requirement_with_production_knowledge({
+            "text": "(a) Python",
+            "atomic_focus": "(a) Python",
+        })
+        self.assertEqual(marked["registry_resolution"], plain["registry_resolution"])
+
+    def test_list_marker_fix_does_not_strip_parenthetical_prose(self):
+        text = "Experience with prose (c) React"
+        self.assertEqual(strip_leading_alpha_list_marker(text), text)
+
     def test_runtime_vector_and_hybrid_never_call_external_retrieval(self):
         for mode in ("vector", "hybrid"):
             with self.subTest(mode=mode), patch.dict(os.environ, {"CAPABILITY_RAG_MODE": mode}), patch(

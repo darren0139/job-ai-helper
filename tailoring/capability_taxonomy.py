@@ -54,6 +54,29 @@ V14_EVIDENCE_POLICIES = {
     "data_oriented_v1", "algorithms_v1", "client_integration_v1", "realtime_v1",
 }
 _V14_ACTIONS = ["built", "implemented", "developed", "shipped", "published", "programmed", "created", "integrated", "deployed"]
+_C_CPP_REQUIREMENT_TOKEN = re.compile(
+    r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])",
+    re.I,
+)
+_LEADING_ALPHA_LIST_MARKER = re.compile(r"^\s*\([a-z]\)\s+(?=\S)", re.I)
+
+
+def strip_leading_alpha_list_marker(value: Any) -> str:
+    """Remove one leading ``(a)``-style marker without altering other text."""
+    return _LEADING_ALPHA_LIST_MARKER.sub("", _clean(value))
+
+
+def _c_cpp_requirement_text(requirement: dict[str, Any]) -> str:
+    """Exclude only leading alphabetic list markers from C/C++ matching."""
+    values = [
+        _clean(requirement.get("text")),
+        _clean(requirement.get("atomic_focus")),
+    ]
+    return " ".join(
+        strip_leading_alpha_list_marker(value)
+        for value in values
+        if value
+    )
 
 
 def _v14_label(policy: str, requirement: str, evidence: str) -> tuple[str, str]:
@@ -463,9 +486,14 @@ def classify_requirement_diagnostics(
 
     for item in taxonomy.capabilities:
         matcher = item.get("requirement") or {}
+        match_text = (
+            _c_cpp_requirement_text(requirement)
+            if item.get("evidence_policy") == "c_cpp_v1"
+            else text
+        )
         any_terms = matcher.get("any_terms", []) or []
         all_terms = matcher.get("all_terms", []) or []
-        if all_terms and not all(_contains(text, term) for term in all_terms):
+        if all_terms and not all(_contains(match_text, term) for term in all_terms):
             continue
         variants = matcher.get("contextual_phrase_variants", [])
         variant_match = False
@@ -518,12 +546,12 @@ def classify_requirement_diagnostics(
                 if present and matched_variant is None:
                     matched_variant = detail
             variant_match = matched_variant is not None
-        matched_any_terms = [term for term in any_terms if _contains(text, term)]
+        matched_any_terms = [term for term in any_terms if _contains(match_text, term)]
         if (any_terms or variants) and not (matched_any_terms or variant_match):
             continue
-        if not _matches_groups(text, matcher.get("all_groups", [])):
+        if not _matches_groups(match_text, matcher.get("all_groups", [])):
             continue
-        if item.get("evidence_policy") == "c_cpp_v1" and not re.search(r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])", text.lower()):
+        if item.get("evidence_policy") == "c_cpp_v1" and not _C_CPP_REQUIREMENT_TOKEN.search(match_text):
             continue
         if not any_terms and not all_terms and not variants:
             continue

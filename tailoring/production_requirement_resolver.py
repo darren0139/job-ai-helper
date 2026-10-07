@@ -8,6 +8,7 @@ from tailoring.capability_taxonomy import (
     classify_requirement_diagnostics,
     evaluate_capability_evidence,
     get_default_taxonomy,
+    strip_leading_alpha_list_marker,
 )
 from taxonomy_discovery.technology_registry import resolve_requirement_text
 
@@ -41,6 +42,7 @@ def resolve_requirement_with_production_knowledge(
         focus = str(
             requirement.get("atomic_focus") or requirement.get("text") or ""
         )
+        focus = strip_leading_alpha_list_marker(focus)
         registry_resolution = resolve_requirement_text(focus)
         if (
             registry_resolution.get("status") == "resolved"
