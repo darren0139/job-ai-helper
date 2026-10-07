@@ -25,6 +25,7 @@ from analysis_stability.stable_evidence_scoring import (
 from job_discovery.matching import current_match_versions
 from tailoring.capability_taxonomy import (
     CapabilityTaxonomy,
+    TAXONOMY_PATH,
     _validate_capability,
     get_default_taxonomy,
     normalise as taxonomy_normalise,
@@ -48,6 +49,7 @@ from taxonomy_discovery.regression_corpus import (
 from taxonomy_discovery.research_atomicity import candidate_atomicity
 from taxonomy_discovery.taxonomy_evolution import overlap_check
 from taxonomy_discovery.technology_registry import (
+    REGISTRY_PATH,
     TechnologyRegistry,
     _validate_registry,
     get_default_registry,
@@ -69,6 +71,66 @@ CAPABILITY_CLOSURE_PROFILE_PATH = (
 )
 JOB_MATCH_HEALTH_REPORT_VERSION = "tqd3-job-match-health-v1"
 TRUE_GAP_TRIAGE_VERSION = "tqd3-true-job-match-gap-triage-v1"
+TARGETED_TAXONOMY_CLEANUP_VERSION = "tqd3-targeted-taxonomy-cleanup-v1"
+
+TARGETED_TAXONOMY_DECISIONS = {
+    "SQL": {
+        "disposition": "B",
+        "disposition_label": "new_bounded_capability_justified",
+        "reason": "SQL query construction and optimization is distinct from database design, data processing, and database authorization.",
+        "relationship_decision": "contextual_only_after_capability_approval",
+        "relationship_reason": "A bare SQL identity does not prove query-writing behavior; an unconditional SQL relationship is not review-ready.",
+    },
+    "network access control": {
+        "disposition": "B",
+        "disposition_label": "new_bounded_capability_justified",
+        "reason": "Network admission and device-access policy is a bounded behavior not represented by database access control, packet analysis, or DNS/DHCP.",
+        "relationship_decision": "not_applicable_capability_phrase",
+        "relationship_reason": "The corpus uses the capability phrase itself rather than a technology identity.",
+    },
+    "Ansible": {
+        "disposition": "B",
+        "disposition_label": "new_bounded_capability_justified",
+        "reason": "Infrastructure and configuration automation is distinct from manual configuration and application delivery pipelines.",
+        "relationship_decision": "contextual_only_after_capability_approval",
+        "relationship_reason": "Ansible can support configuration or infrastructure automation, but a bare product mention does not prove either behavior.",
+    },
+    "HCL BigFix": {
+        "disposition": "D",
+        "disposition_label": "research_still_insufficient",
+        "reason": "The cached BigFix result found endpoint-management evidence but the governed authority rules accepted no subject-specific first-party definition.",
+        "relationship_decision": "research_blocked",
+        "relationship_reason": "BigFix must not map to endpoint management until identity, authority, and the relationship pass governed review.",
+        "research_plan": [
+            "Confirm HCL/BigFix first-party domain ownership through the governed authority registry.",
+            "Verify the canonical product identity and endpoint-management scope from accepted first-party material.",
+            "Re-evaluate BigFix -> endpoint management only after the capability is approved.",
+        ],
+    },
+    "distributed systems": {
+        "disposition": "D",
+        "disposition_label": "research_still_insufficient",
+        "reason": "Cached sources are supporting material only and do not establish a governed authoritative definition and safe phrase boundary.",
+        "relationship_decision": "not_applicable_capability_concept",
+        "relationship_reason": "This is a capability-boundary question, not a technology mapping.",
+        "research_plan": [
+            "Obtain an accepted authoritative definition covering coordination, partial failure, consistency, resilience, and scale.",
+            "Validate positive and negative phrase boundaries against the known compound Web-platforms collision.",
+        ],
+    },
+}
+
+ACTIVE_TAXONOMY_CAPABILITY_IDS = (
+    "quality.qa_testing",
+    "language.modern_cpp",
+    "fullstack.integration",
+    "collaboration.cross_functional",
+    "embedded.firmware",
+    "operations.configuration",
+    "frontend.ui_development",
+    "data.processing",
+    "backend.api_development",
+)
 
 TRUE_GAP_CATEGORIES = {
     "A": "genuine_candidate_evidence_gap",
@@ -2942,6 +3004,408 @@ def preview_capability_closure(audit: dict[str, Any], closure: dict[str, Any]) -
         "publication": False,
         "production_mutations": 0,
         "scoring_semantics_changed": False,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def _cached_research_summary(
+    concept: str,
+    saved_research_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    aliases = {
+        "HCL BigFix": ("bigfix",),
+        "distributed systems": ("distributed systems",),
+        "SQL": ("sql", "sql querying"),
+        "Ansible": ("ansible", "infrastructure automation"),
+        "network access control": ("network access control",),
+    }[concept]
+    matches = []
+    for saved in saved_research_rows:
+        result = saved.get("result") if isinstance(saved, dict) else None
+        if not isinstance(result, dict):
+            continue
+        candidate = result.get("candidate") or {}
+        subject = normalise(candidate.get("normalized_cluster") or "")
+        if not any(alias in subject for alias in aliases):
+            continue
+        matches.append({
+            "research_result_id": result.get("research_result_id"),
+            "provider_request_id": result.get("provider_request_id"),
+            "candidate_route": result.get("candidate_route") or candidate.get("candidate_route"),
+            "authoritative_definition_count": len(result.get("authoritative_evidence_summary") or []),
+            "primary_definition_count": int((result.get("quality_diagnostics") or {}).get("primary_definitions") or 0),
+            "recommended_next_action": result.get("recommended_next_action"),
+            "conflicts_blockers": deepcopy(result.get("conflicts_blockers") or []),
+            "review_decision": (saved.get("review") or {}).get("decision", "undecided"),
+        })
+    return {
+        "saved_result_count": len(matches),
+        "results": matches,
+        "governed_authoritative_definition_available": any(
+            row["authoritative_definition_count"] or row["primary_definition_count"]
+            for row in matches
+        ),
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+
+
+def _cap_boundary_classification(row: dict[str, Any]) -> dict[str, Any]:
+    capability_id = str((row.get("current_resolution") or {}).get("capability_id") or "")
+    text = str(row.get("requirement_text") or "")
+    without_list_marker = re.sub(r"^\s*\([a-z]\)\s+", "", text, flags=re.I)
+    genuine_c_cpp = bool(re.search(
+        r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])",
+        without_list_marker.lower(),
+    ))
+    if capability_id == "language.modern_cpp" and not genuine_c_cpp:
+        return {
+            "classification": "resolver_boundary_issue",
+            "reason": "A leading alphabetic list marker collided with the bare C requirement token.",
+            "false_rejection": row.get("match_label") == "none",
+            "recommended_action": "governed bare-C list-marker boundary proposal",
+            "fixed": False,
+        }
+    if capability_id == "quality.qa_testing" and re.search(
+        r"\b(?:penetration|security|vulnerability)\s+testing\b", text, re.I
+    ):
+        return {
+            "classification": "resolver_boundary_issue",
+            "reason": "A security-testing phrase reaches the broad QA testing boundary; the existing cap limits, but does not establish, equivalence.",
+            "false_rejection": False,
+            "recommended_action": "retain cap and review a separate cybersecurity boundary",
+            "fixed": False,
+        }
+    return {
+        "classification": "expected_semantic_protection",
+        "reason": "The capability evidence policy conservatively limited evidence that did not prove the requested behavior.",
+        "false_rejection": False,
+        "recommended_action": "retain",
+        "fixed": False,
+    }
+
+
+def build_targeted_taxonomy_cleanup(
+    audit: dict[str, Any],
+    *,
+    saved_research_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Prepare the final narrow taxonomy review without approving knowledge."""
+    if audit.get("audit_version") != CORPUS_GAP_RESOLUTION_VERSION:
+        raise ValueError("Current corpus gap audit required")
+    saved_research_rows = list(saved_research_rows or [])
+    closure = build_capability_closure_matrix(audit, top_n=100)
+    matrix = {row["display_concept"]: row for row in closure["matrix"]}
+    draft_by_id = {
+        row["proposed_capability_id"]: row
+        for row in closure["possible_new_capability_drafts"]
+    }
+    items = []
+    for concept, decision in TARGETED_TAXONOMY_DECISIONS.items():
+        if concept not in matrix:
+            raise ValueError(f"Targeted concept absent from current corpus audit: {concept}")
+        current = matrix[concept]
+        research = _cached_research_summary(concept, saved_research_rows)
+        capability = deepcopy(current.get("candidate_definition"))
+        draft = draft_by_id.get((capability or {}).get("capability_id"))
+        review_ready = decision["disposition"] == "B" and draft is not None
+        blockers = []
+        if decision["disposition"] == "D":
+            blockers.append(decision["reason"])
+        if concept == "HCL BigFix" and not research["governed_authoritative_definition_available"]:
+            blockers.append("No governed subject-specific authoritative definition in cached research")
+        if concept == "distributed systems":
+            blockers.append("Known compound phrase collision remains unresolved")
+        items.append({
+            "candidate": concept,
+            **deepcopy(decision),
+            "current_knowledge": {
+                "identity": current["identity"],
+                "relationship": current["relationship"],
+                "capability": current["capability"],
+                "nearest_existing_capabilities": deepcopy(current["relevant_existing_capabilities"]),
+                "why_existing_insufficient": current["why_existing_insufficient"],
+            },
+            "corpus_provenance": {
+                "affected_requirement_keys": deepcopy(current["affected_requirement_keys"]),
+                "affected_requirements": deepcopy(current["affected_requirements"]),
+                "affected_jobs": deepcopy(current["affected_jobs"]),
+                "occurrence_count": current["occurrence_count"],
+                "required_core_impact": current["required_core_impact"],
+            },
+            "proposed_capability": capability if decision["disposition"] == "B" else None,
+            "potential_collateral_requirements": deepcopy(
+                (draft or {}).get("potential_collateral_requirements") or []
+            ),
+            "cached_research": research,
+            "review_readiness": "READY FOR HUMAN REVIEW" if review_ready else "NOT READY",
+            "review_blockers": blockers,
+            "publication_dependencies": (
+                ["governed capability research", "human approval", "fresh full-corpus regression"]
+                if review_ready else []
+            ),
+            "approval": False,
+            "publication": False,
+        })
+
+    active_caps = []
+    for capability_id in ACTIVE_TAXONOMY_CAPABILITY_IDS:
+        affected = [
+            row for row in audit["requirements"]
+            if row.get("taxonomy_cap_status") == "applied"
+            and (row.get("current_resolution") or {}).get("capability_id") == capability_id
+        ]
+        findings = [{
+            "job_id": row["job_id"],
+            "requirement_id": row["requirement_id"],
+            "requirement_text": row["requirement_text"],
+            "resulting_match_label": row["match_label"],
+            **_cap_boundary_classification(row),
+        } for row in affected]
+        active_caps.append({
+            "capability_id": capability_id,
+            "intervention_count": len(affected),
+            "positive_after_cap": sum(row["match_label"] != "none" for row in affected),
+            "rejected_after_cap": sum(row["match_label"] == "none" for row in affected),
+            "findings": findings,
+            "audit_status": "active" if affected else "no_current_intervention",
+        })
+
+    g_rows = [
+        row for row in audit["true_job_match_gap_triage"]["requirements"]
+        if row.get("category_code") == "G"
+    ]
+    boundary_rows = [{
+        "job_id": row["job_id"],
+        "requirement_id": row["requirement_id"],
+        "requirement_text": row["requirement_text"],
+        "capability_id": row["taxonomy_result"].get("capability_id"),
+        "disposition": "retain_intentional_evidence_boundary",
+        "reason": "Domain work does not prove a stated subjective interest; the current none result is conservative and correct.",
+    } for row in g_rows]
+    review_drafts = [
+        deepcopy(draft_by_id[item["proposed_capability"]["capability_id"]])
+        for item in items if item["review_readiness"] == "READY FOR HUMAN REVIEW"
+    ]
+    counts = Counter(item["disposition"] for item in items)
+    report = {
+        "cleanup_version": TARGETED_TAXONOMY_CLEANUP_VERSION,
+        "targeted_items": items,
+        "disposition_counts": {code: counts[code] for code in "ABCDEF"},
+        "human_review_ready_proposals": review_drafts,
+        "active_taxonomy_caps": active_caps,
+        "active_intervention_count": sum(row["intervention_count"] for row in active_caps),
+        "false_rejection_findings": [
+            finding for row in active_caps for finding in row["findings"]
+            if finding["false_rejection"]
+        ],
+        "false_rejections_fixed": 0,
+        "g_boundary_rows": boundary_rows,
+        "closure": closure,
+        "review_only": True,
+        "approval": False,
+        "publication": False,
+        "production_mutations": 0,
+        "scoring_formula_changed": False,
+        "global_thresholds_changed": False,
+        "network_calls": 0,
+        "model_calls": 0,
+    }
+    report["report_fingerprint"] = fingerprint({
+        key: value for key, value in report.items() if key != "report_fingerprint"
+    })
+    return report
+
+
+def _integrated_corpus_metrics(
+    corpus: dict[str, Any],
+    *,
+    stored_requirements: int | None = None,
+) -> dict[str, Any]:
+    requirements = [row for job in corpus["jobs"] for row in job.get("requirements", [])]
+    canonical = [
+        row for job in corpus["jobs"]
+        for row in (job.get("baseline_stable_analysis") or {}).get("canonical_requirements", [])
+    ]
+    eligible = [row for row in requirements if row.get("score_eligible")]
+    positive = [
+        row for row in eligible
+        if row.get("match_label") in {"direct", "transferable", "weak"}
+        and row.get("selected_evidence")
+    ]
+    recognized_unmapped = [
+        row for row in eligible
+        if (row.get("technology_registry_resolution") or {}).get("status") == "recognized_unmapped"
+    ]
+    resolved = [row for row in eligible if row.get("resolution_status") == "resolved"]
+    capped = [row for row in canonical if row.get("capability_taxonomy_cap_status") == "applied"]
+    return {
+        "jobs": len(corpus["jobs"]),
+        "stored_requirements": (
+            int(stored_requirements)
+            if stored_requirements is not None
+            else sum(len(job.get("saved_requirements") or job.get("requirements", [])) for job in corpus["jobs"])
+        ),
+        "active_scoring_units": len(requirements),
+        "score_eligible": len(eligible),
+        "positive_grounded_matches": len(positive),
+        "direct": sum(row.get("match_label") == "direct" for row in positive),
+        "transferable": sum(row.get("match_label") == "transferable" for row in positive),
+        "weak": sum(row.get("match_label") == "weak" for row in positive),
+        "true_no_evidence": sum(not row.get("selected_evidence") for row in eligible),
+        "taxonomy_resolved": len(resolved),
+        "recognized_unmapped": len(recognized_unmapped),
+        "taxonomy_unresolved": len(eligible) - len(resolved) - len(recognized_unmapped),
+        "taxonomy_capped": len(capped),
+        "taxonomy_rejected": sum(row.get("match_label") == "none" for row in capped),
+    }
+
+
+def _integrated_ranking(corpus: dict[str, Any]) -> list[dict[str, Any]]:
+    ordered = sorted(
+        corpus["jobs"],
+        key=lambda job: (
+            -int((job.get("metrics") or {}).get("deterministic_alignment_score") or 0),
+            int(job.get("job_id") or 0),
+        ),
+    )
+    return [{
+        "rank": index,
+        "job_id": job["job_id"],
+        "score": int((job.get("metrics") or {}).get("deterministic_alignment_score") or 0),
+    } for index, job in enumerate(ordered, 1)]
+
+
+def preview_targeted_taxonomy_cleanup(
+    audit: dict[str, Any],
+    cleanup: dict[str, Any],
+) -> dict[str, Any]:
+    """Replay approved-for-review capability hypotheses in copied knowledge."""
+    if cleanup.get("cleanup_version") != TARGETED_TAXONOMY_CLEANUP_VERSION:
+        raise ValueError("Current targeted cleanup report required")
+    if cleanup.get("report_fingerprint") != fingerprint({
+        key: value for key, value in cleanup.items() if key != "report_fingerprint"
+    }):
+        raise ValueError("Targeted cleanup report was edited")
+    taxonomy_before = fingerprint(Path(TAXONOMY_PATH).read_bytes().hex())
+    registry_before = fingerprint(Path(REGISTRY_PATH).read_bytes().hex())
+    # Capability review must not silently approve the example technology
+    # relationships.  Those remain separate contextual/research decisions.
+    drafts = []
+    for draft in cleanup["human_review_ready_proposals"]:
+        copied = deepcopy(draft)
+        copied["technologies"] = []
+        drafts.append(copied)
+    if not drafts:
+        raise ValueError("At least one human-review-ready capability draft required")
+    taxonomy, registry = _closure_scenario_knowledge([], [], drafts)
+    with temporary_taxonomy_scope(taxonomy), temporary_registry_scope(registry):
+        proposed = replay_current_corpus(audit["corpus"])
+    if fingerprint(Path(TAXONOMY_PATH).read_bytes().hex()) != taxonomy_before:
+        raise RuntimeError("Production taxonomy changed during temporary preview")
+    if fingerprint(Path(REGISTRY_PATH).read_bytes().hex()) != registry_before:
+        raise RuntimeError("Production registry changed during temporary preview")
+
+    baseline = audit["corpus"]
+    intended_keys = {
+        tuple(key)
+        for item in cleanup["targeted_items"]
+        if item["review_readiness"] == "READY FOR HUMAN REVIEW"
+        for key in item["corpus_provenance"]["affected_requirement_keys"]
+    }
+    before_rows = {
+        (job["job_id"], row["requirement_id"]): row
+        for job in baseline["jobs"] for row in job.get("requirements", [])
+    }
+    after_rows = {
+        (job["job_id"], row["requirement_id"]): row
+        for job in proposed["jobs"] for row in job.get("requirements", [])
+    }
+    fields = (
+        "resolution_status", "resolution_source", "capability_id", "technology_id",
+        "match_label", "match_value", "selected_evidence", "score_eligible",
+    )
+    changes = []
+    for key in sorted(set(before_rows) | set(after_rows)):
+        before, after = before_rows.get(key), after_rows.get(key)
+        changed_fields = [field for field in fields if (before or {}).get(field) != (after or {}).get(field)]
+        if not changed_fields:
+            continue
+        changes.append({
+            "job_id": key[0],
+            "requirement_id": key[1],
+            "requirement_text": (after or before or {}).get("requirement_text"),
+            "changed_fields": changed_fields,
+            "before": before,
+            "after": after,
+            "intended": key in intended_keys,
+        })
+
+    before_ranking = _integrated_ranking(baseline)
+    after_ranking = _integrated_ranking(proposed)
+    before_rank = {row["job_id"]: row for row in before_ranking}
+    after_rank = {row["job_id"]: row for row in after_ranking}
+    score_changes = [{
+        "job_id": job_id,
+        "before": before_rank[job_id]["score"],
+        "after": after_rank[job_id]["score"],
+        "delta": after_rank[job_id]["score"] - before_rank[job_id]["score"],
+    } for job_id in sorted(before_rank)
+        if before_rank[job_id]["score"] != after_rank[job_id]["score"]]
+    rank_changes = [{
+        "job_id": job_id,
+        "before": before_rank[job_id]["rank"],
+        "after": after_rank[job_id]["rank"],
+    } for job_id in sorted(before_rank)
+        if before_rank[job_id]["rank"] != after_rank[job_id]["rank"]]
+    false_positives = [
+        row for row in changes
+        if not row["intended"]
+        and (row["before"] or {}).get("match_label") == "none"
+        and (row["after"] or {}).get("match_label") in {"direct", "transferable", "weak"}
+    ]
+    baseline_metrics = _integrated_corpus_metrics(baseline)
+    temporary_metrics = _integrated_corpus_metrics(
+        proposed,
+        stored_requirements=baseline_metrics["stored_requirements"],
+    )
+    return {
+        "preview_version": "tqd3-targeted-taxonomy-integrated-regression-v1",
+        "scoring_identity": current_match_versions(),
+        "baseline_metrics": baseline_metrics,
+        "temporary_metrics": temporary_metrics,
+        "baseline_ranking": before_ranking,
+        "temporary_ranking": after_ranking,
+        "requirement_changes": changes,
+        "new_taxonomy_resolutions": sum(
+            (row["before"] or {}).get("resolution_status") != "resolved"
+            and (row["after"] or {}).get("resolution_status") == "resolved"
+            for row in changes
+        ),
+        "positive_matches_changed": sum(
+            (row["before"] or {}).get("match_label") != (row["after"] or {}).get("match_label")
+            for row in changes
+        ),
+        "taxonomy_caps_delta": (
+            temporary_metrics["taxonomy_capped"]
+            - baseline_metrics["taxonomy_capped"]
+        ),
+        "taxonomy_rejects_delta": (
+            temporary_metrics["taxonomy_rejected"]
+            - baseline_metrics["taxonomy_rejected"]
+        ),
+        "job_score_changes": score_changes,
+        "rank_changes": rank_changes,
+        "collateral_matches": [row for row in changes if not row["intended"]],
+        "false_positive_matches": false_positives,
+        "production_taxonomy_mutated": False,
+        "production_registry_mutated": False,
+        "scoring_formula_changed": False,
+        "global_thresholds_changed": False,
+        "review_only": True,
+        "approval": False,
+        "publication": False,
         "network_calls": 0,
         "model_calls": 0,
     }

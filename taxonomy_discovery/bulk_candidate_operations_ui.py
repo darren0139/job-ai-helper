@@ -171,12 +171,14 @@ def _render_corpus_resolution(st, bulk):
         build_capability_closure_matrix,
         build_gap_resolution_queue,
         build_native_regression_handoff,
+        build_targeted_taxonomy_cleanup,
         create_local_proposals,
         load_bulk_technology_seed,
         plan_bulk_technology_bootstrap,
         preview_capability_closure,
         preview_bulk_technology_bootstrap,
         preview_local_resolution,
+        preview_targeted_taxonomy_cleanup,
         select_bulk_bootstrap_proposals,
     )
 
@@ -491,6 +493,64 @@ def _render_corpus_resolution(st, bulk):
                 "blocked_capability_scenarios": closure_preview["blocked_capability_scenarios"],
                 "coverage_still_blocked_percent": closure_preview["coverage_still_blocked_percent"],
                 "unresolved_meaningful_after_scenario": closure_preview["unresolved_meaningful_after_scenario"],
+            })
+
+    st.markdown("###### Targeted taxonomy cleanup and integrated regression")
+    st.caption(
+        "Evaluate only SQL querying, network access control, infrastructure automation, "
+        "endpoint management / BigFix, distributed systems, the two G-boundary rows, and "
+        "currently active taxonomy interventions. The replay uses copied knowledge and never approves or publishes."
+    )
+    if st.button(
+        "Run targeted cleanup + 30-job temporary replay",
+        key="tqd3_targeted_taxonomy_cleanup",
+    ):
+        try:
+            from database.taxonomy_discovery_review_manager import list_governed_research_results
+            with st.spinner("Reading cached research and replaying copied taxonomy knowledge..."):
+                targeted = build_targeted_taxonomy_cleanup(
+                    audit,
+                    saved_research_rows=list_governed_research_results(),
+                )
+                targeted_preview = preview_targeted_taxonomy_cleanup(audit, targeted)
+            st.session_state["tqd3_targeted_taxonomy_cleanup_report"] = targeted
+            st.session_state["tqd3_targeted_taxonomy_cleanup_preview"] = targeted_preview
+            st.success("Targeted review and integrated temporary regression are ready.")
+        except Exception as exc:
+            st.error(f"Targeted taxonomy cleanup failed closed: {exc}")
+    targeted = st.session_state.get("tqd3_targeted_taxonomy_cleanup_report")
+    targeted_preview = st.session_state.get("tqd3_targeted_taxonomy_cleanup_preview")
+    if targeted and targeted_preview:
+        st.dataframe([{
+            "candidate": row["candidate"],
+            "current knowledge": row["current_knowledge"]["capability"],
+            "proposed disposition": f"{row['disposition']}. {row['disposition_label'].replace('_', ' ')}",
+            "evidence / research": (
+                f"{row['cached_research']['saved_result_count']} cached · "
+                f"authoritative={row['cached_research']['governed_authoritative_definition_available']}"
+            ),
+            "boundary risk": row["relationship_reason"],
+            "corpus impact": (
+                f"{row['corpus_provenance']['occurrence_count']} occurrences / "
+                f"{len(row['corpus_provenance']['affected_jobs'])} jobs"
+            ),
+            "review readiness": row["review_readiness"],
+        } for row in targeted["targeted_items"]], hide_index=True, width="stretch")
+        st.write("Baseline vs temporary proposed taxonomy", {
+            "baseline": targeted_preview["baseline_metrics"],
+            "temporary": targeted_preview["temporary_metrics"],
+            "job score changes": len(targeted_preview["job_score_changes"]),
+            "rank changes": len(targeted_preview["rank_changes"]),
+            "collateral changes": len(targeted_preview["collateral_matches"]),
+            "false positives": len(targeted_preview["false_positive_matches"]),
+        })
+        with st.expander("Targeted evidence, cap audit, G boundaries, and regression diagnostics"):
+            st.json({
+                "targeted_items": targeted["targeted_items"],
+                "active_taxonomy_caps": targeted["active_taxonomy_caps"],
+                "false_rejection_findings": targeted["false_rejection_findings"],
+                "g_boundary_rows": targeted["g_boundary_rows"],
+                "integrated_regression": targeted_preview,
             })
 
     local_rows = [row for row in resolution_queue["rows"] if row["local_safe"]]
