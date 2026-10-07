@@ -32,7 +32,7 @@ class Phase9ETailoringBaseOriginalDocxPreviewTests(unittest.TestCase):
     def test_ui_only_upgrade_keeps_scoring_identity(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.11-phase6d17",
+            "stable-evidence-v1.12-phase6d18",
         )
         self.assertEqual(
             PHASE9E_TAILORING_BASE_VISUAL_PREVIEW_VERSION,

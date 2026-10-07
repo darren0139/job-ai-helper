@@ -82,10 +82,10 @@ class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
         # Capability discovery intentionally advances scorer/registry
         # currentness. Pin the merged structure-and-scoring contract instead
         # of treating the older Phase 6D fingerprint as current.
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.11-phase6d17")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.12-phase6d18")
         self.assertEqual(
             result["input_fingerprint"],
-            "1c095c738a8dd642114fa39c96be9a8782eef803cd1b766f942684b23194cb93",
+            "24561642a839a4ba74bab4de412b696de2cb7dd24f0960a37c5c8c342aad467d",
         )
         self.assertEqual(
             JD_STRUCTURE_INFERENCE_VERSION,

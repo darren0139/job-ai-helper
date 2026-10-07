@@ -29,7 +29,7 @@ class Phase9ERegistryCurrentnessCacheTests(unittest.TestCase):
     def test_scoring_identity_is_not_changed(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.11-phase6d17",
+            "stable-evidence-v1.12-phase6d18",
         )
 
     def test_registry_version_changes_resolution_identity(self):
