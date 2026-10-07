@@ -23,10 +23,11 @@ from rag.jd_identity import build_job_identity, normalize_field
 DB_PATH = Path("data/applications.db")
 
 
-def _connect() -> sqlite3.Connection:
+def _connect(db_path=None) -> sqlite3.Connection:
     """Open SQLite and make sure the data folder exists."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+    path = Path(db_path or DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -495,9 +496,9 @@ def _repair_missing_version_identity_profiles(
         )
 
 
-def init_jd_library() -> None:
+def init_jd_library(*, db_path=None) -> None:
     """Create/migrate the canonical JD schema and backfill legacy rows."""
-    connection = _connect()
+    connection = _connect(db_path)
     try:
         cursor = connection.cursor()
         had_application_job_links = _table_exists(
@@ -1008,6 +1009,7 @@ def save_job_description_to_library(
     company: str = "",
     location: str = "",
     source_url: str = "",
+    db_path=None,
 ) -> dict[str, Any]:
     """Persist/reuse one standalone JD without creating an application link."""
     cleaned_text = str(raw_text or "").strip()
@@ -1038,7 +1040,7 @@ def save_job_description_to_library(
     profile_json = _json_dumps(profile)
     now = _now()
 
-    connection = _connect()
+    connection = _connect(db_path)
     try:
         cursor = connection.cursor()
         canonical_row = _find_compatible_canonical_row(

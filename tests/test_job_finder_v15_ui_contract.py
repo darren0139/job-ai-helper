@@ -50,7 +50,7 @@ class JobFinderV15UIContractTests(unittest.TestCase):
             self.text,
         )
         self.assertIn(
-            "job_finder_batch_form_v15",
+            "job_finder_batch_form_v17",
             self.text,
         )
 

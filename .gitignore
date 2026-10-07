@@ -48,3 +48,5 @@ debug_exports/
 
 # Local patch-script backups
 *.bak.*
+/tqd3_*.json
+/tqd3_*.csv

@@ -49,7 +49,7 @@ Requirements:
             "context-only preference tail downgraded its required parent"
         )
 
-    if SCORING_VERSION != "stable-evidence-v1.10-phase6d20":
+    if SCORING_VERSION != "stable-evidence-v1.13-phase6d20":
         errors.append(f"unexpected scoring version: {SCORING_VERSION!r}")
 
     if errors:

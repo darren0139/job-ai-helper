@@ -43,15 +43,16 @@ from tailoring.phase6d6_structured_matching import (
 
 from taxonomy_discovery.technology_registry import get_default_registry
 
-SCORING_VERSION = "stable-evidence-v1.10-phase6d20"
+SCORING_VERSION = "stable-evidence-v1.13-phase6d20"
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
-NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v2"
-JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.1"
+NON_REQUIREMENT_FILTER_VERSION = "canonical-non-requirement-filter-v3"
+JD_SEMANTIC_ELIGIBILITY_VERSION = "jd-semantic-eligibility-v1.2"
 CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION = (
-    "jd-atomic-requirement-decomposition-v1"
+    "jd-atomic-requirement-decomposition-v1.1"
 )
+CREDENTIAL_EVIDENCE_POLICY_VERSION = "credential-evidence-policy-v1"
 
 MATCH_VALUES = {
     "direct": 1.0,
@@ -194,6 +195,60 @@ _SUBJECTIVE_CUE_TOKEN_SOURCE = (
 def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
 
+
+_RAW_RESUME_STRUCTURAL_HEADINGS = frozenset(
+    {
+        "summary",
+        "professional summary",
+        "profile",
+        "professional profile",
+        "objective",
+        "career objective",
+        "about me",
+        "education",
+        "academic background",
+        "work experience",
+        "professional experience",
+        "employment history",
+        "experience",
+        "projects",
+        "project experience",
+        "selected projects",
+        "personal projects",
+        "skills",
+        "technical skills",
+        "core skills",
+        "key skills",
+        "competencies",
+        "technical competencies",
+        "certifications",
+        "certificates",
+        "licenses and certifications",
+        "awards",
+        "achievements",
+        "publications",
+        "languages",
+        "interests",
+        "references",
+    }
+)
+
+
+def _normalise_resume_structural_heading(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    text = re.sub(r"[\\s:;.\\-–—]+$", "", text)
+    text = text.casefold()
+    text = re.sub(r"[^a-z0-9+#]+", " ", text)
+    return " ".join(text.split())
+
+
+def _is_raw_resume_structural_heading(value: Any) -> bool:
+    return (
+        _normalise_resume_structural_heading(value)
+        in _RAW_RESUME_STRUCTURAL_HEADINGS
+    )
 
 def _normalise_requirement_surface(value: Any) -> str:
     """Repair unambiguous presentation joins before deterministic tokenisation.
@@ -700,6 +755,57 @@ def _raw_jd_section_heading_rows(
 
     return rows
 
+
+def classify_credential_requirement(value: Any) -> str:
+    """Return the explicit credential evidence policy for one requirement."""
+    surface = _normalise_requirement_surface(value).strip(" ,;:.-")
+    text = _normalise_basic(surface)
+    if not text:
+        return ""
+
+    if re.fullmatch(
+        r"(?:skills and certifications|preferred certification(?:s)?(?: (?:and )?skills)?|"
+        r"certifications in or from the following would be preferred)",
+        text,
+    ):
+        return "generic_credential_narrative"
+    if re.search(
+        r"\b(?:certifications?|certified|certificates?)\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "explicit_certification"
+    if re.search(
+        r"\b(?:degree|bachelors?|master(?:'s|s)?|phd|doctorate|diploma|"
+        r"academic qualifications?|educational background)\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "explicit_education"
+    if re.search(
+        r"\b(?:credentials?|licen[cs]e[sd]?)\b",
+        surface,
+        flags=re.IGNORECASE,
+    ):
+        return "ambiguous_credential"
+    return ""
+
+
+def _ineligible_semantic_metadata(
+    metadata: dict[str, Any],
+    *,
+    semantic_type: str,
+    rule: str,
+) -> dict[str, Any]:
+    return {
+        **metadata,
+        "semantic_type": semantic_type,
+        "evidence_eligible": False,
+        "score_eligible": False,
+        "tailoring_eligible": False,
+        "eligibility_rule": rule,
+    }
+
 def classify_jd_statement_semantics(
     value: Any,
     *,
@@ -726,6 +832,130 @@ def classify_jd_statement_semantics(
     }
     if not normalised:
         return metadata
+
+    administrative_rules = (
+        (
+            "application_status_notice",
+            re.compile(
+                r"^(?:please note that |we (?:wish to inform|regret) that |"
+                r"we thank all applicants[^.!?]*?but regret to inform that )?"
+                r"only shortlisted (?:applicants|candidates) (?:will|would) be notified$",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "application_status_notice",
+            re.compile(
+                r"^all applicants will be notified on whether they are shortlisted or not\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "application_instruction",
+            re.compile(
+                r"^(?:how to apply:\s*)?please submit your resume\b|"
+                r"^interested applicants,? kindly send in a copy of your updated resume\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "application_data_consent",
+            re.compile(
+                r"^by submitting your application\b.*\bconsent to the collection,? "
+                r"use,? and disclosure of your personal data\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "candidate_screening_process",
+            re.compile(
+                r"^candidates? should be comfortable completing an online technical "
+                r"coding assessment as part of the interview process$",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "employment_terms_notice",
+            re.compile(r"^working hours$", re.IGNORECASE),
+        ),
+        (
+            "recruiter_administrative_identity",
+            re.compile(
+                r"^.+\(ea licen[cs]e number:\s*[a-z0-9]+\)$|"
+                r"^ea licen[cs]e no\.?\s*:\s*[a-z0-9]+$",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "recruiter_postal_address",
+            re.compile(
+                r"^\d+\s+[^.!?]{1,100}\b(?:road|street|avenue|drive|boulevard|lane)\b"
+                r"[^.!?]*\bsingapore\s+\d{6}$",
+                re.IGNORECASE,
+            ),
+        ),
+    )
+    for rule, pattern in administrative_rules:
+        if pattern.search(surface):
+            return _ineligible_semantic_metadata(
+                metadata,
+                semantic_type="application_process",
+                rule=rule,
+            )
+
+    narrative_rules = (
+        (
+            "role_reporting_context",
+            re.compile(r"^this role reports to\b", re.IGNORECASE),
+        ),
+        (
+            "training_outcome_future_learning",
+            re.compile(
+                r"^throughout the project,? you will gain hands-on experience\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "employer_quality_narrative",
+            re.compile(
+                r"^at\s+[^,]{1,80},?\s+we recognize the vital role that\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "organisation_context",
+            re.compile(
+                r"^a part of .{1,120}\bwhich strives to\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "team_context",
+            re.compile(
+                r"^you(?:'ll| will) be a key member of\b.*\bsitting at the intersection of\b",
+                re.IGNORECASE,
+            ),
+        ),
+    )
+    for rule, pattern in narrative_rules:
+        if pattern.search(surface):
+            semantic_type = (
+                "training_outcome"
+                if rule == "training_outcome_future_learning"
+                else "role_context"
+            )
+            return _ineligible_semantic_metadata(
+                metadata,
+                semantic_type=semantic_type,
+                rule=rule,
+            )
+
+    if classify_credential_requirement(surface) == "generic_credential_narrative":
+        return _ineligible_semantic_metadata(
+            metadata,
+            semantic_type="credential_context",
+            rule="generic_credential_narrative",
+        )
 
     role_context_patterns = (
         re.compile(
@@ -809,7 +1039,11 @@ def _semantic_metadata_for_exclusion(
         importance=importance,
     )
     if not metadata["score_eligible"]:
-        return metadata
+        return {
+            **metadata,
+            "credential_policy": classify_credential_requirement(value),
+            "credential_evidence_policy_version": CREDENTIAL_EVIDENCE_POLICY_VERSION,
+        }
 
     semantic_type = "company_context"
     if reason in {
@@ -827,6 +1061,8 @@ def _semantic_metadata_for_exclusion(
         "score_eligible": False,
         "tailoring_eligible": False,
         "eligibility_rule": reason or "non_evidence_bearing_context",
+        "credential_policy": classify_credential_requirement(value),
+        "credential_evidence_policy_version": CREDENTIAL_EVIDENCE_POLICY_VERSION,
     }
 
 
@@ -1184,6 +1420,60 @@ def _split_shared_head_and_list(value: str) -> list[str]:
         if len(_tokenise(item)) >= 1
     ]
 
+
+def _is_bounded_named_term(value: str) -> bool:
+    cleaned = _clean_text(value).strip(" ,;:.-")
+    tokens = cleaned.split()
+    if not 1 <= len(tokens) <= 4:
+        return False
+    if re.search(
+        r"\b(?:expected|required|preferred|advantage|experience|knowledge|"
+        r"skills?|tools?|frameworks?|platforms?|equivalent)\b",
+        cleaned,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return bool(
+        re.search(r"[A-Z][a-z]+|[A-Z]{2,}|[A-Za-z][+#]|\.[A-Za-z]", cleaned)
+    )
+
+
+def _split_bounded_named_terms(value: str) -> list[str]:
+    """Split only explicit ALL lists of concrete named terms."""
+    if _EXAMPLE_OR_ALTERNATIVE_INTRODUCER.search(value):
+        return []
+    if re.search(r"\b(?:or|and/or|equivalent)\b|/", value, flags=re.IGNORECASE):
+        return []
+
+    shared = re.match(
+        r"^(?P<head>(?:experience|familiarity|knowledge|proficiency|skills?)\s+"
+        r"(?:using|with|in|of)\s+)(?P<tail>.+)$",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if shared:
+        tail = re.sub(
+            r"\s+(?:is|are)\s+(?:expected|required|preferred)\s*$",
+            "",
+            shared.group("tail"),
+            flags=re.IGNORECASE,
+        )
+        parts = [part.strip(" ,;:.-") for part in re.split(r"\s+and\s+", tail, flags=re.I)]
+        if (
+            "," not in tail
+            and len(parts) == 2
+            and all(_is_bounded_named_term(part) for part in parts)
+        ):
+            head = shared.group("head").strip()
+            return [f"{head} {part}" for part in parts]
+
+    enumerated = re.match(r"^\([a-z0-9]+\)\s+(?P<tail>.+)$", value, flags=re.I)
+    if enumerated:
+        parts = _split_top_level_commas(enumerated.group("tail"))
+        if 3 <= len(parts) <= 8 and all(_is_bounded_named_term(part) for part in parts):
+            return parts
+    return []
+
 def _split_non_preference_clause(
     value: str,
     importance: str,
@@ -1202,6 +1492,20 @@ def _split_non_preference_clause(
                 atomic_group_id=group_id,
                 is_atomic=False,
             )
+        ]
+
+    named_parts = _split_bounded_named_terms(value)
+    if named_parts:
+        return [
+            _clause_record(
+                text=part,
+                importance=importance,
+                parent_text=parent_text,
+                focus_text=part,
+                atomic_group_id=group_id,
+                is_atomic=True,
+            )
+            for part in named_parts
         ]
 
     shared_head_parts = _split_shared_head_and_list(value)
@@ -2671,6 +2975,12 @@ def canonicalise_requirements(
             source=" ".join(row.get("sources", []) or []),
             importance=_clean_text(row.get("importance")),
         )
+        semantic["credential_policy"] = classify_credential_requirement(
+            row.get("atomic_focus") or row.get("text")
+        )
+        semantic["credential_evidence_policy_version"] = (
+            CREDENTIAL_EVIDENCE_POLICY_VERSION
+        )
         # Non-evidence-bearing statements were filtered before canonical merging.
         # Keep eligibility explicit on survivors so importance never doubles as
         # a semantic-type flag downstream.
@@ -2760,6 +3070,37 @@ def build_resume_evidence_index(
                 f"resume_profile.education[{index}].courses[{course_index}]",
             )
 
+    for index, certification in enumerate(profile.get("certifications", []) or []):
+        if isinstance(certification, dict):
+            heading = " — ".join(
+                part
+                for part in (
+                    _clean_text(certification.get("name") or certification.get("title")),
+                    _clean_text(certification.get("issuer")),
+                    _clean_text(certification.get("date")),
+                )
+                if part
+            )
+            if heading:
+                heading = f"Certification: {heading}"
+            add(
+                "certification",
+                heading,
+                f"resume_profile.certifications[{index}]",
+            )
+            for detail_index, detail in enumerate(certification.get("details", []) or []):
+                add(
+                    "certification",
+                    detail,
+                    f"resume_profile.certifications[{index}].details[{detail_index}]",
+                )
+        else:
+            add(
+                "certification",
+                f"Certification: {_clean_text(certification)}",
+                f"resume_profile.certifications[{index}]",
+            )
+
     for field_name in ("projects", "experience"):
         for index, item in enumerate(profile.get(field_name, []) or []):
             if not isinstance(item, dict):
@@ -2797,7 +3138,10 @@ def build_resume_evidence_index(
 
     for index, line in enumerate(raw_resume_text.splitlines()):
         cleaned = _clean_text(line).strip("-•* \t")
-        if len(cleaned) >= 8:
+        if (
+            len(cleaned) >= 8
+            and not _is_raw_resume_structural_heading(cleaned)
+        ):
             add("raw_text", cleaned, f"raw_resume_text[{index}]")
 
     return rows
@@ -2912,18 +3256,41 @@ def _evidence_source_is_requirement_compatible(
     practical design/implementation experience. Explicit course rows remain
     eligible for subject-matter requirements.
     """
-    if row.get("section") != "education":
-        return True
-
-    source = _clean_text(row.get("source"))
-    if ".courses[" in source:
-        return True
-
+    section = _clean_text(row.get("section"))
     focus = _normalise_basic(
         requirement.get("atomic_focus")
         or requirement.get("text")
         or ""
     )
+    credential_policy = _clean_text(
+        requirement.get("credential_policy")
+    ) or classify_credential_requirement(focus)
+    source = _clean_text(row.get("source"))
+
+    # Explicit credentials are source-constrained. Project, experience, skill,
+    # and raw-text overlap cannot prove that a certificate or degree exists.
+    if credential_policy == "explicit_certification":
+        return section == "certification"
+    if credential_policy == "explicit_education":
+        return section == "education" and ".courses[" not in source
+    if credential_policy == "ambiguous_credential":
+        return section in {"certification", "education"}
+
+    # Structural résumé labels describe document layout, not a
+    # candidate claim. Reject them even if a raw-text evidence row
+    # is constructed directly by a caller.
+    if (
+        section == "raw_text"
+        and _is_raw_resume_structural_heading(row.get("text"))
+    ):
+        return False
+
+    if section != "education":
+        return True
+
+    if ".courses[" in source:
+        return True
+
     focus_tokens = set(focus.split())
     return any(cue in focus_tokens for cue in _CREDENTIAL_REQUIREMENT_CUES)
 
@@ -4084,6 +4451,7 @@ def build_stable_analysis(
         "capability_none_recovery_policy_version": (
             CAPABILITY_NONE_RECOVERY_POLICY_VERSION
         ),
+        "credential_evidence_policy_version": CREDENTIAL_EVIDENCE_POLICY_VERSION,
         "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "input_fingerprint": hashlib.sha256(
             input_material.encode("utf-8")

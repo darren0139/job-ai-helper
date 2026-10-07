@@ -80,7 +80,7 @@ OVERLAPS = [
 
 class CapabilityTaxonomyV14Tests(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(get_default_taxonomy().version, "phase6d-capability-taxonomy-v1.4")
+        self.assertEqual(get_default_taxonomy().version,"phase6d-capability-taxonomy-v1.5")
 
     def test_unrecognised_context_stays_unrecognised(self):
         for text in ("Graphics programming", "External clients", "Client requirements", "C# programming"):

@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.5",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -1382,7 +1382,55 @@
           "api development",
           "web service"
         ],
-        "all_terms": []
+        "all_terms": [],
+        "contextual_phrase_variants": [
+          {
+            "excluded_product_names": [
+              "amazon kinesis",
+              "amazon kinesis data streams",
+              "amazon web services",
+              "apache activemq",
+              "apache kafka",
+              "apache pulsar",
+              "azure event hubs",
+              "azure service bus",
+              "c sharp",
+              "c++ programming language",
+              "circle ci",
+              "configuration manager",
+              "confluent platform",
+              "docker compose",
+              "docker hub",
+              "dot net",
+              "eclipse mosquitto",
+              "express js",
+              "github actions",
+              "gitlab ci",
+              "gitlab ci cd",
+              "google cloud platform",
+              "google cloud pub sub",
+              "google pub sub",
+              "ibm mq",
+              "message queuing telemetry transport",
+              "microsoft azure service bus",
+              "microsoft configuration manager",
+              "microsoft endpoint configuration manager",
+              "microsoft sccm",
+              "microsoft sql server",
+              "microsoft system center configuration manager",
+              "nats io",
+              "node js",
+              "open telemetry",
+              "react js",
+              "system center configuration manager",
+              "vue js",
+              "websphere mq"
+            ],
+            "guard_contract_version": "native-product-context-guard-v1",
+            "phrase": "web services",
+            "product_context_guard": "exclude_recognized_multiword_technology_spans"
+          }
+        ]
       },
       "evidence_concepts": {
         "backend_api": [

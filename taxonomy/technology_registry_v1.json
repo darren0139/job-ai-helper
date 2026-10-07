@@ -135,6 +135,24 @@
     },
     {
       "aliases": [
+        "C++",
+        "C++ programming language"
+      ],
+      "capability_relationships": [
+        {
+          "capability_id": "language.modern_cpp",
+          "relationship_type": "maps_to_capability",
+          "status": "approved"
+        }
+      ],
+      "entry_kind": "language",
+      "label": "C++",
+      "notes": "D2.7 preview generated from a human-approved research proposal tqd3draft_a126bf5509437b517c056861.",
+      "status": "approved",
+      "technology_id": "focused.cedb1bac7efcd7db"
+    },
+    {
+      "aliases": [
         "GitHub Actions",
         "Github Actions"
       ],
@@ -450,5 +468,5 @@
       "technology_id": "vue.js"
     }
   ],
-  "registry_version": "technology-registry-v1.1"
+  "registry_version": "technology-registry-v1.2"
 }

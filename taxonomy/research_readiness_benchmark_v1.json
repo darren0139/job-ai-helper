@@ -1,0 +1,52 @@
+{
+  "benchmark_version": "tqd3-research-readiness-benchmark-v1",
+  "purpose": "Zero-network infrastructure expectations only; no capability relationship approvals.",
+  "technologies": [
+    {"technology": "C#", "official_url": "https://learn.microsoft.com/en-us/dotnet/csharp/", "unrelated_url": "https://nodejs.org/docs/"},
+    {"technology": "C++", "official_url": "https://isocpp.org/std/the-standard", "unrelated_url": "https://react.dev/"},
+    {"technology": ".NET", "official_url": "https://dotnet.microsoft.com/en-us/learn/dotnet/what-is-dotnet", "unrelated_url": "https://learn.microsoft.com/en-us/mem/configmgr/"},
+    {"technology": "Node.js", "official_url": "https://nodejs.org/en/docs/", "unrelated_url": "https://angular.dev/"},
+    {"technology": "React", "official_url": "https://react.dev/learn", "unrelated_url": "https://vuejs.org/guide/"},
+    {"technology": "Angular", "official_url": "https://angular.dev/overview", "unrelated_url": "https://react.dev/"},
+    {"technology": "MongoDB", "official_url": "https://www.mongodb.com/docs/", "unrelated_url": "https://www.postgresql.org/docs/"},
+    {"technology": "PostgreSQL", "official_url": "https://www.postgresql.org/docs/", "unrelated_url": "https://redis.io/docs/"},
+    {"technology": "Redis", "official_url": "https://redis.io/docs/", "unrelated_url": "https://www.mongodb.com/docs/"},
+    {"technology": "Apache Kafka", "official_url": "https://kafka.apache.org/documentation/", "unrelated_url": "https://www.confluent.io/blog/"},
+    {"technology": "Docker", "official_url": "https://docs.docker.com/", "unrelated_url": "https://podman.io/docs/"},
+    {"technology": "Podman", "official_url": "https://podman.io/docs/", "unrelated_url": "https://docs.docker.com/"},
+    {"technology": "Kubernetes", "official_url": "https://kubernetes.io/docs/", "unrelated_url": "https://docs.docker.com/"},
+    {"technology": "Keycloak", "official_url": "https://www.keycloak.org/documentation", "unrelated_url": "https://learn.microsoft.com/en-us/dotnet/"},
+    {"technology": "Microsoft SCCM", "official_url": "https://learn.microsoft.com/en-us/mem/configmgr/core/understand/introduction", "unrelated_url": "https://learn.microsoft.com/en-us/dotnet/csharp/"},
+    {"technology": "Amazon Web Services", "official_url": "https://docs.aws.amazon.com/", "unrelated_url": "https://cloud.google.com/docs"},
+    {"technology": "Microsoft Azure", "official_url": "https://azure.microsoft.com/en-us/resources/cloud-computing-dictionary/what-is-azure", "unrelated_url": "https://docs.aws.amazon.com/"},
+    {"technology": "Google Cloud Platform", "official_url": "https://cloud.google.com/docs", "unrelated_url": "https://azure.microsoft.com/"},
+    {"technology": "GitHub Actions", "official_url": "https://docs.github.com/en/actions", "unrelated_url": "https://docs.gitlab.com/ci/"},
+    {"technology": "GitLab CI/CD", "official_url": "https://docs.gitlab.com/ci/", "unrelated_url": "https://docs.github.com/en/actions"},
+    {"technology": "Terraform", "official_url": "https://developer.hashicorp.com/terraform/docs", "unrelated_url": "https://docs.ansible.com/"},
+    {"technology": "Ansible", "official_url": "https://docs.ansible.com/ansible/latest/", "unrelated_url": "https://developer.hashicorp.com/terraform/"}
+  ],
+  "route_cases": [
+    {"case": "known_mapped_technology", "candidate": "React", "route": "technology_relationship", "expected": "already_resolved"},
+    {"case": "known_unmapped_relationship", "candidate": "C#", "route": "technology_relationship", "expected": "relationship_research_ready"},
+    {"case": "unknown_concrete_identity", "candidate": "SCCM", "route": "technology_identity", "expected": "identity_research_ready"},
+    {"case": "vendor_owned_product", "candidate": "BigFix", "route": "technology_identity", "expected": "identity_research_ready"},
+    {"case": "foundation_owned_open_source", "candidate": "ROS 2", "route": "technology_identity", "expected": "identity_research_ready"},
+    {"case": "compound_multi_technology", "candidate": "Python SQL Power BI Tableau", "route": "technology_identity", "expected": "needs_decomposition"},
+    {"case": "generic_architecture_concept", "candidate": "microservices", "route": "possible_new_capability", "expected": "manual_review"},
+    {"case": "possible_new_capability", "candidate": "distributed systems", "route": "possible_new_capability", "expected": "capability_research_ready"},
+    {"case": "resolver_issue", "candidate": "software system level integration", "route": "existing_capability_resolver_issue", "expected": "local_review_required"},
+    {"case": "administrative_noise", "candidate": "only shortlisted candidates will be notified", "route": "administrative_or_non_capability", "expected": "blocked_noise_or_insufficient"}
+  ],
+  "invariants": {
+    "network_calls": 0,
+    "model_calls": 0,
+    "capability_approvals": 0,
+    "scoring_changes": 0,
+    "compound_requirements_require_decomposition": true,
+    "provider_authority_labels_trusted": false,
+    "maximum_queries_per_candidate": 3,
+    "identity_discovery_auto_approves_domain": false,
+    "identity_discovery_auto_maps_capability": false,
+    "all_paid_routes_require_human_review": true
+  }
+}

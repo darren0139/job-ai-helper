@@ -16,7 +16,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-STRUCTURED_MATCH_VERSION = "phase6d6-structured-match-v1"
+STRUCTURED_MATCH_VERSION = "phase6d6-structured-match-v1.2"
 
 _LABEL_ORDER = {
     "none": 0,
@@ -51,6 +51,11 @@ _EXACT_SKILL_REQUIREMENT = re.compile(
 
 _EDUCATION_LEVEL = re.compile(
     r"\b(?:diploma|degree|bachelor|bachelors|master|masters|phd|doctorate)\b",
+    flags=re.IGNORECASE,
+)
+
+_CERTIFICATION_REQUIREMENT = re.compile(
+    r"\b(?:certifications?|certified|certificates?)\b",
     flags=re.IGNORECASE,
 )
 
@@ -139,6 +144,25 @@ def _structured_rows(
                 }
             )
 
+    for index, item in enumerate(profile.get("certifications", []) or []):
+        if isinstance(item, dict):
+            name = _clean(item.get("name") or item.get("title"))
+            issuer = _clean(item.get("issuer"))
+            text = " — ".join(part for part in (name, issuer) if part)
+        else:
+            text = _clean(item)
+        if text:
+            text = f"Certification: {text}"
+            rows.append(
+                {
+                    "section": "certification",
+                    "category": "certification",
+                    "text": text,
+                    "normalised": _normalise(text),
+                    "source": f"resume_profile.certifications[{index}]",
+                }
+            )
+
     return rows
 
 
@@ -216,6 +240,71 @@ def _evidence_reference(row: dict[str, str], reason: str) -> dict[str, str]:
         "reason": reason,
         "evidence_similarity": "1.000",
     }
+
+
+def _match_collaborative_system_integration(
+    requirement_text: str,
+    resume_profile: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Link independently evidenced integration work as transferable only."""
+    requirement = _normalise(requirement_text)
+    integration = re.compile(r"\b(?:integrat(?:e|ed|es|ing|ion)|end to end)\b")
+    collaboration = re.compile(r"\b(?:collaborat\w*|team|teams|work closely)\b")
+    system_context = re.compile(
+        r"\b(?:systems?|software|applications?|code|engine|workflows?)\b"
+    )
+    integration_action = re.compile(
+        r"\b(?:collaborat\w*|work closely)\b.{0,180}\b"
+        r"(?:integrat(?:e|ed|es|ing|ion)|end to end)\b|"
+        r"\b(?:support|perform|deliver|execute)\b.{0,140}\b"
+        r"(?:systems?|software) integration\b"
+    )
+    if not (
+        integration_action.search(requirement)
+        and collaboration.search(requirement)
+        and system_context.search(requirement)
+    ):
+        return None
+
+    profile = resume_profile or {}
+    for section in ("projects", "experience"):
+        for item_index, item in enumerate(profile.get(section, []) or []):
+            if not isinstance(item, dict):
+                continue
+            for bullet_index, bullet in enumerate(item.get("bullets", []) or []):
+                text = _clean(bullet)
+                normalised = _normalise(text)
+                if not (
+                    integration.search(normalised)
+                    and collaboration.search(normalised)
+                    and system_context.search(normalised)
+                ):
+                    continue
+                evidence_row = {
+                    "section": section,
+                    "text": text,
+                    "source": (
+                        f"resume_profile.{section}[{item_index}]"
+                        f".bullets[{bullet_index}]"
+                    ),
+                }
+                return {
+                    "kind": "collaborative_system_integration_transfer",
+                    "group_mode": "behavioral_transfer",
+                    "required_terms": ["collaboration", "system integration"],
+                    "matched_terms": ["collaboration", "system integration"],
+                    "matched_keyword": "collaborative system integration",
+                    "match_label": "transferable",
+                    "evidence": _evidence_reference(
+                        evidence_row,
+                        (
+                            "A project or experience bullet explicitly records "
+                            "collaborative system-integration work. The domain is "
+                            "different, so the evidence remains transferable."
+                        ),
+                    ),
+                }
+    return None
 
 
 def _match_programming_languages(
@@ -420,6 +509,53 @@ def _match_education(
     return None
 
 
+def _match_certification(
+    requirement_text: str,
+    rows: list[dict[str, str]],
+) -> dict[str, Any] | None:
+    if not _CERTIFICATION_REQUIREMENT.search(requirement_text):
+        return None
+
+    certification_rows = [
+        row for row in rows if row.get("section") == "certification"
+    ]
+    if not certification_rows:
+        return None
+
+    generic = {
+        "a", "an", "and", "are", "advantage", "advantageous", "certificate",
+        "certificates", "certification", "certifications", "certified", "cloud",
+        "equivalent", "following", "foundation", "from", "in", "industry", "is",
+        "mandatory", "not", "of", "or", "possession", "preferred", "relevant",
+        "skills", "the", "would",
+    }
+    requirement_key = _normalise(requirement_text)
+    required_tokens = {
+        token for token in requirement_key.split()
+        if token not in generic and len(token) >= 3
+    }
+    if not required_tokens:
+        return None
+
+    for row in certification_rows:
+        evidence_tokens = set(str(row.get("normalised") or "").split())
+        overlap = sorted(required_tokens & evidence_tokens)
+        if not overlap:
+            continue
+        return {
+            "kind": "explicit_certification",
+            "group_mode": "any",
+            "required_terms": sorted(required_tokens),
+            "matched_terms": overlap,
+            "matched_keyword": overlap[0],
+            "evidence": _evidence_reference(
+                row,
+                "A structured Certification evidence item explicitly names an accepted certification term.",
+            ),
+        }
+    return None
+
+
 def structured_match_requirement(
     requirement: dict[str, Any],
     *,
@@ -442,8 +578,21 @@ def structured_match_requirement(
 
     rows = _structured_rows(resume_profile)
 
+    integration_decision = None
+    if _LABEL_ORDER.get(str(requirement.get("match_label") or "none").lower(), 0) == 0:
+        integration_decision = _match_collaborative_system_integration(
+            focus,
+            resume_profile,
+        )
+    if integration_decision is not None:
+        return {
+            "structured_match_version": STRUCTURED_MATCH_VERSION,
+            **integration_decision,
+        }
+
     for matcher in (
         _match_programming_languages,
+        _match_certification,
         _match_education,
         _match_exact_structured_skill,
     ):
@@ -490,15 +639,20 @@ def apply_structured_requirement_matches(
         row["structured_match_required_terms"] = decision["required_terms"]
         row["structured_match_matched_terms"] = decision["matched_terms"]
 
+        decision_label = str(decision.get("match_label") or "direct").lower()
         current_label = str(row.get("match_label") or "none").lower()
-        if _LABEL_ORDER.get(current_label, 0) >= _LABEL_ORDER["direct"]:
-            row["structured_match_status"] = "confirmed_existing_direct"
+        if _LABEL_ORDER.get(current_label, 0) >= _LABEL_ORDER[decision_label]:
+            row["structured_match_status"] = f"confirmed_existing_{current_label}"
             output.append(row)
             continue
 
-        row["match_label"] = "direct"
-        row["match_value"] = _MATCH_VALUES["direct"]
-        row["evidence_strength"] = 5
+        row["match_label"] = decision_label
+        row["match_value"] = _MATCH_VALUES[decision_label]
+        row["evidence_strength"] = {
+            "weak": 2,
+            "transferable": 3,
+            "direct": 5,
+        }[decision_label]
         row["evidence"] = [decision["evidence"]]
         row["matched_keyword"] = decision["matched_keyword"]
         row["match_similarity"] = 1.0

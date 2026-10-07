@@ -372,14 +372,17 @@ def get_evidence_items(
     return items
 
 
-def get_all_evidence_items_for_snapshot() -> list[dict[str, Any]]:
+def get_all_evidence_items_for_snapshot(*, read_only=False, db_path=None) -> list[dict[str, Any]]:
     """Return the complete mutable Evidence Library for immutable snapshots.
 
     This deliberately has no UI pagination limit.  Callers that need durable
     retry semantics must freeze the returned content rather than retain only
     the mutable row IDs.
     """
-    conn = _connect()
+    if read_only:
+        conn = sqlite3.connect(Path(db_path or DB_PATH).resolve().as_uri() + "?mode=ro", uri=True)
+    else:
+        conn = _connect()
     try:
         cursor = conn.cursor()
         exists = cursor.execute(

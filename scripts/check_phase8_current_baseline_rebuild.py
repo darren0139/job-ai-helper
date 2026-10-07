@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from tailoring.capability_taxonomy import get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
 from tailoring.phase8_verification import (
     PHASE8_VERIFICATION_VERSION,
     build_phase8_verification,
@@ -17,6 +19,13 @@ ROW = {
     "importance": "required",
     "match_label": "direct",
     "evidence_strength": 5,
+    "evidence": [
+        {
+            "evidence_id": "ev_python",
+            "source": "resume_profile.skills.languages[0]",
+            "text": "Python",
+        }
+    ],
 }
 
 
@@ -30,6 +39,8 @@ def stable(score, rows, *, version, fingerprint):
         "evidence_strength_score": 60,
         "canonical_requirements": rows,
         "input_fingerprint": fingerprint,
+        "capability_taxonomy_version": get_default_taxonomy().version,
+        "technology_registry_version": get_default_registry().version,
     }
 
 

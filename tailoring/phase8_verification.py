@@ -24,9 +24,16 @@ from tailoring.phase8_claim_lineage import (
 from tailoring.tailoring_generation_fingerprint import (
     get_effective_generation_sections,
 )
+from tailoring.capability_taxonomy import get_default_taxonomy
+from tailoring.job_match_ab_analysis import (
+    build_job_match_ab_analysis,
+    build_job_match_snapshot,
+    inspect_job_match_ab_lifecycle,
+)
+from taxonomy_discovery.technology_registry import get_default_registry
 
 
-PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v9"
+PHASE8_VERIFICATION_VERSION = "phase8-before-after-verification-v10"
 PHASE8_BASELINE_RESOLUTION_VERSION = "phase8-current-scorer-baseline-v1"
 PHASE8_PREAPPROVAL_GATE_VERSION = "phase8-preapproval-gate-v1"
 MATCH_RANK = {
@@ -490,9 +497,19 @@ def resolve_phase8_baseline_analysis(
         )
 
     stored_version = _clean(stored.get("scoring_version"))
+    stored_taxonomy_version = _clean(
+        stored.get("capability_taxonomy_version")
+    )
+    stored_registry_version = _clean(
+        stored.get("technology_registry_version")
+    )
+    current_taxonomy_version = _clean(get_default_taxonomy().version)
+    current_registry_version = _clean(get_default_registry().version)
     can_reuse = bool(
         stored_version
         and stored_version == SCORING_VERSION
+        and stored_taxonomy_version == current_taxonomy_version
+        and stored_registry_version == current_registry_version
     )
 
     if can_reuse:
@@ -522,6 +539,10 @@ def resolve_phase8_baseline_analysis(
         "rebuilt": rebuilt,
         "stored_scoring_version": stored_version,
         "current_scoring_version": SCORING_VERSION,
+        "stored_taxonomy_version": stored_taxonomy_version,
+        "current_taxonomy_version": current_taxonomy_version,
+        "stored_registry_version": stored_registry_version,
+        "current_registry_version": current_registry_version,
         "resolved_scoring_version": _clean(
             resolved.get("scoring_version")
         ),
@@ -765,6 +786,25 @@ def build_phase8_verification(
     )
     comparison = compare_stable_analyses(before, after)
 
+    generation_snapshot_fingerprint = (
+        build_phase8_generation_snapshot_fingerprint(generation_state)
+    )
+    initial_job_match = build_job_match_snapshot(
+        role="initial",
+        stable_analysis=before,
+        raw_jd_text=canonical_jd_text,
+    )
+    tailored_job_match = build_job_match_snapshot(
+        role="tailored",
+        stable_analysis=after,
+        raw_jd_text=canonical_jd_text,
+        generation_snapshot_fingerprint=generation_snapshot_fingerprint,
+    )
+    job_match_ab = build_job_match_ab_analysis(
+        initial_job_match,
+        tailored_job_match,
+    )
+
     important_regressions = comparison["important_regressions"]
     claim_risks = int(
         lineage.get("claim_review_required_count", 0) or 0
@@ -778,14 +818,21 @@ def build_phase8_verification(
 
     comparison_valid = bool(
         comparison.get("canonical_requirement_ids_stable")
+        and job_match_ab.get("comparable") is True
     )
 
-    if not comparison_valid:
+    if not comparison.get("canonical_requirement_ids_stable"):
         verdict = "invalid_canonical_mismatch"
         verdict_message = (
             "Verification stopped: the before and after analyses produced "
             "different canonical requirement IDs. The score delta is not a "
             "safe résumé-quality comparison."
+        )
+    elif job_match_ab.get("comparable") is not True:
+        verdict = "invalid_job_match_identity"
+        verdict_message = (
+            "Verification stopped: the Initial and Tailored Job Match analyses "
+            "do not have complete, matching identity and evidence provenance."
         )
     elif important_regressions:
         verdict = "regression_detected"
@@ -835,9 +882,7 @@ def build_phase8_verification(
             canonical_jd_text,
         ),
         "verified_generation_snapshot_fingerprint": (
-            build_phase8_generation_snapshot_fingerprint(
-                generation_state
-            )
+            generation_snapshot_fingerprint
         ),
         "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
         "comparison_valid": comparison_valid,
@@ -850,6 +895,13 @@ def build_phase8_verification(
         "page_count": fit_result.get("page_count"),
         "before_stable_analysis": before,
         "after_stable_analysis": after,
+        "job_match_ab": job_match_ab,
+        "job_match_ab_lifecycle": inspect_job_match_ab_lifecycle(
+            job_match_ab,
+            current_generation_snapshot_fingerprint=(
+                generation_snapshot_fingerprint
+            ),
+        ),
         "final_scoring_seed_version": FINAL_SCORING_SEED_VERSION,
         "final_scoring_seed": final_scoring_seed,
         "final_scoring_seed_fingerprint": final_scoring_seed_fingerprint,

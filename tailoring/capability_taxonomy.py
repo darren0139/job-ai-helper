@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import re
 from dataclasses import dataclass
@@ -11,6 +13,7 @@ from typing import Any, Iterable
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "taxonomy" / "capability_taxonomy_v1.json"
 ALLOWED_LABELS = {"direct", "transferable", "weak", "none"}
+PRODUCT_CONTEXT_GUARD_VERSION = "native-product-context-guard-v1"
 
 
 def _clean(value: Any) -> str:
@@ -51,6 +54,29 @@ V14_EVIDENCE_POLICIES = {
     "data_oriented_v1", "algorithms_v1", "client_integration_v1", "realtime_v1",
 }
 _V14_ACTIONS = ["built", "implemented", "developed", "shipped", "published", "programmed", "created", "integrated", "deployed"]
+_C_CPP_REQUIREMENT_TOKEN = re.compile(
+    r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])",
+    re.I,
+)
+_LEADING_ALPHA_LIST_MARKER = re.compile(r"^\s*\([a-z]\)\s+(?=\S)", re.I)
+
+
+def strip_leading_alpha_list_marker(value: Any) -> str:
+    """Remove one leading ``(a)``-style marker without altering other text."""
+    return _LEADING_ALPHA_LIST_MARKER.sub("", _clean(value))
+
+
+def _c_cpp_requirement_text(requirement: dict[str, Any]) -> str:
+    """Exclude only leading alphabetic list markers from C/C++ matching."""
+    values = [
+        _clean(requirement.get("text")),
+        _clean(requirement.get("atomic_focus")),
+    ]
+    return " ".join(
+        strip_leading_alpha_list_marker(value)
+        for value in values
+        if value
+    )
 
 
 def _v14_label(policy: str, requirement: str, evidence: str) -> tuple[str, str]:
@@ -311,6 +337,19 @@ def _validate_capability(item: dict[str, Any], seen: set[str]) -> None:
         raise ValueError(f"{capability_id}: requirement.any_terms must be a list")
     if not isinstance(requirement.get("all_terms", []), list):
         raise ValueError(f"{capability_id}: requirement.all_terms must be a list")
+    variants = requirement.get("contextual_phrase_variants", [])
+    if not isinstance(variants,list) or any(not isinstance(v,dict)
+        or not isinstance(v.get("phrase"),str) or len(normalise(v["phrase"]).split()) < 2
+        or v.get("product_context_guard") != "exclude_recognized_multiword_technology_spans" for v in variants):
+        raise ValueError(f"{capability_id}: invalid guarded contextual phrase variant")
+    if len({normalise(v["phrase"]) for v in variants}) != len(variants):
+        raise ValueError(f"{capability_id}: duplicate contextual phrase variants")
+    for variant in variants:
+        names = variant.get("excluded_product_names")
+        if names is not None and (not isinstance(names,list) or any(not isinstance(n,str) or len(normalise(n).split()) < 2 for n in names)):
+            raise ValueError(f"{capability_id}: invalid frozen product-context names")
+        if names is not None and variant.get("guard_contract_version") != PRODUCT_CONTEXT_GUARD_VERSION:
+            raise ValueError(f"{capability_id}: unsupported product-context guard contract")
 
     if "evidence_policy" in item and item["evidence_policy"] not in V14_EVIDENCE_POLICIES:
         raise ValueError(f"{capability_id}: unknown evidence policy")
@@ -367,8 +406,39 @@ def load_taxonomy(path: str | Path = TAXONOMY_PATH) -> CapabilityTaxonomy:
 
 
 @lru_cache(maxsize=1)
+def _taxonomy_at_signature(path, signature) -> CapabilityTaxonomy:
+    return load_taxonomy(path)
+
+
+def _production_taxonomy() -> CapabilityTaxonomy:
+    # Publication in another session/process must advance currentness without
+    # an arbitrary UI cache purge. Mirror the native registry file identity.
+    path = Path(TAXONOMY_PATH).resolve()
+    stat = path.stat()
+    return _taxonomy_at_signature(str(path), (stat.st_mtime_ns, stat.st_size, stat.st_ino))
+
+
+# Offline review scopes are context-local: never replace the production cache or
+# leak temporary knowledge to another Streamlit session/thread.
+_review_taxonomy = ContextVar("temporary_review_taxonomy", default=None)
+
+
 def get_default_taxonomy() -> CapabilityTaxonomy:
-    return load_taxonomy(TAXONOMY_PATH)
+    return _review_taxonomy.get() or _production_taxonomy()
+
+
+get_default_taxonomy.cache_clear = _taxonomy_at_signature.cache_clear
+get_default_taxonomy.cache_info = _taxonomy_at_signature.cache_info
+
+
+@contextmanager
+def temporary_taxonomy_scope(taxonomy: CapabilityTaxonomy):
+    """Explicit offline test/review only; no file, cache or scoring mutation."""
+    token = _review_taxonomy.set(taxonomy)
+    try:
+        yield taxonomy
+    finally:
+        _review_taxonomy.reset(token)
 
 
 def capability_anchors(
@@ -388,6 +458,20 @@ def classify_requirement_record(
     requirement: dict[str, Any],
     taxonomy: CapabilityTaxonomy | None = None,
 ) -> dict[str, Any] | None:
+    """Return the production taxonomy record selected for a requirement."""
+    return classify_requirement_diagnostics(requirement, taxonomy)["capability_record"]
+
+
+def classify_requirement_diagnostics(
+    requirement: dict[str, Any],
+    taxonomy: CapabilityTaxonomy | None = None,
+) -> dict[str, Any]:
+    """Run the production matcher once and expose its deterministic decisions.
+
+    The returned ``capability_record`` is for internal callers.  The other
+    fields are safe, read-only diagnostics derived while applying the exact
+    same rules used by :func:`classify_requirement_record`.
+    """
     taxonomy = taxonomy or get_default_taxonomy()
     text = " ".join(
         [
@@ -395,23 +479,133 @@ def classify_requirement_record(
             _clean(requirement.get("atomic_focus")),
         ]
     )
+    original = _clean(requirement.get("text")) or _clean(
+        requirement.get("atomic_focus")
+    )
+    rejected_rules: list[dict[str, Any]] = []
 
     for item in taxonomy.capabilities:
         matcher = item.get("requirement") or {}
+        match_text = (
+            _c_cpp_requirement_text(requirement)
+            if item.get("evidence_policy") == "c_cpp_v1"
+            else text
+        )
         any_terms = matcher.get("any_terms", []) or []
         all_terms = matcher.get("all_terms", []) or []
-        if all_terms and not all(_contains(text, term) for term in all_terms):
+        if all_terms and not all(_contains(match_text, term) for term in all_terms):
             continue
-        if any_terms and not _contains_any(text, any_terms):
+        variants = matcher.get("contextual_phrase_variants", [])
+        variant_match = False
+        matched_variant: dict[str, Any] | None = None
+        if variants:
+            # Only governed temporary variants opt in. Native production terms
+            # and all evidence/scoring predicates retain their existing contract.
+            from taxonomy_discovery.candidate_refinement import capability_context
+            # A shortened atomic focus cannot strip the product's identity and
+            # turn a fragment of its name into independent capability evidence.
+            def variant_result(v):
+                names = v.get("excluded_product_names")
+                context = capability_context(
+                    original,
+                    include_research_aliases=names is None,
+                    extra_product_names=names or (),
+                    product_span_replacement=" tqd3_product_span ",
+                )
+                excluded = [
+                    normalise(name)
+                    for name in names or ()
+                    if _contains(original, name)
+                ]
+                raw_match = _contains(original, v.get("phrase", ""))
+                guarded_match = bool(
+                    v.get("product_context_guard")
+                    == "exclude_recognized_multiword_technology_spans"
+                    and _contains(context, v.get("phrase", ""))
+                )
+                detail = {
+                    "capability_id": str(item.get("capability_id") or ""),
+                    "phrase": str(v.get("phrase") or ""),
+                    "product_context_guard": v.get("product_context_guard"),
+                    "guard_contract_version": v.get("guard_contract_version"),
+                    "raw_phrase_matched": raw_match,
+                    "guarded_phrase_matched": guarded_match,
+                    "excluded_product_spans": excluded,
+                }
+                if raw_match and not guarded_match:
+                    rejected_rules.append(
+                        {
+                            **detail,
+                            "reason": "product_context_guard_excluded_phrase",
+                        }
+                    )
+                return guarded_match, detail
+
+            for variant in variants:
+                present, detail = variant_result(variant)
+                if present and matched_variant is None:
+                    matched_variant = detail
+            variant_match = matched_variant is not None
+        matched_any_terms = [term for term in any_terms if _contains(match_text, term)]
+        if (any_terms or variants) and not (matched_any_terms or variant_match):
             continue
-        if not _matches_groups(text, matcher.get("all_groups", [])):
+        if not _matches_groups(match_text, matcher.get("all_groups", [])):
             continue
-        if item.get("evidence_policy") == "c_cpp_v1" and not re.search(r"(?<![a-z0-9+#])c(?:\+\+(?:11|14|17|20|23|26)?|11|17|23)?(?![a-z0-9+#])", text.lower()):
+        if item.get("evidence_policy") == "c_cpp_v1" and not _C_CPP_REQUIREMENT_TOKEN.search(match_text):
             continue
-        if not any_terms and not all_terms:
+        if not any_terms and not all_terms and not variants:
             continue
-        return item
-    return None
+        matched_phrase = (
+            str(matched_any_terms[0])
+            if matched_any_terms
+            else str((matched_variant or {}).get("phrase") or "")
+        )
+        return {
+            "normalized_requirement_text": normalise(original),
+            "taxonomy_version": taxonomy.version,
+            "capability_record": item,
+            "capability_id": str(item.get("capability_id") or ""),
+            "capability_label": str(item.get("label") or ""),
+            "matched_phrase": matched_phrase,
+            "matched_taxonomy_rule_type": (
+                "native_any_term" if matched_any_terms else "contextual_phrase_variant"
+            ),
+            "contextual_phrase_rule": (
+                str((matched_variant or {}).get("phrase") or "") or None
+            ),
+            "product_context_guard": (matched_variant or {}).get(
+                "product_context_guard"
+            ),
+            "guard_contract_version": (matched_variant or {}).get(
+                "guard_contract_version"
+            ),
+            "excluded_product_spans": list(
+                (matched_variant or {}).get("excluded_product_spans") or []
+            ),
+            "rejected_candidate_rules": rejected_rules,
+            "reason": "taxonomy_requirement_rule_matched",
+        }
+    return {
+        "normalized_requirement_text": normalise(original),
+        "taxonomy_version": taxonomy.version,
+        "capability_record": None,
+        "capability_id": None,
+        "capability_label": None,
+        "matched_phrase": None,
+        "matched_taxonomy_rule_type": None,
+        "contextual_phrase_rule": None,
+        "product_context_guard": None,
+        "guard_contract_version": None,
+        "excluded_product_spans": sorted(
+            {
+                span
+                for row in rejected_rules
+                for span in row.get("excluded_product_spans", [])
+            }
+        ),
+        "rejected_candidate_rules": rejected_rules,
+        "reason": "no_taxonomy_requirement_rule_matched",
+    }
 
 
 def classify_requirement(

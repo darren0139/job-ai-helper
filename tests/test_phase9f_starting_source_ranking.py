@@ -895,11 +895,17 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
             ]["canonical_requirements"]
             if row.get("application_requirement_scope") == "application_local"
         ]
-        self.assertEqual(len(local_rows), 1)
-        self.assertEqual(local_rows[0]["text"], requirement)
-        self.assertEqual(local_rows[0]["importance"], "preferred")
-        self.assertEqual(local_rows[0]["importance_source"], "user_supplied")
-        self.assertFalse(local_rows[0]["canonical_shared"])
+        self.assertEqual(
+            [row["text"] for row in local_rows],
+            ["Experience with Android app development", "Experience with Kotlin"],
+        )
+        self.assertEqual(len({row["atomic_group_id"] for row in local_rows}), 1)
+        self.assertEqual(sum(row["group_weight_fraction"] for row in local_rows), 1.0)
+        for row in local_rows:
+            self.assertEqual(row["parent_text"], requirement)
+            self.assertEqual(row["importance"], "preferred")
+            self.assertEqual(row["importance_source"], "user_supplied")
+            self.assertFalse(row["canonical_shared"])
         self.assertEqual(
             scored["candidate_analysis_snapshot"]["jd_profile_snapshot"],
             JD_PROFILE,

@@ -872,7 +872,13 @@ def refresh_application_session_analysis_report(
         source.get("raw_jd_text")
     )
 
-    if (
+    if (not _stable_analysis_is_current(stored_stable)
+        and (not resolved_raw_jd_text or not source.get("jd_profile") or not source.get("resume_profile"))):
+        output = source
+        mode = "stale_currentness_required"
+        rebuilt = False
+        resume_text_source = "unavailable"
+    elif (
         _stable_analysis_is_current(stored_stable)
         and not raw_jd_normalized
     ):
@@ -945,5 +951,6 @@ def refresh_application_session_analysis_report(
         "raw_jd_normalization_version": (
             _APPLICATION_SESSION_RAW_JD_NORMALIZATION_VERSION
         ),
+        "stale_requires_refresh": mode == "stale_currentness_required",
     }
     return output

@@ -8,6 +8,7 @@ from analysis_stability.stable_evidence_scoring import (
     compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import evaluate_evidence, get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
 from tailoring.fresh_target_evidence_scoring import build_fresh_target_analysis
 from tailoring.phase8_requirement_reconciliation import (
     RECONCILIATION_VERSION,
@@ -42,7 +43,17 @@ def _row(
         "match_label": label,
         "match_value": match_value,
         "evidence_strength": evidence_strength,
-        "evidence": [],
+        "evidence": (
+            []
+            if label == "none"
+            else [
+                {
+                    "evidence_id": f"ev_{requirement_id}",
+                    "source": "resume_profile.projects[0].bullets[0]",
+                    "text": text,
+                }
+            ]
+        ),
     }
 
 
@@ -53,6 +64,8 @@ def _analysis(rows: list[dict], score: int) -> dict:
         "required_core_coverage_score": score,
         "preferred_coverage_score": 0,
         "evidence_strength_score": score,
+        "capability_taxonomy_version": get_default_taxonomy().version,
+        "technology_registry_version": get_default_registry().version,
         "score_weights": {
             "required_core_coverage": 0.9,
             "preferred_coverage": 0.0,
@@ -776,10 +789,10 @@ All applicants will be updated on the status of their applications within 4 week
         self.assertEqual(result["verdict"], "regression_detected")
 
     def test_versions_are_bumped_for_saved_result_invalidation(self):
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d20")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.13-phase6d20")
         self.assertEqual(
             get_default_taxonomy().version,
-            "phase6d-capability-taxonomy-v1.4",
+            "phase6d-capability-taxonomy-v1.5",
         )
         self.assertEqual(
             RECONCILIATION_VERSION,
@@ -787,7 +800,7 @@ All applicants will be updated on the status of their applications within 4 week
         )
         self.assertEqual(
             PHASE8_VERIFICATION_VERSION,
-            "phase8-before-after-verification-v9",
+            "phase8-before-after-verification-v10",
         )
 
 

@@ -7,6 +7,10 @@ from typing import Any
 
 import streamlit as st
 
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from tailoring.capability_taxonomy import get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
+
 from database.application_blueprint_manager import (
     evaluate_and_bind_application_blueprint,
     export_application_blueprint_decision,
@@ -35,7 +39,11 @@ from database.phase9f_tailoring_execution_manager import (
 from tailoring.phase9e_blueprint_selection import (
     DECISION_LABELS,
     Phase9EDecisionError,
+    build_original_resume_starting_snapshot,
     recommend_active_blueprint,
+)
+from tailoring.phase9e_tailoring_base_visual_preview import (
+    build_tailoring_base_visual_preview,
 )
 from tailoring.phase9f_application_confirmation import (
     phase9f_d_execution_state,
@@ -50,7 +58,7 @@ def _score_suffix(comparison: dict[str, Any] | None) -> str:
     if not isinstance(comparison, dict):
         return ""
     return (
-        " · Overall "
+        " · Alignment "
         f"{int(comparison.get('deterministic_alignment_score', 0) or 0)}"
         " · Core "
         f"{int(comparison.get('required_core_coverage_score', 0) or 0)}%"
@@ -124,14 +132,226 @@ def _ordered_tailoring_base_options(
     return options, option_rows
 
 
-def _base_resume_label(ranking: dict[str, Any], *, recommended: bool) -> str:
+def _base_resume_label(
+    ranking: dict[str, Any],
+    *,
+    recommended: bool,
+) -> str:
     base = ranking.get("base_resume") or {}
     prefix = "Recommended — " if recommended else ""
+    display_name = _clean(base.get("source_display_name"))
+    source_name = (
+        f"Master résumé — {display_name}"
+        if display_name
+        else "Master résumé"
+    )
     return (
-        f"{prefix}{_clean(base.get('source_display_name')) or 'Base Resume'} "
-        f"· Base Resume · v{int(base.get('source_version', 0) or 0)}"
+        f"{prefix}{source_name} "
+        f"· v{int(base.get('source_version', 0) or 0)}"
         f"{_score_suffix(ranking.get('comparison'))}"
     )
+
+
+def _tailoring_base_snapshot_preview_payload(
+    *,
+    selected_source: str,
+    baseline_report: dict[str, Any],
+    base_resume_starting_snapshot: dict[str, Any] | None,
+    selected_blueprint: dict[str, Any] | None,
+) -> dict[str, str]:
+    if selected_source == "original_resume":
+        snapshot = build_original_resume_starting_snapshot(baseline_report)
+        return {
+            "label": "Application source résumé",
+            "source_fidelity": _clean(snapshot.get("source_fidelity")),
+            "representation": _clean(
+                snapshot.get("resume_text_representation_method")
+            ),
+            "resume_text": str(snapshot.get("resume_text_snapshot") or ""),
+        }
+
+    if selected_source == "base_resume":
+        snapshot = (
+            base_resume_starting_snapshot
+            if isinstance(base_resume_starting_snapshot, dict)
+            else {}
+        )
+        identity = snapshot.get("source_identity") or {}
+        display_name = _clean(identity.get("source_display_name"))
+        return {
+            "label": (
+                f"Master résumé — {display_name}"
+                if display_name
+                else "Master résumé"
+            ),
+            "source_fidelity": _clean(snapshot.get("source_fidelity")),
+            "representation": _clean(
+                snapshot.get("resume_text_representation_method")
+            ),
+            "resume_text": str(snapshot.get("resume_text_snapshot") or ""),
+        }
+
+    blueprint = (
+        selected_blueprint
+        if isinstance(selected_blueprint, dict)
+        else {}
+    )
+    frozen = (
+        (blueprint.get("blueprint_snapshot") or {})
+        .get("frozen_resume_snapshot")
+        or {}
+    )
+    return {
+        "label": (
+            _clean(blueprint.get("display_name"))
+            or _clean(blueprint.get("role_family_label"))
+            or "Selected Global Blueprint"
+        ),
+        "source_fidelity": "immutable_blueprint_snapshot",
+        "representation": "frozen_resume_text_snapshot",
+        "resume_text": str(frozen.get("resume_text_snapshot") or ""),
+    }
+
+
+def _render_tailoring_base_snapshot_preview(
+    *,
+    application_id: int,
+    selection_key: str,
+    selected_source: str,
+    baseline_report: dict[str, Any],
+    base_resume_starting_snapshot: dict[str, Any] | None,
+    selected_blueprint: dict[str, Any] | None,
+) -> None:
+    payload = _tailoring_base_snapshot_preview_payload(
+        selected_source=selected_source,
+        baseline_report=baseline_report,
+        base_resume_starting_snapshot=base_resume_starting_snapshot,
+        selected_blueprint=selected_blueprint,
+    )
+    with st.expander("Preview selected résumé", expanded=False):
+        st.caption(
+            "Read-only preview of the selected Tailoring Base. "
+            "The Visual résumé tab uses the same shared PDF-to-image renderer "
+            "as Build & Fit and Résumé Workspace. Previewing does not bind, "
+            "modify, score, or persist the application."
+        )
+
+        visual_tab, scoring_tab, details_tab = st.tabs(
+            [
+                "Visual résumé",
+                "Exact scoring text",
+                "Source details",
+            ]
+        )
+
+        with visual_tab:
+            visual = build_tailoring_base_visual_preview(
+                selected_source=selected_source,
+                resume_text=payload["resume_text"],
+                application_id=application_id,
+                base_resume_starting_snapshot=(
+                    base_resume_starting_snapshot
+                ),
+            )
+            if visual.get("note"):
+                if visual.get("mode") == "derived_scoring_text":
+                    st.info(visual["note"])
+                else:
+                    st.caption(visual["note"])
+            download_data = visual.get("download_bytes")
+            if isinstance(download_data, (bytes, bytearray)) and download_data:
+                st.download_button(
+                    label=str(
+                        visual.get("download_label")
+                        or "Download source résumé"
+                    ),
+                    data=bytes(download_data),
+                    file_name=str(
+                        visual.get("download_name")
+                        or "resume"
+                    ),
+                    mime=str(
+                        visual.get("download_mime")
+                        or "application/octet-stream"
+                    ),
+                    key=(
+                        f"phase9e_tailoring_base_download_"
+                        f"{application_id}_{selection_key}"
+                    ),
+                    use_container_width=True,
+                )
+
+            html = str(visual.get("html") or "")
+            if html:
+                st.markdown(
+                    html,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info(
+                    "A visual résumé preview is unavailable for this source. "
+                    "The exact scoring text remains available in the next tab."
+                )
+
+        with scoring_tab:
+            st.caption(
+                "This is the exact text representation used by deterministic "
+                "Tailoring Base scoring."
+            )
+            if payload["resume_text"].strip():
+                st.text_area(
+                    "Exact scoring snapshot",
+                    value=payload["resume_text"],
+                    height=420,
+                    disabled=True,
+                    key=(
+                        f"phase9e_tailoring_base_snapshot_{application_id}_"
+                        f"{selection_key}"
+                    ),
+                )
+            else:
+                st.info(
+                    "No text snapshot is available for this source."
+                )
+
+        with details_tab:
+            st.write(f"**Source:** {payload['label']}")
+            if payload["source_fidelity"]:
+                st.write(
+                    "**Fidelity:** "
+                    + payload["source_fidelity"]
+                )
+            if payload["representation"]:
+                st.write(
+                    "**Representation:** "
+                    + payload["representation"]
+                )
+            if payload["source_fidelity"] == "persisted_profile_only":
+                st.info(
+                    "This Application source résumé is reconstructed from the "
+                    "saved structured résumé profile. It is not the raw "
+                    "originally uploaded DOCX/PDF text."
+                )
+            if visual.get("mode"):
+                st.write(
+                    "**Visual preview mode:** "
+                    + str(visual["mode"])
+                )
+            if visual.get("source_kind"):
+                st.write(
+                    "**Visual source:** "
+                    + str(visual["source_kind"])
+                )
+            if visual.get("artifact_name"):
+                st.write(
+                    "**Visual artifact:** "
+                    + str(visual["artifact_name"])
+                )
+            if visual.get("download_name"):
+                st.write(
+                    "**Download artifact:** "
+                    + str(visual["download_name"])
+                )
 
 
 def _ranking_report_snapshot(
@@ -149,14 +369,29 @@ def _ranking_report_snapshot(
     }
 
 
+def _tailoring_base_resolution_identity() -> dict[str, str]:
+    """Return current deterministic resolver identities used to salt UI caches."""
+    return {
+        "scoring_version": str(SCORING_VERSION),
+        "capability_taxonomy_version": str(
+            get_default_taxonomy().version
+        ),
+        "technology_registry_version": str(
+            get_default_registry().version
+        ),
+    }
+
+
 @st.cache_data(show_spinner=False, max_entries=64)
 def _cached_blueprint_recommendation(
     exact_jd: dict[str, Any],
     active_blueprints: list[dict[str, Any]],
     ranking_report: dict[str, Any],
     base_resume_starting_snapshot: dict[str, Any] | None,
+    resolution_identity: dict[str, str],
 ) -> dict[str, Any]:
-    """Avoid re-running stable source scoring on unrelated Streamlit reruns."""
+    """Cache only while scorer/taxonomy/registry identity remains unchanged."""
+    _ = resolution_identity
     return recommend_active_blueprint(
         exact_jd,
         active_blueprints,
@@ -246,7 +481,7 @@ def _show_decision(decision: dict[str, Any], *, heading: str) -> None:
     st.write(f"**{decision_label}**")
     metrics = st.columns(4)
     metrics[0].metric(
-        "Overall",
+        "Alignment",
         comparison.get("deterministic_alignment_score", 0),
     )
     metrics[1].metric(
@@ -325,8 +560,8 @@ def _show_active_binding(
             f"v{int(source.get('source_version') or 0)}"
         )
     else:
-        source_label = "Persisted original résumé"
-        source_details = "Original résumé snapshot persisted for this application"
+        source_label = "Application source résumé"
+        source_details = "Saved Application source résumé snapshot"
 
     phase9f_d_state = phase9f_d_execution_state(current)
     if phase9f_d_state is not None:
@@ -449,7 +684,7 @@ def _preview_source_label(decision: dict[str, Any]) -> str:
     selection = decision.get("selection") or {}
     source = _clean(selection.get("selected_source"))
     if source == "original_resume":
-        return "Original application résumé"
+        return "Application source résumé"
     if source == "base_resume":
         source_identity = ((decision.get("starting_snapshot") or {}).get("source_identity") or {})
         return _clean(source_identity.get("source_display_name")) or "Base Resume"
@@ -568,7 +803,7 @@ def _render_active_original_source_guidance(
         return
 
     st.info(
-        "The persisted original résumé is the active starting source. "
+        "The Application source résumé is the active starting source. "
         "Use Generate Projects + Skills below to create the first tailored "
         "working draft; Education and Work Experience remain protected."
     )
@@ -576,10 +811,10 @@ def _render_active_original_source_guidance(
 
 def _render_active_base_resume_guidance(application_id: int) -> None:
     st.info(
-        "The immutable Base Resume is the active starting source. "
+        "The immutable Master résumé is the active starting source. "
         "Use Generate Projects + Skills below to create a JD-specific working "
-        "draft from this Base Resume; Education and Work Experience remain "
-        "protected. The Base Resume itself is never mutated by this workflow."
+        "draft from this Master résumé; Education and Work Experience remain "
+        "protected. The Master résumé itself is never mutated by this workflow."
     )
 
 
@@ -884,11 +1119,13 @@ def render_phase9e_blueprint_selection(
             )
         active = list_reusable_global_blueprints()
         base_resume_starting_snapshot = get_phase9e_base_resume_starting_snapshot()
+        resolution_identity = _tailoring_base_resolution_identity()
         recommendation = _cached_blueprint_recommendation(
             exact_jd,
             active,
             _ranking_report_snapshot(baseline_report),
             base_resume_starting_snapshot,
+            resolution_identity,
         )
     except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
         st.error(str(exc))
@@ -950,18 +1187,18 @@ def render_phase9e_blueprint_selection(
         _show_blueprint_identity(recommended)
     elif recommended_source == "base_resume" and isinstance(base_ranking, dict):
         base = base_ranking.get("base_resume") or {}
-        st.success("No reusable same-family Blueprint variant exists. The current immutable Base Resume is the strongest safe neutral starting source for this JD.")
-        st.write("**Base Resume:** " + (_clean(base.get("source_display_name")) or "Base Resume"))
+        st.success("No reusable same-family Blueprint variant exists. The current immutable Master résumé is the strongest safe neutral starting source for this JD.")
+        st.write("**Master résumé:** " + (_clean(base.get("source_display_name")) or "Base Resume"))
         st.caption(f"Version {int(base.get('source_version', 0) or 0)} · {_clean(base.get('source_id'))}")
     elif recommendation.get("neutral_exact_tie"):
         st.info(
             "No reusable same-family Blueprint variant exists. The Base Resume "
             "and Original résumé are exactly tied on the deterministic comparison. "
-            "The Original résumé is selected by the compatibility-preserving "
-            "neutral-source tie-break; Base Resume remains available manually."
+            "The Application source résumé is selected by the compatibility-preserving "
+            "neutral-source tie-break; Master résumé remains available manually."
         )
     else:
-        st.warning("No reusable same-family Blueprint variant exists. The Original résumé for this application is the strongest available safe neutral starting source; cross-family Blueprints remain visible but are not selected automatically.")
+        st.warning("No reusable same-family Blueprint variant exists. The Application source résumé is the strongest available safe neutral starting source; cross-family Blueprints remain visible but are not selected automatically.")
     st.write("**Recommendation confidence:** " + _clean(recommendation.get("recommendation_confidence")).title())
     for reason in recommendation.get("reasons") or []:
         st.write(f"- {reason}")
@@ -973,13 +1210,13 @@ def render_phase9e_blueprint_selection(
                 {
                     "Rank": int(row.get("diagnostic_rank", 0) or 0),
                     "Source": (
-                        "Original résumé" if row.get("source_type") == "original_resume"
-                        else (_clean((row.get("base_resume") or {}).get("source_display_name")) or "Base Resume") if row.get("source_type") == "base_resume"
+                        "Application source résumé" if row.get("source_type") == "original_resume"
+                        else ("Master résumé — " + (_clean((row.get("base_resume") or {}).get("source_display_name")) or "current master")) if row.get("source_type") == "base_resume"
                         else (_clean((row.get("blueprint") or {}).get("display_name")) or _clean((row.get("blueprint") or {}).get("role_family_label")))
                     ),
                     "Variant": "—" if row.get("source_type") in {"original_resume", "base_resume"} else (_clean((row.get("blueprint") or {}).get("variant_label")) or "Primary"),
-                    "Family": "Application Original" if row.get("source_type") == "original_resume" else "Neutral Base Resume" if row.get("source_type") == "base_resume" else _clean((row.get("blueprint") or {}).get("role_family_label")),
-                    "Overall": int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
+                    "Family": "Application source" if row.get("source_type") == "original_resume" else "Neutral master source" if row.get("source_type") == "base_resume" else _clean((row.get("blueprint") or {}).get("role_family_label")),
+                    "Alignment": int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
                     "Required/Core": f"{int((row.get('comparison') or {}).get('required_core_coverage_score', 0) or 0)}%",
                     "Preferred": f"{int((row.get('comparison') or {}).get('preferred_coverage_score', 0) or 0)}%",
                     "Evidence": f"{int((row.get('comparison') or {}).get('evidence_strength_score', 0) or 0)}%",
@@ -990,7 +1227,13 @@ def render_phase9e_blueprint_selection(
             ],
             hide_index=True, width="stretch",
         )
-        st.caption("Scores are recalculated for this Application Session's exact JD. A reusable same-family Blueprint keeps the safe automatic prior. When none exists, Base Resume and Application Original are ranked as neutral fallbacks; cross-family Blueprints remain manual choices.")
+        st.caption(
+            "Resolver context · "
+            f"scorer {resolution_identity['scoring_version']} · "
+            f"taxonomy {resolution_identity['capability_taxonomy_version']} · "
+            f"registry {resolution_identity['technology_registry_version']}"
+        )
+        st.caption("Scores are recalculated for this Application Session's exact JD. A reusable same-family Blueprint keeps the safe automatic prior. When none exists, Master résumé and Application source résumé are ranked as neutral fallbacks; cross-family Blueprints remain manual choices.")
 
     recommended_id = _clean((recommended or {}).get("blueprint_id"))
     original_key = "original_resume"
@@ -1055,7 +1298,7 @@ def render_phase9e_blueprint_selection(
             else None
         ),
         format_func=lambda value: (
-            (("Recommended — " if recommended_source == "original_resume" and not recommended_id else "") + "Original résumé for this application" + _score_suffix((original_ranking or {}).get("comparison") if isinstance(original_ranking, dict) else None))
+            (("Recommended — " if recommended_source == "original_resume" and not recommended_id else "") + "Application source résumé" + _score_suffix((original_ranking or {}).get("comparison") if isinstance(original_ranking, dict) else None))
             if value == original_key
             else _base_resume_label(base_ranking or {}, recommended=(recommended_source == "base_resume" and not recommended_id))
             if value == base_key
@@ -1072,6 +1315,15 @@ def render_phase9e_blueprint_selection(
     selected_source = "original_resume" if selection_key == original_key else "base_resume" if selection_key == base_key else "global_blueprint"
     selected_blueprint = option_rows[selection_key] if selected_source == "global_blueprint" else None
     selected_id = _clean((selected_blueprint or {}).get("blueprint_id"))
+
+    _render_tailoring_base_snapshot_preview(
+        application_id=application_id,
+        selection_key=selection_key,
+        selected_source=selected_source,
+        baseline_report=baseline_report,
+        base_resume_starting_snapshot=base_resume_starting_snapshot,
+        selected_blueprint=selected_blueprint,
+    )
     selected_base_resume_id = ""
     if selected_source == "base_resume":
         selected_base_resume_id = _clean(((base_ranking or {}).get("base_resume") or {}).get("source_id"))
@@ -1100,7 +1352,7 @@ def render_phase9e_blueprint_selection(
     if mismatch:
         st.error(
             "The selected active blueprint belongs to a different role family. "
-            "Phase 9E will recommend restarting from the persisted original résumé."
+            "Phase 9E will recommend restarting from the Application source résumé."
         )
         mismatch_acknowledged = st.checkbox(
             "I explicitly choose this different-family blueprint and accept the mismatch warning.",
@@ -1169,9 +1421,9 @@ def render_phase9e_blueprint_selection(
             "export, Phase 8, and Phase 9B scope remains current."
         )
         action_label = (
-            "Use original résumé as tailoring base"
+            "Use Application source résumé as tailoring base"
             if selected_source == "original_resume"
-            else "Use Base Resume as tailoring base"
+            else "Use Master résumé as tailoring base"
             if selected_source == "base_resume"
             else "Use selected Blueprint as tailoring base"
         )

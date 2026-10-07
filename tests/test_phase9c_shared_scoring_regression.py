@@ -87,7 +87,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.10-phase6d20")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.13-phase6d20")
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -105,7 +105,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         # a semantic dependency. Scoring semantics above remain unchanged.
         self.assertEqual(
             result["input_fingerprint"],
-            "ff87436beb2b10eec1a5628393c2ad6a16b70ccde6c484b42ff4a314a1608d7e",
+            "af0f8db207a569e46ffe4fb0f98b2f861b8b06c30d7139e604568b95bb209b0a",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

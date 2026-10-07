@@ -15,6 +15,14 @@ from tailoring.phase8_verification import (
     build_phase8_generation_snapshot_fingerprint,
     refresh_phase8_readiness,
 )
+from tailoring.job_match_ab_analysis import inspect_job_match_ab_lifecycle
+
+
+_IMMUTABLE_ANALYSIS_FIELDS = (
+    "before_stable_analysis",
+    "after_stable_analysis",
+    "job_match_ab",
+)
 
 
 def _now() -> str:
@@ -112,6 +120,17 @@ def save_tailoring_verification(
     existing = cursor.fetchone()
     if existing is not None:
         existing_result = _row_to_result(existing)
+        for field in _IMMUTABLE_ANALYSIS_FIELDS:
+            if (
+                field in existing_result
+                and field in result
+                and existing_result[field] != result[field]
+            ):
+                connection.close()
+                raise ValueError(
+                    "Saved Initial/Tailored Job Match analysis is immutable "
+                    f"for this verification fingerprint ({field})."
+                )
         stored = {
             **existing_result,
             **result,
@@ -282,6 +301,18 @@ def get_tailoring_verification_approval_gate(
             != current_snapshot_fingerprint
         ):
             reasons.append("verified_generation_snapshot_mismatch")
+        lifecycle = inspect_job_match_ab_lifecycle(
+            verification.get("job_match_ab"),
+            current_generation_snapshot_fingerprint=(
+                current_snapshot_fingerprint
+            ),
+        )
+        if lifecycle.get("state") != (
+            "both_analyses_available_and_comparable"
+        ):
+            reasons.append(
+                str(lifecycle.get("state") or "job_match_ab_not_current")
+            )
 
     return {
         "ready": not reasons,

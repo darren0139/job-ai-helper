@@ -91,6 +91,7 @@ def build_profile_evidence_context(
     items = candidate_context["evidence_library"]
     resume_profile: dict[str, Any] = {
         "education": [],
+        "certifications": [],
         "experience": [],
         "projects": [],
         "skills": {},
@@ -153,6 +154,16 @@ def build_profile_evidence_context(
                 f"evidence_{item_id}_claims",
                 [],
             ).append(title)
+        elif category.casefold() == "certification" and title:
+            resume_profile["certifications"].append(
+                {
+                    "name": title,
+                    "issuer": subtitle,
+                    "date": period,
+                    "details": bullets,
+                    "evidence_item_id": item_id,
+                }
+            )
 
     deduped_raw: list[str] = []
     seen: set[str] = set()

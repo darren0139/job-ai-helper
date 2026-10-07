@@ -33,6 +33,10 @@ from tailoring.phase8_verification import (
     PHASE8_PREAPPROVAL_GATE_VERSION,
     build_phase8_generation_snapshot_fingerprint,
 )
+from tailoring.job_match_ab_analysis import (
+    build_job_match_ab_analysis,
+    current_ab_identity,
+)
 from tailoring.phase9e_blueprint_selection import build_phase9e_keyword_match
 from tailoring.phase9f_application_execution import (
     build_execution_identity as build_reuse_execution_identity,
@@ -218,6 +222,28 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         verified_generation_snapshot_fingerprint: str = "",
     ) -> dict:
         """A complete Phase 8 success contract for orchestration tests."""
+        identity = current_ab_identity("Synthetic orchestration JD")
+        initial = {
+            "role": "initial",
+            "identity": copy.deepcopy(identity),
+            "generation_snapshot_fingerprint": "",
+            "score": 0,
+            "match_counts": {
+                "none": 0,
+                "weak": 0,
+                "transferable": 0,
+                "direct": 0,
+            },
+            "requirements": [],
+            "integrity_blockers": [],
+        }
+        tailored = {
+            **copy.deepcopy(initial),
+            "role": "tailored",
+            "generation_snapshot_fingerprint": (
+                verified_generation_snapshot_fingerprint
+            ),
+        }
         return {
             "phase8_version": execution_manager.PHASE8_VERIFICATION_VERSION,
             "verification_fingerprint": "f" * 64,
@@ -236,6 +262,10 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             "verdict": "maintained",
             "before_stable_analysis": copy.deepcopy(
                 baseline["stable_analysis"]
+            ),
+            "job_match_ab": build_job_match_ab_analysis(
+                initial,
+                tailored,
             ),
         }
 

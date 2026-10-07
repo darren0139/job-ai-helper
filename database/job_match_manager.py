@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,9 +13,17 @@ from typing import Any
 DB_PATH = Path("data/applications.db")
 
 
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+def _connect(db_path=None) -> sqlite3.Connection:
+    path = Path(db_path or DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _connect_read_only(db_path=None) -> sqlite3.Connection:
+    path = Path(db_path or DB_PATH).resolve()
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -23,8 +32,23 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def init_job_match_schema() -> None:
-    connection = _connect()
+def publication_rebuild_inputs(job_id, snapshot_id, *, db_path=None):
+    """Read exact approved historical inputs and today's hash-matched JD only."""
+    path = Path(db_path or DB_PATH).resolve()
+    with closing(sqlite3.connect(path.as_uri()+"?mode=ro",uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        snapshot = conn.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?",(snapshot_id,job_id)).fetchone()
+        job = conn.execute("SELECT * FROM discovered_jobs WHERE id=?",(job_id,)).fetchone()
+        if not snapshot or not job or job["content_hash"] != snapshot["job_content_hash"]:
+            raise ValueError("Approved snapshot/current JD hash differs or inputs unavailable")
+        decoded = _decode_row(snapshot)
+        if not decoded.get("jd_profile") or not decoded.get("evidence_snapshot") or not job["description"]:
+            raise ValueError("Persisted JD extraction/evidence unavailable")
+        return dict(job), decoded
+
+
+def init_job_match_schema(db_path=None) -> None:
+    connection = _connect(db_path)
     try:
         connection.executescript(
             """
@@ -96,9 +120,10 @@ def get_job_match_snapshot(
     match_version: str,
     scoring_version: str,
     taxonomy_version: str,
+    db_path=None,
 ) -> dict[str, Any] | None:
-    init_job_match_schema()
-    connection = _connect()
+    init_job_match_schema(db_path)
+    connection = _connect(db_path)
     try:
         row = connection.execute(
             """
@@ -129,10 +154,20 @@ def get_job_match_snapshot(
 
 def get_latest_job_match_snapshot(
     discovered_job_id: int,
+    *,
+    db_path=None,
+    read_only: bool = False,
 ) -> dict[str, Any] | None:
-    init_job_match_schema()
-    connection = _connect()
+    if read_only:
+        connection = _connect_read_only(db_path)
+    else:
+        init_job_match_schema(db_path)
+        connection = _connect(db_path)
     try:
+        if read_only and not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_match_snapshots'"
+        ).fetchone():
+            return None
         row = connection.execute(
             """
             SELECT *
@@ -148,11 +183,33 @@ def get_latest_job_match_snapshot(
         connection.close()
 
 
+def get_discovered_job_metadata_read_only(
+    discovered_job_id: int,
+    *,
+    db_path=None,
+) -> dict[str, Any] | None:
+    """Read persisted job metadata without schema creation or any write path."""
+    connection = _connect_read_only(db_path)
+    try:
+        if not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='discovered_jobs'"
+        ).fetchone():
+            return None
+        row = connection.execute(
+            "SELECT * FROM discovered_jobs WHERE id = ?",
+            (int(discovered_job_id),),
+        ).fetchone()
+        return dict(row) if row is not None else None
+    finally:
+        connection.close()
+
+
 def list_latest_compatible_job_match_snapshots(
     *,
     match_version: str,
     scoring_version: str,
     taxonomy_version: str,
+    read_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Return one latest compatible Job Match snapshot per discovered job.
 
@@ -160,8 +217,11 @@ def list_latest_compatible_job_match_snapshots(
     Taxonomy discovery must not count historical snapshots from the same job as
     independent market observations.
     """
-    init_job_match_schema()
-    connection = _connect()
+    if read_only:
+        connection = _connect_read_only()
+    else:
+        init_job_match_schema()
+        connection = _connect()
     try:
         rows = connection.execute(
             """
@@ -192,6 +252,117 @@ def list_latest_compatible_job_match_snapshots(
     finally:
         connection.close()
 
+
+def list_latest_job_match_corpus_snapshots(*, db_path=None):
+    """Read one frozen snapshot per job, retaining its pinned historical versions.
+
+    Original JD text is recoverable only while the stored job has the same
+    content hash. Never substitute a changed current JD for historical input.
+    """
+    path = Path(db_path or DB_PATH).resolve()
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "job_match_snapshots" not in tables:
+            raise ValueError("Saved Job Match snapshots unavailable")
+        jobs_available = "discovered_jobs" in tables and {"id", "content_hash", "description"}.issubset(
+            {row[1] for row in connection.execute("PRAGMA table_info(discovered_jobs)")})
+        rows = connection.execute("""SELECT s.* FROM job_match_snapshots s
+            JOIN (SELECT discovered_job_id, MAX(id) latest_id FROM job_match_snapshots GROUP BY discovered_job_id) latest
+            ON s.id=latest.latest_id ORDER BY s.discovered_job_id""").fetchall()
+        output = []
+        for row in rows:
+            snapshot = _decode_row(row)
+            original = None
+            if jobs_available:
+                original = connection.execute("SELECT description FROM discovered_jobs WHERE id=? AND content_hash=?",
+                    (snapshot["discovered_job_id"], snapshot["job_content_hash"])).fetchone()
+            snapshot["raw_jd_text"] = original[0] if original else None
+            snapshot["raw_jd_provenance"] = "stored_job_matching_snapshot_hash" if original else "unavailable"
+            output.append(snapshot)
+        return output
+    finally:
+        connection.close()
+
+
+def save_job_match_snapshot(
+    *,
+    discovered_job_id: int,
+    job_content_hash: str,
+    evidence_fingerprint: str,
+    match_version: str,
+    scoring_version: str,
+    taxonomy_version: str,
+    jd_profile: dict[str, Any],
+    evidence_snapshot: list[dict[str, Any]],
+    stable_analysis: dict[str, Any],
+    summary: dict[str, Any],
+    db_path=None,
+) -> dict[str, Any]:
+    init_job_match_schema(db_path)
+    connection = _connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO job_match_snapshots (
+                discovered_job_id,
+                job_content_hash,
+                evidence_fingerprint,
+                match_version,
+                scoring_version,
+                taxonomy_version,
+                jd_profile_json,
+                evidence_snapshot_json,
+                stable_analysis_json,
+                summary_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(
+                discovered_job_id,
+                job_content_hash,
+                evidence_fingerprint,
+                match_version,
+                scoring_version,
+                taxonomy_version
+            ) DO UPDATE SET
+                jd_profile_json = excluded.jd_profile_json,
+                evidence_snapshot_json = excluded.evidence_snapshot_json,
+                stable_analysis_json = excluded.stable_analysis_json,
+                summary_json = excluded.summary_json,
+                created_at = excluded.created_at
+            """,
+            (
+                int(discovered_job_id),
+                str(job_content_hash or ""),
+                str(evidence_fingerprint or ""),
+                str(match_version or ""),
+                str(scoring_version or ""),
+                str(taxonomy_version or ""),
+                json.dumps(jd_profile or {}, ensure_ascii=False, sort_keys=True, default=str),
+                json.dumps(evidence_snapshot or [], ensure_ascii=False, sort_keys=True, default=str),
+                json.dumps(stable_analysis or {}, ensure_ascii=False, sort_keys=True, default=str),
+                json.dumps(summary or {}, ensure_ascii=False, sort_keys=True, default=str),
+                _now(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    snapshot = get_job_match_snapshot(
+        discovered_job_id=discovered_job_id,
+        job_content_hash=job_content_hash,
+        evidence_fingerprint=evidence_fingerprint,
+        match_version=match_version,
+        scoring_version=scoring_version,
+        taxonomy_version=taxonomy_version,
+        db_path=db_path,
+    )
+    if snapshot is None:
+        raise RuntimeError("Job match snapshot was not readable after save.")
+    return snapshot
 
 
 def list_current_job_match_snapshots(
@@ -236,7 +407,6 @@ def list_current_job_match_snapshots(
     finally:
         connection.close()
 
-
 def list_latest_job_match_snapshots(
     discovered_job_ids: list[int] | tuple[int, ...],
 ) -> list[dict[str, Any]]:
@@ -277,7 +447,6 @@ def list_latest_job_match_snapshots(
     finally:
         connection.close()
 
-
 def _decode_match_state_row(
     row: sqlite3.Row | None,
 ) -> dict[str, Any] | None:
@@ -291,7 +460,6 @@ def _decode_match_state_row(
     except (TypeError, ValueError):
         item["summary"] = {}
     return item
-
 
 def list_current_job_match_state_rows(
     discovered_job_ids: list[int] | tuple[int, ...],
@@ -365,7 +533,6 @@ def list_current_job_match_state_rows(
     finally:
         connection.close()
 
-
 def list_latest_job_match_state_rows(
     discovered_job_ids: list[int] | tuple[int, ...],
 ) -> list[dict[str, Any]]:
@@ -422,79 +589,3 @@ def list_latest_job_match_state_rows(
         return output
     finally:
         connection.close()
-
-def save_job_match_snapshot(
-    *,
-    discovered_job_id: int,
-    job_content_hash: str,
-    evidence_fingerprint: str,
-    match_version: str,
-    scoring_version: str,
-    taxonomy_version: str,
-    jd_profile: dict[str, Any],
-    evidence_snapshot: list[dict[str, Any]],
-    stable_analysis: dict[str, Any],
-    summary: dict[str, Any],
-) -> dict[str, Any]:
-    init_job_match_schema()
-    connection = _connect()
-    try:
-        connection.execute(
-            """
-            INSERT INTO job_match_snapshots (
-                discovered_job_id,
-                job_content_hash,
-                evidence_fingerprint,
-                match_version,
-                scoring_version,
-                taxonomy_version,
-                jd_profile_json,
-                evidence_snapshot_json,
-                stable_analysis_json,
-                summary_json,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(
-                discovered_job_id,
-                job_content_hash,
-                evidence_fingerprint,
-                match_version,
-                scoring_version,
-                taxonomy_version
-            ) DO UPDATE SET
-                jd_profile_json = excluded.jd_profile_json,
-                evidence_snapshot_json = excluded.evidence_snapshot_json,
-                stable_analysis_json = excluded.stable_analysis_json,
-                summary_json = excluded.summary_json,
-                created_at = excluded.created_at
-            """,
-            (
-                int(discovered_job_id),
-                str(job_content_hash or ""),
-                str(evidence_fingerprint or ""),
-                str(match_version or ""),
-                str(scoring_version or ""),
-                str(taxonomy_version or ""),
-                json.dumps(jd_profile or {}, ensure_ascii=False, sort_keys=True, default=str),
-                json.dumps(evidence_snapshot or [], ensure_ascii=False, sort_keys=True, default=str),
-                json.dumps(stable_analysis or {}, ensure_ascii=False, sort_keys=True, default=str),
-                json.dumps(summary or {}, ensure_ascii=False, sort_keys=True, default=str),
-                _now(),
-            ),
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-    snapshot = get_job_match_snapshot(
-        discovered_job_id=discovered_job_id,
-        job_content_hash=job_content_hash,
-        evidence_fingerprint=evidence_fingerprint,
-        match_version=match_version,
-        scoring_version=scoring_version,
-        taxonomy_version=taxonomy_version,
-    )
-    if snapshot is None:
-        raise RuntimeError("Job match snapshot was not readable after save.")
-    return snapshot

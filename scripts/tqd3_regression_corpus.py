@@ -1,0 +1,106 @@
+"""Explicit read-only export and offline replay; never run by project gates."""
+import argparse
+import json
+from pathlib import Path
+from taxonomy_discovery.regression_corpus import export_saved_corpus, corpus_csv, compare_regression_corpus
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    export = commands.add_parser("export")
+    export.add_argument("--db-path")
+    export.add_argument("--output", required=True)
+    export.add_argument("--csv")
+    compare = commands.add_parser("compare")
+    compare.add_argument("--corpus", required=True)
+    compare.add_argument("--output", required=True)
+    gaps = commands.add_parser("gaps")
+    gaps.add_argument("--corpus", required=True)
+    gaps.add_argument("--output", required=True)
+    candidates=commands.add_parser("taxonomy-candidates")
+    candidates.add_argument("--gaps",required=True)
+    candidates.add_argument("--output",required=True)
+    candidates.add_argument("--csv")
+    coverage = commands.add_parser("coverage")
+    coverage.add_argument("--db-path")
+    coverage.add_argument("--output", required=True)
+    coverage.add_argument("--csv")
+    backfill = commands.add_parser("backfill")
+    backfill.add_argument("--db-path")
+    backfill.add_argument("--output")
+    mode = backfill.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--execute", action="store_true")
+    queue = commands.add_parser("model-queue")
+    queue.add_argument("--db-path")
+    queue.add_argument("--output")
+    queue.add_argument("--limit", type=int, default=25)
+    plan = commands.add_parser("model-plan")
+    plan.add_argument("--software-only", action="store_true")
+    plan.add_argument("--limit", type=int, default=25)
+    plan.add_argument("--db-path")
+    plan.add_argument("--output", required=True)
+    run = commands.add_parser("model-run")
+    run.add_argument("--plan", required=True)
+    run.add_argument("--limit", type=int, default=25)
+    run.add_argument("--db-path")
+    run.add_argument("--execute", action="store_true", required=True)
+    run.add_argument("--output", help="Receipt path; defaults to <plan>.run.json")
+    args = parser.parse_args(argv)
+    if args.command == "taxonomy-candidates":
+        from taxonomy_discovery.taxonomy_evolution import gap_candidates
+        from taxonomy_discovery.candidate_refinement import candidate_report, candidate_csv
+        result=candidate_report(gap_candidates(json.loads(Path(args.gaps).read_text(encoding="utf-8"))))
+        if args.csv:
+            with Path(args.csv).open("w", encoding="utf-8", newline="") as csv_file:
+                csv_file.write(candidate_csv(result))
+    elif args.command in {"model-plan", "model-run"}:
+        from taxonomy_discovery.corpus_expansion import model_plan, model_run
+        if args.command == "model-plan":
+            result = model_plan(db_path=args.db_path, software_only=args.software_only, limit=args.limit)
+        else:
+            plan_data = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+            args.output = args.output or str(Path(args.plan).with_suffix(".run.json"))
+            def receipt(value):
+                Path(args.output).write_text(json.dumps(value, indent=2)+"\n", encoding="utf-8")
+                if "started_at" not in value:
+                    print(json.dumps(value), flush=True)
+            result = model_run(plan_data, db_path=args.db_path, limit=args.limit,
+                               execute=args.execute, receipt_callback=receipt)
+    elif args.command == "export":
+        result = export_saved_corpus(db_path=args.db_path)
+        if args.csv:
+            Path(args.csv).write_text(corpus_csv(result), encoding="utf-8")
+    elif args.command == "compare":
+        result = compare_regression_corpus(json.loads(Path(args.corpus).read_text(encoding="utf-8")))
+    elif args.command == "gaps":
+        from taxonomy_discovery.taxonomy_gaps import aggregate_corpus_gaps
+        result = aggregate_corpus_gaps(json.loads(Path(args.corpus).read_text(encoding="utf-8")))
+    else:
+        from taxonomy_discovery.corpus_coverage import corpus_coverage, coverage_csv, deterministic_backfill, model_required_queue
+        if args.command == "coverage":
+            result = corpus_coverage(db_path=args.db_path)
+            if args.csv:
+                Path(args.csv).write_text(coverage_csv(result), encoding="utf-8")
+        elif args.command == "backfill":
+            result = deterministic_backfill(db_path=args.db_path, execute=args.execute)
+        else:
+            result = model_required_queue(db_path=args.db_path, limit=args.limit)
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if args.command == "taxonomy-candidates":
+            print(json.dumps({"command":args.command,**{k:result[k] for k in (
+                "source_observations","concept_count","candidate_route_counts","recurrence_counts")}}))
+        else:
+            print(json.dumps({"command": args.command, "job_count": result.get("job_count",len(result.get("jobs", []))),
+                          "gap_count": len(result.get("observations", [])), "classification_counts": result.get("classification_counts"),
+                          **{k:result[k] for k in ("discovered_jobs","replayable_jobs_before","zero_cost_backfillable","model_required",
+                              "source_observations","concept_count","candidate_route_counts","recurrence_counts") if k in result}}))
+    else:
+        print(json.dumps(result,indent=2,ensure_ascii=False))
+    return int(bool(result.get("classification_counts", {}).get("hard_regression/invariant_violation")))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

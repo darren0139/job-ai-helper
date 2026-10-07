@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import unittest
 from unittest.mock import patch
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from tailoring.capability_taxonomy import get_default_taxonomy
+from taxonomy_discovery.technology_registry import get_default_registry
 
 from tailoring.phase8_verification import (
     audit_claim_lineage,
@@ -23,6 +26,8 @@ def stable(score: int, rows: list[dict]):
         "evidence_strength_score": 60,
         "canonical_requirements": rows,
         "input_fingerprint": "baseline",
+        "capability_taxonomy_version": get_default_taxonomy().version,
+        "technology_registry_version": get_default_registry().version,
     }
 
 
@@ -32,6 +37,13 @@ BASE_ROW = {
     "importance": "required",
     "match_label": "direct",
     "evidence_strength": 5,
+    "evidence": [
+        {
+            "evidence_id": "ev_python",
+            "source": "resume_profile.skills.languages[0]",
+            "text": "Python",
+        }
+    ],
 }
 
 
@@ -318,6 +330,99 @@ class Phase8VerificationTests(unittest.TestCase):
         self.assertEqual(
             mocked_build.call_args_list[0].kwargs["keyword_match"],
             baseline["keyword_match"],
+        )
+
+    @patch("tailoring.phase8_verification.build_stable_analysis")
+    def test_initial_uses_saved_pre_tailoring_profile_only(self, mocked_build):
+        initial_row = {
+            **BASE_ROW,
+            "evidence": [
+                {
+                    "evidence_id": "ev_initial",
+                    "source": "resume_profile.projects[0].bullets[0]",
+                    "text": "Initial-only evidence",
+                }
+            ],
+        }
+        tailored_row = {
+            **BASE_ROW,
+            "evidence": [
+                {
+                    "evidence_id": "ev_tailored",
+                    "source": "resume_profile.projects[0].bullets[0]",
+                    "text": "Tailored-only evidence",
+                }
+            ],
+        }
+        mocked_build.side_effect = [
+            stable(55, [initial_row]),
+            stable(60, [tailored_row]),
+        ]
+        initial_profile = {
+            "projects": [
+                {
+                    "title": "INITIAL_ONLY",
+                    "bullets": ["Initial-only evidence"],
+                }
+            ],
+            "skills": {"languages": ["InitialLang"]},
+            "experience": [],
+            "education": [],
+        }
+        baseline = {
+            "stable_analysis": {
+                **stable(40, [initial_row]),
+                "scoring_version": "legacy-scorer",
+            },
+            "resume_profile": initial_profile,
+            "jd_profile": {},
+            "keyword_match": {"present": [], "missing": []},
+            "raw_jd_text": "Python required",
+            "bullets": {"bullet_quality_avg": 80},
+            "structure": {"structure_score": 100},
+        }
+        baseline_before = deepcopy(baseline)
+        generation = {
+            **GENERATION,
+            "projects": {
+                "recommended_projects": [
+                    {
+                        "project_id": "project-a",
+                        "title": "TAILORED_ONLY",
+                        "display_title": "TAILORED_ONLY",
+                        "draft_bullets": ["Tailored-only evidence"],
+                    }
+                ]
+            },
+        }
+
+        result = build_phase8_verification(
+            baseline_report=baseline,
+            generation_state=generation,
+            raw_jd_text="Python is required for this role.",
+        )
+
+        initial_call, tailored_call = mocked_build.call_args_list
+        self.assertEqual(initial_call.kwargs["resume_profile"], initial_profile)
+        self.assertIn("INITIAL_ONLY", initial_call.kwargs["raw_resume_text"])
+        self.assertNotIn("TAILORED_ONLY", initial_call.kwargs["raw_resume_text"])
+        self.assertEqual(
+            tailored_call.kwargs["resume_profile"]["projects"][0]["title"],
+            "TAILORED_ONLY",
+        )
+        self.assertIn("TAILORED_ONLY", tailored_call.kwargs["raw_resume_text"])
+        self.assertEqual(baseline, baseline_before)
+        self.assertEqual(
+            result["job_match_ab"]["initial"]["requirements"][0][
+                "evidence_provenance"
+            ][0]["text"],
+            "Initial-only evidence",
+        )
+        self.assertEqual(
+            result["job_match_ab"]["tailored"]["requirements"][0][
+                "evidence_provenance"
+            ][0]["text"],
+            "Tailored-only evidence",
         )
 
     def test_cached_draft_readiness_refreshes_after_approval(self):
