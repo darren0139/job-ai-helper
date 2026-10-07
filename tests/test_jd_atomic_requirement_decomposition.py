@@ -883,7 +883,8 @@ class JDAtomicRequirementDecompositionTests(unittest.TestCase):
             retrieval_mode_override="off",
         )
 
-        self.assertEqual(analysis["scoring_version"], "stable-evidence-v1.10-phase6d16")
+        from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+        self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
         self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
         self.assertEqual(
             analysis["canonicalisation_debug"][

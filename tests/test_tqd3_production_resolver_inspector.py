@@ -98,7 +98,7 @@ class ResolverInspectorTests(unittest.TestCase):
         )
         self.assertEqual(
             versions["scoring_version"],
-            "stable-evidence-v1.10-phase6d16",
+            "stable-evidence-v1.11-phase6d17",
         )
         self.assertIs(adapter_resolver, resolve_requirement_with_production_knowledge)
         self.assertIs(inspector_resolver, resolve_requirement_with_production_knowledge)

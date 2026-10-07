@@ -86,6 +86,83 @@ def export_saved_corpus(*, db_path=None):
     return build_regression_corpus(list_latest_job_match_corpus_snapshots(db_path=db_path))
 
 
+def replay_current_corpus(corpus):
+    """Replay saved inputs through the production scorer without persistence.
+
+    Jobs without complete frozen inputs retain their saved baseline and carry a
+    fail-closed replay status.  The returned object is a deep copy.
+    """
+    if corpus.get("corpus_version") != CORPUS_VERSION:
+        raise ValueError("Unsupported regression corpus")
+    replayed = deepcopy(corpus)
+    counts = Counter()
+    with patch.dict(os.environ, {"CAPABILITY_RAG_MODE": "off"}), \
+            patch("socket.socket.connect", side_effect=RuntimeError("Offline corpus forbids network")):
+        for job in replayed.get("jobs", []):
+            inputs = job.get("frozen_inputs") or {}
+            context = inputs.get("context")
+            blockers = []
+            if not inputs.get("raw_jd_text"):
+                blockers.append("Original JD text unavailable")
+            if not isinstance(inputs.get("jd_profile"), dict) or not inputs.get("jd_profile"):
+                blockers.append("Saved JD profile unavailable")
+            if not isinstance(context, dict):
+                blockers.append("Frozen evidence context unavailable")
+            evidence = inputs.get("evidence_snapshot")
+            if isinstance(evidence, list) and context is not None:
+                if build_profile_evidence_context(evidence) != context:
+                    blockers.append("Frozen context disagrees with frozen evidence")
+            if blockers:
+                job["current_replay"] = {
+                    "available": False,
+                    "blockers": blockers,
+                }
+                counts["blocked"] += 1
+                continue
+
+            stable = _default_stable_builder(
+                raw_jd_text=inputs["raw_jd_text"],
+                jd_profile=deepcopy(inputs["jd_profile"]),
+                context=deepcopy(context),
+            )
+            job["saved_requirements"] = deepcopy(job.get("requirements") or [])
+            job["saved_stable_analysis"] = deepcopy(
+                job.get("baseline_stable_analysis") or {}
+            )
+            job["requirements"] = requirement_records(
+                stable,
+                job_id=job.get("job_id"),
+                snapshot_id=job.get("snapshot_id"),
+            )
+            job["baseline_stable_analysis"] = stable
+            job["metrics"] = job_metrics(stable, job["requirements"])
+            job["versions"] = {
+                "scoring_version": stable.get("scoring_version"),
+                "taxonomy_version": stable.get("capability_taxonomy_version"),
+                "technology_registry_version": stable.get("technology_registry_version"),
+            }
+            job["current_replay"] = {
+                "available": True,
+                "blockers": [],
+                "filtered_non_requirement_count": len(
+                    (stable.get("canonicalisation_debug") or {}).get(
+                        "filtered_non_requirement_rows", []
+                    )
+                ),
+            }
+            counts["replayed"] += 1
+    replayed["current_replay"] = {
+        "explicit": True,
+        "read_only": True,
+        "jobs_replayed": counts["replayed"],
+        "jobs_blocked": counts["blocked"],
+        "network_calls": 0,
+        "model_calls": 0,
+        "production_mutations": 0,
+    }
+    return replayed
+
+
 def corpus_csv(corpus):
     buffer = io.StringIO(newline="")
     columns = ["job_id", "snapshot_id", "requirement_id", "requirement_text", "importance", "capability_id",

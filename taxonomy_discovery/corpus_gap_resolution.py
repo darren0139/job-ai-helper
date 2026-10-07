@@ -43,6 +43,7 @@ from taxonomy_discovery.corpus_expansion import fingerprint
 from taxonomy_discovery.regression_corpus import (
     CORPUS_VERSION,
     export_saved_corpus,
+    replay_current_corpus,
 )
 from taxonomy_discovery.research_atomicity import candidate_atomicity
 from taxonomy_discovery.taxonomy_evolution import overlap_check
@@ -1128,11 +1129,18 @@ def _merge_atomic_children(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return parents + merged
 
 
-def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=None) -> dict[str, Any]:
+def audit_corpus_resolution(
+    *,
+    corpus: dict[str, Any] | None = None,
+    db_path=None,
+    replay_current: bool = False,
+) -> dict[str, Any]:
     """Audit every saved canonical requirement against current production knowledge."""
     frozen = deepcopy(corpus) if corpus is not None else export_saved_corpus(db_path=db_path)
     if frozen.get("corpus_version") != CORPUS_VERSION:
         raise ValueError("Unsupported frozen Job Match corpus")
+    if replay_current:
+        frozen = replay_current_corpus(frozen)
     rows: list[dict[str, Any]] = []
     unresolved_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for job in frozen.get("jobs", []):
@@ -1345,6 +1353,10 @@ def audit_corpus_resolution(*, corpus: dict[str, Any] | None = None, db_path=Non
         "candidates": candidates,
         "queue": queue,
         "corpus": frozen,
+        "current_replay": deepcopy(frozen.get("current_replay") or {
+            "explicit": False,
+            "read_only": True,
+        }),
         "read_only": True,
         "network_calls": 0,
         "model_calls": 0,

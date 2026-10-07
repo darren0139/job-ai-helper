@@ -199,7 +199,7 @@ def _render_corpus_resolution(st, bulk):
     if st.button("Run Job Match health and taxonomy audit", key="tqd3_corpus_gap_audit"):
         try:
             with st.spinner("Auditing saved scoring outcomes and current taxonomy knowledge..."):
-                audit = audit_corpus_resolution()
+                audit = audit_corpus_resolution(replay_current=True)
                 resolution_queue = build_gap_resolution_queue(audit)
                 candidates = research_candidates(audit["candidates"])
                 research_queue = bulk.build_candidate_queue(
@@ -227,7 +227,16 @@ def _render_corpus_resolution(st, bulk):
     health = audit["job_match_health"]
     knowledge = audit["taxonomy_knowledge"]
     st.markdown("###### Job Match Health")
-    st.caption("These metrics come from saved production scorer outcomes and grounded Profile & Evidence links.")
+    replay = audit.get("current_replay") or {}
+    st.caption(
+        "These metrics come from an explicit, read-only replay of saved inputs through the "
+        "current production scorer and grounded Profile & Evidence links."
+    )
+    st.write("Replay status", {
+        "jobs replayed": replay.get("jobs_replayed", 0),
+        "jobs blocked": replay.get("jobs_blocked", 0),
+        "read only": replay.get("read_only", True),
+    })
     st.write("Scoring and evidence", {
         "total requirements": health["total_requirements"],
         "meaningful requirements": health["meaningful_requirements"],
@@ -255,9 +264,9 @@ def _render_corpus_resolution(st, bulk):
     )
     eligibility = triage["score_eligibility_audit"]
     st.write("Score-eligibility policy review", {
-        "all requirements currently score eligible": eligibility["all_currently_score_eligible"],
+        "all current scoring units score eligible": eligibility["all_currently_score_eligible"],
         "current score-eligible requirements": eligibility["current_score_eligible"],
-        "requirements needing eligibility review": eligibility["potential_review_count"],
+        "remaining requirements needing eligibility review": eligibility["potential_review_count"],
         "behavior changed": eligibility["behavior_changed"],
     })
     with st.expander("Top-gap requirement diagnostics"):

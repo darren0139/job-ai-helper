@@ -63,7 +63,7 @@ class ResumeEvidenceStructuralHeadingTests(unittest.TestCase):
     def test_scoring_version_bumped(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.10-phase6d16",
+            "stable-evidence-v1.11-phase6d17",
         )
 
     def test_structural_headings_are_not_evidence_rows(self):
