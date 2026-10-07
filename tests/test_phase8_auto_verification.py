@@ -27,7 +27,15 @@ class Phase8AutoVerificationTests(unittest.TestCase):
         "tailoring.phase8_auto_verification.build_phase8_generation_snapshot_fingerprint",
         return_value="snap1",
     )
-    def test_exact_snapshot_is_current(self, _mocked):
+    @patch(
+        "tailoring.phase8_auto_verification.inspect_job_match_ab_lifecycle",
+        return_value={
+            "state": "both_analyses_available_and_comparable",
+            "comparable": True,
+            "reasons": [],
+        },
+    )
+    def test_exact_snapshot_is_current(self, _lifecycle, _mocked):
         self.assertTrue(phase8_verification_is_current(self.verification, self.generation))
         self.assertEqual(
             phase8_verification_refresh_reason(self.verification, self.generation),
@@ -44,6 +52,20 @@ class Phase8AutoVerificationTests(unittest.TestCase):
             phase8_verification_refresh_reason(self.verification, self.generation),
             "fitted_snapshot_changed",
         )
+
+    @patch(
+        "tailoring.phase8_auto_verification.build_phase8_generation_snapshot_fingerprint",
+        return_value="snap1",
+    )
+    def test_legacy_payload_without_ab_identity_is_explicitly_stale(self, _mocked):
+        legacy = dict(self.verification)
+        self.assertNotIn("job_match_ab", legacy)
+        self.assertFalse(phase8_verification_is_current(legacy, self.generation))
+        self.assertEqual(
+            phase8_verification_refresh_reason(legacy, self.generation),
+            "no_initial_analysis",
+        )
+        self.assertNotIn("job_match_ab", legacy)
 
     def test_ui_contract_auto_verifies_without_auto_approve(self):
         ui = Path("tailoring/phase8_verification_ui.py").read_text(encoding="utf-8")

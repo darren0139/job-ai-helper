@@ -39,6 +39,150 @@ def _label(state: dict[str, Any]) -> str:
     return f"{status} · {short_id} · {pages} page(s)"
 
 
+def _evidence_summary(row: dict[str, Any]) -> str:
+    values: list[str] = []
+    for item in row.get("evidence_provenance", []) or []:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or item.get("evidence_id") or "").strip()
+        text = str(item.get("text") or item.get("matched_resume_term") or "").strip()
+        value = " · ".join(part for part in (source, text) if part)
+        if value and value not in values:
+            values.append(value)
+    return " | ".join(values)
+
+
+def _snapshot_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "Requirement ID": row.get("requirement_id", ""),
+            "Requirement": row.get("requirement_text", ""),
+            "Importance": row.get("importance", ""),
+            "Eligible": row.get("score_eligible", False),
+            "Preliminary": row.get("preliminary_match", "none"),
+            "Final": row.get("final_match", "none"),
+            "Contribution": round(float(row.get("score_contribution", 0.0) or 0.0), 3),
+            "Evidence / provenance": _evidence_summary(row),
+            "Taxonomy": row.get("taxonomy_status", ""),
+            "Capability": row.get("taxonomy_capability_id", ""),
+            "Resolver": row.get("taxonomy_resolution_source", ""),
+            "Registry": (row.get("registry_resolution") or {}).get("status", ""),
+        }
+        for row in snapshot.get("requirements", []) or []
+        if isinstance(row, dict)
+    ]
+
+
+def _render_job_match_ab(result: dict[str, Any]) -> None:
+    analysis = result.get("job_match_ab") or {}
+    lifecycle = result.get("job_match_ab_lifecycle") or {}
+    if not isinstance(analysis, dict) or not analysis:
+        st.warning("No persisted Initial Job Match analysis is available yet.")
+        return
+    if analysis.get("comparable") is not True:
+        st.error(
+            "Initial and Tailored Job Match analyses are not comparable. "
+            "Create a new same-generation Initial analysis before comparing."
+        )
+        st.json({"state": lifecycle.get("state"), "blockers": analysis.get("blockers", [])})
+        return
+
+    initial = analysis.get("initial") or {}
+    tailored = analysis.get("tailored") or {}
+    summary = analysis.get("summary") or {}
+    st.markdown("#### Job Match — Initial vs Tailored")
+    st.caption(
+        "Both views use the same JD, scorer, taxonomy, and technology registry. "
+        "Requirements are joined by stable requirement ID."
+    )
+    initial_tab, tailored_tab, comparison_tab = st.tabs(
+        ["Initial Job Match", "Tailored Job Match", "Initial vs Tailored"]
+    )
+    with initial_tab:
+        counts = initial.get("match_counts") or {}
+        cols = st.columns(4)
+        cols[0].metric("Score", initial.get("score", 0))
+        cols[1].metric("Direct", counts.get("direct", 0))
+        cols[2].metric("Transferable", counts.get("transferable", 0))
+        cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
+        st.dataframe(_snapshot_rows(initial), hide_index=True, width="stretch")
+    with tailored_tab:
+        counts = tailored.get("match_counts") or {}
+        cols = st.columns(4)
+        cols[0].metric("Score", tailored.get("score", 0))
+        cols[1].metric("Direct", counts.get("direct", 0))
+        cols[2].metric("Transferable", counts.get("transferable", 0))
+        cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
+        st.dataframe(_snapshot_rows(tailored), hide_index=True, width="stretch")
+    with comparison_tab:
+        score_cols = st.columns(4)
+        score_cols[0].metric("Initial score", summary.get("initial_score", 0))
+        score_cols[1].metric(
+            "Tailored score",
+            summary.get("tailored_score", 0),
+            delta=summary.get("score_delta", 0),
+        )
+        score_cols[2].metric("Improved", summary.get("requirements_improved", 0))
+        score_cols[3].metric("Lost", summary.get("requirements_lost", 0))
+        st.caption(
+            "Preserved: "
+            f"{summary.get('requirements_preserved', 0)} · Still gaps: "
+            f"{summary.get('requirements_still_gaps', 0)}"
+        )
+        rows = []
+        for row in analysis.get("requirements", []) or []:
+            if not isinstance(row, dict):
+                continue
+            left = row.get("initial") or {}
+            right = row.get("tailored") or {}
+            rows.append(
+                {
+                    "Requirement ID": row.get("requirement_id", ""),
+                    "Requirement": row.get("requirement_text", ""),
+                    "Importance": row.get("importance", ""),
+                    "Classification": row.get("classification", ""),
+                    "Match transition": row.get("match_transition", ""),
+                    "Contribution Δ": round(
+                        float(row.get("score_contribution_delta", 0.0) or 0.0), 3
+                    ),
+                    "Initial provenance": _evidence_summary(left),
+                    "Tailored provenance": _evidence_summary(right),
+                    "Initial taxonomy": left.get("taxonomy_status", ""),
+                    "Tailored taxonomy": right.get("taxonomy_status", ""),
+                    "Initial resolver": left.get("taxonomy_resolution_source", ""),
+                    "Tailored resolver": right.get("taxonomy_resolution_source", ""),
+                    "Capability / registry": (
+                        right.get("taxonomy_capability_id")
+                        or (right.get("registry_resolution") or {}).get("capability_id")
+                        or ""
+                    ),
+                }
+            )
+        st.dataframe(rows, hide_index=True, width="stretch")
+        with st.expander("A/B taxonomy and resolver diagnostics"):
+            st.json(
+                [
+                    {
+                        "requirement_id": row.get("requirement_id", ""),
+                        "initial_registry": (row.get("initial") or {}).get(
+                            "registry_resolution", {}
+                        ),
+                        "tailored_registry": (row.get("tailored") or {}).get(
+                            "registry_resolution", {}
+                        ),
+                        "initial_diagnostics": (row.get("initial") or {}).get(
+                            "diagnostics", {}
+                        ),
+                        "tailored_diagnostics": (row.get("tailored") or {}).get(
+                            "diagnostics", {}
+                        ),
+                    }
+                    for row in analysis.get("requirements", []) or []
+                    if isinstance(row, dict)
+                ]
+            )
+
+
 def _phase9f_execution_uses_legacy_private_stages(
     execution: dict[str, Any] | None,
 ) -> bool:
@@ -108,6 +252,7 @@ def _render_result(result: dict[str, Any]) -> None:
         lineage.get("claim_review_required_count", 0),
     )
 
+    _render_job_match_ab(result)
     render_phase8_score_explainability(result)
 
     reconciliation = (

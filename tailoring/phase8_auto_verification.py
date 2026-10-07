@@ -8,6 +8,7 @@ from tailoring.phase8_verification import (
     PHASE8_VERIFICATION_VERSION,
     build_phase8_generation_snapshot_fingerprint,
 )
+from tailoring.job_match_ab_analysis import inspect_job_match_ab_lifecycle
 
 PHASE8_AUTO_VERIFY_VERSION = "phase8-auto-verify-v1"
 
@@ -31,7 +32,13 @@ def phase8_verification_is_current(
     actual = str(
         verification.get("verified_generation_snapshot_fingerprint") or ""
     ).strip()
-    return bool(actual and actual == expected)
+    if not actual or actual != expected:
+        return False
+    lifecycle = inspect_job_match_ab_lifecycle(
+        verification.get("job_match_ab"),
+        current_generation_snapshot_fingerprint=expected,
+    )
+    return lifecycle.get("state") == "both_analyses_available_and_comparable"
 
 
 def phase8_verification_refresh_reason(
@@ -51,6 +58,16 @@ def phase8_verification_refresh_reason(
         != PHASE8_PREAPPROVAL_GATE_VERSION
     ):
         return "approval_gate_version_mismatch"
-    if not phase8_verification_is_current(verification, generation_state):
+    expected = build_phase8_generation_snapshot_fingerprint(generation_state)
+    actual = str(
+        verification.get("verified_generation_snapshot_fingerprint") or ""
+    ).strip()
+    if not actual or actual != expected:
         return "fitted_snapshot_changed"
+    lifecycle = inspect_job_match_ab_lifecycle(
+        verification.get("job_match_ab"),
+        current_generation_snapshot_fingerprint=expected,
+    )
+    if lifecycle.get("state") != "both_analyses_available_and_comparable":
+        return str(lifecycle.get("state") or "analysis_generation_superseded")
     return "current"
