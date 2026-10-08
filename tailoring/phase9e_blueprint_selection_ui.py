@@ -14,7 +14,6 @@ from taxonomy_discovery.technology_registry import get_default_registry
 from database.application_blueprint_manager import (
     evaluate_and_bind_application_blueprint,
     export_application_blueprint_decision,
-    get_current_application_blueprint_decision,
     get_phase9e_base_resume_starting_snapshot,
     list_application_blueprint_decisions,
     preview_application_blueprint_decision,
@@ -727,15 +726,19 @@ def _render_scope_transition_summary(
 
 def _render_active_original_source_guidance(
     application_id: int,
+    *,
+    decision: dict[str, Any],
 ) -> None:
     # Do not tell the user to regenerate when a working draft is already open.
     workspace: dict[str, Any] = {}
     try:
         from tailoring.phase9e1_resume_workspace_ui import (
-            get_resume_workspace_context,
+            _get_resume_workspace_context_for_decision,
         )
 
-        workspace = get_resume_workspace_context(int(application_id)) or {}
+        workspace = _get_resume_workspace_context_for_decision(
+            int(application_id), decision
+        ) or {}
     except (ImportError, OSError, RuntimeError, ValueError):
         workspace = {}
 
@@ -889,6 +892,7 @@ def _record_workflow_action(
     actor_label: str,
     acknowledgement: bool = False,
     reason: str = "",
+    rerun_after_action: bool = True,
 ) -> None:
     action_result = set_application_blueprint_workflow_action(
         application_id=application_id,
@@ -924,7 +928,23 @@ def _record_workflow_action(
             "one editable action draft. Content is still unchanged until the "
             "supported tailoring action runs."
         )
-    st.rerun()
+    if rerun_after_action:
+        st.rerun()
+
+
+def _reuse_blueprint_unchanged(application_id: int) -> None:
+    """Persist reuse before the render; backend checks still validate currentness."""
+    try:
+        _record_workflow_action(
+            application_id=application_id,
+            workflow_action="use_blueprint_unchanged",
+            actor_label=st.session_state.get(
+                f"phase9e_actor_{application_id}", "Local user"
+            ),
+            rerun_after_action=False,
+        )
+    except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
+        st.session_state[f"phase9e_action_error_{application_id}"] = str(exc)
 
 
 def _render_workflow_actions(
@@ -1004,7 +1024,9 @@ def _render_workflow_actions(
                 (decision.get("selection") or {}).get("selected_source")
             )
             if selected_source == "original_resume":
-                _render_active_original_source_guidance(application_id)
+                _render_active_original_source_guidance(
+                    application_id, decision=decision
+                )
             elif selected_source == "base_resume":
                 _render_active_base_resume_guidance(application_id)
             else:
@@ -1027,18 +1049,60 @@ def _render_workflow_actions(
             st.success(
                 "The frozen blueprint can be used unchanged with all sections locked."
             )
-            if st.button(
+            st.button(
                 "Use blueprint unchanged",
                 key=f"phase9e_reuse_unchanged_{application_id}",
                 width="stretch",
-            ):
-                _record_workflow_action(
-                    application_id=application_id,
-                    workflow_action="use_blueprint_unchanged",
-                    actor_label=actor_label,
-                )
+                on_click=_reuse_blueprint_unchanged,
+                args=(application_id,),
+            )
     except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
         st.error(str(exc))
+
+
+def _set_change_source_mode(change_key: str, enabled: bool) -> None:
+    """Set preview mode before rendering, without an extra script rerun."""
+    st.session_state[change_key] = enabled
+
+
+def _bind_tailoring_base(
+    application_id: int,
+    selection_key: str,
+    selected_source: str,
+    selected_id: str,
+    selected_base_resume_id: str,
+    selection_mode: str,
+    mismatch: bool,
+) -> None:
+    """Bind before rendering; revalidate persisted inputs in the backend."""
+    try:
+        if st.session_state.get(f"phase9e_selection_{application_id}") != selection_key:
+            raise Phase9EDecisionError(
+                "The selected tailoring base changed. Review its preview before binding."
+            )
+        result = evaluate_and_bind_application_blueprint(
+            application_id=application_id,
+            scope_replacement_confirmed=st.session_state.get(
+                f"phase9e_scope_replacement_ack_{application_id}", False
+            ),
+            selected_source=selected_source,
+            selected_blueprint_id=selected_id,
+            selected_base_resume_id=selected_base_resume_id,
+            selection_mode=selection_mode,
+            mismatch_acknowledged=bool(mismatch and st.session_state.get(
+                f"phase9e_mismatch_ack_{application_id}_{selected_id}", False
+            )),
+            actor_label=st.session_state.get(f"phase9e_actor_{application_id}", "Local user"),
+        )
+        messages = {
+            "miss": "Persisted and bound a new immutable Phase 9E decision.",
+            "hit_current": "Exactly reused the already-current Phase 9E decision.",
+            "hit_rebound": "Rebound the exact historical Phase 9E decision.",
+        }
+        st.session_state[f"phase9e_change_source_mode_{application_id}"] = False
+        st.session_state[f"phase9e_flash_{application_id}"] = messages[result["cache_status"]]
+    except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
+        st.session_state[f"phase9e_action_error_{application_id}"] = str(exc)
 
 
 def render_phase9e_blueprint_selection(
@@ -1061,11 +1125,16 @@ def render_phase9e_blueprint_selection(
     flash = st.session_state.pop(f"phase9e_flash_{application_id}", "")
     if flash:
         st.success(flash)
+    action_error = st.session_state.pop(f"phase9e_action_error_{application_id}", "")
+    if action_error:
+        st.error(action_error)
 
-    current = get_current_application_blueprint_decision(application_id)
     generation_context = resolve_current_phase9e_generation_context(
         application_id
     )
+    # Resolution already validates the bound decision against current knowledge
+    # and source identities. Reuse that exact decision within this render only.
+    current = generation_context.get("decision")
     with st.expander("Binding audit details", expanded=False):
         actor_label = st.text_input(
             "Binding actor label",
@@ -1088,12 +1157,12 @@ def render_phase9e_blueprint_selection(
             _render_decision_history(application_id)
             return generation_context
         if not changing_source:
-            if st.button(
+            st.button(
                 "Change tailoring base",
                 key=f"phase9e_change_source_{application_id}",
-            ):
-                st.session_state[change_key] = True
-                st.rerun()
+                on_click=_set_change_source_mode,
+                args=(change_key, True),
+            )
             _render_decision_history(application_id)
             return generation_context
 
@@ -1103,12 +1172,12 @@ def render_phase9e_blueprint_selection(
             "a different source; the prior approved generation will remain "
             "historical and inspectable."
         )
-        if st.button(
+        st.button(
             "Keep current tailoring base",
             key=f"phase9e_cancel_change_source_{application_id}",
-        ):
-            st.session_state[change_key] = False
-            st.rerun()
+            on_click=_set_change_source_mode,
+            args=(change_key, False),
+        )
         st.write("### Preview a replacement tailoring base")
 
     try:
@@ -1427,36 +1496,16 @@ def render_phase9e_blueprint_selection(
             if selected_source == "base_resume"
             else "Use selected Blueprint as tailoring base"
         )
-        if st.button(
+        st.button(
             action_label,
             type="primary",
             width="stretch",
             key=f"phase9e_bind_{application_id}",
             disabled=not replacement_confirmed,
-        ):
-            try:
-                result = evaluate_and_bind_application_blueprint(
-                    application_id=application_id,
-                    scope_replacement_confirmed=replacement_confirmed,
-                    selected_source=selected_source,
-                    selected_blueprint_id=selected_id,
-                    selected_base_resume_id=selected_base_resume_id,
-                    selection_mode=selection_mode,
-                    mismatch_acknowledged=mismatch_acknowledged,
-                    actor_label=actor_label,
-                )
-                messages = {
-                    "miss": "Persisted and bound a new immutable Phase 9E decision.",
-                    "hit_current": "Exactly reused the already-current Phase 9E decision.",
-                    "hit_rebound": "Rebound the exact historical Phase 9E decision.",
-                }
-                st.session_state[change_key] = False
-                st.session_state[f"phase9e_flash_{application_id}"] = messages[
-                    result["cache_status"]
-                ]
-                st.rerun()
-            except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
-                st.error(str(exc))
+            on_click=_bind_tailoring_base,
+            args=(application_id, selection_key, selected_source, selected_id,
+                  selected_base_resume_id, selection_mode, mismatch),
+        )
 
     if active_current:
         pass

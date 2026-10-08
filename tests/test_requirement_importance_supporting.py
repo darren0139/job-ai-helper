@@ -180,7 +180,7 @@ class RequirementImportanceSupportingTests(unittest.TestCase):
     def test_scoring_version_is_bumped(self) -> None:
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.13-phase6d20",
+            "stable-evidence-v1.14-phase6d20",
         )
 
 

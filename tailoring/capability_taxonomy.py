@@ -624,6 +624,45 @@ def _evaluate_capability_record(
     taxonomy_version: str,
 ) -> dict[str, Any]:
     """Evaluate evidence against one already-resolved capability record."""
+    if capability.get("capability_id") == "backend.api_development":
+        focus = _clean(requirement.get("atomic_focus") or requirement.get("text"))
+        requested = [p for p in ("rest", "grpc") if _contains_any(focus, [p, "restful"] if p == "rest" else [p])]
+        if requested:
+            alternative = bool(re.search(r"\brest(?:ful)?\s+(?:or|and/or)\s+grpc\b|\bgrpc\s+(?:or|and/or)\s+rest(?:ful)?\b", focus, re.I))
+            support_by_row = []
+            for evidence_row in evidence_text.splitlines():
+                supported = []
+                for protocol in requested:
+                    terms = ["rest", "restful", "postgrest"] if protocol == "rest" else ["grpc"]
+                    negated = re.search(
+                        r"\b(?:no|not|without|never)\b(?:\W+\w+){0,4}\W+(?:"
+                        + "|".join(terms) + r")\b", evidence_row, re.I,
+                    )
+                    negated = negated or re.search(
+                        r"\b(?:" + "|".join(terms)
+                        + r")\b(?:\W+\w+){0,3}\W+(?:not|never)\W+(?:yet\W+)?"
+                        + r"(?:implemented|used|supported|available|developed|built|enabled|configured)\b",
+                        evidence_row, re.I,
+                    )
+                    if _contains_any(evidence_row, terms) and not negated:
+                        supported.append(protocol)
+                support_by_row.append(supported)
+            # One selected evidence row must establish the named protocols;
+            # separate receipts must not silently complete a compound.
+            supported = max(support_by_row, key=len, default=[])
+            missing = [p for p in requested if p not in supported]
+            if not supported or (missing and not alternative):
+                return {
+                    "capability_id": capability["capability_id"],
+                    "label": "none",
+                    "reason": "requested_api_protocol_evidence_missing",
+                    "requested_protocols": requested,
+                    "supported_protocols": supported,
+                    "missing_protocols": missing,
+                    "concepts": [],
+                    "taxonomy_version": taxonomy_version,
+                    "does_not_prove": capability.get("does_not_prove", []),
+                }
     if capability.get("evidence_policy"):
         focus = _clean(requirement.get("atomic_focus") or requirement.get("text"))
         decisions = [

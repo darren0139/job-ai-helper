@@ -43,7 +43,7 @@ from tailoring.phase6d6_structured_matching import (
 
 from taxonomy_discovery.technology_registry import get_default_registry
 
-SCORING_VERSION = "stable-evidence-v1.13-phase6d20"
+SCORING_VERSION = "stable-evidence-v1.14-phase6d20"
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"

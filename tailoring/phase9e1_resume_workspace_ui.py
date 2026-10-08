@@ -249,6 +249,14 @@ def get_resume_workspace_context(
     decision = get_current_application_blueprint_decision(
         int(application_id)
     )
+    return _get_resume_workspace_context_for_decision(application_id, decision)
+
+
+def _get_resume_workspace_context_for_decision(
+    application_id: int,
+    decision: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Assemble read-only state using a decision validated in this render."""
     binding = decision if _is_active_binding(decision) else None
     control = get_application_generation_control(int(application_id))
     generations = list_tailoring_generations(int(application_id))

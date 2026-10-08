@@ -10,6 +10,53 @@ from analysis_stability.stable_evidence_scoring import (
 
 
 class CapabilityNoneRecoveryTests(unittest.TestCase):
+    def test_named_api_protocol_completeness_uses_one_atomic_evidence_row(self):
+        from tailoring.capability_taxonomy import evaluate_capability_evidence
+        cases = (
+            ("API development", "Implemented PostgREST API endpoints.", "direct"),
+            ("API and REST", "Implemented PostgREST API endpoints.", "direct"),
+            ("API, REST and gRPC", "Implemented PostgREST API endpoints.", "none"),
+            ("gRPC API development", "Implemented gRPC API endpoints.", "direct"),
+            ("REST or gRPC API development", "Implemented REST API endpoints.", "direct"),
+            ("gRPC or REST API development", "Implemented gRPC API endpoints.", "direct"),
+            ("gRPC API development", "Implemented API endpoints without gRPC.", "none"),
+            ("gRPC API development", "Implemented API endpoints, not gRPC.", "none"),
+            ("gRPC API development", "Implemented API endpoints; gRPC was not implemented.", "none"),
+            ("gRPC API development", "Implemented API endpoints; gRPC is not yet supported.", "none"),
+            ("REST API development", "Implemented API endpoints with no REST.", "none"),
+            ("API, REST and gRPC", "Implemented REST API endpoints.\nImplemented gRPC API endpoints.", "none"),
+            ("API, REST and gRPC", "Implemented REST and gRPC API endpoints.", "direct"),
+        )
+        for focus, evidence, expected in cases:
+            with self.subTest(focus=focus, evidence=evidence):
+                result = evaluate_capability_evidence(
+                    "backend.api_development", {"atomic_focus": focus}, evidence,
+                )
+                self.assertEqual(result["label"], expected)
+                if expected == "none":
+                    self.assertEqual(result["reason"], "requested_api_protocol_evidence_missing")
+        child = evaluate_capability_evidence(
+            "backend.api_development",
+            {"text": "API, REST and gRPC", "parent_text": "API, REST and gRPC", "atomic_focus": "API development"},
+            "Implemented PostgREST API endpoints.",
+        )
+        self.assertEqual(child["label"], "direct")
+
+    def test_job566_compound_does_not_recover_from_postgrest(self):
+        text = "· Knowledge of web services, API, REST, and gRPC"
+        evidence = "Implemented PostgREST API endpoints with Row-Level Security."
+        result = build_stable_analysis(
+            jd_profile={"required_skills": [text]},
+            keyword_match={"present": [], "missing": [{"keyword": text}]},
+            resume_profile={"projects": [{"title": "QueryAI", "bullets": [evidence]}], "skills": {}},
+            raw_resume_text=evidence,
+        )
+        row = next(r for r in result["canonical_requirements"] if r["requirement_id"] == "req_86d57d2e033d")
+        self.assertEqual(row["capability_id"], "backend.api_development")
+        self.assertEqual(row["match_label"], "none")
+        self.assertEqual(row["evidence"], [])
+        self.assertEqual(result["capability_none_recovery"]["selection_count"], 0)
+
     def test_qa_requirement_recovers_real_single_row_from_none(self):
         requirement = (
             "Write automated tests and work with our QA team to ensure "
@@ -300,7 +347,7 @@ class CapabilityNoneRecoveryTests(unittest.TestCase):
             raw_resume_text=evidence,
         )
 
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.13-phase6d20")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.14-phase6d20")
         self.assertEqual(
             CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             "capability-single-row-none-recovery-v1.1",
