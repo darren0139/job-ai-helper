@@ -7,6 +7,7 @@ import unittest
 
 from analysis_stability.stable_evidence_scoring import (
     CREDENTIAL_EVIDENCE_POLICY_VERSION,
+    IMPORTANCE_WEIGHTS,
     MATCH_VALUES,
     _weighted_coverage,
     build_deterministic_keyword_match,
@@ -195,12 +196,32 @@ class StageAEligibilityTests(unittest.TestCase):
                 self.assertNotIn(parent, [row["atomic_focus"] for row in rows])
                 self.assertEqual(len({row["atomic_group_id"] for row in rows}), 1)
                 self.assertAlmostEqual(sum(row["group_weight_fraction"] for row in rows), 1.0)
+                self.assertEqual({row["importance"] for row in rows}, {"core"})
+                for row in rows:
+                    self.assertTrue(row["score_eligible"])
+                    self.assertEqual(row["parent_text"], parent)
+                    self.assertEqual(row["source_provenance"][0]["parent_text"], parent)
+                    self.assertAlmostEqual(row["group_weight_fraction"], 1 / len(expected))
                 scored = deepcopy(rows)
                 for row in scored:
                     row.update(match_label="direct", match_value=MATCH_VALUES["direct"], evidence_strength=5)
-                score, numerator, denominator = _weighted_coverage(scored, {"required"})
+                # The raw Requirements section uses core importance unless
+                # explicit hard-requirement wording makes it required. Match
+                # the production required/core scoring bucket without changing
+                # that policy or the named-list allocation contract.
+                accepted = {"deal_breaker", "required", "core"}
+                score, numerator, denominator = _weighted_coverage(scored, accepted)
                 self.assertEqual(score, 100.0)
                 self.assertEqual(numerator, denominator)
+                self.assertEqual(denominator, IMPORTANCE_WEIGHTS["core"])
+                self.assertLessEqual(numerator, IMPORTANCE_WEIGHTS["core"])
+                # Credit for one child must consume only its bounded share.
+                for row in scored[1:]:
+                    row.update(match_label="none", match_value=MATCH_VALUES["none"])
+                partial, contribution, allocation = _weighted_coverage(scored, accepted)
+                self.assertEqual(allocation, IMPORTANCE_WEIGHTS["core"])
+                self.assertAlmostEqual(contribution, allocation / len(expected))
+                self.assertAlmostEqual(partial, 100 / len(expected))
 
     def test_open_ended_compounds_remain_unsplit(self):
         cases = (

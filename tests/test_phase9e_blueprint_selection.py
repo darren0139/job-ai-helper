@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from analysis_stability.stable_evidence_scoring import (
+    _weighted_coverage,
     build_deterministic_keyword_match,
     build_stable_analysis,
     canonicalise_requirements,
@@ -25,6 +26,7 @@ from tailoring.phase9e_blueprint_selection import (
     build_phase9e_decision,
     build_phase9e_keyword_match,
     decide_tailoring,
+    evaluate_starting_snapshot,
     generation_binding_identity,
     materialise_phase9e_starting_sections,
     recommend_active_blueprint,
@@ -77,6 +79,98 @@ class Phase9EBlueprintSelectionTests(unittest.TestCase):
         }
         values.update(overrides)
         return build_phase9e_decision(**values)
+
+    def test_bounded_unity_csharp_decomposition_explains_smoke_score_delta(self):
+        decision = self.build_blueprint_decision()
+        current = decision["comparison"]
+        rows = current["stable_analysis_snapshot"]["canonical_requirements"]
+        by_id = {row["requirement_id"]: row for row in rows}
+        parent_id = "req_ca58b0414a31"
+        child_ids = ("req_a5790b06f63b", "req_a499f2c48f82")
+        self.assertNotIn(parent_id, by_id)
+        self.assertEqual(
+            [by_id[key]["text"] for key in child_ids],
+            ["Experience with Unity", "Experience with C# gameplay scripting"],
+        )
+        for key in child_ids:
+            row = by_id[key]
+            self.assertEqual(row["importance"], "preferred")
+            self.assertEqual(row["match_label"], "direct")
+            self.assertEqual(row["evidence_strength"], 5)
+            self.assertEqual(row["group_weight_fraction"], 0.5)
+            self.assertTrue(row["is_atomic"])
+            self.assertEqual(row["parent_text"], "Experience with Unity and C# gameplay scripting")
+            self.assertEqual(row["capability_resolution_source"], "unresolved")
+            self.assertEqual(row["capability_taxonomy_cap_status"], "unrecognised")
+            self.assertTrue(row["evidence"])
+        self.assertEqual(by_id[child_ids[0]]["atomic_group_id"], by_id[child_ids[1]]["atomic_group_id"])
+        self.assertIn("Unity C#", by_id[child_ids[0]]["evidence"][0]["text"])
+        self.assertEqual(by_id[child_ids[1]]["evidence"][0]["text"], "C#")
+        self.assertEqual(by_id[child_ids[1]]["evidence"][0]["source"], "resume_profile.skills.Languages[4]")
+        preliminary = next(
+            row for row in current["keyword_match_snapshot"]["present"]
+            if row["keyword"] == by_id[child_ids[1]]["text"]
+        )
+        self.assertEqual(preliminary["match_type"], "transferable")
+        self.assertTrue(any(
+            warning.get("requirement_id") == child_ids[1]
+            and warning.get("code") == "atomic_clause_promoted"
+            for warning in current["stable_analysis_snapshot"]["validation_warnings"]
+        ))
+
+        # Reproduce the pre-merge unsplit requirement with the SAME current
+        # scorer, résumé, taxonomy, registry, weights, and evidence policy.
+        # Only bounded named-list decomposition is disabled in this control.
+        jd = copy.deepcopy(self.jd)
+        with patch(
+            "analysis_stability.stable_evidence_scoring._split_bounded_named_terms",
+            return_value=[],
+        ):
+            jd["canonicalisation"] = canonicalise_requirements(
+                jd_profile=copy.deepcopy(jd["jd_profile"]),
+                raw_jd_text=jd["raw_text"],
+            )
+            jd["canonical_requirements"] = jd["canonicalisation"]["requirements"]
+            control = evaluate_starting_snapshot(decision["starting_snapshot"], jd)
+        old_rows = control["stable_analysis_snapshot"]["canonical_requirements"]
+        old_by_id = {row["requirement_id"]: row for row in old_rows}
+        self.assertEqual(set(by_id) - set(old_by_id), set(child_ids))
+        self.assertEqual(set(old_by_id) - set(by_id), {parent_id})
+        self.assertEqual(old_by_id[parent_id]["match_label"], "transferable")
+        self.assertEqual(old_by_id[parent_id]["evidence_strength"], 3)
+        self.assertEqual(old_by_id[parent_id]["group_weight_fraction"], 1.0)
+        for key in set(by_id) & set(old_by_id):
+            for field in (
+                "importance", "match_label", "match_value", "evidence_strength",
+                "capability_id", "capability_taxonomy_cap_status", "evidence",
+            ):
+                self.assertEqual(by_id[key].get(field), old_by_id[key].get(field), (key, field))
+        self.assertEqual(
+            _weighted_coverage(rows, {"required", "core", "deal_breaker"}),
+            _weighted_coverage(old_rows, {"required", "core", "deal_breaker"}),
+        )
+        _, new_numerator, new_denominator = _weighted_coverage(rows, {"preferred"})
+        _, old_numerator, old_denominator = _weighted_coverage(old_rows, {"preferred"})
+        self.assertAlmostEqual(new_numerator, 4.20)
+        self.assertAlmostEqual(old_numerator, 3.75)
+        self.assertEqual(new_denominator, 6.0)
+        self.assertEqual(old_denominator, 6.0)
+        for comparison, strength_total, positive_count, expected in (
+            (control, 86, 26, (60, 59, 62, 66)),
+            (current, 93, 27, (61, 59, 70, 69)),
+        ):
+            scoring_rows = comparison["stable_analysis_snapshot"]["canonical_requirements"]
+            positive = [row for row in scoring_rows if row["match_label"] != "none"]
+            self.assertEqual(len(positive), positive_count)
+            self.assertEqual(sum(row["evidence_strength"] for row in positive), strength_total)
+            self.assertEqual(tuple(comparison[key] for key in (
+                "deterministic_alignment_score", "required_core_coverage_score",
+                "preferred_coverage_score", "evidence_strength_score",
+            )), expected)
+        self.assertEqual(
+            current["stable_analysis_snapshot"]["score_weights"],
+            control["stable_analysis_snapshot"]["score_weights"],
+        )
 
     def score_capability_fixture(
         self,

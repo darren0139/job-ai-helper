@@ -31,9 +31,10 @@ def _refresh_current_source_seed(fixture: dict[str, Any]) -> None:
 
     The checked-in fixture is immutable v1.4 provenance. Current-version tests
     model a newly promoted Phase 9B candidate by re-canonicalising the same
-    saved source JD, keeping evidence labels only for requirement IDs that still
-    exist. If the current parser introduces a genuinely new requirement ID,
-    fail closed instead of inventing evidence for it.
+    saved source JD, keeping evidence labels only for explicitly frozen IDs.
+    Reviewed child seeds supplement the immutable historical parent seed;
+    evidence is never inherited automatically through parent provenance.
+    Any other new requirement ID fails closed instead of inventing evidence.
     """
     candidate = fixture["candidate"]
     source_jd = fixture["saved_jds"][0]
@@ -49,7 +50,10 @@ def _refresh_current_source_seed(fixture: dict[str, Any]) -> None:
         if isinstance(row, dict) and str(row.get("requirement_id") or "").strip()
     ]
 
-    historical_seed = metadata.get("source_jd_requirement_summary") or []
+    historical_seed = [
+        *(metadata.get("source_jd_requirement_summary") or []),
+        *(fixture.get("current_source_seed_extensions") or []),
+    ]
     historical_by_id = {
         str(row.get("requirement_id") or "").strip(): row
         for row in historical_seed

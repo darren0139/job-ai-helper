@@ -28,6 +28,10 @@ from database.phase9f_application_confirmation_manager import (
     get_phase9f_application_confirmation,
 )
 from database.tailoring_generation_control import approve_tailoring_generation
+from database.tailoring_verification_manager import (
+    get_latest_tailoring_verification,
+    list_tailoring_verifications,
+)
 from analysis_stability import build_stable_analysis
 from tailoring.phase8_verification import (
     PHASE8_PREAPPROVAL_GATE_VERSION,
@@ -1037,6 +1041,11 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
                 preapproval["verification"]["generation_status"],
                 "draft",
             )
+            verified_analysis = copy.deepcopy(preapproval["verification"]["job_match_ab"])
+            verification_id = preapproval["verification"]["verification_id"]
+            self.assertTrue(execution_manager.get_tailoring_verification_approval_gate(
+                application_id, fitted["generation"]["generation_id"]
+            )["ready"])
 
             approve_tailoring_generation(
                 application_id,
@@ -1060,6 +1069,93 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             fitted["generation"]["generation_id"],
         )
         self.assertEqual(len(project_calls), 2)
+        self.assertEqual(len(fit_calls), 1)
+        gate = execution_manager.get_tailoring_verification_approval_gate(
+            application_id, fitted["generation"]["generation_id"]
+        )
+        self.assertTrue(gate["ready"])
+        self.assertEqual(gate["reasons"], [])
+        refreshed = gate["verification"]
+        self.assertEqual(refreshed["verification_id"], verification_id)
+        self.assertEqual(refreshed["job_match_ab"], verified_analysis)
+        self.assertEqual(refreshed["generation_status"], "approved")
+        self.assertTrue(refreshed["blueprint_ready"])
+        self.assertEqual(completed["phase8_verification_id"], verification_id)
+        self.assertEqual(completed["phase8_verification_fingerprint"], refreshed["verification_fingerprint"])
+        self.assertEqual(
+            execution_manager.get_tailoring_generation(application_id, first["generation"]["generation_id"])["status"],
+            "draft",
+        )
+        self.assertTrue(self.output_docx.exists())
+        self.assertTrue(self.output_pdf.exists())
+
+    def test_normal_approval_with_missing_ab_waits_for_phase8_then_recovers(self) -> None:
+        """Approval cannot complete an incomplete mock; a current retry can."""
+        state = self._session("minor")
+        application_id = state["application_id"]
+        self._add_evidence(1)
+        project_calls: list[dict] = []
+        fit_calls: list[dict] = []
+        with patch.object(execution_manager, "build_section_scope", self._scope_from_snapshot), patch.object(
+            execution_manager, "resolve_exact_phase9f_d_source",
+            side_effect=lambda **_kwargs: self._source_bundle(),
+        ):
+            generated = execution_manager.run_phase9f_normal_generation(
+                application_id=application_id,
+                projects_writer=self._projects_writer(project_calls),
+                skills_writer=self._skills_writer,
+            )
+            fitted = execution_manager.run_phase9f_normal_fit(
+                application_id=application_id,
+                generation_id=generated["generation"]["generation_id"],
+                fit_writer=self._fit_writer(fit_calls),
+            )["generation"]
+            generation_id = fitted["generation_id"]
+            baseline = execution_manager._prepare_frozen_phase8_context(
+                execution_manager.get_phase9f_tailoring_execution(application_id)
+            )["baseline_report"]
+            valid = self._valid_phase8_result(
+                application_id=application_id, generation_id=generation_id,
+                baseline=baseline, generation_status="draft", blueprint_ready=False,
+                verified_generation_snapshot_fingerprint=build_phase8_generation_snapshot_fingerprint(fitted),
+            )
+            incomplete = copy.deepcopy(valid)
+            incomplete.pop("job_match_ab")
+            incomplete["verification_fingerprint"] = "0" * 64
+            with patch.object(execution_manager, "build_phase8_verification", return_value=incomplete):
+                preapproval = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
+                    application_id=application_id, generation_id=generation_id,
+                )
+            original_history = list_tailoring_verifications(application_id)
+            self.assertEqual(len(original_history), 1)
+            self.assertEqual(preapproval["execution"]["status"], "waiting_for_approval")
+            approve_tailoring_generation(application_id, generation_id)
+            blocked = execution_manager.reconcile_phase9f_tailoring_approval(application_id=application_id)
+            gate = execution_manager.get_tailoring_verification_approval_gate(application_id, generation_id)
+            self.assertEqual(blocked["status"], "waiting_for_phase8")
+            self.assertEqual(blocked["current_stage"], "approved_changed_output")
+            self.assertFalse(gate["ready"])
+            self.assertEqual(gate["reasons"], ["no_initial_analysis"])
+            self.assertEqual(gate["generation"]["status"], "approved")
+            self.assertFalse(get_latest_tailoring_verification(application_id, generation_id)["blueprint_ready"])
+            self.assertTrue(self.output_docx.exists())
+            self.assertTrue(self.output_pdf.exists())
+
+            valid.update(generation_status="approved", blueprint_ready=True)
+            with patch.object(execution_manager, "build_phase8_verification", return_value=valid):
+                completed = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
+                    application_id=application_id, generation_id=generation_id,
+                )
+        self.assertEqual(completed["execution"]["status"], "completed")
+        self.assertEqual(completed["execution"]["current_stage"], "normal_phase8_verified")
+        self.assertEqual(completed["execution"]["generation_id"], generation_id)
+        self.assertTrue(execution_manager.get_tailoring_verification_approval_gate(application_id, generation_id)["ready"])
+        self.assertTrue(completed["verification"]["blueprint_ready"])
+        self.assertEqual(completed["verification"]["job_match_ab"], valid["job_match_ab"])
+        history = list_tailoring_verifications(application_id)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(next(row for row in history if row["verification_id"] == original_history[0]["verification_id"]), original_history[0])
+        self.assertEqual(len(project_calls), 1)
         self.assertEqual(len(fit_calls), 1)
 
     def test_prepared_f_execution_reopens_the_normal_current_scope(self) -> None:

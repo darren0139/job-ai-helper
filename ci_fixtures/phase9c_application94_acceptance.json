@@ -1,6 +1,40 @@
 {
   "fixture_version": "phase9c-application94-synthetic-acceptance-v1",
   "contains_personal_data": false,
+  "current_source_seed_extensions": [
+    {
+      "requirement_id": "req_a5790b06f63b",
+      "text": "Experience with Unity",
+      "importance": "preferred",
+      "match_label": "direct",
+      "evidence_strength": 5,
+      "capability_id": "",
+      "historical_parent_requirement_id": "req_ca58b0414a31",
+      "parent_text": "Experience with Unity and C# gameplay scripting",
+      "scoring_parent_occurrence_id": "srcgrp_95967becd69b",
+      "atomic_group_id": "grp_3178779d0f68",
+      "group_weight_fraction": 0.5,
+      "sources": ["jd_profile.preferred_skills"],
+      "evidence_section": "projects",
+      "evidence_text": "Developed Kotlin and Jetpack Compose mobile interfaces plus Unity C# and C++ game-engine projects with FMOD."
+    },
+    {
+      "requirement_id": "req_a499f2c48f82",
+      "text": "Experience with C# gameplay scripting",
+      "importance": "preferred",
+      "match_label": "direct",
+      "evidence_strength": 5,
+      "capability_id": "",
+      "historical_parent_requirement_id": "req_ca58b0414a31",
+      "parent_text": "Experience with Unity and C# gameplay scripting",
+      "scoring_parent_occurrence_id": "srcgrp_95967becd69b",
+      "atomic_group_id": "grp_3178779d0f68",
+      "group_weight_fraction": 0.5,
+      "sources": ["jd_profile.preferred_skills"],
+      "evidence_section": "projects",
+      "evidence_text": "Developed Kotlin and Jetpack Compose mobile interfaces plus Unity C# and C++ game-engine projects with FMOD."
+    }
+  ],
   "candidate": {
     "phase9b_version": "phase9b-blueprint-candidate-v3",
     "candidate_id": "application94syntheticphase9cv3",

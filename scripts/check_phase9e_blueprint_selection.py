@@ -64,14 +64,16 @@ def main() -> None:
                 decision["role_family_classification"]["role_family_id"]
                 == "ai_fullstack_software_engineering"
             )
-            # Integrated JD-structure + capability-scoring baseline.
-            # Preferred coverage increases under JD structure inference while
-            # required/core coverage and evidence-strength safety invariants
-            # remain unchanged.
-            assert comparison["deterministic_alignment_score"] == 60
+            # Bounded named-list decomposition gives Unity and C# independent
+            # half-weight children. Preferred credit becomes 4.20/6 (formerly
+            # 3.75/6); the existing atomic promotion also raises evidence
+            # strength from 86/(5*26) to 93/(5*27). Required/core is unchanged.
+            # test_bounded_unity_csharp_decomposition_explains_smoke_score_delta
+            # pins these rows and the unsplit control, not just the total.
+            assert comparison["deterministic_alignment_score"] == 61
             assert comparison["required_core_coverage_score"] == 59
-            assert comparison["preferred_coverage_score"] == 62
-            assert comparison["evidence_strength_score"] == 66
+            assert comparison["preferred_coverage_score"] == 70
+            assert comparison["evidence_strength_score"] == 69
             assert comparison["important_gap_count"] == 1
             assert comparison["deal_breaker_gap_count"] == 0
             assert comparison["required_core_requirement_count"] > 0

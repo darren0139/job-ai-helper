@@ -21,8 +21,8 @@ from database.tailoring_verification_manager import (
 )
 from tests.phase9f_d_test_support import configure_database
 from tests.phase9f_e_test_support import create_d_reuse_session
+from tests.test_phase9f_tailoring_execution import Phase9FTailoringExecutionTests
 from tailoring.phase8_verification import (
-    PHASE8_PREAPPROVAL_GATE_VERSION,
     build_phase8_generation_snapshot_fingerprint,
 )
 from tailoring.phase9f_tailoring_execution import (
@@ -177,26 +177,20 @@ def main() -> None:
                 baseline = execution_manager._prepare_frozen_phase8_context(
                     execution_manager.get_phase9f_tailoring_execution(application_id)
                 )["baseline_report"]
-                phase8_result = {
-                    "phase8_version": execution_manager.PHASE8_VERIFICATION_VERSION,
-                    "verification_fingerprint": "9" * 64,
-                    "verified_generation_snapshot_fingerprint": (
+                # The merged approval gate requires current Initial/Tailored
+                # A/B analysis bound to this exact fitted generation. Reuse
+                # the complete mocked success contract used by the unit tests.
+                phase8_result = Phase9FTailoringExecutionTests._valid_phase8_result(
+                    application_id=application_id,
+                    generation_id=fitted["generation_id"],
+                    baseline=baseline,
+                    generation_status="draft",
+                    blueprint_ready=False,
+                    verified_generation_snapshot_fingerprint=(
                         build_phase8_generation_snapshot_fingerprint(fitted)
                     ),
-                    "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
-                    "application_id": application_id,
-                    "generation_id": fitted["generation_id"],
-                    "generation_status": "draft",
-                    "comparison_valid": True,
-                    "fit_one_page": True,
-                    "page_count": 1,
-                    "approval_ready": True,
-                    "blueprint_ready": False,
-                    "verdict": "maintained",
-                    "before_stable_analysis": copy.deepcopy(
-                        baseline["stable_analysis"]
-                    ),
-                }
+                )
+                phase8_result["verification_fingerprint"] = "9" * 64
                 with patch.object(
                     execution_manager,
                     "build_phase8_verification",
