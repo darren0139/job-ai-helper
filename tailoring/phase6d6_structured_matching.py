@@ -606,6 +606,46 @@ def structured_match_requirement(
     return None
 
 
+def technology_requirement_structure(requirement: dict[str, Any]) -> dict[str, Any]:
+    """Expose native components for identity diagnostics, never scoring children.
+
+    Research-mining children are not admissible here. Reuse scorer decomposition
+    and structured alternatives; hold tails those parsers cannot bound safely.
+    """
+    from analysis_stability.stable_evidence_scoring import (
+        _split_single_requirement_clause, _is_bounded_named_term,
+        requirement_is_score_eligible, _classify_non_requirement_row, _preserves_coherent_parent,
+    )
+    text = _clean(requirement.get("atomic_focus") or requirement.get("text"))
+    result = {"components": [], "mode": None, "source": "native_structure_unavailable",
+              "parent_weight_preserved": True, "scoring_children_created": False}
+    if not text or not requirement_is_score_eligible(requirement) or _classify_non_requirement_row(text):
+        return result
+    clauses = _split_single_requirement_clause(text, requirement.get("importance") or "core")
+    if len(clauses) > 1 and all(c["is_atomic"] for c in clauses):
+        return {**result, "components": clauses, "mode": "all", "source": "native_jd_decomposition"}
+    terms = requirement.get("structured_match_required_terms") or []
+    mode = requirement.get("structured_match_group_mode")
+    source = "native_structured_match"
+    if not terms:
+        if _preserves_coherent_parent(text):
+            return {**result, "source": "native_coherent_example_or_alternative_parent"}
+        match = _PROGRAMMING_LIST.search(text)
+        if match:
+            terms, mode = _split_alternatives(match.group("tail"))
+            source = "native_structured_alternatives"
+    # No head extraction, substring scan, guessed parentheses or mixed activities.
+    # A single capital letter in an explicit native list remains an unresolved
+    # component unless the exact production registry independently recognizes it.
+    bounded = lambda t: _is_bounded_named_term(t) or bool(re.fullmatch(r"[A-Z]", t))
+    if 2 <= len(terms) <= 10 and mode in {"any", "all"} and all(bounded(t) for t in terms):
+        return {**result, "components": [{"text": t, "atomic_focus": t,
+            "parent_text": text, "importance": requirement.get("importance"),
+            "atomic_group_id": requirement.get("atomic_group_id"), "is_atomic": True} for t in terms],
+            "mode": mode, "source": source}
+    return result
+
+
 def apply_structured_requirement_matches(
     requirements: list[dict[str, Any]],
     *,

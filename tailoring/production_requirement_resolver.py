@@ -44,6 +44,17 @@ def resolve_requirement_with_production_knowledge(
         )
         focus = strip_leading_alpha_list_marker(focus)
         registry_resolution = resolve_requirement_text(focus)
+        # Additional identity diagnostics only. Parent status, capability decision,
+        # evidence labels and scoring weights remain governed by existing contracts.
+        from tailoring.phase6d6_structured_matching import technology_requirement_structure
+        structure = technology_requirement_structure(requirement)
+        if structure["components"]:
+            registry_resolution["native_component_resolution"] = {
+                **structure, "components": [{**component,
+                    "registry_resolution": resolve_requirement_text(component["atomic_focus"])}
+                    for component in structure["components"]],
+                "parent_resolution_inferred": False,
+            }
         if (
             registry_resolution.get("status") == "resolved"
             and registry_resolution.get("capability_id")

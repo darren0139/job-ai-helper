@@ -443,25 +443,44 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
     st.json(plan["baseline"])
     st.caption("Job Match Health remains separate. Estimated affected counts are not validated resolutions or score gains.")
     columns = ["rank", "concept", "fix_layer", "requirements_affected", "jobs_affected", "required_core_weight",
+               "mentioned_requirements", "atomically_addressable_requirements", "estimated_directly_resolvable", "validated_resolved",
                "research_state", "provider_calls_required", "proposed_action", "priority_reason"]
-    st.write("TOP SAFE GAP-REDUCTION ACTIONS")
-    st.dataframe([{k: a[k] for k in columns} for a in plan["ranked_actions"]], hide_index=True, width="stretch")
+    columns += ["foundational_rank", "impact_role", "unique_requirements", "dependent_requirement_count", "dependency_ids", "marginal_mentioned_requirements"]
+    st.caption("Foundational ≠ directly resolving. Shared dependencies are review opportunities; temporary validation alone proves resolution.")
+    st.write("FOUNDATIONAL ACTIONS")
+    st.dataframe([{k: a.get(k) for k in columns} for a in plan["foundational_priority"][:int(maximum)]], hide_index=True, width="stretch")
+    st.write("DIRECT GAP-REDUCTION ACTIONS")
+    if plan["directly_resolving_actions"]:
+        st.dataframe(plan["directly_resolving_actions"], hide_index=True, width="stretch")
+    else:
+        st.info("No directly resolving action is established by this dry-run. Bundle priorities below require review and temporary validation.")
+    st.write("DIRECT / BUNDLE PRIORITY — blocked opportunities, not predicted resolutions")
+    st.dataframe(plan["direct_gap_reduction_priority"][:int(maximum)], hide_index=True, width="stretch")
+    with st.expander("DEPENDENCY BUNDLES"):
+        st.dataframe(plan["dependency_bundles"], hide_index=True, width="stretch")
+    with st.expander("DECOMPOSITION / PARSER BOTTLENECKS"):
+        st.dataframe(plan["decomposition_parser_bottlenecks"], hide_index=True, width="stretch")
+    with st.expander("Requirement dependency graphs / unique unions / marginal impact"):
+        st.json(plan["dependency_impact_summary"])
+        st.json(plan["requirement_dependency_graphs"])
     groups = {"LOCAL / NO PROVIDER WORK": lambda a: not a["provider_calls_required"],
         "RESEARCH CANDIDATES": lambda a: a["provider_calls_required"] > 0,
         "NEEDS DECOMPOSITION": lambda a: a["research_state"] == service.NEEDS_DECOMPOSITION,
-        "TECHNOLOGY / REGISTRY": lambda a: a["fix_layer"] in {service.IDENTITY_GAP, service.RELATIONSHIP_GAP},
+        "RELATIONSHIP WORK": lambda a: a["fix_layer"] == service.RELATIONSHIP_GAP,
         "PARSER / CANONICALISATION": lambda a: a["fix_layer"] == service.PARSING_PROBLEM,
         "EVIDENCE POLICY": lambda a: a["fix_layer"] == service.EVIDENCE_PROBLEM,
         "MANUAL REVIEW": lambda a: a["fix_layer"] == service.MANUAL,
-        "DEFERRED / EXHAUSTED / SCOPE REFINEMENT": lambda a: a["research_state"] in assistant.TERMINAL}
+        "DEFERRED": lambda a: a["research_state"] in assistant.TERMINAL}
     for label, predicate in groups.items():
         rows = [a for a in plan["all_actions"] if predicate(a)]
         with st.expander(f"{label} ({len(rows)})"):
-            st.dataframe([{k: a[k] for k in columns} for a in rows], hide_index=True, width="stretch")
+            st.dataframe([{k: a.get(k) for k in columns} for a in rows], hide_index=True, width="stretch")
     if plan["all_actions"]:
         action = st.selectbox("Assistant action to inspect", plan["all_actions"],
             format_func=lambda a: f"{a['rank']}. {a['concept']} — {a['research_state']}", key="tm_gap_detail")
         st.json(action)
+        if action["fix_layer"] == service.IDENTITY_GAP:
+            _render_identity_remediation(st, snapshot, action, valid)
     with st.expander("Exact assistant plan / currentness / bounded research preview"):
         st.json(plan)
     st.download_button("Download assistant JSON", json.dumps(plan, indent=2), "taxonomy_gap_reduction_plan.json", key="tm_gap_json")
@@ -494,3 +513,46 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
             st.write("VALIDATED IMPACT — temporary overlay; no approval or publication")
             with st.expander("Baseline/overlay changes, ranking, duplicate credit, canaries, caps and rejections"):
                 st.json(validation)
+
+
+def _render_identity_remediation(st, snapshot, action, valid):
+    from taxonomy_discovery import technology_identity_remediation as remediation
+    cid = action["candidate_id"]
+    if st.button("Inspect Identity Gap", key="tm_identity_inspect", disabled=not valid):
+        detail = _perform(st, lambda: remediation.inspect_identity_gap(snapshot, cid), "Inspecting native identity gap…")
+        if detail:
+            st.session_state["tm_identity_detail"] = {"audit": snapshot["audit_fingerprint"], "detail": detail}
+            st.session_state.pop("tm_identity_proposal", None)
+            st.session_state.pop("tm_identity_validation", None)
+    saved = st.session_state.get("tm_identity_detail")
+    if not saved or saved["audit"] != snapshot["audit_fingerprint"] or saved["detail"]["candidate_id"] != cid:
+        return
+    detail = saved["detail"]
+    st.write("Estimated assistant impact", {"requirements": action["requirements_affected"], "jobs": action["jobs_affected"]})
+    st.dataframe(detail["requirements"], hide_index=True, width="stretch")
+    st.caption("Identity establishes a name, not capability or candidate evidence. Compound requirements retain native semantics.")
+    if st.button("Prepare Identity Proposal", key="tm_identity_prepare", disabled=not valid):
+        proposal = _perform(st, lambda: remediation.prepare_identity_proposal(snapshot, cid, explicit_execution=True), "Preparing identity-only draft…")
+        if proposal:
+            st.session_state["tm_identity_proposal"] = proposal
+            st.session_state.pop("tm_identity_validation", None)
+    proposal = st.session_state.get("tm_identity_proposal")
+    if not proposal or proposal["candidate_id"] != cid or proposal["audit_fingerprint"] != snapshot["audit_fingerprint"]:
+        return
+    st.write("Proposed identity", proposal["canonical_technology_id"], proposal["canonical_label"])
+    st.write("Bounded aliases", proposal["aliases"])
+    st.write("Alias collision checks", proposal["alias_collisions"])
+    if st.button("Validate Temporary Registry Overlay", key="tm_identity_validate", disabled=not valid):
+        report = _perform(st, lambda: remediation.validate_identity_proposal(snapshot, proposal, explicit_execution=True), "Validating identity through native corpus replay…")
+        if report:
+            st.session_state["tm_identity_validation"] = report
+    report = st.session_state.get("tm_identity_validation")
+    if report and report["proposal_fingerprint"] == proposal["proposal_fingerprint"]:
+        st.write("Validated impact — temporary overlay", report["validated_impact"])
+        st.write("Validation status", report["validation_status"])
+        st.write("Baseline", report["baseline"])
+        st.write("Temporary overlay", report["temporary_overlay"])
+        st.caption("STOP for human review. No approval or production publication is available in this identity workflow.")
+        with st.expander("Identity validation — exact rows, currentness, collisions and safety diagnostics"):
+            st.json(report)
+        st.download_button("Download identity validation", json.dumps(report, indent=2), "identity_validation.json", key="tm_identity_json")

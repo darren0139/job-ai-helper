@@ -73,6 +73,7 @@ def production_identity():
             (REPO_ROOT / name).read_bytes()).hexdigest() for name in (
                 "analysis_stability/stable_evidence_scoring.py",
                 "tailoring/production_requirement_resolver.py",
+                "tailoring/phase6d6_structured_matching.py",
                 "tailoring/capability_taxonomy.py", "job_discovery/matching.py",
                 "taxonomy_discovery/corpus_gap_resolution.py",
                 "taxonomy_discovery/regression_corpus.py",

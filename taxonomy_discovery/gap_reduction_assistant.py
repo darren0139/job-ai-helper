@@ -16,6 +16,126 @@ TERMINAL = {"NEEDS_SCOPE_REFINEMENT", "RESEARCH_EXHAUSTED", "BLOCKED_EVIDENCE_IN
 DEFAULT_OPTIONS = {"include_local": True, "include_research": True, "include_scope": True, "calculate_impact": True}
 
 
+def _dependency_projection(snapshot, actions, gap_rows, unresolved, links):
+    """Read-only graph projection of native routes, not a dependency inference engine.
+
+    Shared provenance establishes diagnostic association. Only native ALL/ANY
+    structure establishes list mode; no prerequisite capability is invented.
+    """
+    from tailoring.phase6d6_structured_matching import technology_requirement_structure
+    by_candidate = {r["candidate_id"]: r for r in gap_rows}
+    by_action = {a["action_id"]: a for a in actions}
+    raw = {(j["job_id"], r["requirement_id"]): r for j in snapshot["audit"]["corpus"]["jobs"]
+           for r in j["baseline_stable_analysis"].get("canonical_requirements", [])}
+    requirements = {(r["job_id"], r["requirement_id"]): r for r in unresolved}
+    graphs, bundle_groups, family_groups = [], {}, {}
+    for a in actions:
+        a.setdefault("mentioned_requirements", a["requirements_affected"])
+        a.setdefault("atomically_addressable_requirements", 0)
+        a.setdefault("estimated_directly_resolvable", 0)
+        a.setdefault("validated_resolved", None)
+        a.update(unique_requirements=len({(r["job_id"], r["requirement_id"]) for r in a["requirement_keys"]}),
+                 dependency_ids=[], dependent_requirement_count=0, shared_requirement_keys=[], bundle_ids=[])
+        a["impact_role"] = ("FOUNDATIONAL" if a["fix_layer"] == maintenance.IDENTITY_GAP else
+            "TERMINAL_REVIEW" if a["fix_layer"] in {maintenance.MANUAL, maintenance.NOISE}
+                or a["research_state"] in TERMINAL else "DEPENDENCY")
+        # A ready native governed draft is still review work here. No direct
+        # count is fabricated from its corpus mentions or research eligibility.
+        a["direct_impact_state"] = "requires_temporary_validation"
+    for key, r in sorted(requirements.items()):
+        related = sorted(links.get(key, []), key=lambda a: a["action_id"])
+        structure = technology_requirement_structure(raw.get(key) or {"text": r["requirement_text"], "importance": r["importance"]})
+        nodes = [{"dependency_id": a["action_id"], "candidate_id": a["candidate_id"],
+            "fix_layer": "NEEDS_DECOMPOSITION" if a["research_state"] == maintenance.NEEDS_DECOMPOSITION else a["fix_layer"],
+            "concept": a["concept"], "impact_role": a["impact_role"],
+            "native_route": (by_candidate[a["candidate_id"]].get("candidate") or {}).get("operational_route"),
+            "native_reason": by_candidate[a["candidate_id"]]["reason"],
+            "research_parent_candidate_id": by_candidate[a["candidate_id"]].get("parent_candidate_id")}
+            for a in related]
+        graph_id = "gapdependency_" + fingerprint(key)[:24]
+        graph = {"graph_id": graph_id, "job_id": key[0], "requirement_id": key[1],
+            "requirement_text": r["requirement_text"], "current_resolution": r["current_resolution"],
+            "native_structure": structure, "nodes": nodes,
+            "edges": [{"from": graph_id, "to": n["dependency_id"], "relation": "native_gap_route_diagnostic"} for n in nodes],
+            "list_mode": structure["mode"], "joint_blockers_proven": False,
+            "association_semantics": "native_list_" + structure["mode"] if structure["mode"] else "co_occurring_native_diagnostics_not_proven_all",
+            "residual_boundary": "Identity/component recognition alone supplies no approved capability relationship or parent resolution",
+            "validated_resolved": None}
+        graphs.append(graph)
+        active_ids = tuple(n["dependency_id"] for n in nodes if n["impact_role"] != "TERMINAL_REVIEW")
+        if len(active_ids) > 1:
+            bundle_groups.setdefault(active_ids, []).append(key)
+        for a in related:
+            companions = [b["action_id"] for b in related if b["action_id"] != a["action_id"]]
+            a["dependency_ids"] = sorted(set(a["dependency_ids"]) | set(companions))
+            if companions:
+                a["shared_requirement_keys"].append({"job_id": key[0], "requirement_id": key[1]})
+            if a["research_state"] == maintenance.NEEDS_DECOMPOSITION or a["fix_layer"] == maintenance.PARSING_PROBLEM:
+                family = structure["source"]
+                entry = family_groups.setdefault(family, {"keys": set(), "action_ids": set(), "downstream_ids": set(), "sources": set()})
+                entry["keys"].add(key); entry["action_ids"].add(a["action_id"])
+                entry["downstream_ids"].update(b["action_id"] for b in related if b["fix_layer"] in {maintenance.IDENTITY_GAP, maintenance.CAPABILITY_GAP, maintenance.RELATIONSHIP_GAP})
+                entry["sources"].add((by_candidate[a["candidate_id"]].get("candidate") or {}).get("operational_route"))
+    def metrics(keys):
+        keys = sorted(set(keys))
+        return {"unique_unresolved_requirements": len(keys),
+            "requirement_keys": [{"job_id": k[0], "requirement_id": k[1]} for k in keys],
+            "required_core_weight": round(sum(maintenance.gaps._weight(requirements[k]) for k in keys
+                if requirements[k]["importance"] in {"required", "core", "deal_breaker"}), 6),
+            "jobs_affected": len({k[0] for k in keys})}
+    bundles = []
+    for ids, keys in sorted(bundle_groups.items()):
+        bid = "gapbundle_" + fingerprint(ids)[:24]
+        bundles.append({"bundle_id": bid, "dependency_ids": list(ids), "impact_role": "DEPENDENCY",
+            **metrics(keys), "estimated_directly_resolvable": 0, "validated_resolved": None,
+            "state": "joint_review_and_temporary_validation_required",
+            "why": "Native diagnostics share source requirements; this is a review bundle, not proof that all nodes are semantically mandatory"})
+        for aid in ids:
+            by_action[aid]["bundle_ids"].append(bid)
+    families = [{"family_id": "gapparser_" + fingerprint(name)[:24], "family": name, **metrics(f["keys"]),
+        "dependency_ids": sorted(f["action_ids"]), "downstream_action_ids": sorted(f["downstream_ids"]),
+        "downstream_actions_unlocked_for_review": len(f["downstream_ids"]),
+        "native_routes": sorted(s for s in f["sources"] if s),
+        "native_component_identity_handled": name in {"native_jd_decomposition", "native_structured_match", "native_structured_alternatives"},
+        "code_change_required": False if name in {"native_jd_decomposition", "native_structured_match", "native_structured_alternatives"} else None,
+        "code_change_diagnostic": "Native component identity already handled; parent/capability review remains" if name in {"native_jd_decomposition", "native_structured_match", "native_structured_alternatives"} else "Native scope/parser diagnosis required; no automatic parser patch inferred",
+        "impact_role": "DEPENDENCY", "estimated_directly_resolvable": 0, "validated_resolved": None}
+        for name, f in sorted(family_groups.items())]
+    priority = lambda v: (-v["required_core_weight"], -v["unique_unresolved_requirements"], -v["jobs_affected"],
+        -v.get("downstream_actions_unlocked_for_review", 0), v.get("family_id", v.get("bundle_id", "")))
+    families.sort(key=priority); bundles.sort(key=priority)
+    foundational = [a for a in actions if a["impact_role"] == "FOUNDATIONAL"]
+    seen = set()
+    for index, a in enumerate(foundational, 1):
+        keys = {(r["job_id"], r["requirement_id"]) for r in a["requirement_keys"]} & requirements.keys()
+        a["foundational_rank"] = index
+        a["marginal_mentioned_requirements"] = len(keys - seen)
+        a["marginal_directly_resolvable"] = 0
+        a["dependent_requirement_count"] = len(a["shared_requirement_keys"])
+        a["unlocks_dependency_bundles"] = len(a["bundle_ids"])
+        seen.update(keys)
+    for a in actions:
+        a["dependent_requirement_count"] = len(a["shared_requirement_keys"])
+        a["dependency_meaning"] = "shared native remediation diagnostics; conditional list semantics retained, not automatic execution prerequisites"
+    direct_priority = sorted([{"kind": "parser_family", **f} for f in families] + [{"kind": "review_bundle", **b} for b in bundles], key=priority)
+    marginal_seen = set()
+    for rank, item in enumerate(direct_priority, 1):
+        keys = {(r["job_id"], r["requirement_id"]) for r in item["requirement_keys"]}
+        item["priority_rank"] = rank
+        item["marginal_blocked_requirements"] = len(keys - marginal_seen)
+        item["marginal_directly_resolvable"] = 0
+        marginal_seen.update(keys)
+    return {"requirement_dependency_graphs": graphs, "dependency_bundles": bundles,
+        "decomposition_parser_bottlenecks": families, "foundational_priority": foundational,
+        "direct_gap_reduction_priority": direct_priority, "directly_resolving_actions": [],
+        "dependency_impact_summary": {"unique_unresolved_requirements": len(requirements),
+            "unique_identity_mentioned_unresolved_requirements": len(seen),
+            "shared_identity_requirements": sum(sum(a["fix_layer"] == maintenance.IDENTITY_GAP for a in links.get(k, [])) > 1 for k in requirements),
+            "unique_bundle_requirement_union": len(set(k for keys in bundle_groups.values() for k in keys)),
+            "estimated_directly_resolvable": 0, "validated_resolved": None,
+            "counts_are_blocked_review_opportunities_not_expected_resolutions": True}}
+
+
 def _saved_identity(rows):
     return fingerprint(sorted([{"id": r["result"]["research_result_id"],
         "result": fingerprint(r["result"]), "draft": fingerprint(r.get("draft")),
@@ -168,6 +288,22 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
             **state}
         action["priority_reason"] = (f"Unresolved required/core weight {unresolved_core:g}; unresolved weight {unresolved_total:g}; addressable required/core weight {core:g}; total weight {core + other:g}; "
             f"{action['jobs_affected']} jobs / {len(reqs)} requirements; " + state["next_action_reason"] + "; estimated, not validated resolution")
+        if row["fix_layer"] == maintenance.IDENTITY_GAP:
+            from tailoring.phase6d6_structured_matching import technology_requirement_structure
+            from taxonomy_discovery.technology_registry import _candidate_terms, normalise
+            aliases = {normalise(t) for t in (row["candidate"].get("technology_terms") or [row["concept"]])}
+            addressable = []
+            for k, r in reqs.items():
+                text = r["requirement_text"]
+                structure = technology_requirement_structure({"text": text, "importance": r["importance"], "score_eligible": r["score_eligible"]})
+                focuses = [c["atomic_focus"] for c in structure["components"]] or [text]
+                if any(aliases.intersection(normalise(t) for t in _candidate_terms(f)) for f in focuses):
+                    addressable.append({"job_id": k[0], "requirement_id": k[1]})
+            action.update(mentioned_requirements=len(reqs), atomically_addressable_requirements=len(addressable),
+                atomically_addressable_requirement_keys=addressable, estimated_directly_resolvable=0,
+                validated_resolved=None, impact_kind="foundational_identity_mentions")
+            action["priority_reason"] = action["priority_reason"].replace("addressable required/core weight", "mentioned required/core weight")
+            action["priority_reason"] += f"; {len(addressable)} natively addressable; foundational identity dependency; zero estimated direct capability resolutions; decomposition may be required"
         actions.append(action)
     key = lambda a: (-a["unresolved_required_core_weight"], -a["unresolved_weight"],
         -a["required_core_weight"], -a["weighted_impact"], -a["jobs_affected"],
@@ -207,13 +343,20 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
         "resolved": summary["taxonomy_resolved_requirements"], "unresolved": summary["taxonomy_unresolved_requirements"],
         "required_core_weighted_coverage": summary["required_core_weighted_coverage"],
         "overall_weighted_coverage": summary["overall_weighted_coverage"]}
+    identity_keys = {(r["job_id"], r["requirement_id"]) for a in actions if a["fix_layer"] == maintenance.IDENTITY_GAP for r in a["requirement_keys"]}
+    dependencies = _dependency_projection(snapshot, actions, gap_rows, unresolved, links)
     return maintenance._seal({"assistant_version": ASSISTANT_VERSION,
         "assistant_implementation_fingerprint": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "audit_identity": snapshot["manifest"], "audit_fingerprint": snapshot["audit_fingerprint"],
         "saved_research_fingerprint": _saved_identity(saved), "publication_fingerprint": fingerprint(pubs),
         "interpretation_version": research.INTERPRETATION_VERSION, "options": options,
         "max_actions": max_actions, "research_budget": research_budget, "selected_research_ids": selected_research_ids,
-        "baseline": baseline, "routing_summary": dict(Counter(a["fix_layer"] for a in actions)),
+        **dependencies, "baseline": baseline, "identity_impact_summary": {
+            "unique_mentioned_requirement_keys": [dict(job_id=k[0], requirement_id=k[1]) for k in sorted(identity_keys)],
+            "unique_mentioned_requirements": len(identity_keys),
+            "estimated_directly_resolvable": 0, "validated_resolved": None,
+            "overlapping_mentions_are_not_additive_direct_impact": True},
+        "routing_summary": dict(Counter(a["fix_layer"] for a in actions)),
         "ranked_actions": top, "all_actions": actions,
         "unresolved_requirement_routing": routing,
         "unrouted_unresolved_requirement_keys": [{"job_id": r["job_id"], "requirement_id": r["requirement_id"]} for r in routing if not r["action_ids"]],
@@ -283,6 +426,22 @@ def markdown_report(plan):
         "| Rank | Concept | Fix layer | Requirements | Jobs | State | Calls |", "|---|---|---|---:|---:|---|---:|"]
     for a in plan["ranked_actions"]:
         lines.append(f"| {a['rank']} | {a['concept'].replace('|', '/')} | {a['fix_layer']} | {a['requirements_affected']} | {a['jobs_affected']} | {a['research_state']} | {a['provider_calls_required']} |")
+    lines += ["", "## Identity impact (foundational mentions, not direct resolution gains)", "",
+        "| Concept | Mentioned | Natively addressable | Estimated directly resolvable | Validated resolved |",
+        "|---|---:|---:|---:|---|"]
+    for a in plan["ranked_actions"]:
+        if a["fix_layer"] == maintenance.IDENTITY_GAP:
+            lines.append(f"| {a['concept']} | {a['mentioned_requirements']} | {a['atomically_addressable_requirements']} | {a['estimated_directly_resolvable']} | Not validated |")
+    lines += ["", f"Unique identity-mentioned requirements across the full plan: {plan['identity_impact_summary']['unique_mentioned_requirements']}. Overlapping mentions are not additive direct impact."]
+    lines += ["", "## Foundational priority", "", "Foundational does not mean directly resolving.", "",
+        "| Priority | Concept | Mentions | Addressable | Direct estimate | Bundles |", "|---|---|---:|---:|---:|---:|"]
+    for a in plan["foundational_priority"][:plan["max_actions"]]:
+        lines.append(f"| {a['foundational_rank']} | {a['concept']} | {a['mentioned_requirements']} | {a['atomically_addressable_requirements']} | {a['estimated_directly_resolvable']} | {a['unlocks_dependency_bundles']} |")
+    lines += ["", "## Direct / bundle review priority", "", "No direct resolution is claimed without temporary validation.", "",
+        "| Priority | Kind | Family/bundle | Unique blocked | Core weight | Direct estimate |", "|---|---|---|---:|---:|---:|"]
+    for item in plan["direct_gap_reduction_priority"][:plan["max_actions"]]:
+        lines.append(f"| {item['priority_rank']} | {item['kind']} | {item.get('family', item.get('bundle_id'))} | {item['unique_unresolved_requirements']} | {item['required_core_weight']} | {item['estimated_directly_resolvable']} |")
+    lines += ["", "Dependency impact union:", "```json", json.dumps(plan["dependency_impact_summary"], indent=2), "```"]
     lines += ["", "## Terminal / deferred", ""]
     lines += [f"- {a['concept']}: {a['research_state']} — {a['next_action_reason']}" for a in plan["terminal_actions"]]
     lines += ["", "Plan fingerprint: " + plan["assistant_plan_fingerprint"], "No automatic approval/publication. Research requires separate exact-plan confirmation."]
