@@ -23,6 +23,10 @@ from taxonomy_discovery.corpus_expansion import fingerprint
 from tests.test_tqd3_taxonomy_evolution import candidate
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+NO_IDENTITY_COHORT = REPO_ROOT / "tests/fixtures/tqd3_readiness_no_identity_cohort.json"
+
+
 class RegistryReadinessTests(unittest.TestCase):
     def test_every_registry_entry_is_audited_deterministically_and_versioned(self):
         first = readiness.audit_technology_registry()
@@ -312,10 +316,12 @@ class QueryAndQueueReadinessTests(unittest.TestCase):
                 self.assertFalse(audit["paid_research_eligible"])
 
     def test_real_no_identity_cohort_routes_conservatively_without_calls_or_mutation(self):
-        taxonomy_path = Path("taxonomy/capability_taxonomy_v1.json")
-        registry_path = Path("taxonomy/technology_registry_v1.json")
+        taxonomy_path = REPO_ROOT / "taxonomy/capability_taxonomy_v1.json"
+        registry_path = REPO_ROOT / "taxonomy/technology_registry_v1.json"
         before = (taxonomy_path.read_bytes(), registry_path.read_bytes())
-        payload = json.loads(Path("tqd3_taxonomy_candidates_h0_1.json").read_text(encoding="utf-8"))
+        payload = json.loads(NO_IDENTITY_COHORT.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload["candidates"]), 47)
+        self.assertEqual(len({row["candidate_id"] for row in payload["candidates"]}), 47)
         network = Mock(side_effect=AssertionError("readiness audit must remain offline"))
         with patch("socket.socket.connect", network):
             queue = bulk.build_candidate_queue(

@@ -205,10 +205,29 @@ class Phase9FStreamlitAcceptanceTests(unittest.TestCase):
             for row in snapshot["canonical_requirements"]
             if row.get("application_requirement_scope") == "application_local"
         ]
-        self.assertEqual(len(supplemental), 1)
-        self.assertEqual(supplemental[0]["importance"], "preferred")
-        self.assertEqual(supplemental[0]["importance_source"], "user_supplied")
-        self.assertFalse(supplemental[0]["canonical_shared"])
+        # The single preferred input decomposes into Android and Kotlin, with
+        # conserved parent weight and application-local provenance for both.
+        self.assertEqual(
+            {row["canonical_key"] for row in supplemental},
+            {"android app develop", "kotlin"},
+        )
+        self.assertEqual(len({row["requirement_id"] for row in supplemental}), 2)
+        self.assertEqual(len(supplemental), 2)
+        self.assertEqual(len({row["atomic_group_id"] for row in supplemental}), 1)
+        self.assertEqual(
+            len({row["scoring_parent_occurrence_id"] for row in supplemental}), 1
+        )
+        self.assertEqual(sum(row["group_weight_fraction"] for row in supplemental), 1)
+        for row in supplemental:
+            self.assertEqual(row["parent_text"], inputs["supplemental_preferred_requirements"][0])
+            self.assertEqual(row["user_supplied_requirement"], row["parent_text"])
+            self.assertTrue(row["is_atomic"])
+            self.assertTrue(row["score_eligible"])
+            self.assertEqual(row["group_weight_fraction"], 0.5)
+            self.assertEqual(row["importance"], "preferred")
+            self.assertEqual(row["importance_source"], "user_supplied")
+            self.assertFalse(row["canonical_shared"])
+            self.assertIn("application_user_input.preferred_requirement", row["sources"])
         self.assertNotIn(
             "Experience with Android app development and Kotlin",
             snapshot["raw_text"],

@@ -1,0 +1,1405 @@
+{
+  "description": "47 real H.0.1 candidates requiring external research with no production identity. Retains only deterministic queue/readiness inputs; excludes generated resolver diagnostics and unrelated candidates.",
+  "source_export": "tqd3_taxonomy_candidates_h0_1.json",
+  "source_export_sha256": "453db604966cb8fbf34053786e9b5f5027309f70b09726e602def552e7900c98",
+  "candidates": [
+    {
+      "candidate_id": "tqd3taxgap_7cfa9a8a7b92465b7b73a6a8",
+      "candidate_fingerprint": "7cfa9a8a7b92465b7b73a6a8abffb4c3274169014fd534c9a0249f2a252716ff",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "a good understanding of image processing and databases is an advantage",
+      "normalized_cluster": "a good understanding of image processing and databases is an advantage",
+      "examples": [
+        "· A good understanding of image processing and databases is an advantage"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 551,
+          "snapshot_id": 15,
+          "requirement_id": "req_b5f429000f4a",
+          "job_content_hash": "101a0bed8f9f869da242cbcea24ee57e3a717c38f084dcc89b7b55cd5a896411",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d15",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.1"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_dc449c3b303c766d63635b6e",
+      "candidate_fingerprint": "dc449c3b303c766d63635b6e4bbe2d6b29d6213adcd864ce07df23226b85d477",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "acquire niche expertise in cybersecurity practices to meet high standards rigorously challenge assumptions and significantly reduce attack surfaces before deployment",
+      "normalized_cluster": "acquire niche expertise in cybersecurity practices to meet high standards rigorously challenge assumptions and significantly reduce attack surfaces before deployment",
+      "examples": [
+        "acquire niche expertise in cybersecurity practices to meet high standards, rigorously challenge assumptions, and significantly reduce attack surfaces before deployment"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 141,
+          "snapshot_id": 32,
+          "requirement_id": "req_1fe3445f9749",
+          "job_content_hash": "c585dec1b0c5af9b1b757be18295a838d506c2203308f6fae414ec183f1c8ac5",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_728ed9b1b9ea1d7e53312522",
+      "candidate_fingerprint": "728ed9b1b9ea1d7e53312522435b93d3bb7531f93f99fbc374b26a2f1b7964a9",
+      "candidate_route": "technology_identity",
+      "concept_key": "advanced proficiency in at least one analytical tool such as python sql power bi tableau or equivalent tools",
+      "normalized_cluster": "advanced proficiency in at least one analytical tool such as python sql power bi tableau or equivalent tools",
+      "examples": [
+        "Advanced proficiency in at least one analytical tool such as Python, SQL, Power BI, Tableau, or equivalent tools"
+      ],
+      "technology_terms": [
+        "BI",
+        "SQL"
+      ],
+      "provenance": [
+        {
+          "job_id": 187,
+          "snapshot_id": 41,
+          "requirement_id": "req_0c8cc53a6b76",
+          "job_content_hash": "e6fad48a12d97d80e776db9c6d0c593b83caa69a1fbaea0c307f46f125c69c6b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_8dc4480c56e2bbad886db5e6",
+      "candidate_fingerprint": "8dc4480c56e2bbad886db5e6db9c3d0656b070dbde169951e47733903f157ade",
+      "candidate_route": "technology_identity",
+      "concept_key": "advantageous qualifications include a github portfolio demonstrating your work experience with ai or ml technologies expertise in slam and motion planning or familiarity with ci or cd pipelines and simulation environments",
+      "normalized_cluster": "advantageous qualifications include a github portfolio demonstrating your work experience with ai or ml technologies expertise in slam and motion planning or familiarity with ci or cd pipelines and simulation environments",
+      "examples": [
+        "Advantageous qualifications include a GitHub portfolio demonstrating your work, experience with AI or ML technologies, expertise in SLAM and Motion Planning, or familiarity with CI or CD pipelines and simulation environments"
+      ],
+      "technology_terms": [
+        "AI",
+        "CD",
+        "CI",
+        "GitHub",
+        "ML",
+        "SLAM"
+      ],
+      "provenance": [
+        {
+          "job_id": 50,
+          "snapshot_id": 30,
+          "requirement_id": "req_b01957201b40",
+          "job_content_hash": "32e59c0756e9bd97778a7ba57c7095b130b165612864024a2be9881f6e4008ba",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_f32ffc4cfea79b054eae03c4",
+      "candidate_fingerprint": "f32ffc4cfea79b054eae03c40e6c517c2000422fd59ce74a22c4dd97560d77a2",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "analyse autonomy stack and algorithm performance and improve robustness reliability and real time performance of autonomous behaviours",
+      "normalized_cluster": "analyse autonomy stack and algorithm performance and improve robustness reliability and real time performance of autonomous behaviours",
+      "examples": [
+        "Analyse autonomy stack and algorithm performance and improve robustness, reliability and real-time performance of autonomous behaviours"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 44,
+          "snapshot_id": 20,
+          "requirement_id": "req_4c055b99aecf",
+          "job_content_hash": "64ed42a7ab8538d61a438cf84e9d64783c5b89e919794a69715bee40169ad912",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_3e9831817a20dc45c2f2327c",
+      "candidate_fingerprint": "3e9831817a20dc45c2f2327ca12508a9a6c6644a11e18f18c1db6a73932fd537",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "as the suite of genai solutions expands you will explore how the different solutions could be linked using an ai orchestration tool to provide users with a more seamless end to end ai enabled procurement experience",
+      "normalized_cluster": "as the suite of genai solutions expands you will explore how the different solutions could be linked using an ai orchestration tool to provide users with a more seamless end to end ai enabled procurement experience",
+      "examples": [
+        "As the suite of GenAI solutions expands, you will explore how the different solutions could be linked using an AI orchestration tool to provide users with a more seamless, end-to-end AI-enabled procurement experience"
+      ],
+      "technology_terms": [
+        "AI",
+        "GenAI"
+      ],
+      "provenance": [
+        {
+          "job_id": 45,
+          "snapshot_id": 21,
+          "requirement_id": "req_90583b43be1b",
+          "job_content_hash": "48261f3773ee8fc80e6f431ea39911550e66cead2738ee6c4584dbb0d3c24745",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_9288de0e0fdf03c61a66645e",
+      "candidate_fingerprint": "9288de0e0fdf03c61a66645ee0866b28535aea0bd53f459b88111c756daa2c4d",
+      "candidate_route": "technology_identity",
+      "concept_key": "basic programming or application development knowledge e g python or other programming languages would be useful",
+      "normalized_cluster": "basic programming or application development knowledge e g python or other programming languages would be useful",
+      "examples": [
+        "Basic programming or application development knowledge (e.g. Python or other programming languages) would be useful"
+      ],
+      "technology_terms": [
+        "e.g"
+      ],
+      "provenance": [
+        {
+          "job_id": 45,
+          "snapshot_id": 21,
+          "requirement_id": "req_83ab15340c75",
+          "job_content_hash": "48261f3773ee8fc80e6f431ea39911550e66cead2738ee6c4584dbb0d3c24745",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_5d4560ee5aa10b3740159948",
+      "candidate_fingerprint": "5d4560ee5aa10b37401599487409908ad4e57ad6460fd94a66fc292cacf9a6dc",
+      "candidate_route": "technology_identity",
+      "concept_key": "bigfix",
+      "normalized_cluster": "bigfix",
+      "examples": [
+        "BigFix"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_d71451abd87c",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_79c9638d7a8d0e881c2c72a2",
+      "candidate_fingerprint": "79c9638d7a8d0e881c2c72a22dd4e7f70e92d2e253c9734bd5738779a676f1fc",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "build and maintain software tools and infrastructure that support embedded development workflows including test automation platforms deployment systems and developer utilities",
+      "normalized_cluster": "build and maintain software tools and infrastructure that support embedded development workflows including test automation platforms deployment systems and developer utilities",
+      "examples": [
+        "Build and maintain software tools and infrastructure that support embedded development workflows, including test automation platforms, deployment systems, and developer utilities"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 370,
+          "snapshot_id": 42,
+          "requirement_id": "req_f96670b7b7e9",
+          "job_content_hash": "fde23fd9ffc92cf1ed7a5d21b4bfd32e0d9a01687e603feebc9126e1f53cb117",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_efd3d846faf2faf976067b2e",
+      "candidate_fingerprint": "efd3d846faf2faf976067b2ea227e55bab6e128728233b08ce65a6d36a105d08",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "critical infrastructure security implement robust security protocols to protect national infrastructure",
+      "normalized_cluster": "critical infrastructure security implement robust security protocols to protect national infrastructure",
+      "examples": [
+        "Critical Infrastructure Security: Implement robust security protocols to protect national infrastructure"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 15,
+          "snapshot_id": 18,
+          "requirement_id": "req_2e581717a7ab",
+          "job_content_hash": "3e8c0bba1f4d194737f47bc7a8671f0a8493036834b1f22fed46d39549fb2f7b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_ead3658977a7c524fb6d7bf9",
+      "candidate_fingerprint": "ead3658977a7c524fb6d7bf97a841f76f70e872e96f0dc3169525ef645fecb21",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "data analysis and insights",
+      "normalized_cluster": "data analysis and insights",
+      "examples": [
+        "Data Analysis & Insights"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 187,
+          "snapshot_id": 41,
+          "requirement_id": "req_3503173e2442",
+          "job_content_hash": "e6fad48a12d97d80e776db9c6d0c593b83caa69a1fbaea0c307f46f125c69c6b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_578d4ceac3ef8fd981407f89",
+      "candidate_fingerprint": "578d4ceac3ef8fd981407f8968e75549186e8c2fbd0bb99bbc0adb62ebc3b084",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "deploy ai driven autonomy capabilities that enable autonomous platforms to operate effectively in complex multi domain unstructured environments",
+      "normalized_cluster": "deploy ai driven autonomy capabilities that enable autonomous platforms to operate effectively in complex multi domain unstructured environments",
+      "examples": [
+        "deploy AI-driven autonomy capabilities that enable autonomous platforms to operate effectively in complex, multi-domain, unstructured environments"
+      ],
+      "technology_terms": [
+        "AI"
+      ],
+      "provenance": [
+        {
+          "job_id": 44,
+          "snapshot_id": 20,
+          "requirement_id": "req_6e081bd46d54",
+          "job_content_hash": "64ed42a7ab8538d61a438cf84e9d64783c5b89e919794a69715bee40169ad912",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_e6e8dcf2f4f04b681a8824fe",
+      "candidate_fingerprint": "e6e8dcf2f4f04b681a8824fe82e36880783ea14da90398f1cf6c231db92aad5f",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "deploy and integrate ai solutions with existing enterprise systems ensuring compatibility with data infrastructure and institutional workflows",
+      "normalized_cluster": "deploy and integrate ai solutions with existing enterprise systems ensuring compatibility with data infrastructure and institutional workflows",
+      "examples": [
+        "Deploy and integrate AI solutions with existing enterprise systems, ensuring compatibility with data infrastructure and institutional workflows"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 81,
+          "snapshot_id": 31,
+          "requirement_id": "req_8424f364cc7f",
+          "job_content_hash": "96d28024d14af96edc5f51b2a968d8869e2406e1b14c2825b3343bf673c893b1",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_139bae3bbcc9619b8146da9e",
+      "candidate_fingerprint": "139bae3bbcc9619b8146da9e4b862d603d629a42152e6529b9325e5a33f1e187",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "deploying and maintaining content management systems and web applications in the cloud",
+      "normalized_cluster": "deploying and maintaining content management systems and web applications in the cloud",
+      "examples": [
+        "Deploying and maintaining content management systems and web applications in the cloud"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 146,
+          "snapshot_id": 40,
+          "requirement_id": "req_1bc2b4d68488",
+          "job_content_hash": "8925a25e5c847c728ddabc189a2152f17dafe04aa335feb5ae60139d31ab9605",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_53fd8ca10087a1191898f66f",
+      "candidate_fingerprint": "53fd8ca10087a1191898f66fdbbac0358845656fd07ad01c0ea95ebc8937a65f",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "develop and maintain cloud provider agnostic backend deployment tools",
+      "normalized_cluster": "develop and maintain cloud provider agnostic backend deployment tools",
+      "examples": [
+        "· Develop and maintain cloud provider-agnostic backend deployment tools"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 566,
+          "snapshot_id": 36,
+          "requirement_id": "req_acb845cbe814",
+          "job_content_hash": "5b6baf24878fa6e6672d35a8d9f1a29c302cb176f823c7b59e8be0a85f7d3750",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_d5f336969afc7e12d8114293",
+      "candidate_fingerprint": "d5f336969afc7e12d81142932166e48bfbe225d148b18c3a05d84d0fe50627b5",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "develop apis and microservices to serve ai models enabling robust integration with institutional workflows and applications",
+      "normalized_cluster": "develop apis and microservices to serve ai models enabling robust integration with institutional workflows and applications",
+      "examples": [
+        "Develop APIs and microservices to serve AI models, enabling robust integration with institutional workflows and applications"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 81,
+          "snapshot_id": 31,
+          "requirement_id": "req_4917719674ce",
+          "job_content_hash": "96d28024d14af96edc5f51b2a968d8869e2406e1b14c2825b3343bf673c893b1",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_985db4c7091a79053e162895",
+      "candidate_fingerprint": "985db4c7091a79053e1628950e0462704959b33560ec0ea112366e53289a9891",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "ensure quality of releases responsiveness and security of applications debugging issues fix bugs and identify bottlenecks",
+      "normalized_cluster": "ensure quality of releases responsiveness and security of applications debugging issues fix bugs and identify bottlenecks",
+      "examples": [
+        "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 146,
+          "snapshot_id": 40,
+          "requirement_id": "req_9778668ec0d8",
+          "job_content_hash": "8925a25e5c847c728ddabc189a2152f17dafe04aa335feb5ae60139d31ab9605",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_ef7e7014682aea4b854457eb",
+      "candidate_fingerprint": "ef7e7014682aea4b854457eb9508206d221da475ad58c1b0262c6a3d80f0d4c5",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "experience debugging software hardware integration issues across embedded processors fpga dsp and rf subsystems",
+      "normalized_cluster": "experience debugging software hardware integration issues across embedded processors fpga dsp and rf subsystems",
+      "examples": [
+        "Experience debugging software–hardware integration issues across embedded processors, FPGA, DSP, and RF subsystems"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 359,
+          "snapshot_id": 27,
+          "requirement_id": "req_e74e6af3c866",
+          "job_content_hash": "21ff49a0880bea08895de15789ddf4ee8cedcc7af53ae7254057ed0bc77d5167",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_b7702bd2bb74dcd9c2e91e12",
+      "candidate_fingerprint": "b7702bd2bb74dcd9c2e91e125433ff1e00f366bb2636ba007351d22c073a3046",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "product lifecycle design and documentation development validation refactoring deployment and maintenance",
+      "normalized_cluster": "experience in product lifecycle design and documentation development validation refactoring deployment and maintenance",
+      "examples": [
+        "· Experience in Product Lifecycle (design and documentation, development, validation refactoring, deployment and maintenance)"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 370,
+          "snapshot_id": 42,
+          "requirement_id": "req_636c94bb99c3",
+          "job_content_hash": "fde23fd9ffc92cf1ed7a5d21b4bfd32e0d9a01687e603feebc9126e1f53cb117",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_70c9dd57c589b927644183ec",
+      "candidate_fingerprint": "70c9dd57c589b927644183ec8a7f4029565281e6a9d573f4bead1e69d5c46a67",
+      "candidate_route": "technology_identity",
+      "concept_key": "robotics frameworks such as ros 2 and simulation platforms",
+      "normalized_cluster": "experience with robotics frameworks such as ros 2 and simulation platforms",
+      "examples": [
+        "Experience with robotics frameworks such as ROS 2 and simulation platforms"
+      ],
+      "technology_terms": [
+        "ROS"
+      ],
+      "provenance": [
+        {
+          "job_id": 44,
+          "snapshot_id": 20,
+          "requirement_id": "req_55269def7b17",
+          "job_content_hash": "64ed42a7ab8538d61a438cf84e9d64783c5b89e919794a69715bee40169ad912",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_6eb7e4fb7d870a1c057be5fe",
+      "candidate_fingerprint": "6eb7e4fb7d870a1c057be5fe1011429bb0473b4095c4b78c1a5a2baaa37de1c2",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "the code first entity framework and cloud deployment",
+      "normalized_cluster": "experience with the code first entity framework and cloud deployment",
+      "examples": [
+        "Experience with the code-first entity framework and cloud deployment"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 556,
+          "snapshot_id": 28,
+          "requirement_id": "req_f31cdb2daced",
+          "job_content_hash": "89ca18d74245173af33322b424ce1075e6f0bec87919b1014c0e74bf369ca2aa",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_8a9acd2dbd278f6aa1030f0e",
+      "candidate_fingerprint": "8a9acd2dbd278f6aa1030f0eeb95425800428c97fd4e996bb360945c5bda8608",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "exploration of end to end integration explore how the different genai solutions could be linked using available ai orchestration tools to support a more seamless end to end ai enabled procurement workflow",
+      "normalized_cluster": "exploration of end to end integration explore how the different genai solutions could be linked using available ai orchestration tools to support a more seamless end to end ai enabled procurement workflow",
+      "examples": [
+        "Exploration of End-to-End Integration – explore how the different GenAI solutions could be linked using available AI orchestration tools to support a more seamless, end-to-end AI-enabled procurement workflow"
+      ],
+      "technology_terms": [
+        "AI",
+        "GenAI"
+      ],
+      "provenance": [
+        {
+          "job_id": 45,
+          "snapshot_id": 21,
+          "requirement_id": "req_7140ec72373b",
+          "job_content_hash": "48261f3773ee8fc80e6f431ea39911550e66cead2738ee6c4584dbb0d3c24745",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_1a39862c91c4492eb28f11ca",
+      "candidate_fingerprint": "1a39862c91c4492eb28f11cada9dbfe71ef142c8a2909af3653f907f2a734dcb",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "distributed systems",
+      "normalized_cluster": "familiarity with distributed systems",
+      "examples": [
+        "Familiarity with distributed systems"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 31,
+          "snapshot_id": 19,
+          "requirement_id": "req_93461fe67264",
+          "job_content_hash": "f21e6a05347c1daa607d047760c8f437d0e71d8859602b60a2e78c0168cba7ad",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_92df29964419e781f8ebeae1",
+      "candidate_fingerprint": "92df29964419e781f8ebeae1ecfefa07f5f730cfcad99eb9f66dae29f74b49a5",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "hands on experience with ai orchestration frameworks",
+      "normalized_cluster": "hands on experience with ai orchestration frameworks",
+      "examples": [
+        "Hands-on experience with AI orchestration frameworks"
+      ],
+      "technology_terms": [
+        "AI"
+      ],
+      "provenance": [
+        {
+          "job_id": 31,
+          "snapshot_id": 19,
+          "requirement_id": "req_0b748f3d345d",
+          "job_content_hash": "f21e6a05347c1daa607d047760c8f437d0e71d8859602b60a2e78c0168cba7ad",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_e216cfb0b51c5d040e815078",
+      "candidate_fingerprint": "e216cfb0b51c5d040e8150780c9aa888f18c30e7e3a44fff6a69d802962c7d70",
+      "candidate_route": "technology_identity",
+      "concept_key": "knowledge in sccm",
+      "normalized_cluster": "knowledge in sccm",
+      "examples": [
+        "Knowledge in SCCM"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_36bb023e9707",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_56c451a3830bd527c5788242",
+      "candidate_fingerprint": "56c451a3830bd527c578824200ef40838ca3fd8e2559b8ad3229caf9186dc78c",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "cloud security",
+      "normalized_cluster": "knowledge of cloud security",
+      "examples": [
+        "Knowledge of cloud security"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 72,
+          "snapshot_id": 23,
+          "requirement_id": "req_f762a5aa76de",
+          "job_content_hash": "25b6ffee470d8da1eacc21feb43a8e9868991696986245a67f1910c3b63a49c5",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_2d2bc6d2956bb656ec53e416",
+      "candidate_fingerprint": "2d2bc6d2956bb656ec53e416fed2907c563771ab189a919f38128180213bf524",
+      "candidate_route": "technology_identity",
+      "concept_key": "databases sql nosql is an advantage",
+      "normalized_cluster": "knowledge of databases sql nosql is an advantage",
+      "examples": [
+        "Knowledge of databases (SQL / NoSQL) is an advantage"
+      ],
+      "technology_terms": [
+        "NoSQL",
+        "SQL"
+      ],
+      "provenance": [
+        {
+          "job_id": 493,
+          "snapshot_id": 13,
+          "requirement_id": "req_c3b362e0255b",
+          "job_content_hash": "9c3ac72242318cdf00f72d58f538abdefe6e22ef59348f1f32c4db0095499605",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d15",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.1"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_ec1714526749c95a3653a8cd",
+      "candidate_fingerprint": "ec1714526749c95a3653a8cde9f3c11f066174afdf485969c4f1786b6e343c4a",
+      "candidate_route": "technology_identity",
+      "concept_key": "deployment and management like bigfix",
+      "normalized_cluster": "knowledge of deployment and management like bigfix",
+      "examples": [
+        "Knowledge of deployment and management like BigFix"
+      ],
+      "technology_terms": [
+        "BigFix"
+      ],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_d77f64390135",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_477139abd42c291ec7454fa7",
+      "candidate_fingerprint": "477139abd42c291ec7454fa7f86a729cc82d3e9c9e1145fc458f6fb3d768cd4a",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "microservices architecture",
+      "normalized_cluster": "knowledge of microservices architecture",
+      "examples": [
+        "Knowledge of microservices architecture"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 81,
+          "snapshot_id": 31,
+          "requirement_id": "req_166a8d8405fb",
+          "job_content_hash": "96d28024d14af96edc5f51b2a968d8869e2406e1b14c2825b3343bf673c893b1",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_8b617d1a6c0720221a5db671",
+      "candidate_fingerprint": "8b617d1a6c0720221a5db671362a09beca54e94d2d664e93f8fe514d69eaa8b0",
+      "candidate_route": "technology_identity",
+      "concept_key": "microsoft sccm",
+      "normalized_cluster": "knowledge of microsoft sccm",
+      "examples": [
+        "Knowledge of Microsoft SCCM"
+      ],
+      "technology_terms": [
+        "SCCM"
+      ],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_cfd69e35023a",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_6824f38bab21421b22d1efcf",
+      "candidate_fingerprint": "6824f38bab21421b22d1efcf536f0397e6f5098696b9bb090b17ed1e471df71b",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "network access control",
+      "normalized_cluster": "knowledge of network access control",
+      "examples": [
+        "Knowledge of network access control"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_2f6aedb603aa",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_2c820d2135240aaf69264d88",
+      "candidate_fingerprint": "2c820d2135240aaf69264d880e1d3cead71d413215a619e295c1725f6911c565",
+      "candidate_route": "technology_identity",
+      "concept_key": "software packing tools like powershell scripting",
+      "normalized_cluster": "knowledge of software packing tools like powershell scripting",
+      "examples": [
+        "Knowledge of software packing tools like PowerShell scripting"
+      ],
+      "technology_terms": [
+        "PowerShell"
+      ],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_b6703da40fcd",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_086dc3205dcffeb7ebeac68f",
+      "candidate_fingerprint": "086dc3205dcffeb7ebeac68fe418a5988d82a7aea6e21076fe86bc3f0c93aa44",
+      "candidate_route": "technology_identity",
+      "concept_key": "maintain ros based robotics solutions to enhance visitor experiences and operational efficiency as well as educational programs",
+      "normalized_cluster": "maintain ros based robotics solutions to enhance visitor experiences and operational efficiency as well as educational programs",
+      "examples": [
+        "maintain ROS-based robotics solutions to enhance visitor experiences and operational efficiency as well as educational programs"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 50,
+          "snapshot_id": 30,
+          "requirement_id": "req_12004e0f666c",
+          "job_content_hash": "32e59c0756e9bd97778a7ba57c7095b130b165612864024a2be9881f6e4008ba",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_43f8931184825051403590a1",
+      "candidate_fingerprint": "43f8931184825051403590a10251959823a6cde0011e07a388374befb60a4d00",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "network access control",
+      "normalized_cluster": "network access control",
+      "examples": [
+        "Network Access Control"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 163,
+          "snapshot_id": 33,
+          "requirement_id": "req_6677d37f660c",
+          "job_content_hash": "b90fdad01376f09d9f560ec2701100c85ef60864a0a19bd5b4a173c74be03a5f",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_dd77b7f3c46ebe4684fa6bb4",
+      "candidate_fingerprint": "dd77b7f3c46ebe4684fa6bb41c47aa6f8868b0f816ce594caaab65eadf3e67a9",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "plan and coordinate project implementation support efforts and estimate work efforts and schedule for supporting project development and deployment",
+      "normalized_cluster": "plan and coordinate project implementation support efforts and estimate work efforts and schedule for supporting project development and deployment",
+      "examples": [
+        "Plan and coordinate project implementation support efforts and estimate work efforts and schedule for supporting project development and deployment"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 644,
+          "snapshot_id": 17,
+          "requirement_id": "req_f6ff3f430250",
+          "job_content_hash": "9f21c1780ab59d14999c4c78cf9d10091425d86aaf9cd956ae1956e80a549561",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_2f8811e43c2c5ccca1abc645",
+      "candidate_fingerprint": "2f8811e43c2c5ccca1abc645090e415f1825d6f4ce669a1420253ac570786b6c",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "practical experiences in data analytics statistics and machine learning models in the area of educational technologies for teaching and learning would be an advantage",
+      "normalized_cluster": "practical experiences in data analytics statistics and machine learning models in the area of educational technologies for teaching and learning would be an advantage",
+      "examples": [
+        "Practical experiences in data analytics, statistics and machine learning models in the area of Educational Technologies for teaching and learning would be an advantage"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 48,
+          "snapshot_id": 22,
+          "requirement_id": "req_62c9cf0a14a8",
+          "job_content_hash": "80d311bea68326230218fefeb3551842a31a5569db4b4df49b991ba67aaa7271",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "preferred": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_b1eb04a1ac91de095f116fc3",
+      "candidate_fingerprint": "b1eb04a1ac91de095f116fc333786200f50b458711c657b4c238a4f8a8365f88",
+      "candidate_route": "technology_identity",
+      "concept_key": "in java for web based applications development",
+      "normalized_cluster": "proficiency in in java for web based applications development",
+      "examples": [
+        "Proficiency in in Java for web-based applications development"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 15,
+          "snapshot_id": 18,
+          "requirement_id": "req_e33272d9bf25",
+          "job_content_hash": "3e8c0bba1f4d194737f47bc7a8671f0a8493036834b1f22fed46d39549fb2f7b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_8bf62b16b0b0bae4f3bc3142",
+      "candidate_fingerprint": "8bf62b16b0b0bae4f3bc31428605cc393734b3847187f7f4370fd36f4065ffd2",
+      "candidate_route": "technology_identity",
+      "concept_key": "javascript",
+      "normalized_cluster": "proficiency in javascript",
+      "examples": [
+        "Proficiency in JavaScript"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 556,
+          "snapshot_id": 28,
+          "requirement_id": "req_e76f75f8d211",
+          "job_content_hash": "89ca18d74245173af33322b424ce1075e6f0bec87919b1014c0e74bf369ca2aa",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_8a6ea6154e2b1e9bb7774faa",
+      "candidate_fingerprint": "8a6ea6154e2b1e9bb7774faa7a1de3a8b1aa69fc40ed6fb726042ec8fe50c56b",
+      "candidate_route": "technology_identity",
+      "concept_key": "python and sql is expected",
+      "normalized_cluster": "proficiency in python and sql is expected",
+      "examples": [
+        "Proficiency in Python and SQL is expected"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 16,
+          "snapshot_id": 39,
+          "requirement_id": "req_820ecb06d35d",
+          "job_content_hash": "85226cef02097f69a305de7c7888227a54a85bb3f7dafc72d8c998e495cd3387",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_411690fc12ff51ee58b0ca84",
+      "candidate_fingerprint": "411690fc12ff51ee58b0ca848319d5f4d671daacf17e1674368abb8847a13254",
+      "candidate_route": "technology_identity",
+      "concept_key": "python for building robust internal tools and system modules",
+      "normalized_cluster": "proficiency in python for building robust internal tools and system modules",
+      "examples": [
+        "​Proficiency in Python for building robust internal tools and system modules"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 15,
+          "snapshot_id": 18,
+          "requirement_id": "req_a8fc7690ed6f",
+          "job_content_hash": "3e8c0bba1f4d194737f47bc7a8671f0a8493036834b1f22fed46d39549fb2f7b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_252efb5c79a48e0b0f56b5c4",
+      "candidate_fingerprint": "252efb5c79a48e0b0f56b5c486e412251ab5d134af3f042380bf55efb23ab2af",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "strong analytical debugging and problem solving skills",
+      "normalized_cluster": "strong analytical debugging and problem solving skills",
+      "examples": [
+        "Strong analytical, debugging and problem-solving skills"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 479,
+          "snapshot_id": 35,
+          "requirement_id": "req_b3a1f1801f1d",
+          "job_content_hash": "c3b76f49864d63fd67652d60704398dd133d04793d77f655fc431df2c3565624",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_f1ff91ff0304ae22e13dc813",
+      "candidate_fingerprint": "f1ff91ff0304ae22e13dc813bfb89d462ba573d50806a2d6989367ca855f2d41",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "success in this role requires the ability to work effectively both independently and within a team whilst managing deployments in live operational environments",
+      "normalized_cluster": "success in this role requires the ability to work effectively both independently and within a team whilst managing deployments in live operational environments",
+      "examples": [
+        "Success in this role requires the ability to work effectively both independently and within a team, whilst managing deployments in live operational environments"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 50,
+          "snapshot_id": 30,
+          "requirement_id": "req_b1ca22b99bd9",
+          "job_content_hash": "32e59c0756e9bd97778a7ba57c7095b130b165612864024a2be9881f6e4008ba",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_f2f99de80a596bb4bce7b9c8",
+      "candidate_fingerprint": "f2f99de80a596bb4bce7b9c84ca79fe7971f628df1eff2879faaf05d1073db73",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "support security posture management and the design of secure network connectivity and access controls ensuring infrastructure deployments adhere to established security protocols compliance standards and operational baselines",
+      "normalized_cluster": "support security posture management and the design of secure network connectivity and access controls ensuring infrastructure deployments adhere to established security protocols compliance standards and operational baselines",
+      "examples": [
+        "Support security posture management and the design of secure network connectivity and access controls, ensuring infrastructure deployments adhere to established security protocols, compliance standards, and operational baselines"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 72,
+          "snapshot_id": 23,
+          "requirement_id": "req_e51386968bbf",
+          "job_content_hash": "25b6ffee470d8da1eacc21feb43a8e9868991696986245a67f1910c3b63a49c5",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_0fce3d4ac745c394e0f6f403",
+      "candidate_fingerprint": "0fce3d4ac745c394e0f6f40329984d1d3be2f3b8aae8e20669cae84902250818",
+      "candidate_route": "technology_identity",
+      "concept_key": "use the latest technologies in devops software defined network infrastructure and cloud computing",
+      "normalized_cluster": "use the latest technologies in devops software defined network infrastructure and cloud computing",
+      "examples": [
+        "use the latest technologies in DevOps, software-defined network infrastructure, and cloud computing"
+      ],
+      "technology_terms": [
+        "DevOps"
+      ],
+      "provenance": [
+        {
+          "job_id": 158,
+          "snapshot_id": 25,
+          "requirement_id": "req_19ace2467250",
+          "job_content_hash": "fc7499429193d00b3887627ce53c4b035eae660128115211c4d1ee121a5e870b",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_e73c8895d0d0713409323972",
+      "candidate_fingerprint": "e73c8895d0d0713409323972cc3b0c1aea48105443dc9e3ce6c44ade945dd21b",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "web platforms application hosting or distributed systems",
+      "normalized_cluster": "web platforms application hosting or distributed systems",
+      "examples": [
+        "Web platforms, application hosting, or distributed systems"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 173,
+          "snapshot_id": 38,
+          "requirement_id": "req_52b74dd06399",
+          "job_content_hash": "1ca84af86a4185f902cd77d7bca1a148adfb087aff86646e4afe3ba943d9fe0c",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "required": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_b09fc08525cf4a16f95e45c6",
+      "candidate_fingerprint": "b09fc08525cf4a16f95e45c6bc82afe9b7e0022cc8680f12fd520d576240e84d",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "you will also be guiding the development team through the implementation of robust deployment pipelines while referring to technical standards enterprise governance frameworks and agile best practices",
+      "normalized_cluster": "you will also be guiding the development team through the implementation of robust deployment pipelines while referring to technical standards enterprise governance frameworks and agile best practices",
+      "examples": [
+        "You will also be guiding the development team through the implementation of robust deployment pipelines while referring to technical standards, enterprise governance frameworks, and agile best practices"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 141,
+          "snapshot_id": 32,
+          "requirement_id": "req_03d7f10bed8c",
+          "job_content_hash": "c585dec1b0c5af9b1b757be18295a838d506c2203308f6fae414ec183f1c8ac5",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    },
+    {
+      "candidate_id": "tqd3taxgap_72b717069380908c813c5c3f",
+      "candidate_fingerprint": "72b717069380908c813c5c3fae5bc4ea1b39ea57afbb6f138ea699d36ab3571c",
+      "candidate_route": "possible_new_capability",
+      "concept_key": "you will explore data design data models apply statistics machine learning models for descriptive and diagnostic analysis create test and implement visual dashboards that are relevant to different groups of college stakeholders",
+      "normalized_cluster": "you will explore data design data models apply statistics machine learning models for descriptive and diagnostic analysis create test and implement visual dashboards that are relevant to different groups of college stakeholders",
+      "examples": [
+        "You will explore data, design data models, apply statistics, machine learning models for descriptive and diagnostic analysis, create, test, and implement visual dashboards that are relevant to different groups of college stakeholders"
+      ],
+      "technology_terms": [],
+      "provenance": [
+        {
+          "job_id": 48,
+          "snapshot_id": 22,
+          "requirement_id": "req_89ae867baae9",
+          "job_content_hash": "80d311bea68326230218fefeb3551842a31a5569db4b4df49b991ba67aaa7271",
+          "observed_versions": {
+            "scoring_version": "stable-evidence-v1.10-phase6d16",
+            "taxonomy_version": "phase6d-capability-taxonomy-v1.4",
+            "technology_registry_version": "technology-registry-v1.2"
+          }
+        }
+      ],
+      "occurrence_count": 1,
+      "job_count": 1,
+      "importance_distribution": {
+        "core": 1
+      }
+    }
+  ]
+}

@@ -163,10 +163,34 @@ class Phase9FJDIntakeTests(unittest.TestCase):
             for row in overridden["canonical_requirements"]
             if row.get("application_requirement_scope") == "application_local"
         ]
-        self.assertEqual(len(supplemental), 1)
-        self.assertEqual(supplemental[0]["importance"], "preferred")
-        self.assertEqual(supplemental[0]["importance_source"], "user_supplied")
-        self.assertFalse(supplemental[0]["canonical_shared"])
+        # One user input is an ALL-list with two independently grounded children.
+        # Keep both identities without allocating a second parent's weight.
+        self.assertEqual(
+            {row["canonical_key"] for row in supplemental},
+            {"android app develop", "kotlin"},
+        )
+        self.assertEqual(len({row["requirement_id"] for row in supplemental}), 2)
+        self.assertEqual(len(supplemental), 2)
+        self.assertEqual(len({row["atomic_group_id"] for row in supplemental}), 1)
+        self.assertEqual(
+            len({row["scoring_parent_occurrence_id"] for row in supplemental}), 1
+        )
+        self.assertEqual(sum(row["group_weight_fraction"] for row in supplemental), 1)
+        for row in supplemental:
+            self.assertEqual(row["parent_text"], requirement)
+            self.assertEqual(row["user_supplied_requirement"], requirement)
+            self.assertTrue(row["is_atomic"])
+            self.assertTrue(row["score_eligible"])
+            self.assertEqual(row["group_weight_fraction"], 0.5)
+            self.assertEqual(row["importance"], "preferred")
+            self.assertEqual(row["importance_source"], "user_supplied")
+            self.assertFalse(row["canonical_shared"])
+            self.assertIn("application_user_input.preferred_requirement", row["sources"])
+        self.assertEqual(
+            supplemental,
+            [row for row in reordered["canonical_requirements"]
+             if row.get("application_requirement_scope") == "application_local"],
+        )
 
     def test_each_semantic_source_change_invalidates_input(self):
         baseline = phase9f_jd_input_fingerprint(
