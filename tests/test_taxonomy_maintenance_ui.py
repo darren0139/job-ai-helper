@@ -129,6 +129,10 @@ class MaintenanceUITests(unittest.TestCase):
         self.assertTrue(any("DIRECT GAP-REDUCTION ACTIONS" in element.value for element in app.markdown))
         self.assertTrue(any("Foundational ≠ directly resolving" in element.value for element in app.caption))
         self.assertIn("dependency_ids", plan["all_actions"][0])
+        triage = plan["structure_unavailable_triage"]
+        self.assertTrue(any(exp.label == f"native_structure_unavailable ({triage['total']})" for exp in app.expander))
+        self.assertTrue(any("blocked-review opportunities; no predicted resolutions" in element.value for element in app.caption))
+        self.assertEqual(triage["recommendation"], "NO SAFE GENERIC FIX YET")
         app.number_input(key="tm_gap_budget").set_value(0).run()
         self.assertTrue(app.button(key="tm_gap_execute").disabled)
         self.assertTrue(any("inputs changed" in warning.value for warning in app.warning))

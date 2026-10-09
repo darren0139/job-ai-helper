@@ -47,7 +47,9 @@ def _dependency_projection(snapshot, actions, gap_rows, unresolved, links):
         structure = technology_requirement_structure(raw.get(key) or {"text": r["requirement_text"], "importance": r["importance"]})
         nodes = [{"dependency_id": a["action_id"], "candidate_id": a["candidate_id"],
             "fix_layer": "NEEDS_DECOMPOSITION" if a["research_state"] == maintenance.NEEDS_DECOMPOSITION else a["fix_layer"],
+            "remediation_fix_layer": a["fix_layer"],
             "concept": a["concept"], "impact_role": a["impact_role"],
+            "existing_taxonomy_overlaps": deepcopy(a["existing_taxonomy_overlaps"]),
             "native_route": (by_candidate[a["candidate_id"]].get("candidate") or {}).get("operational_route"),
             "native_reason": by_candidate[a["candidate_id"]]["reason"],
             "research_parent_candidate_id": by_candidate[a["candidate_id"]].get("parent_candidate_id")}
@@ -104,6 +106,9 @@ def _dependency_projection(snapshot, actions, gap_rows, unresolved, links):
     priority = lambda v: (-v["required_core_weight"], -v["unique_unresolved_requirements"], -v["jobs_affected"],
         -v.get("downstream_actions_unlocked_for_review", 0), v.get("family_id", v.get("bundle_id", "")))
     families.sort(key=priority); bundles.sort(key=priority)
+    from taxonomy_discovery.structure_unavailable_triage import project as structure_triage
+    unavailable = next((f for f in families if f["family"] == "native_structure_unavailable"), {})
+    triage = structure_triage(snapshot, graphs, unavailable, raw, requirements)
     foundational = [a for a in actions if a["impact_role"] == "FOUNDATIONAL"]
     seen = set()
     for index, a in enumerate(foundational, 1):
@@ -126,6 +131,7 @@ def _dependency_projection(snapshot, actions, gap_rows, unresolved, links):
         item["marginal_directly_resolvable"] = 0
         marginal_seen.update(keys)
     return {"requirement_dependency_graphs": graphs, "dependency_bundles": bundles,
+        "structure_unavailable_triage": triage,
         "decomposition_parser_bottlenecks": families, "foundational_priority": foundational,
         "direct_gap_reduction_priority": direct_priority, "directly_resolving_actions": [],
         "dependency_impact_summary": {"unique_unresolved_requirements": len(requirements),
@@ -346,7 +352,8 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
     identity_keys = {(r["job_id"], r["requirement_id"]) for a in actions if a["fix_layer"] == maintenance.IDENTITY_GAP for r in a["requirement_keys"]}
     dependencies = _dependency_projection(snapshot, actions, gap_rows, unresolved, links)
     return maintenance._seal({"assistant_version": ASSISTANT_VERSION,
-        "assistant_implementation_fingerprint": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "assistant_implementation_fingerprint": fingerprint({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+            for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py")}),
         "audit_identity": snapshot["manifest"], "audit_fingerprint": snapshot["audit_fingerprint"],
         "saved_research_fingerprint": _saved_identity(saved), "publication_fingerprint": fingerprint(pubs),
         "interpretation_version": research.INTERPRETATION_VERSION, "options": options,
@@ -442,6 +449,12 @@ def markdown_report(plan):
     for item in plan["direct_gap_reduction_priority"][:plan["max_actions"]]:
         lines.append(f"| {item['priority_rank']} | {item['kind']} | {item.get('family', item.get('bundle_id'))} | {item['unique_unresolved_requirements']} | {item['required_core_weight']} | {item['estimated_directly_resolvable']} |")
     lines += ["", "Dependency impact union:", "```json", json.dumps(plan["dependency_impact_summary"], indent=2), "```"]
+    triage = plan["structure_unavailable_triage"]
+    lines += ["", "## Structure unavailable triage", "", f"{triage['total']} blocked-review opportunities; no predicted resolutions.",
+        "", "| Root cause | Requirements | Jobs | Core weight | Native correct | Code change |", "|---|---:|---:|---:|---|---|"]
+    for row in triage["subfamilies"]:
+        lines.append(f"| {row['root_cause']} | {row['unique_unresolved_requirements']} | {row['jobs_affected']} | {row['required_core_weight']} | {row['native_behavior_correct']} | {row['code_change_required']} |")
+    lines += ["", triage["recommendation"], triage["recommendation_reason"], triage["simulation"]]
     lines += ["", "## Terminal / deferred", ""]
     lines += [f"- {a['concept']}: {a['research_state']} — {a['next_action_reason']}" for a in plan["terminal_actions"]]
     lines += ["", "Plan fingerprint: " + plan["assistant_plan_fingerprint"], "No automatic approval/publication. Research requires separate exact-plan confirmation."]

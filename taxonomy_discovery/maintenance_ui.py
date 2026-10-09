@@ -460,6 +460,20 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
         st.dataframe(plan["dependency_bundles"], hide_index=True, width="stretch")
     with st.expander("DECOMPOSITION / PARSER BOTTLENECKS"):
         st.dataframe(plan["decomposition_parser_bottlenecks"], hide_index=True, width="stretch")
+        triage = plan.get("structure_unavailable_triage")
+        if triage:
+            with st.expander(f"native_structure_unavailable ({triage['total']})"):
+                st.caption(f"{triage['total']} blocked-review opportunities; no predicted resolutions.")
+                st.dataframe([{
+                    "Root cause": r["root_cause"], "Requirements": r["unique_unresolved_requirements"],
+                    "Jobs": r["jobs_affected"], "Core weight": r["required_core_weight"],
+                    "Native behavior correct": {True: "yes", False: "no", None: "unknown"}[r["native_behavior_correct"]],
+                    "Code change needed": {True: "yes", False: "no", None: "unknown"}[r["code_change_required"]],
+                    "Next action": r["recommended_next_action"],
+                } for r in triage["subfamilies"]], hide_index=True, width="stretch")
+                st.info(triage["recommendation"] + ": " + triage["recommendation_reason"])
+                with st.expander("Requirement provenance / native probes / downstream review actions"):
+                    st.json(triage)
     with st.expander("Requirement dependency graphs / unique unions / marginal impact"):
         st.json(plan["dependency_impact_summary"])
         st.json(plan["requirement_dependency_graphs"])
