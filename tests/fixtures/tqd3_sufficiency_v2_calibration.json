@@ -1,0 +1,205 @@
+{
+  "description": "Saved 2026-10-09 five-candidate calibration. Raw provider snippets are not full document text. IDs retained; no production mappings.",
+  "cases": [
+    {
+      "subject": "data analysis and insights",
+      "candidate_id": "tqd3taxgap_1a49b73b49a00f5e9b9345c3",
+      "old_outcome": "research_more",
+      "provider_request_id": "4529c6f2-db8d-4a90-8919-cab5cee89998",
+      "raw_provider_evidence": {
+        "results": [
+          {
+            "url": "https://www.pryor.com/blog-categories/computer-skills/data-analysis-and-analytics-getting-started.html",
+            "title": "Data Analysis and Analytics: Getting Started Guide",
+            "content": "So what is data analytics? At its core, data analytics is the practice of examining raw data to discover patterns, draw conclusions and support smarter decision-making. Organizations across every industry rely on analytics to turn vast amounts of information into actionable insights that drive strategy, improve operations and create competitive advantage. [...] Data analysis refers to the process of examining, cleaning, transforming and modeling data. The basic goal of data analysis is to discover useful information that informs conclusions and supports decision-making. It is primarily concerned with understanding what has already happened. [...] is the broad discipline of collecting, processing, analyzing and interpreting data to generate insights that inform action. It goes beyond simply looking at numbers on a spreadsheet. Analytics involves applying systematic methods and tools to raw data so organizations and individuals can answer critical questions, spot trends and make evidence-based decisions.\n\nThe data analytics lifecycle generally follows these stages:",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.ibm.com/think/topics/data-engineering",
+            "title": "What Is Data Engineering? | IBM",
+            "content": "Power the agentic enterprise  Watch the Think Keynote\n\n# What is data engineering?\n\nBy Ivan Belcic , Cole Stryker\n\n## What is data engineering?\n\nData engineering is the practice of designing and building systems for the aggregation, storage and analysis of data at scale. Data engineers empower organizations to get insights in real time from large datasets. [...] Data analysts examine large datasets to identify trends and extract insights to help organizations make data-driven decisions today. While data scientists apply advanced computational techniques to manipulate data, data analysts work with predefined datasets to uncover critical information and draw meaningful conclusions. [...] Data integration is the practice of aggregating data from across an enterprise into a unified dataset and is one of the primary responsibilities of the data engineering role. Data engineers make it possible for end users to combine data from disparate sources as required by their work.\n\n## The latest tech news, backed by expert insights",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.databricks.com/blog/what-is-data-engineering",
+            "title": "What is Data Engineering? | Databricks",
+            "content": "# What is Data Engineering?\n\nThe discipline of designing, building, and maintaining robust data pipelines that collect, transform, and deliver clean data to analytics and AI at scale\n\nby  Databricks Staff\n\nData engineering is the practice of designing, building and maintaining systems that collect, store, transform and deliver data for analysis, reporting, machine learning and decision-making. It’s about making sure the data actually shows up, on time, and in good shape. [...] Data science focuses on building predictive models, extracting advanced analytical insights and driving automation. Core functions include statistical analysis, predictive models, machine learning algorithms and experimentation.\n\nThe three disciplines depend on and reinforce each other. Data engineering creates the foundation that enables analytics and data science to succeed, providing reliable data pipelines, scalable storage and compute and data quality, governance and access. [...] A solid data engineering infrastructure has become crucial as data volumes continue to explode and organizations increasingly rely on data insights. Without it, data fragmentation and unreliable data undermine all analytics and AI efforts and could be catastrophic in today’s competitive and regulatory business landscape.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.tableau.com/analytics/what-is-data-analytics",
+            "title": "What is Data Analytics? The Complete Guide | Tableau",
+            "content": "Following data analytics best practices delivers accurate and meaningful insights from your data. A structured process ensures that the data captured and analyzed is high quality and well understood across any department. Here are some best practices to follow for data analysis.\n\n### Set clear objectives and define your metrics [...] When it comes to managing risks, data analysis is a reliable and valuable tool to have on your side. You can spot potential threats and craft strategies to mitigate them by examining past data and patterns. Insights gained through data analysis empower you to tackle uncertainties strategically, minimizing disruptions to your business.\n\n### Gain a competitive advantage",
+            "raw_content": null
+          },
+          {
+            "url": "https://interpro.wisc.edu/types-of-data-analytics-in-engineering",
+            "title": "Types of Data Analytics in Engineering | Interdisciplinary Professional Programs",
+            "content": "This data-driven approach empowers engineers to gain insights into system performance, identify areas for improvement and optimization, and predict future trends. Some of the tools they use are:\n\n Machine learning frameworks for predictive analytics and anomaly detection.\n Analyzing feedback loops to enhance or counteract a system’s behavior.\n\n#### #2 Predictive Maintenance Analytics [...] Descriptive analytics asks, “What happened?” This involves summarizing historical data from a source to gain insights into past performance and trends.\n\nHow is it used in engineering?  \n Engineers use descriptive analytics to understand the current state of an operation or task, identify patterns based on what had happened before and visualize trends.\n\n#### #2 Diagnostic Analytics [...] #### #6 Spatial Analytics\n\nSpatial analytics involves the analysis of geographical or spatial data to gain insights into patterns, trends and relationships within spatially referenced data and make informed decisions. Engineers utilizing this technique might use the following tools:\n\n Geospatial Information Systems (GIS) to manipulate spatial or geographical data.\n Remote sensing, which involves catching remote data from satellites or aircraft.\n\n#### #7 Reliability Analytics",
+            "raw_content": null
+          }
+        ]
+      }
+    },
+    {
+      "subject": "network access control",
+      "candidate_id": "tqd3taxgap_939ade7db57775706ff8f67d",
+      "old_outcome": "research_more",
+      "provider_request_id": "b9e93c41-458f-407e-8425-cc09f51a4784",
+      "raw_provider_evidence": {
+        "results": [
+          {
+            "url": "https://www.easynac.com/whatisnac",
+            "title": "What Is Network Access Control (NAC)? | EasyNAC",
+            "content": "Incident response: use supported integrations with endpoint detection and response (EDR) or other security tools to restrict a device associated with a threat.\n Distributed sites: apply consistent policies and maintain visibility across offices and branches.\n Audit evidence: record device inventory, access decisions, exceptions and remediation. NAC can support a compliance program, but installing it does not establish compliance by itself. [...] Policies translate that evidence into access appropriate to the device and its role. A managed laptop might reach approved business services; a guest might receive internet access only; a camera might reach its recording server. Unknown devices can be restricted pending review. Exceptions need an owner and an expiry date.\n\n### 4. Enforce and reassess [...] 1. Define scope: identify the sites, subnets, wireless networks, remote access paths and device groups to cover.\n2. Establish visibility: observe a representative environment and reconcile discovered devices with inventory and ownership records.\n3. Define policies and exceptions: specify evidence, allowed resources, remediation steps, owners and expiry dates.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.cloudi-fi.com/blog/zero-trust-checklist-network-access-control",
+            "title": "Zero Trust Checklist for IT Teams: NAC Implementation Guide",
+            "content": "Network Access Control is a security solution that verifies the identity and security posture of every user and device attempting to connect to the network. Within a Zero Trust model, NAC enforces identity-based policies, checks device compliance, and grants access based on least-privilege principles — not implicit trust. [...] In a Zero Trust checklist, access to data is governed by both identity and device posture. Network Access Control enforces this by verifying who the user is, whether the device is compliant, and what level of access is appropriate — before any connection to sensitive resources is allowed. [...] Think of your corporate network as a high-security building. In a Zero Trust model, no one gets a master key, every person and device must prove who they are and what they’re allowed to access.\n\nThat’s exactly the role Network Access Control (NAC) plays in a Zero Trust security framework.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.ituonline.com/blogs/implementing-network-access-control-nac-best-practices-and-strategies",
+            "title": "Implementing Network Access Control (NAC): Best Practices and Strategies – ITU Online IT Training",
+            "content": "For device management and security posture expectations, review official guidance from Microsoft, CIS, and CISA. The right answer for unmanaged devices is usually less access, better segmentation, and more visibility.\n\n## Monitoring, Logging, and Continuous Improvement\n\nNAC is not a “set it and forget it” control. Access patterns change, new device types appear, and business units find new ways to connect things that were never in the original design. That is why continuous monitoring matters. [...] For a standards-based view of identity and device risk, see NIST guidance on access control and cybersecurity frameworks, along with official NAC and network access features described in vendor documentation such as Cisco and Microsoft Learn.\n\n## Why NAC Is Essential in Today’s Security Landscape [...] For technical fit and product capabilities, consult official vendor documentation from Cisco, Microsoft, and certificate authority guidance from vendors you already trust in your environment. Keep the evaluation grounded in what your network can actually enforce, not in a feature list that looks good in a demo.\n\n## Planning a Phased NAC Deployment",
+            "raw_content": null
+          },
+          {
+            "url": "https://www2.rivier.edu/journal/roaj-fall-2007/j105-sood.pdf",
+            "title": "NETWORK ACCESS CONTROL",
+            "content": "Rivier College Arti Sood 2 1 OVERVIEW Network access control should perform five fundamental functions: pre-admission host posture checking; quarantine and remediation; identity aware and policy based authentication, resource access control, and post–admission check along with ongoing threat analysis and containment. No single vendor has solution that addresses all five NAC areas but customers are attempting to solve only portions of network access control problems. A few players in network [...] players in network access control technology are: Microsoft with its Network Access Protection (NAP) technology works through Windows Operating Systems; Cisco has Network Admission Control (NAC), which depends on Cisco’s switching infrastructure; Trusted Network Group has standard based Trusted Network Connect (TNC); and Juniper has Unified Access Control (UAC), which uses TNC open standard specification. It is clearly becoming evident that network access control is moving towards framework [...] 3 NAC FRAMEWORK AND FUNCTIONS The key functional aspects of network access controls are: Posture assessment, Access control, Identity based resource control, Quarantine/Remediation, and Threat Assessment. They are performed by different components of the NAC framework (see Figure 1). The NAC products grant access to network based on factors like host assessment, host and user authentication, patch level, location, and even time of ] day after undertaking four steps of assessment, decision,",
+            "raw_content": null
+          },
+          {
+            "url": "https://security.cms.gov/policy-guidance/access-control-ac",
+            "title": "Access Control (AC) | CMS Information Security and Privacy Program",
+            "content": "This Guide is also applicable to all Information Technology (IT) resources, including network and computer hardware, software and applications, mobile devices, and telecommunication systems owned or operated by (or on behalf of) CMS.\n\n### Roles and Responsibilities [...] Network access to privileged commands is limited to specific roles listed as privileged users in CMS IS2P2. These roles are:\n\n Application Administrators\n Database Administrators\n System Developers and Maintainers\n System/Network Administrators\n Website Owner/Administrators\n Additional roles as documented in the System Security and Privacy Plan (SSPP). [...] For additional guidance related to the above agreements and documents, please review the Privacy Handbook. The System Security and Privacy Officer (previously known as ISSO) is responsible for developing and managing any agreement utilized for information sharing and should coordinate with the appropriate Data Guardian and Privacy Advisor.\n\n### ​​​​​​​Publicly Accessible Content",
+            "raw_content": null
+          }
+        ]
+      }
+    },
+    {
+      "subject": "microservices architecture",
+      "candidate_id": "tqd3taxgap_e9ced3b274f7d19b8086238a",
+      "old_outcome": "research_more",
+      "provider_request_id": "c590db73-9d1b-460b-8b24-50a66767dc09",
+      "raw_provider_evidence": {
+        "results": [
+          {
+            "url": "https://cloud.google.com/learn/what-is-microservices-architecture",
+            "title": "What Is Microservices Architecture? | Google Cloud",
+            "content": "A microservices architecture is a type of application architecture where the application is developed as a collection of services. It provides the framework to develop, deploy, and maintain microservices architecture diagrams and services independently. [...] # What is Microservices Architecture?\n\nMicroservices architecture (often shortened to microservices) refers to an architectural style for developing applications. Microservices allow a large application to be separated into smaller independent parts, with each part having its own realm of responsibility. To serve a single user request, a microservices-based application can call on many internal microservices to compose its response. [...] Traditional monolithic applications are built as a single, unified unit. All components are tightly coupled, sharing resources and data. This can lead to challenges in scaling, deploying, and maintaining the application, especially as it grows in complexity. In contrast, microservices architecture decomposes an application into a suite of small, independent services. Each microservice is self-contained, with its own code, data, and dependencies. This approach offers several potential",
+            "raw_content": null
+          },
+          {
+            "url": "https://vfunction.com/blog/microservices-architecture-guide",
+            "title": "Microservices architecture and design: A complete overview - vFunction",
+            "content": "Microservices architecture, or simply microservices, comprises a set of focused, independent, autonomous services that make up a larger business application. The architecture provides a framework for independently writing, updating, and deploying services without disrupting the overall functionality of the application. Within this architecture, every single service within the microservices architecture is self-contained and implements a specific business function. For example, building an [...] But the benefits aren’t automatic. To truly realize the promise of microservices, teams must follow sound design principles and architectural practices. This is especially true when breaking a monolith into microservices—a step often taken during cloud migration. Organizations expect the cloud to deliver agility, velocity, elasticity, and cost savings, yet those outcomes rarely materialize without a well-designed microservices architecture. [...] Microservices have become an extremely popular architectural tool for building applications, offering several benefits, including faster development, deployment, and scalability. It’s important to note that many times adopting microservices architecture is an evolutionary process and very few large scale applications were born as microservices. Many times applications are lifted and shifted to the cloud as monoliths and only later are rearchitected and transformed into microservices that allow",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.bunnyshell.com/blog/what-is-microservices-architecture",
+            "title": "Microservices in a Nutshell – What Is the Microservice | Bunnyshell",
+            "content": "However, to sum it up, we will go back to the definition of microservices. Microservices architecture is a collection of services that communicate with each other via APIs. Used together, these services enable the functionality of an application. [...] ## What Are the Benefits of a Microservices Architecture?\n\nThe microservices architecture is a model that facilitates the desired operation model – 87% of microservices users agree that microservices adoption is worth the expense and effort. That’s because:\n\n1. Microservices are independently deployable [...] 2. Decentralization – since each module (microservice) can function independently, the traditional centralized governance model doesn’t apply. Microservice architecture also embraces decentralized data management. This means the development team is responsible for all aspects of the software they built, including operating the software 24/7; nowadays, more and more companies push responsibility to the development teams.",
+            "raw_content": null
+          },
+          {
+            "url": "https://microservices.io",
+            "title": "What are microservices?",
+            "content": "Microservices - also known as the microservice architecture - is an architectural style that structures an application as a collection of two or more services that are:\n\n Independently deployable\n Loosely coupled\n\nServices are typically organized around business capabilities. Each service is often owned by a single, small team.\n\n\n\n## New and notable\n\n\n\nMy GenAI development workflow: Idea to Code [...] The microservices pattern language is your guide when designing an architecture: service collaboration, testing, deployment, common crosscutting concerns and more. It’s a collection of patterns that help you make decisions when designing and evolving an architecture.\n\n\n\n## Incrementally refactor a monolith to microservices\n\nThe monolithic architecture is not an anti-pattern. It’s a good choice for small teams and small projects.",
+            "raw_content": null
+          },
+          {
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/guide/architecture-styles/microservices",
+            "title": "Microservices Architecture Style - Azure Architecture Center | Microsoft Learn",
+            "content": "A microservices architecture consists of a collection of small, autonomous services. Each service is self-contained and should implement a single business capability within a bounded context. A bounded context is a natural division within a business and provides an explicit boundary within which a domain model exists.\n\nLogical diagram of microservices architecture style.\n\nLogical diagram of microservices architecture style. [...] ## In this article\n\nMicroservices are a popular architectural style for building applications that are resilient, highly scalable, independently deployable, and able to evolve quickly. Building a successful microservices architecture requires a fundamental shift in mindset. It goes beyond decomposing an application into smaller services. You must also rethink how systems are designed, deployed, and operated. [...] Small code base: In a monolithic application, code dependencies often become tangled over time. Adding a new feature might require changes in many parts of the codebase. A microservices architecture avoids this problem by not sharing code or data stores. This approach minimizes dependencies and makes it easier to introduce new features.\n\nMix of technologies: Teams can pick the technology that best suits their service by using a mix of technology stacks as appropriate.",
+            "raw_content": null
+          }
+        ]
+      }
+    },
+    {
+      "subject": "cloud security",
+      "candidate_id": "tqd3taxgap_ec1ba7895370d92381fdeab0",
+      "old_outcome": "research_more",
+      "provider_request_id": "bf70737a-5a6e-4cf5-b09f-22b51ff70cf3",
+      "raw_provider_evidence": {
+        "results": [
+          {
+            "url": "https://www.cisco.com/site/us/en/learn/topics/security/what-is-cloud-security.html",
+            "title": "What Is cloud security? [Definition & types]  - Cisco",
+            "content": "Cloud security is the practice of protecting data, applications, and infrastructure in cloud environments through a shared responsibility model between cloud providers and customers. The split of security duties varies by service model - infrastructure as a service (IaaS), platform as a service (PaaS), and software as a service (SaaS) - with providers securing the underlying cloud and customers securing what they put in it. Cloud security covers the same protection categories as traditional [...] Cloud security is the practice of protecting data, applications, and infrastructure in cloud environments through a shared responsibility model between providers and customers. It covers the same categories as traditional security but is designed for distributed access, dynamic resources, and multicloud environments.\n\n### What is the shared responsibility model? [...] NIST SP 800-144 (Guidelines on Security and Privacy in Public Cloud Computing) and the Cloud Security Alliance (CSA) Cloud Controls Matrix both provide authoritative frameworks for understanding shared responsibility across cloud service models.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.illumio.com/cybersecurity-101/cloud-security",
+            "title": "Cloud Security | Illumio",
+            "content": "Cloud security refers to the technologies, policies, controls, and practices designed to secure cloud computing environments, applications, and data from cyber threats. It includes a range of security topics: [...] Cloud network security: Protecting cloud-based infrastructure and networks from unauthorized access.\n Cloud application security: Securing apps running in the cloud against threats and vulnerabilities.\n Cloud data security: Ensuring that data stored and processed in the cloud remains protected against breaches and leaks.\n Hybrid cloud security: Managing security across multi-cloud and hybrid cloud environments.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.offsec.com/cybersecurity-roles/cloud-security-engineer",
+            "title": "How to Become a Cloud Security Engineer | OffSec",
+            "content": "A cloud security engineer is responsible for designing and implementing secure cloud architectures, managing risk assessments and security policies, ensuring compliance with regulatory standards, overseeing identity and access management, protecting data through encryption, responding to security incidents, and maintaining network security. They also work collaboratively with IT and development teams to integrate security into cloud operations and stay updated on the latest in cloud [...] A Cloud security engineer is responsible for ensuring the security and integrity of cloud-based computing systems. Their primary role involves designing, implementing, and maintaining secure cloud infrastructures. This includes setting up and configuring cloud security measures, such as firewalls, identity and access management systems, and encryption protocols to protect data and applications hosted in the cloud. They also monitor for and respond to security breaches or vulnerabilities, [...] Cloud security engineering is considered an excellent career choice, primarily due to its growing importance in the digital landscape. As organizations increasingly rely on cloud technologies, the demand for professionals skilled in securing these environments is surging. Cloud security engineering is a dynamic and constantly evolving field, providing continuous learning opportunities and professional growth. Additionally, the role is impactful, with engineers playing a crucial part in",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.acilearning.com/blog/cloud-security-engineers-protecting-infrastructure-in-an-era-of-digital-transformation",
+            "title": "The Role of Cloud Security Engineers | ACI Learning",
+            "content": "A cloud security engineer designs, implements, and maintains secure cloud environments. Accordingly, their work blends aspects of cybersecurity, engineering, and cloud architecture into a single, highly technical role. These professionals must protect a business's sensitive data by implementing proactive security measures across cloud infrastructure, all while ensuring regulatory compliance.\n\nDaily responsibilities include: [...] Cloud security engineers sit at the intersection of cloud architecture and cybersecurity. They design, monitor, and defend cloud environments so businesses can move faster while maintaining the security of sensitive systems and data. [...] Secure architecture design: A certified cloud security professional designs secure systems from the ground up. Applying cloud architecture best practices helps protect data and workloads.\n API security and automation: Cloud environments rely heavily on APIs. A cloud security specialist secures necessary integrations, monitors API traffic, and automates security processes to prevent breaches.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.ibm.com/think/topics/cloud-security",
+            "title": "What is Cloud Security? | IBM",
+            "content": "# What is cloud security?\n\n## What is cloud security?\n\nCloud security is a collection of procedures and technology designed to address external and internal threats to business security. Organizations need cloud security as they move toward their digital transformation strategy and incorporate cloud-based tools and services as part of their infrastructure.",
+            "raw_content": null
+          }
+        ]
+      }
+    },
+    {
+      "subject": "distributed systems",
+      "candidate_id": "tqd3taxgap_3378534650a9f3cc8cd3d57a",
+      "old_outcome": "research_more",
+      "provider_request_id": "4b88aef3-69db-41f1-9a0c-1dbdc44063ab",
+      "raw_provider_evidence": {
+        "results": [
+          {
+            "url": "https://akuszyk.com/2024-06-28-practical-checklist-for-distributed-systems.html",
+            "title": "A practical checklist for building distributed systems | akuszyk.com",
+            "content": "In any distributed system, there will be network boundaries between components. These might be HTTP requests one program makes to another, database connections, or publication/consumption of messages to a broker. Each of these network boundaries introduces a significant source of failure, so any design that introduces new network boundaries should carefully consider how failure will also be managed. [...] ## Summary\n\nSo, there’s our checklist. When we were designing new areas of a distributed system, we would review our drafts against the following topics:\n\n Network boundaries and failures.\n Idempotency, retries, and duplicate checking.\n Disaster recovery at the component, AZ, and region level.\n Horizontal scalability.\n Process termination. [...] As described in the network boundaries section above, your application is probably connected to several other software components over a network. Some of these might be other internal systems, others might be databases, etc:",
+            "raw_content": null
+          },
+          {
+            "url": "https://vowi.fsinf.at/images/b/bc/TU_Wien-Verteilte_Systeme_VO_%28G%C3%B6schka%29_-_Tannenbaum-distributed_systems_principles_and_paradigms_2nd_edition.pdf",
+            "title": "Distributed Systems: Principles and Paradigms",
+            "content": "In such cases, system administration may have tested and certified applications,\nand may have taken special measures to ensure that such components cannot be\ntampered with. In essence, the users trust their system administrators. However,\nthis trust does not expand naturally across domain boundaries.\nIf a distributed system expands into another domain, two types of security\nmeasures need to be taken. First of all, the distributed system has to protect itself [...] physical layer. In addition, the size and shape of the network connector (plug), as\nwell as the number of pins and meaning of each are of concern here.\nThe physical layer protocol deals with standardizing the electrical, mechani-\ncal, and signaling interfaces so that when one machine sends a 0 bit it is actually\nreceived as a 0 bit and not a 1 bit. Many physical layer standards have been devel-\noped (for different media), for example, the RS-232-C standard for serial commu-\nnication lines. [...] synchronization.\nThis latter approach to synchronization is followed for MPEG streams. The\nMPEG (Motion Picture Experts Group) standards form a collection of algo-\nrithms for compressing video and audio. Several MPEG standards exist. MPEG-2,\nfor example, was originally designed for compressing broadcast quality video into\n4 to 6 Mbps. In MPEG-2, an unlimited number of continuous and discrete streams\ncan be merged into a single stream. Each input stream is first turned into a stream",
+            "raw_content": null
+          },
+          {
+            "url": "https://link.springer.com/article/10.1007/s00607-016-0508-7",
+            "title": "A brief introduction to distributed systems | Computing | Springer Nature Link",
+            "content": "\\(\\mathsf {BEGIN\\\\_TRANSACTION}\\) and \\(\\mathsf {END\\\\_TRANSACTION}\\) are used to delimit the scope of a transaction. The operations between them form the body of the transaction. The characteristic feature of a transaction is either all of these operations are executed or none are executed. These may be system calls, library procedures, or bracketing statements in a language, depending on the implementation. [...] One typical aspect in programming support is the scope provided by communication primitives. This scope can vary between addressing the physical neighborhood of a node, and providing primitives for systemwide communication. In addition, it may also be possible to address a specific group of nodes. Likewise, computations may be restricted to an individual node, a group of nodes, or affect all nodes. To illustrate, Welsh and Mainland [66 Programming sensor networks using abstract regions. In: [...] For example, many components of a distributed system that reside within a single domain can often be trusted by users that operate within that same domain. In such cases, system administration may have tested and certified applications, and may have taken special measures to ensure that such components cannot be tampered with. In essence, the users trust their system administrators. However, this trust does not expand naturally across domain boundaries.",
+            "raw_content": null
+          },
+          {
+            "url": "https://www.atlassian.com/microservices/microservices-architecture/distributed-architecture",
+            "title": "What is a distributed system? | Atlassian",
+            "content": "A distributed system is a collection of computer programs that utilize computational resources across multiple, separate computation nodes to achieve a common, shared goal. Also known as distributed computing or distributed databases, it relies on separate nodes to communicate and synchronize over a common network. These nodes typically represent separate physical hardware devices but can also represent separate software processes, or other recursive encapsulated systems. Distributed systems [...] Improve your developer experience, catalog all services, and increase software health.\n\nGet it free\n\nA distributed system is a collection of computer programs that utilize computational resources across multiple, separate computation nodes to achieve a common, shared goal. Distributed systems aim to remove bottlenecks or central points of failure from a system. [...] Service-oriented architecture (SOA) is a predecessor of microservices. The main difference between SOA and microservices is node scope – the scope of microservice nodes exist at the feature level. In microservices a node encapsulates the business logic to handle a specific feature set, such as payment processing. Microservices contain multiple disparate business logic nodes that interface with independent database nodes. Comparatively, SOA nodes encapsulate an entire application or enterprise",
+            "raw_content": null
+          },
+          {
+            "url": "https://designgurus.substack.com/p/distributed-systems-and-scalable",
+            "title": "The Distributed Systems Roadmap Every Software Engineer Should Follow",
+            "content": "That is a distributed system: multiple computers working together to appear as a single system to the user.\n\nThe challenge is that distributed systems introduce problems that do not exist on a single machine.\n\nNetworks are unreliable. Clocks on different machines drift.\n\nA database update on one machine might not be visible on another machine for seconds. A server can crash at any moment, including halfway through writing data. [...] Availability: Every request receives a response (not an error), even if some servers are down. The system always answers, though the answer might be stale.\n\nPartition tolerance: The system continues to operate even when the network between servers is broken. Messages between servers are lost or delayed.\n\nThe insight most people miss: network partitions are not optional.\n\nIn any distributed system, the network will eventually fail. [...] The CAP theorem is the most cited and most misunderstood concept in distributed systems. It states that a distributed system can provide at most two of three guarantees simultaneously.\n\nConsistency: Every read returns the most recent write. If you write “balance = $100” and then immediately read, you get $100, regardless of which server handles the read.",
+            "raw_content": null
+          }
+        ]
+      }
+    }
+  ]
+}

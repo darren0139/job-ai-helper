@@ -1,5 +1,5 @@
 {
-  "version": "source-authority-registry-v1.5",
+  "version": "source-authority-registry-v1.6",
   "contract": {
     "matching": "exact_candidate_or_maintainer_alias_plus_exact_or_suffix_domain_and_optional_path_prefix",
     "definition_authority_matching": "explicit_versioned_domain_and_optional_path_scope_only",
@@ -7,6 +7,16 @@
     "model_calls": 0,
     "provider_authority_claim_trusted": false
   },
+  "reviewed_capability_sources": [
+    {"domain": "cloud.google.com", "path_prefixes": ["/learn/what-is-microservices-architecture"], "subjects": ["microservices architecture"], "origin_id": "google", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; sufficiency-v2 implementation authorized. Full document evidence still required."},
+    {"domain": "learn.microsoft.com", "path_prefixes": ["/en-us/azure/architecture/guide/architecture-styles/microservices"], "subjects": ["microservices architecture"], "origin_id": "microsoft", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."},
+    {"domain": "cisco.com", "path_prefixes": ["/site/us/en/learn/topics/security/what-is-cloud-security.html"], "subjects": ["cloud security"], "origin_id": "cisco", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."},
+    {"domain": "ibm.com", "path_prefixes": ["/think/topics/cloud-security"], "subjects": ["cloud security"], "origin_id": "ibm", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."},
+    {"domain": "cloudi-fi.com", "path_prefixes": ["/blog/zero-trust-checklist-network-access-control"], "subjects": ["network access control"], "origin_id": "cloudi-fi", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."},
+    {"domain": "easynac.com", "path_prefixes": ["/whatisnac"], "subjects": ["network access control"], "origin_id": "easynac", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."},
+    {"domain": "rivier.edu", "path_prefixes": ["/journal/roaj-fall-2007/j105-sood.pdf"], "subjects": ["network access control"], "origin_id": "rivier", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review of academic document; full text still required."},
+    {"domain": "atlassian.com", "path_prefixes": ["/microservices/microservices-architecture/distributed-architecture"], "subjects": ["distributed systems"], "origin_id": "atlassian", "kind": "strong_technical", "reviewed_by": "five-candidate-calibration-scope-audit", "reviewed_at": "2026-10-09", "review_basis": "Calibration scope review; full document evidence still required."}
+  ],
   "authoritative_definition_sources": [
     {"domain": "acm.org"},
     {"domain": "dl.acm.org"},

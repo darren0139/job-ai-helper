@@ -1,0 +1,32 @@
+{
+  "research_result_id": "tqd3h1_ae09d2183b39f2b57d09f9eb",
+  "fixture_kind": "Exact persisted excerpts; no new retrieval",
+  "subject": "cloud security",
+  "excerpts": [
+    {
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-144.pdf",
+      "offset": 25501,
+      "text": "The purpose of this document is to provide an overview of public cloud computing and the security and privacy challenges involved."
+    },
+    {
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-144.pdf",
+      "offset": 9509,
+      "text": "This document does not prescribe or recommend any specific cloud computing service, service arrangement, service agreement, service provider, or deployment model."
+    },
+    {
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-144.pdf",
+      "offset": 11970,
+      "text": "The responsibilities of both the organization and the cloud provider vary depending on the service model."
+    },
+    {
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-144.pdf",
+      "offset": 106286,
+      "text": "SAML alone is not sufficient to provide cloud-based identity and access management services."
+    },
+    {
+      "url": "https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-146.pdf",
+      "offset": 23641,
+      "text": "The privacy and security of cloud computing depend primarily on whether the cloud service provider has implemented robust security controls and a sound privacy policy desired by their customers, the visibility that customers have into its performance, and how well it is managed."
+    }
+  ]
+}

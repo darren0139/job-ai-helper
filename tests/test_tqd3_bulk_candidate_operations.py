@@ -151,15 +151,18 @@ def ui_plan(*, external=1, targets=True):
 
 class QueueAndPlanningTests(unittest.TestCase):
     def test_zero_result_follow_up_queries_stop_after_three_distinct_intents(self):
-        item = candidate("MongoDB", "technology_relationship")
-        row = {"candidate": item, "research_status": "research_more_required"}
-        saved = [{"result": {
-            "candidate_fingerprint": item["candidate_fingerprint"],
-            "research": {"target": {"research_round": 1}},
-        }}]
-        self.assertEqual(bulk._research_round(row, saved), 2)
-        saved[0]["result"]["research"]["target"]["research_round"] = 2
-        self.assertIsNone(bulk._research_round(row, saved))
+        from tests.test_tqd3_governed_research import execute
+        from tests.test_tqd3_refresh_planner_handoff import reseal
+        with PublicationFixture() as f:
+            item = candidate("MongoDB", "technology_relationship")
+            row = {"candidate": item, "research_status": "research_more_required"}
+            result = execute(f, item, {"request_id": "zero-result-round", "results": []})
+            result["research"]["target"]["research_round"] = 1
+            saved = [{"result": reseal(result)}]
+            self.assertEqual(bulk._research_round(row, saved), 2)
+            result["research"]["target"]["research_round"] = 2
+            reseal(result)
+            self.assertIsNone(bulk._research_round(row, saved))
 
     def test_historical_registry_relationship_is_revalidated_against_current_mapping(self):
         with PublicationFixture():
@@ -210,7 +213,8 @@ class QueueAndPlanningTests(unittest.TestCase):
             self.assertIn("sql server", row["unresolved_components"])
 
     def test_aws_negative_and_keycloak_stale_research_more_remain_fail_closed(self):
-        with PublicationFixture():
+        from tests.test_tqd3_governed_research import execute, fake_raw
+        with PublicationFixture() as f:
             aws = candidate(AWS, "technology_identity")
             keycloak = candidate("Keycloak", "technology_relationship")
             old = deepcopy(keycloak)
@@ -218,9 +222,8 @@ class QueueAndPlanningTests(unittest.TestCase):
             old.pop("candidate_id"); old.pop("candidate_fingerprint")
             old["candidate_fingerprint"] = fingerprint(old)
             old["candidate_id"] = "tqd3taxgap_" + old["candidate_fingerprint"][:24]
-            saved = [{"result": {"candidate": old, "candidate_fingerprint": old["candidate_fingerprint"],
-                "research_result_id": "old-keycloak", "recommended_next_action": "research_more"},
-                "draft": None, "review": {"decision": "undecided"}}]
+            result = execute(f, old, fake_raw("Keycloak"))
+            saved = [{"result": result, "draft": None, "review": {"decision": "undecided"}}]
             queue = bulk.build_candidate_queue([aws, keycloak], saved_rows=saved, publications=[])
             rows = {row["concept"]: row for row in queue["rows"]}
             aws_row = rows[aws["concept_key"]]
@@ -284,9 +287,10 @@ class QueueAndPlanningTests(unittest.TestCase):
             published = candidate("NovelToolA", "technology_identity")
             rejected = candidate("NovelToolB", "technology_identity")
             deferred = candidate("NovelToolC", "technology_identity")
+            from tests.test_tqd3_governed_research import execute, fake_raw
             def saved(candidate_row, decision):
-                return {"result": {"candidate": candidate_row, "candidate_fingerprint": candidate_row["candidate_fingerprint"],
-                    "research_result_id": "r-" + decision, "recommended_next_action": "technology_identity_proposal"},
+                return {"result": execute(f, candidate_row, fake_raw(candidate_row["concept_key"],
+                    request_id="governance-" + decision)),
                     "draft": None, "review": {"decision": decision}}
             saved_rows = [saved(rejected, "reject"), saved(deferred, "defer")]
             publications = [{"candidate_id": published["candidate_id"], "status": "published"}]

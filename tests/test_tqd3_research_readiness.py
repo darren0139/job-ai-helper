@@ -64,7 +64,7 @@ class RegistryReadinessTests(unittest.TestCase):
 class AuthorityAndEvidenceTests(unittest.TestCase):
     def test_authority_registry_version_and_fingerprint_are_explicit_currentness_inputs(self):
         rules = load_source_authority_registry()
-        self.assertEqual(rules["version"], "source-authority-registry-v1.5")
+        self.assertEqual(rules["version"], "source-authority-registry-v1.6")
         original = fingerprint(rules)
         changed = deepcopy(rules)
         changed["technology_domains"][0]["official_domains"].append("example.invalid")

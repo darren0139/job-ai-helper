@@ -288,6 +288,20 @@ def _render_review(st, snapshot, disabled):
     disabled = disabled or bool(target["binding_blocker"]) or target["status"] == "STALE / REFRESH REQUIRED"
     st.write("Research outcome", result["recommended_next_action"])
     st.write("Research blockers", result["conflicts_blockers"])
+    bundle = result.get("support_bundle")
+    if bundle:
+        st.dataframe([{"Support required": name.replace("_", " ").capitalize(),
+                       "Status": item["status"]} for name, item in bundle["fields"].items()],
+                     hide_index=True, width="stretch")
+        st.write("Source convergence — independent governed origins", bundle["independent_governed_origins"])
+        st.caption("Search snippets are provisional. Convergence counts retrieved document text from governed origins.")
+        st.write("Conflicts", bundle["conflicts"] or "none detected within deterministic checks")
+        st.write("Sufficiency outcome", bundle["outcome"])
+        if not bundle["eligible_for_human_review"]:
+            st.write("Missing evidence", bundle["missing_evidence"])
+            st.write("Recommended next research action", result.get("next_research_plan"))
+        with st.expander("Advanced / exact support text, source scopes and origin provenance"):
+            st.json(bundle)
     st.dataframe([{"title": s["evidence"].get("title"), "url": s["evidence"].get("url"),
                    "source_class": s.get("source_class"),
                    "accepted_definition_sentences": s.get("accepted_definition_sentences", [])}

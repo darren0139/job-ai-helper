@@ -24,8 +24,8 @@ from taxonomy_discovery.source_authority import load_source_authority_registry
 from taxonomy_discovery.technology_registry import get_default_registry, resolve_requirement_text, normalise
 
 RESEARCH_VERSION = "tqd3-governed-research-h1-v1"
-INTERPRETATION_VERSION = "tqd3-governed-interpretation-h1.3-v1"
-PLAN_VERSION = "tqd3-governed-research-plan-h1-v2"
+INTERPRETATION_VERSION = "tqd3-governed-interpretation-sufficiency-v2.1"
+PLAN_VERSION = "tqd3-governed-research-plan-h1-v3"
 MAX_BATCH = 3
 MAX_ATTEMPTS = 2
 ELIGIBLE_ROUTES = ("existing_capability_resolver_issue", "technology_relationship",
@@ -84,7 +84,7 @@ def _questions(candidate, subject, query_strategy):
 
 
 def research_plan(candidates, *, selected_candidate_ids, external_resolver=False, research_round=0,
-                  authority_registry_path=None):
+                  authority_registry_path=None, previous_result=None):
     if type(research_round) is not int or not 0 <= research_round <= 2:
         raise ValueError("Research round must be 0 to 2; explicit follow-up only")
     selected = sorted(set(selected_candidate_ids))
@@ -147,6 +147,22 @@ def research_plan(candidates, *, selected_candidate_ids, external_resolver=False
             strategy = build_capability_query_strategy(canonical)
             purpose = "local_resolver_review"
             authority_state = "not_applicable"
+        escalation = None
+        if c["candidate_route"] == "possible_new_capability" and previous_result is not None:
+            _validate_saved_integrity(previous_result)
+            if not compatible_saved_candidate(c, previous_result["candidate"]):
+                raise ValueError("Escalation evidence does not belong to this candidate lineage")
+            if normalise(previous_result["research"]["target"]["subject"]) != normalise(canonical):
+                raise ValueError("Escalation subject changed")
+            from taxonomy_discovery.capability_sufficiency import escalation_plan
+            evaluated = interpret({"candidate": c, "subject": canonical, "requires_decomposition": False},
+                                  previous_result["research"], authority_registry_path=authority_registry_path)
+            escalation = escalation_plan(canonical, evaluated["support_bundle"], research_round=research_round)
+            if not escalation["call_budget"]:
+                raise ValueError("No further capability research planned; use human review")
+            strategy = {**strategy, "queries": [escalation["query"]], "fallback_queries": [],
+                        "primary_query": escalation["query"], "include_domains": escalation["planned_domains"]}
+            domains = escalation["planned_domains"]
         query_index = min(research_round, max(0, len(strategy.get("queries", [])) - 1))
         search_query = strategy.get("queries", [""])[query_index] if strategy.get("queries") else ""
         t = {"candidate": deepcopy(c), "subject": canonical, "questions": _questions(c, canonical, strategy),
@@ -164,6 +180,10 @@ def research_plan(candidates, *, selected_candidate_ids, external_resolver=False
              "search_query": search_query, "fallback_queries": list(strategy.get("fallback_queries", [])),
              "include_domains": domains,
              "research_profile": "first_party_definition_rescue_v1" if domains else ""}
+        if c["candidate_route"] == "possible_new_capability":
+            t["research_profile"] = "capability_support_bundle_v2"
+            t["escalation_plan"] = escalation
+            t["maximum_provider_attempts"] = 1
         t["target_fingerprint"] = fingerprint(t)
         targets.append(t)
     plan = {"plan_version": PLAN_VERSION, "current_versions": current_match_versions(), "knowledge_fingerprint":knowledge_fingerprint(),
@@ -403,6 +423,7 @@ def interpret(target, research, *, authority_registry_path=None):
     evidence_outcome = "research_more"
     identity_review_supported = False
     capability_review_supported = False
+    support_bundle = None
 
     if decomposition_blocked:
         blockers.append("Multiple technology entities require explicit decomposition")
@@ -439,11 +460,23 @@ def interpret(target, research, *, authority_registry_path=None):
             action = "technology_identity_proposal"
             evidence_outcome = "identity_supported_for_review"
     elif route == "possible_new_capability":
+        from taxonomy_discovery.capability_sufficiency import evaluate_capability_support
+        support_bundle = evaluate_capability_support(subject, sources, candidate=c, overlap=local,
+            atomicity=atomicity, known=known, authority_registry_path=authority_registry_path)
+        capability_definitions = [r["text"] for r in support_bundle["fields"]["definition"]["evidence"]]
+        capability_boundaries = [r["text"] for r in support_bundle["fields"]["boundaries"]["evidence"]]
+        for source in sources:
+            diagnostic = source["capability_support"]
+            accepted = diagnostic["governance"]["governed"] and diagnostic["retrieved_document_text"]
+            source["accepted_definition_sentences"] = [r["text"] for r in diagnostic["support"]["definition"]] if accepted else []
+            source["capability_definition_sentences"] = list(source["accepted_definition_sentences"])
+            source["capability_boundary_sentences"] = [r["text"] for r in diagnostic["support"]["boundaries"]] if accepted else []
         provenance_ready = bool(c.get("provenance"))
         if not provenance_ready:
             blockers.append("Observed requirement provenance is required")
-        if not capability_definitions or not capability_boundaries:
-            blockers.append("Authoritative definition/boundaries not sufficiently established")
+        if not support_bundle["eligible_for_human_review"]:
+            blockers.extend(support_bundle["missing_evidence"])
+            blockers.extend(support_bundle["conflicts"])
         if local["exact_matches"] or local["high_overlap_candidates"]:
             blockers.append("Existing taxonomy overlap requires human boundary review")
             evidence_outcome = "overlaps_existing_capability"
@@ -475,7 +508,7 @@ def interpret(target, research, *, authority_registry_path=None):
         "recurrence_is_priority_metadata_only": True,
         "provenance_present": bool(c.get("provenance")),
     }
-    return {
+    result = {
         "atomicity": atomicity,
         "sources": sources,
         "authoritative_evidence_summary": (
@@ -559,6 +592,12 @@ def interpret(target, research, *, authority_registry_path=None):
         "automatic_publication": False,
         "recommended_next_action": action,
     }
+    if support_bundle is not None:
+        from taxonomy_discovery.capability_sufficiency import escalation_plan
+        result["support_bundle"] = support_bundle
+        result["next_research_plan"] = escalation_plan(subject, support_bundle,
+            research_round=target.get("research_round", 0) + 1)
+    return result
 
 
 def _validate_saved_integrity(result):
@@ -600,6 +639,63 @@ def compatible_saved_candidate(current, historical):
     return bool(_source_lineage(current) & _source_lineage(historical))
 
 
+def select_saved_interpretation(candidate, saved_rows):
+    """Shared read-only selection for Human Review and explicit planning.
+
+    Provider execution time is history, not local interpretation currentness.
+    Incompatible/corrupt records cannot win; equal applicable interpretations
+    without an explicit successor relation fail closed.
+    """
+    applicable = []
+    invalid_compatible = []
+    for row in saved_rows:
+        result = row.get("result", {})
+        try:
+            if not compatible_saved_candidate(candidate, result["candidate"]):
+                continue
+            invalid_compatible.append(result.get("research_result_id"))
+            _validate_saved_integrity(result)
+            timestamp = result.get("re_evaluated_at") or result.get("executed_at")
+            when = datetime.fromisoformat(timestamp)
+            if when.tzinfo is None:
+                raise ValueError("Interpretation timestamp requires an explicit timezone")
+            when = when.astimezone(timezone.utc)
+        except (ValueError, KeyError, TypeError, OSError):
+            continue
+        exact = result["candidate_fingerprint"] == candidate["candidate_fingerprint"]
+        try:
+            validate_result(result)
+            valid, error = True, None
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            valid, error = False, str(exc)
+        applicable.append((row, (exact and valid, valid, exact, when), error))
+    if not applicable and invalid_compatible:
+        return {"primary": None, "current": False, "ambiguous": True,
+                "reason": "Compatible saved interpretations failed integrity or timestamp validation",
+                "currentness_blocker": "Saved interpretation must be inspected before further research"}
+    if not applicable:
+        return {"primary": None, "current": False, "ambiguous": False,
+                "reason": "No intact compatible persisted interpretation", "currentness_blocker": None}
+    best_rank = max(rank for _, rank, _ in applicable)
+    best = [item for item in applicable if item[1] == best_rank]
+    unique = {item[0]["result"]["research_result_id"]: item for item in best}
+    if len(unique) > 1:
+        predecessors = {item[0]["result"].get("interpretation_lineage", {}).get("previous_research_result_id")
+                        for item in best}
+        successors = [item for rid, item in unique.items() if rid not in predecessors]
+        if len(successors) == 1:
+            best = successors
+        else:
+            return {"primary": None, "current": False, "ambiguous": True,
+                    "reason": "Ambiguous compatible persisted interpretations",
+                    "currentness_blocker": "Equal-currentness interpretations have no unique successor",
+                    "result_ids": sorted(unique)}
+    row, rank, error = best[0]
+    return {"primary": row, "current": bool(rank[0]), "ambiguous": False,
+            "reason": "Compatible lineage; current exact interpretation preferred; latest local interpretation time",
+            "currentness_blocker": error or (None if rank[0] else "Interpretation requires current candidate rebinding")}
+
+
 def validate_result(result, *, allow_stale_authority=False):
     _validate_saved_integrity(result)
     validate_candidate(result["candidate"])
@@ -607,6 +703,8 @@ def validate_result(result, *, allow_stale_authority=False):
         raise ValueError("Research knowledge stale")
     if result["knowledge_fingerprint"] != knowledge_fingerprint():
         raise ValueError("Research knowledge contents changed")
+    if not allow_stale_authority and result.get("interpretation_version") != INTERPRETATION_VERSION:
+        raise ValueError("Research interpretation changed; refresh saved evidence")
     raw = result["research"]["raw_provider_evidence"]
     local_only = result["candidate_route"] == "existing_capability_resolver_issue" and raw.get("provider") == "local_deterministic" and not raw.get("results")
     if not allow_stale_authority and not local_only and result["authority_rules_fingerprint"] != fingerprint(load_source_authority_registry(result.get("authority_registry_path"))):
@@ -731,7 +829,8 @@ def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, 
                 raw = {"request_id":"local_"+t["target_fingerprint"], "results":[], "provider":"local_deterministic"}
                 research = {"target":deepcopy(t), "raw_provider_evidence":raw, "request_id":raw["request_id"], "evidence_fingerprint":fingerprint(raw), "approval":False}
             else:
-                for attempt in range(MAX_ATTEMPTS):
+                maximum_attempts = min(MAX_ATTEMPTS, t.get("maximum_provider_attempts", MAX_ATTEMPTS))
+                for attempt in range(maximum_attempts):
                     # Recheck immediately before EACH potentially paid attempt.
                     validate_candidate(t["candidate"])
                     if plan["knowledge_fingerprint"] != knowledge_fingerprint():
@@ -748,7 +847,7 @@ def execute_plan(plan, candidates, *, explicit_execution=False, transport=None, 
                             isinstance(exc,TavilyResearchError) and (
                                 isinstance(cause,HTTPError) and (cause.code == 429 or cause.code >= 500)
                                 or isinstance(cause,URLError) and not isinstance(cause,HTTPError)))
-                        if not retryable or attempt+1 == MAX_ATTEMPTS:
+                        if not retryable or attempt+1 == maximum_attempts:
                             raise
             result = {"research_version":RESEARCH_VERSION, "research_plan_fingerprint":plan["plan_fingerprint"],
                       "interpretation_version":INTERPRETATION_VERSION,"authority_rules_version":load_source_authority_registry(authority_registry_path).get("version"),

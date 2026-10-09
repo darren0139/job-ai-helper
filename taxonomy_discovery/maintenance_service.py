@@ -78,6 +78,8 @@ def production_identity():
                 "taxonomy_discovery/regression_corpus.py",
                 "taxonomy_discovery/research_readiness.py",
                 "taxonomy_discovery/governed_research.py",
+                "taxonomy_discovery/capability_sufficiency.py",
+                "taxonomy_discovery/source_authority.py",
                 "taxonomy_discovery/offline_execution.py",
                 "taxonomy_discovery/maintenance_service.py",
             )}),
@@ -432,13 +434,19 @@ def build_review_targets(snapshot, *, saved_rows=None, new_ids=()):
             return (intact, exact and valid, exact, valid,
                     result.get("re_evaluated_at") or result.get("executed_at", ""), result["research_result_id"])
         attempts = sorted(group["attempts"], key=rank, reverse=True)
-        primary = attempts[0]
+        selection = research.select_saved_interpretation(current, attempts) if current else None
+        primary = selection["primary"] if selection and selection["primary"] else attempts[0]
+        if selection and not selection["primary"]:
+            group["binding_blocker"] = selection["reason"]
         status = review_group(primary, new_ids)
+        if group["binding_blocker"]:
+            status = "STALE / REFRESH REQUIRED"
         if current and primary["result"]["candidate_fingerprint"] != current["candidate_fingerprint"]:
             status = "STALE / REFRESH REQUIRED"
         historical = [row for row in attempts if row is not primary or status == "STALE / REFRESH REQUIRED"]
         output.append({**group, "attempts": attempts, "historical_attempts": historical,
             "group_id": fingerprint(key), "primary": primary, "status": status,
+            "interpretation_selection": {k: v for k, v in (selection or {}).items() if k != "primary"},
             "concept": current["concept_key"] if current else primary["result"]["candidate"]["concept_key"]})
     order = {"NEW / NEEDS REVIEW": 0, "STALE / REFRESH REQUIRED": 1, "BLOCKED / RESEARCH_MORE": 2, "HISTORICAL": 3}
     return sorted(output, key=lambda group: (group["primary"]["result"]["research_result_id"] not in new_ids,
@@ -456,6 +464,8 @@ def refresh_saved_research(snapshot, candidate_id, *, explicit_execution=False, 
     if len(applicable) != 1:
         raise ValueError("Saved evidence cannot be associated with the current candidate lineage")
     group = applicable[0]
+    if group["binding_blocker"]:
+        raise ValueError(group["binding_blocker"])
     # Only the native governor performs reinterpretation and result persistence.
     with offline_execution("Saved-evidence refresh is offline"):
         return research.re_evaluate_saved_evidence(group["primary"]["result"],

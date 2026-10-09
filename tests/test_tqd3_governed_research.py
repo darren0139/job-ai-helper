@@ -44,6 +44,18 @@ def fake_raw(name="ZetaNovelTool", content=None, request_id="h1-fake"):
         "content":content or f"{name} is a concrete software engineering tool.", "authoritative":True, "stars":999999}]}
 
 
+def fake_capability_raw(subject, request_id="h1-capability-fake"):
+    """Complete retrieved document, not a two-sentence search snippet."""
+    text = (f"{subject} is an engineering practice coordinating bounded computing protocols. "
+            "It includes protocol coordination and state synchronization. "
+            "Engineers implement computing protocols within a bounded context. "
+            "It excludes generic tool usage, which does not prove this practice. "
+            "Documented protocol configuration and validated synchronization tests demonstrate implementation evidence.")
+    raw = fake_raw(subject, text, request_id)
+    raw["results"][0]["raw_content"] = text
+    return raw
+
+
 def execute(f, c=None, raw=None, **kwargs):
     c = c or candidate("ZetaNovelTool")
     p = h1.research_plan([c], selected_candidate_ids=[c["candidate_id"]])
@@ -267,7 +279,7 @@ class RouteEvidenceTests(unittest.TestCase):
     def test_possible_new_draft_explicit_no_auto_capability(self):
         with PublicationFixture() as f:
             c=candidate(); subject=c["concept_key"]
-            result=execute(f,c,fake_raw(subject,subject+" is an engineering capability for implementing distinct computing protocols."))
+            result=execute(f,c,fake_capability_raw(subject))
             self.assertEqual(result["recommended_next_action"],"new_capability_proposal")
             with self.assertRaises(ValueError): h1.create_draft(result)
             fields={"capability_id":"test.crystalline_computing","label":subject,"domain":"distributed_systems",
@@ -358,7 +370,8 @@ class RouteAwareEvidenceSufficiencyTests(unittest.TestCase):
         self.assertFalse(result["capability_finding"]["capability_definition_supported_for_review"])
         self.assertEqual(result["capability_finding"]["authoritative_definition_evidence"], [])
         self.assertEqual(result["conflicts_blockers"], [
-            "Authoritative definition/boundaries not sufficiently established"
+            "DEFINITION_MISSING", "BOUNDARY_MISSING", "RESPONSIBILITIES_MISSING",
+            "EXCLUSIONS_MISSING", "EVIDENCE_PREDICATES_MISSING", "AUTHORITY_INSUFFICIENT",
         ])
         self.assertEqual(result["recommended_next_action"], "research_more")
         self.assertFalse(result["proposal_eligible"])
@@ -378,17 +391,11 @@ class RouteAwareEvidenceSufficiencyTests(unittest.TestCase):
             target = h1.research_plan(
                 [item], selected_candidate_ids=[item["candidate_id"]], authority_registry_path=authority
             )["targets"][0]
-            sufficient = h1.interpret(target, {"raw_provider_evidence": {"results": [{
-                "url": "https://standards.example/distributed-systems",
-                "content": "Distributed systems are independent nodes coordinating toward a shared goal. "
-                           "Distributed systems include coordination failures and consistency boundaries.",
-            }]}}, authority_registry_path=authority)
-            blog = h1.interpret(target, {"raw_provider_evidence": {"results": [{
-                "url": "https://medium.example/distributed-systems",
-                "content": "Distributed systems are independent nodes coordinating toward a shared goal. "
-                           "Distributed systems include coordination failures and consistency boundaries.",
-                "authoritative": True,
-            }]}}, authority_registry_path=authority)
+            raw = fake_capability_raw("distributed systems")
+            raw["results"][0]["url"] = "https://standards.example/distributed-systems"
+            sufficient = h1.interpret(target, {"raw_provider_evidence": raw}, authority_registry_path=authority)
+            raw["results"][0]["url"] = "https://medium.example/distributed-systems"
+            blog = h1.interpret(target, {"raw_provider_evidence": raw}, authority_registry_path=authority)
         self.assertTrue(sufficient["capability_finding"]["capability_definition_supported_for_review"])
         self.assertEqual(sufficient["evidence_outcome"], "capability_definition_supported_for_review")
         self.assertEqual(sufficient["recommended_next_action"], "new_capability_proposal")
@@ -398,7 +405,8 @@ class RouteAwareEvidenceSufficiencyTests(unittest.TestCase):
         self.assertFalse(blog["capability_finding"]["capability_definition_supported_for_review"])
         self.assertEqual(blog["recommended_next_action"], "research_more")
         self.assertEqual(blog["conflicts_blockers"], [
-            "Authoritative definition/boundaries not sufficiently established"
+            "DEFINITION_MISSING", "BOUNDARY_MISSING", "RESPONSIBILITIES_MISSING",
+            "EXCLUSIONS_MISSING", "EVIDENCE_PREDICATES_MISSING", "AUTHORITY_INSUFFICIENT",
         ])
 
     def test_saved_evidence_reinterpretation_is_offline_and_history_preserving(self):

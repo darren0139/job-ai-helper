@@ -103,6 +103,10 @@ def build_tavily_search_request(
         domains = target.get("include_domains") or []
         if domains:
             payload["include_domains"] = list(domains)
+    if target.get("research_profile") == "capability_support_bundle_v2":
+        payload["include_raw_content"] = "text"
+        if target.get("include_domains"):
+            payload["include_domains"] = list(target["include_domains"])
     return payload
 
 

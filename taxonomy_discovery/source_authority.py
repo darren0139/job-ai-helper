@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.3.0"
+SOURCE_AUTHORITY_VERSION = "tqd3-source-authority-v1.4.0"
 PRIMARY_OFFICIAL = "primary_official"
 FIRST_PARTY_OTHER = "first_party_other_technology"
 SECONDARY = "secondary"
@@ -209,6 +209,45 @@ def classify_definition_source_url(
         "authority_version": SOURCE_AUTHORITY_VERSION,
         "registry_version": _clean(registry.get("version")),
     }
+
+
+def capability_source_governance(url, subject, *, registry_path=None):
+    """Reviewed scope/origin identity only; never use provider authority labels.
+
+    Legacy definition scopes remain normative. New technical/corroborating
+    scopes require document paths, reviewer provenance and an explicit origin.
+    Mirrors and shared owners must use the same governed origin_id.
+    """
+    registry = load_source_authority_registry(registry_path)
+    parsed = urlsplit(_clean(url))
+    if parsed.scheme not in {"https", "http"}:
+        return {"governed": False, "origin_id": None, "kind": None}
+    matches = []
+    for rule in registry.get("authoritative_definition_sources", []):
+        scope = _normalise_scope(rule)
+        if scope and _scope_matches(_hostname(url), parsed.path, scope):
+            origin = rule.get("origin_id") if isinstance(rule, dict) else None
+            # Collapse nested legacy scopes (e.g. dl.acm.org / acm.org).
+            roots = [s["domain"] for s in _authoritative_definition_sources(registry)
+                     if _domain_matches(scope["domain"], s["domain"])]
+            matches.append({"governed": True, "origin_id": origin or min(roots, key=len),
+                            "kind": "normative", "scope": scope, "review": "versioned_definition_scope"})
+    for rule in registry.get("reviewed_capability_sources", []):
+        scope = _normalise_scope(rule)
+        if (not scope or not scope["path_prefixes"] or not rule.get("origin_id")
+                or not rule.get("reviewed_by") or not rule.get("reviewed_at")
+                or rule.get("kind") not in {"strong_technical", "corroborating"}):
+            continue
+        if rule.get("subjects") and _key(subject) not in {_key(s) for s in rule["subjects"]}:
+            continue
+        if _scope_matches(_hostname(url), parsed.path, scope):
+            matches.append({"governed": True, "origin_id": rule["origin_id"], "kind": rule["kind"],
+                            "scope": scope, "review": {k: rule[k] for k in ("reviewed_by", "reviewed_at")}})
+    # Ambiguous origin declarations cannot grant convergence.
+    if len({m["origin_id"] for m in matches}) > 1:
+        return {"governed": False, "origin_id": None, "kind": None, "conflict": "Ambiguous governed origin"}
+    return next((m for m in matches if m["kind"] == "normative"), matches[0] if matches else
+                {"governed": False, "origin_id": None, "kind": None})
 
 
 def _secondary_kind(

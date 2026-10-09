@@ -13,7 +13,7 @@ from taxonomy_discovery import maintenance_service as service
 from taxonomy_discovery.corpus_expansion import fingerprint
 from taxonomy_discovery.regression_corpus import build_regression_corpus
 from tests.test_tqd3_regression_corpus import frozen_snapshot
-from tests.test_tqd3_governed_research import candidate, execute, fake_raw, rules
+from tests.test_tqd3_governed_research import candidate, execute, fake_raw, fake_capability_raw, rules
 from tests.tqd3_publication_fixture_support import PublicationFixture
 
 
@@ -489,7 +489,7 @@ class MaintenanceServiceTests(unittest.TestCase):
                 review_db_path=f.tmp / "missing.sqlite", explicit_execution=True)
             c = snapshot["gap_rows"][0]["candidate"]
             subject = c["concept_key"]
-            result = execute(f, c, fake_raw(subject, subject + " is an engineering capability for implementing distinct computing protocols."))
+            result = execute(f, c, fake_capability_raw(subject))
             draft = service.research.create_draft(result, explicit_creation=True, capability_fields=capability_fields(subject))
             db = f.tmp / "h1.sqlite"
             store.save_governed_research_draft(result, draft, db_path=db, proposal_db_path=f.proposal_db)

@@ -54,11 +54,10 @@ def _valid_result(result):
 
 
 def _latest_saved(candidate, saved_rows):
-    exact = [row for row in saved_rows if row["result"].get("candidate_fingerprint") == candidate["candidate_fingerprint"]]
-    exact.sort(key=lambda row: (row["result"].get("executed_at", ""), row["result"].get("research_result_id", "")), reverse=True)
-    stale = [row for row in saved_rows if row["result"].get("candidate", {}).get("concept_key") == candidate.get("concept_key")]
-    stale.sort(key=lambda row: (row["result"].get("executed_at", ""), row["result"].get("research_result_id", "")), reverse=True)
-    return (exact[0] if exact else None), (stale[0] if stale else None)
+    from taxonomy_discovery.governed_research import select_saved_interpretation
+    selection = select_saved_interpretation(candidate, saved_rows)
+    row = selection["primary"]
+    return (row if row and row["result"]["candidate_fingerprint"] == candidate["candidate_fingerprint"] else None), row
 
 
 def _published_candidate_ids(publications):
@@ -198,7 +197,11 @@ def build_candidate_queue(candidates, *, saved_rows=None, publications=None, inc
     for candidate in candidates:
         atomicity = _atomicity(candidate)
         local = _local_resolution(candidate, atomicity, product_names)
-        exact, stale = _latest_saved(candidate, saved_rows)
+        from taxonomy_discovery.governed_research import select_saved_interpretation
+        selection = select_saved_interpretation(candidate, saved_rows)
+        selected = selection["primary"]
+        exact = selected if selected and selected["result"]["candidate_fingerprint"] == candidate["candidate_fingerprint"] else None
+        stale = selected
         historical_result = (exact or stale or {}).get("result")
         review = (exact or {}).get("review") or {"decision": "undecided"}
         decision = review.get("decision", "undecided")
@@ -220,6 +223,9 @@ def build_candidate_queue(candidates, *, saved_rows=None, publications=None, inc
             state = "resolved_locally"
         elif current:
             state = "research_more_required" if result.get("recommended_next_action") == "research_more" else "research_current_cached"
+        elif selection["ambiguous"]:
+            state = "blocked"
+            blockers.append(selection["reason"])
         elif exact or stale:
             state = "stale_requires_refresh"
             blockers.append("persisted_research_fingerprint_or_knowledge_is_stale")
@@ -266,6 +272,7 @@ def build_candidate_queue(candidates, *, saved_rows=None, publications=None, inc
             "research_result_id": result.get("research_result_id") if result else None,
             "prior_recommended_action": historical_result.get("recommended_next_action") if historical_result else None,
             "current_result": current,
+            "interpretation_selection": {k: v for k, v in selection.items() if k != "primary"},
             "candidate": deepcopy(candidate),
         })
     rows.sort(key=lambda row: (-row["priority_score"], row["concept"], row["candidate_id"]))
@@ -299,7 +306,17 @@ def _research_round(row, saved_rows):
     exact, _ = _latest_saved(row["candidate"], saved_rows)
     if row["research_status"] != "research_more_required" or not exact:
         return 0
-    prior_round = int(exact["result"]["research"]["target"].get("research_round", 0))
+    from taxonomy_discovery.governed_research import compatible_saved_candidate, _validate_saved_integrity
+    rounds = []
+    for saved in saved_rows:
+        try:
+            result = saved["result"]
+            _validate_saved_integrity(result)
+            if compatible_saved_candidate(row["candidate"], result["candidate"]):
+                rounds.append(int(result["research"]["target"].get("research_round", 0)))
+        except (ValueError, KeyError, TypeError):
+            continue
+    prior_round = max(rounds, default=int(exact["result"]["research"]["target"].get("research_round", 0)))
     if prior_round >= MAX_QUERIES_PER_CANDIDATE - 1:
         return None
     return prior_round + 1
@@ -333,9 +350,11 @@ def prepare_bulk_plan(candidates, *, selected_candidate_ids, saved_rows=None, pu
         readiness = row["research_readiness"]
         if row["external_research_required"] and not readiness["paid_research_eligible"]:
             continue
+        previous, _ = _latest_saved(row["candidate"], saved_rows)
         plan = research_plan([row["candidate"]], selected_candidate_ids=[row["candidate_id"]],
                              external_resolver=False, research_round=round_number,
-                             authority_registry_path=authority_registry_path)
+                             authority_registry_path=authority_registry_path,
+                             previous_result=previous["result"] if previous and row["route"] == "possible_new_capability" else None)
         target = plan["targets"][0]
         if target["external_requested"] and not readiness["paid_research_eligible"]:
             continue

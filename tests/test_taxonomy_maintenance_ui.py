@@ -9,7 +9,7 @@ from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 from taxonomy_discovery import maintenance_service as service
 from tests.test_taxonomy_maintenance_service import fixture_corpus, capability_fields, legacy_attempt, seal_candidate
-from tests.test_tqd3_governed_research import execute, fake_raw
+from tests.test_tqd3_governed_research import execute, fake_raw, fake_capability_raw
 from database import taxonomy_discovery_review_manager as store
 from tests.tqd3_publication_fixture_support import PublicationFixture
 
@@ -74,6 +74,34 @@ class MaintenanceUITests(unittest.TestCase):
         app.run()
         self.assertEqual(len(store.list_governed_research_results(db_path=db)), 4)
         provider.assert_not_called()
+        self.research.assert_not_called()
+        self.publish.assert_not_called()
+        self.fixture.network_guard.assert_not_called()
+        self.fixture.model_guard.assert_not_called()
+
+    def test_pre_v2_refresh_removes_stale_zero_call_preview(self):
+        from tests.test_tqd3_refresh_planner_handoff import RefreshPlannerHandoffTests
+        self.corpus = fixture_corpus("cloud security")
+        snapshot, c, old = RefreshPlannerHandoffTests().seed(self.fixture)
+        db = self.fixture.tmp / "h1.sqlite"
+        self.stack.enter_context(patch.dict(os.environ, {"TAXONOMY_DISCOVERY_REVIEW_DB": str(db)}))
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        app.button(key="tm_audit").click().run()
+        app.button(key="tm_build_tranche").click().run()
+        app.multiselect(key="tm_research_ids").set_value([c["candidate_id"]]).run()
+        app.button(key="tm_plan").click().run()
+        self.assertEqual(app.session_state["tm_plan_receipt"]["planned_tavily_calls"], 0)
+        self.assertTrue(any("Refresh existing saved evidence" in item.value for item in app.info))
+        app.button(key="tm_refresh_saved").click().run()
+        app.button(key="tm_plan").click().run()
+        self.assertEqual(list(app.exception), [])
+        plan = app.session_state["tm_plan_receipt"]
+        self.assertEqual(plan["planned_tavily_calls"], 1)
+        self.assertEqual(plan["execution_preview"][0]["execution_status"], "READY TO EXECUTE")
+        self.assertFalse(any("Refresh existing saved evidence" in item.value for item in app.info))
+        groups = service.build_review_targets(app.session_state["tm_snapshot"],
+            saved_rows=store.list_governed_research_results(db_path=db))
+        self.assertEqual(groups[0]["primary"]["result"]["research_result_id"], app.session_state["tm_new_results"][0])
         self.research.assert_not_called()
         self.publish.assert_not_called()
         self.fixture.network_guard.assert_not_called()
@@ -191,6 +219,9 @@ class MaintenanceUITests(unittest.TestCase):
         self.publish.assert_not_called()
         saved = store.list_governed_research_results(db_path=self.fixture.tmp / "missing.sqlite")
         self.assertFalse(saved[0]["draft"])
+        self.assertEqual(saved[0]["result"]["support_bundle"]["outcome"], "research_more")
+        self.assertTrue(app.button(key="tm_draft").disabled)
+        self.assertTrue(any("exact support text" in exp.label for exp in app.expander))
         self.assertFalse(saved[0]["result"]["approval"])
         self.fixture.network_guard.assert_not_called()
         self.fixture.model_guard.assert_not_called()
@@ -280,8 +311,7 @@ class MaintenanceUITests(unittest.TestCase):
         snapshot = service.run_corpus_audit(corpus=self.corpus, explicit_execution=True,
             review_db_path=self.fixture.tmp / "missing.sqlite")
         c = snapshot["gap_rows"][0]["candidate"]
-        result = execute(self.fixture, c, fake_raw(c["concept_key"], c["concept_key"] +
-            " is an engineering capability for implementing distinct computing protocols."))
+        result = execute(self.fixture, c, fake_capability_raw(c["concept_key"]))
         draft = service.research.create_draft(result, explicit_creation=True,
             capability_fields=capability_fields(c["concept_key"]))
         store.save_governed_research_draft(result, draft, db_path=self.fixture.tmp / "h1.sqlite",
