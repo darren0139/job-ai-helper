@@ -5,18 +5,18 @@ Match snapshot. Existing snapshot evidence is preserved. A job without snapshots
 may freeze the current canonical Evidence Library; historical evidence is never
 reconstructed from a model-generated résumé report.
 """
+
 from __future__ import annotations
+from taxonomy_discovery.offline_execution import offline_execution
 
 import csv
 import io
 import json
-import os
 import sqlite3
 from collections import Counter, defaultdict
 from contextlib import closing
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import patch
 
 from database import job_match_manager as store
 from database.analysis_cache_manager import (
@@ -232,7 +232,7 @@ def deterministic_backfill(*, db_path=None, execute=False):
         result["jobs"] = [{"discovered_job_id":r["discovered_job_id"],"action":"create" if r["backfill_eligible"] else
             "reuse" if r["discovered_job_id"] in plans else "skip","reason":r["reason"]} for r in report["jobs"]]
         return result
-    with patch.dict(os.environ, {"CAPABILITY_RAG_MODE":"off"}), patch("socket.socket.connect",side_effect=RuntimeError("Deterministic backfill forbids network")):
+    with offline_execution('Deterministic backfill forbids network'):
         for jid, plan in plans.items():
             if plan["reuse_snapshot_id"]:
                 result["reused"] += 1

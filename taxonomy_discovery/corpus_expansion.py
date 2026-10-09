@@ -1,15 +1,15 @@
 """Bounded local plans and explicit resumable native JD analysis, never Analyze All."""
+
+from taxonomy_discovery.offline_execution import offline_execution
 from collections import Counter, defaultdict
 from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
-from unittest.mock import patch
 
 from database import job_match_manager as snapshots, jd_library_manager as library
 from database.user_profile_manager import get_all_evidence_items_for_snapshot
@@ -258,7 +258,7 @@ def model_run(plan, *, db_path=None, limit=25, execute=False, extractor=None, re
                 latest = execution_preview(plan, db_path=db_path, limit=limit)
                 if next(r for r in latest["jobs"] if r["discovered_job_id"]==jid)["execution_status"] != "ready":
                     raise ValueError("Inputs changed during extraction; snapshot not saved")
-                with patch.dict(os.environ, {"CAPABILITY_RAG_MODE":"off"}), patch("socket.socket.connect",side_effect=RuntimeError("Snapshot scoring forbids network")):
+                with offline_execution('Snapshot scoring forbids network'):
                     stable = _default_stable_builder(raw_jd_text=job["description"], jd_profile=profile, context=context)
                 if duplicate_credit_violations(stable, context):
                     raise ValueError("Duplicate/evidence invariant failed")

@@ -2,6 +2,8 @@
 
 SQLite is audit/review history only. Runtime authority remains the native JSON.
 """
+
+from taxonomy_discovery.offline_execution import offline_execution
 from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -10,8 +12,6 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-from unittest.mock import patch
-import os
 
 from taxonomy_discovery.corpus_expansion import fingerprint
 from database import taxonomy_discovery_review_manager as store
@@ -326,7 +326,7 @@ def refresh_published_jobs(receipt, *, explicit_refresh=False, db_path=None):
     jobs = []
     def forbid_extraction(_):
         raise ValueError("Saved compatible JD extraction unavailable; explicit refresh required")
-    with patch.dict(os.environ,{"CAPABILITY_RAG_MODE":"off"}), patch("socket.socket.connect",side_effect=RuntimeError("Offline publication refresh forbids network")):
+    with offline_execution('Offline publication refresh forbids network'):
         for job_id in receipt["affected_jobs"]:
             try:
                 if regression.get("regression_fingerprint") != receipt["regression_fingerprint"]:

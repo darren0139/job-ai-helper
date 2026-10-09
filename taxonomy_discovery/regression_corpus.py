@@ -1,12 +1,12 @@
 """Frozen Job Match corpus and offline comparison using the production matcher."""
 from __future__ import annotations
 
+from taxonomy_discovery.offline_execution import offline_execution
+
 import csv
 import io
-import os
 from collections import Counter
 from copy import deepcopy
-from unittest.mock import patch
 
 from analysis_stability.stable_evidence_scoring import requirement_is_score_eligible, build_resume_evidence_index
 from database.job_match_manager import list_latest_job_match_corpus_snapshots
@@ -96,8 +96,7 @@ def replay_current_corpus(corpus):
         raise ValueError("Unsupported regression corpus")
     replayed = deepcopy(corpus)
     counts = Counter()
-    with patch.dict(os.environ, {"CAPABILITY_RAG_MODE": "off"}), \
-            patch("socket.socket.connect", side_effect=RuntimeError("Offline corpus forbids network")):
+    with offline_execution('Offline corpus forbids network'):
         for job in replayed.get("jobs", []):
             inputs = job.get("frozen_inputs") or {}
             context = inputs.get("context")
@@ -216,8 +215,7 @@ def compare_regression_corpus(corpus, *, temporary_taxonomy=None):
     comparisons = []
     # This is the existing deterministic builder, using saved JD extraction and
     # frozen evidence, with retrieval explicitly disabled. No extractor is called.
-    with patch.dict(os.environ, {"CAPABILITY_RAG_MODE": "off"}), \
-            patch("socket.socket.connect", side_effect=RuntimeError("Offline corpus forbids network")):
+    with offline_execution('Offline corpus forbids network'):
         for job in corpus["jobs"]:
             base = {"job_id": job["job_id"], "snapshot_id": job["snapshot_id"]}
             if not job["replay_available"]:

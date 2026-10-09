@@ -1,9 +1,10 @@
 """H.1 bounded, explicit research of refined gaps. No production writer."""
+
+from taxonomy_discovery.offline_execution import offline_execution
 from copy import deepcopy
 from datetime import datetime, timezone
 import re
 import os
-from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from job_discovery.matching import current_match_versions
@@ -52,12 +53,16 @@ def prepare_gap_review(*, db_path=None, corpus=None, gaps=None):
             "artifact_fingerprint": fingerprint({"corpus": frozen, "gaps": gaps, "report": report})}
 
 
-def validate_candidate(candidate):
+def _validate_candidate_identity(candidate):
     fp = fingerprint({k:v for k,v in candidate.items() if k not in {"candidate_id", "candidate_fingerprint"}})
     if candidate.get("candidate_fingerprint") != fp or candidate.get("candidate_id") != "tqd3taxgap_"+fp[:24]:
         raise ValueError("Candidate identity stale/edited")
     if candidate.get("candidate_route") not in ELIGIBLE_ROUTES:
         raise ValueError("Refined route is not eligible for research")
+
+
+def validate_candidate(candidate):
+    _validate_candidate_identity(candidate)
     if candidate.get("current_versions") != current_match_versions():
         raise ValueError("Candidate knowledge versions changed; refresh Gap Review")
 
@@ -556,11 +561,47 @@ def interpret(target, research, *, authority_registry_path=None):
     }
 
 
-def validate_result(result, *, allow_stale_authority=False):
+def _validate_saved_integrity(result):
+    """Historical evidence integrity, distinct from permission for current use."""
     if result.get("result_fingerprint") != fingerprint({k:v for k,v in result.items() if k not in {"result_fingerprint", "research_result_id"}}):
         raise ValueError("Research result fingerprint stale/edited")
     if result.get("research_result_id") != "tqd3h1_"+result["result_fingerprint"][:24]:
         raise ValueError("Research result identity edited")
+    _validate_candidate_identity(result["candidate"])
+    if result.get("candidate_id") != result["candidate"]["candidate_id"] or result.get("candidate_fingerprint") != result["candidate"]["candidate_fingerprint"]:
+        raise ValueError("Saved evidence candidate binding edited")
+    if result["research"].get("evidence_fingerprint") != fingerprint(result["research"]["raw_provider_evidence"]):
+        raise ValueError("Raw evidence fingerprint edited")
+
+
+def research_lineage_key(candidate):
+    """Native canonical scope/route/entity identity, excluding version hashes."""
+    from taxonomy_discovery.candidate_refinement import concept_key
+    entities = candidate.get("technology_entity_diagnostics", {}).get("concrete_entities", [])
+    return (normalise(candidate.get("concept_key", "")),
+            normalise(concept_key(candidate.get("normalized_cluster", ""))),
+            candidate.get("candidate_route"),
+            tuple(sorted({str(e.get("technology_id") or normalise(e.get("term", ""))) for e in entities})),
+            candidate.get("parent_candidate_id"),
+            candidate.get("technology_id"), candidate.get("proposed_capability_id"))
+
+
+def _source_lineage(candidate):
+    return {(p.get("job_id"), p.get("requirement_id"), p.get("job_content_hash"))
+            for p in candidate.get("provenance", []) if p.get("job_id") is not None
+            and p.get("requirement_id") and p.get("job_content_hash")}
+
+
+def compatible_saved_candidate(current, historical):
+    if research_lineage_key(current) != research_lineage_key(historical):
+        return False
+    if current.get("candidate_fingerprint") == historical.get("candidate_fingerprint"):
+        return True
+    return bool(_source_lineage(current) & _source_lineage(historical))
+
+
+def validate_result(result, *, allow_stale_authority=False):
+    _validate_saved_integrity(result)
     validate_candidate(result["candidate"])
     if result["current_versions"] != current_match_versions():
         raise ValueError("Research knowledge stale")
@@ -579,24 +620,53 @@ def interpretation_cache_key(target, authority_registry_path=None):
         "knowledge_fingerprint":knowledge_fingerprint(),"authority_rules":load_source_authority_registry(authority_registry_path)})
 
 
-def re_evaluate_saved_evidence(result, *, explicit_execution=False, authority_registry_path=None, persist=False, db_path=None):
+def re_evaluate_saved_evidence(result, *, explicit_execution=False, authority_registry_path=None, persist=False, db_path=None,
+                              current_candidate=None):
     """Pure by default; explicit local save appends lineage, never repeats Search."""
     if explicit_execution is not True:
         raise ValueError("Explicit saved-evidence re-evaluation required")
-    validate_result(result,allow_stale_authority=True)
+    if current_candidate is None:
+        validate_result(result,allow_stale_authority=True)
+    else:
+        # A new interpretation is governed by CURRENT inputs. Historical records
+        # supply immutable evidence only; none of their currentness is promoted.
+        validate_candidate(current_candidate)
+        _validate_saved_integrity(result)
+        if not compatible_saved_candidate(current_candidate, result["candidate"]):
+            raise ValueError("Saved evidence cannot be associated with the current candidate lineage")
     path = authority_registry_path if authority_registry_path is not None else result.get("authority_registry_path")
     rules = load_source_authority_registry(path)
     updated = deepcopy(result)
     target = result["research"]["target"]
-    updated.update(interpret(target,result["research"],authority_registry_path=path))
+    if current_candidate is not None:
+        plan = research_plan([current_candidate], selected_candidate_ids=[current_candidate["candidate_id"]],
+                             research_round=target.get("research_round", 0), authority_registry_path=path)
+        target = plan["targets"][0]
+        if normalise(target["subject"]) != normalise(result["research"]["target"]["subject"]):
+            raise ValueError("Saved evidence subject differs from the current research target")
+        updated["research"]["target"] = deepcopy(target)
+        updated.update(candidate=deepcopy(current_candidate), candidate_id=current_candidate["candidate_id"],
+                       candidate_fingerprint=current_candidate["candidate_fingerprint"],
+                       candidate_route=current_candidate["candidate_route"],
+                       source_gap_provenance=deepcopy(current_candidate["provenance"]),
+                       current_versions=current_match_versions(), knowledge_fingerprint=knowledge_fingerprint(),
+                       taxonomy_version=target["current_versions"]["taxonomy_version"],
+                       registry_version=target["current_versions"]["technology_registry_version"],
+                       research_plan_fingerprint=plan["plan_fingerprint"], questions=target["questions"])
+    updated.update(interpret(target,updated["research"],authority_registry_path=path))
     updated.update(interpretation_version=INTERPRETATION_VERSION,authority_registry_path=str(path) if path else None,
         authority_rules_version=rules.get("version"),authority_rules_fingerprint=fingerprint(rules),
         cache_key=interpretation_cache_key(target,path),approval=False,
-        interpretation_lineage={"previous_research_result_id":result["research_result_id"],"previous_result_fingerprint":result["result_fingerprint"]},
+        interpretation_lineage={"previous_research_result_id":result["research_result_id"],"previous_result_fingerprint":result["result_fingerprint"],
+            **({"previous_candidate_id": result["candidate"]["candidate_id"],
+                "previous_candidate_fingerprint": result["candidate"]["candidate_fingerprint"],
+                "current_candidate_id": current_candidate["candidate_id"],
+                "raw_evidence_reused": True} if current_candidate is not None else {})},
         re_evaluated_at=datetime.now(timezone.utc).isoformat())
     updated.pop("research_result_id",None); updated.pop("result_fingerprint",None)
     updated["result_fingerprint"] = fingerprint(updated)
     updated["research_result_id"] = "tqd3h1_"+updated["result_fingerprint"][:24]
+    validate_result(updated)
     if persist:
         from database.taxonomy_discovery_review_manager import save_governed_research_result, list_governed_research_results
         if not any(row["result"] == result for row in list_governed_research_results(db_path=db_path)):
@@ -748,7 +818,7 @@ def create_draft(result, *, explicit_creation=False, capability_fields=None):
 
 
 def temporary_impact(corpus, draft):
-    with patch.dict(os.environ, {"CAPABILITY_RAG_MODE":"off"}), patch("socket.socket.connect", side_effect=RuntimeError("Offline preview forbids network")):
+    with offline_execution('Offline preview forbids network'):
         return _temporary_impact(corpus, draft)
 
 

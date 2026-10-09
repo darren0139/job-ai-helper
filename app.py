@@ -359,6 +359,7 @@ from tailoring.canonical_bullet_suggester import (
 from database.job_discovery_manager import init_job_discovery_schema
 from job_discovery.ui import render_job_finder
 from taxonomy_discovery.review_ui import render_capability_discovery_review
+from taxonomy_discovery.maintenance_ui import render_taxonomy_maintenance
 
 from report import render_markdown
 from api_cost import (
@@ -2395,6 +2396,7 @@ with st.sidebar:
             "Job Finder",
             "Capability Discovery",
             "Job Market Insights",
+            "Taxonomy Maintenance",
         ],
         key="navigation_page",
         label_visibility="collapsed",
@@ -8629,6 +8631,8 @@ elif page == "Job Finder":
 
 elif page == "Capability Discovery":
     render_capability_discovery_review()
+elif page == "Taxonomy Maintenance":
+    render_taxonomy_maintenance()
 
 elif page == "Blueprint Library":
     st.divider()

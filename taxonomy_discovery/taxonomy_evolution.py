@@ -2,12 +2,12 @@
 
 There is deliberately no production taxonomy writer or automatic researcher.
 """
+
+from taxonomy_discovery.offline_execution import offline_execution
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
-import os
 import re
-from unittest.mock import patch
 
 from tailoring.capability_taxonomy import (CapabilityTaxonomy, TAXONOMY_PATH,
     _validate_capability, classify_requirement_record, get_default_taxonomy, load_taxonomy, normalise)
@@ -232,7 +232,7 @@ def temporary_regression(corpus, proposals):
         raise ValueError("Unsupported frozen corpus")
     overlay = temporary_overlay(proposals)
     baseline = deepcopy(corpus)
-    with patch.dict(os.environ,{"CAPABILITY_RAG_MODE":"off"}), patch("socket.socket.connect",side_effect=RuntimeError("Offline taxonomy review")):
+    with offline_execution('Offline taxonomy review'):
         for job in baseline["jobs"]:
             if not job["replay_available"]:
                 continue
