@@ -107,6 +107,30 @@ class MaintenanceUITests(unittest.TestCase):
         self.fixture.network_guard.assert_not_called()
         self.fixture.model_guard.assert_not_called()
 
+    def test_gap_assistant_first_press_is_dry_run_and_reuses_current_audit(self):
+        from taxonomy_discovery import gap_reduction_assistant as assistant
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        self.audit.assert_not_called()
+        with patch.object(assistant, "build_plan", wraps=assistant.build_plan) as shared:
+            app.button(key="tm_gap_run").click().run()
+            self.assertEqual(list(app.exception), [])
+            shared.assert_called_once()
+        plan = app.session_state["tm_gap_plan"]
+        self.assertEqual(plan["provider_calls"], 0)
+        self.assertTrue(app.button(key="tm_gap_execute").disabled)
+        self.assertEqual(self.audit.call_count, 1)
+        app.button(key="tm_gap_run").click().run()
+        app.run()
+        self.assertEqual(self.audit.call_count, 1)
+        self.assertEqual(app.session_state["tm_gap_plan"], plan)
+        self.assertTrue(any("TECHNOLOGY / REGISTRY" in exp.label for exp in app.expander))
+        self.assertTrue(any("DEFERRED / EXHAUSTED" in exp.label for exp in app.expander))
+        app.number_input(key="tm_gap_budget").set_value(0).run()
+        self.assertTrue(app.button(key="tm_gap_execute").disabled)
+        self.assertTrue(any("inputs changed" in warning.value for warning in app.warning))
+        self.research.assert_not_called(); self.publish.assert_not_called()
+        self.fixture.network_guard.assert_not_called(); self.fixture.model_guard.assert_not_called()
+
     def test_running_audit_is_disabled_and_not_reentered(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
         label = "Running deterministic corpus audit… No model or external research calls are being made."

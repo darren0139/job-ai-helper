@@ -49,6 +49,7 @@ def render_taxonomy_maintenance():
     source = st.selectbox("Corpus source", ["Stored JD corpus", "Frozen regression corpus"], key="tm_source")
     upload = st.file_uploader("Frozen regression corpus JSON", type="json", key="tm_corpus_upload") if source == "Frozen regression corpus" else None
     selected_jobs = st.text_input("Selected job IDs (optional, comma separated)", key="tm_jobs")
+    _render_gap_assistant(st, source, upload, selected_jobs)
     audit_label = "Running deterministic corpus audit… No model or external research calls are being made."
     if st.button("Run Corpus Audit", key="tm_audit", disabled=st.session_state.get("tm_running_" + audit_label, False)):
         def audit():
@@ -398,3 +399,98 @@ def _render_review(st, snapshot, disabled):
             receipt = _perform(st, lambda: service.publish_validated(snapshot, validation, result_id, explicit_publish=True), "Publishing exact human-approved validated draft…")
             if receipt:
                 st.success("Published through the existing governance contract. Rerun the audit to refresh currentness.")
+
+
+def _render_gap_assistant(st, source, upload, selected_jobs):
+    from taxonomy_discovery import gap_reduction_assistant as assistant
+    st.subheader("Taxonomy Gap Reduction Assistant")
+    st.caption("Impact-first dry-run. Research may stop at scope refinement or deferral; publication is not the objective.")
+    cols = st.columns(2)
+    maximum = cols[0].number_input("Maximum actions", min_value=1, max_value=25, value=10, key="tm_gap_max")
+    budget = cols[1].number_input("External research budget", min_value=0, max_value=20, value=3, key="tm_gap_budget")
+    reuse = st.checkbox("Reuse exact current audit", value=True, key="tm_gap_reuse")
+    options = {"include_local": st.checkbox("Include local/no-provider fixes", value=True, key="tm_gap_local"),
+        "include_research": st.checkbox("Include research recommendations", value=True, key="tm_gap_research"),
+        "include_scope": st.checkbox("Include scope/decomposition recommendations", value=True, key="tm_gap_scope"),
+        "calculate_impact": st.checkbox("Calculate impact ranking", value=True, key="tm_gap_impact")}
+    if st.button("Run Gap Reduction Assistant", key="tm_gap_run"):
+        def run():
+            payload = json.loads(upload.getvalue()) if upload is not None else None
+            if source == "Frozen regression corpus" and payload is None:
+                raise ValueError("Select a frozen corpus file")
+            jobs = [int(value.strip()) for value in selected_jobs.split(",") if value.strip()] or None
+            request_key = service.fingerprint({"source": source, "payload": payload, "jobs": jobs})
+            snapshot = st.session_state.get("tm_snapshot")
+            if not (reuse and snapshot and st.session_state.get("tm_audit_request") == request_key
+                    and service.currentness(snapshot)["current"]):
+                snapshot = service.run_corpus_audit(explicit_execution=True, corpus=payload, job_ids=jobs)
+                st.session_state["tm_snapshot"] = snapshot
+                st.session_state["tm_audit_request"] = request_key
+            return assistant.build_plan(snapshot, max_actions=int(maximum), research_budget=int(budget), options=options)
+        plan = _perform(st, run, "Planning safe gap-reduction actions… No external calls.")
+        if plan:
+            st.session_state["tm_gap_plan"] = plan
+    plan = st.session_state.get("tm_gap_plan")
+    if not plan:
+        return
+    snapshot = st.session_state.get("tm_snapshot")
+    valid = bool(snapshot and service.currentness(snapshot)["current"]
+                 and plan["audit_fingerprint"] == snapshot["audit_fingerprint"]
+                 and plan["max_actions"] == maximum and plan["research_budget"] == budget and plan["options"] == options)
+    if not valid:
+        st.warning("Assistant plan stale or inputs changed. Run the dry-run again before any action.")
+    st.write("CURRENT BASELINE — Taxonomy Knowledge")
+    st.json(plan["baseline"])
+    st.caption("Job Match Health remains separate. Estimated affected counts are not validated resolutions or score gains.")
+    columns = ["rank", "concept", "fix_layer", "requirements_affected", "jobs_affected", "required_core_weight",
+               "research_state", "provider_calls_required", "proposed_action", "priority_reason"]
+    st.write("TOP SAFE GAP-REDUCTION ACTIONS")
+    st.dataframe([{k: a[k] for k in columns} for a in plan["ranked_actions"]], hide_index=True, width="stretch")
+    groups = {"LOCAL / NO PROVIDER WORK": lambda a: not a["provider_calls_required"],
+        "RESEARCH CANDIDATES": lambda a: a["provider_calls_required"] > 0,
+        "NEEDS DECOMPOSITION": lambda a: a["research_state"] == service.NEEDS_DECOMPOSITION,
+        "TECHNOLOGY / REGISTRY": lambda a: a["fix_layer"] in {service.IDENTITY_GAP, service.RELATIONSHIP_GAP},
+        "PARSER / CANONICALISATION": lambda a: a["fix_layer"] == service.PARSING_PROBLEM,
+        "EVIDENCE POLICY": lambda a: a["fix_layer"] == service.EVIDENCE_PROBLEM,
+        "MANUAL REVIEW": lambda a: a["fix_layer"] == service.MANUAL,
+        "DEFERRED / EXHAUSTED / SCOPE REFINEMENT": lambda a: a["research_state"] in assistant.TERMINAL}
+    for label, predicate in groups.items():
+        rows = [a for a in plan["all_actions"] if predicate(a)]
+        with st.expander(f"{label} ({len(rows)})"):
+            st.dataframe([{k: a[k] for k in columns} for a in rows], hide_index=True, width="stretch")
+    if plan["all_actions"]:
+        action = st.selectbox("Assistant action to inspect", plan["all_actions"],
+            format_func=lambda a: f"{a['rank']}. {a['concept']} — {a['research_state']}", key="tm_gap_detail")
+        st.json(action)
+    with st.expander("Exact assistant plan / currentness / bounded research preview"):
+        st.json(plan)
+    st.download_button("Download assistant JSON", json.dumps(plan, indent=2), "taxonomy_gap_reduction_plan.json", key="tm_gap_json")
+    st.download_button("Download assistant Markdown", assistant.markdown_report(plan), "taxonomy_gap_reduction_plan.md", key="tm_gap_md")
+    confirm = st.checkbox("I confirm this exact assistant plan (including any external calls shown)", key="tm_gap_confirm")
+    fingerprint = st.text_input("Exact assistant plan fingerprint", key="tm_gap_fingerprint")
+    external = st.checkbox("Authorize the bounded external research shown in this plan", key="tm_gap_external")
+    if st.button("Execute Exact Assistant Plan", key="tm_gap_execute", disabled=not valid or not confirm
+        or fingerprint != plan["assistant_plan_fingerprint"] or (plan["planned_external_calls"] > 0 and not external)):
+        receipt = _perform(st, lambda: assistant.execute_plan(snapshot, plan, explicit_execution=True,
+            confirmed_fingerprint=fingerprint, allow_external_research=external), "Executing exact assistant plan…")
+        if receipt:
+            st.session_state["tm_gap_receipt"] = receipt
+            st.info("Re-preview after execution. Research outcomes may require scope refinement or deferral; nothing was approved or published.")
+    if st.session_state.get("tm_gap_receipt"):
+        with st.expander("Assistant execution receipt"):
+            st.json(st.session_state["tm_gap_receipt"])
+
+    eligible = [a["selected_result_id"] for a in plan["all_actions"] if a["research_state"] == "ELIGIBLE_FOR_HUMAN_REVIEW"]
+    if eligible:
+        result_ids = st.multiselect("Eligible saved drafts for temporary impact preview", eligible, key="tm_gap_validate_ids")
+        if st.button("Preview temporary draft impact", key="tm_gap_validate", disabled=not valid or not confirm
+            or fingerprint != plan["assistant_plan_fingerprint"] or not result_ids):
+            validation = _perform(st, lambda: assistant.validate_drafts(snapshot, plan, result_ids,
+                explicit_execution=True, confirmed_fingerprint=fingerprint), "Validating temporary candidate overlay…")
+            if validation:
+                st.session_state["tm_gap_validation"] = validation
+        validation = st.session_state.get("tm_gap_validation")
+        if validation:
+            st.write("VALIDATED IMPACT — temporary overlay; no approval or publication")
+            with st.expander("Baseline/overlay changes, ranking, duplicate credit, canaries, caps and rejections"):
+                st.json(validation)
