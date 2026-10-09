@@ -458,6 +458,29 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
     st.dataframe(plan["direct_gap_reduction_priority"][:int(maximum)], hide_index=True, width="stretch")
     with st.expander("DEPENDENCY BUNDLES"):
         st.dataframe(plan["dependency_bundles"], hide_index=True, width="stretch")
+    from taxonomy_discovery import contextual_relationship_validation as relationships
+    inventory = plan["contextual_relationship_inventory"]
+    with st.expander("CONTEXTUAL RELATIONSHIP CANDIDATES"):
+        st.caption("Requirement-context hypotheses; technology identity alone is not capability proof. No publication controls.")
+        if st.button("Validate Contextual Relationships Offline", key="tm_relationship_validate", disabled=not valid):
+            receipt = _perform(st, lambda: relationships.validate(snapshot, inventory, explicit_execution=True),
+                "Validating contextual relationships… Frozen native replay; no external calls.")
+            if receipt:
+                st.session_state["tm_relationship_validation"] = receipt
+        receipt = st.session_state.get("tm_relationship_validation")
+        current_receipt = receipt and relationships.report_current(snapshot, inventory, receipt)
+        decisions = {r["relationship_id"]: r for r in receipt["candidate_decisions"]} if current_receipt else {}
+        st.dataframe([{**{k: c[k] for k in ("technology", "context", "existing_capability_id", "unique_unresolved_requirements",
+            "jobs_affected", "required_core_weight", "estimated_impact", "validated_impact", "decision")},
+            **{k: decisions[c["relationship_id"]][k] for k in ("validated_impact", "decision") if c["relationship_id"] in decisions}}
+            for c in inventory["candidates"]], hide_index=True, width="stretch")
+        if receipt:
+            if current_receipt:
+                st.json(receipt)
+            else:
+                st.warning("Relationship validation is stale; explicitly validate the current inventory.")
+        with st.expander("Requirement contexts / capability boundaries / negative fixtures / research state"):
+            st.json(inventory)
     with st.expander("DECOMPOSITION / PARSER BOTTLENECKS"):
         st.dataframe(plan["decomposition_parser_bottlenecks"], hide_index=True, width="stretch")
         triage = plan.get("structure_unavailable_triage")

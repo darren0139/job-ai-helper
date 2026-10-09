@@ -351,14 +351,16 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
         "overall_weighted_coverage": summary["overall_weighted_coverage"]}
     identity_keys = {(r["job_id"], r["requirement_id"]) for a in actions if a["fix_layer"] == maintenance.IDENTITY_GAP for r in a["requirement_keys"]}
     dependencies = _dependency_projection(snapshot, actions, gap_rows, unresolved, links)
+    from taxonomy_discovery.contextual_relationship_validation import build_inventory
+    relationships = build_inventory(snapshot, actions, gap_rows)
     return maintenance._seal({"assistant_version": ASSISTANT_VERSION,
         "assistant_implementation_fingerprint": fingerprint({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-            for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py")}),
+            for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py", "contextual_relationship_validation.py")}),
         "audit_identity": snapshot["manifest"], "audit_fingerprint": snapshot["audit_fingerprint"],
         "saved_research_fingerprint": _saved_identity(saved), "publication_fingerprint": fingerprint(pubs),
         "interpretation_version": research.INTERPRETATION_VERSION, "options": options,
         "max_actions": max_actions, "research_budget": research_budget, "selected_research_ids": selected_research_ids,
-        **dependencies, "baseline": baseline, "identity_impact_summary": {
+        **dependencies, "contextual_relationship_inventory": relationships, "baseline": baseline, "identity_impact_summary": {
             "unique_mentioned_requirement_keys": [dict(job_id=k[0], requirement_id=k[1]) for k in sorted(identity_keys)],
             "unique_mentioned_requirements": len(identity_keys),
             "estimated_directly_resolvable": 0, "validated_resolved": None,

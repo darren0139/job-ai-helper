@@ -17,6 +17,21 @@ HARNESS = Path(__file__).with_name("taxonomy_maintenance_streamlit_harness.py")
 
 
 class MaintenanceUITests(unittest.TestCase):
+    def test_relationship_validation_requires_explicit_press_and_does_not_repeat_on_rerender(self):
+        from taxonomy_discovery import contextual_relationship_validation as relationships
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        with patch.object(relationships, "validate", wraps=relationships.validate) as validate:
+            app.button(key="tm_gap_run").click().run()
+            validate.assert_not_called()
+            app.button(key="tm_relationship_validate").click().run()
+            self.assertEqual(list(app.exception), [])
+            validate.assert_called_once()
+            self.assertEqual(app.session_state["tm_relationship_validation"]["production_writes"], 0)
+            app.run()
+            validate.assert_called_once()
+        self.research.assert_not_called(); self.publish.assert_not_called()
+        self.fixture.network_guard.assert_not_called(); self.fixture.model_guard.assert_not_called()
+
     def test_distinct_canonical_namespaces_have_distinguishable_read_only_options(self):
         self.corpus = fixture_corpus("network access control")
         db = self.fixture.tmp / "h1.sqlite"
@@ -129,6 +144,9 @@ class MaintenanceUITests(unittest.TestCase):
         self.assertTrue(any("DIRECT GAP-REDUCTION ACTIONS" in element.value for element in app.markdown))
         self.assertTrue(any("Foundational ≠ directly resolving" in element.value for element in app.caption))
         self.assertIn("dependency_ids", plan["all_actions"][0])
+        self.assertTrue(any(exp.label == "CONTEXTUAL RELATIONSHIP CANDIDATES" for exp in app.expander))
+        self.assertTrue(any("technology identity alone is not capability proof" in cap.value for cap in app.caption))
+        self.assertIn("contextual_relationship_inventory", plan)
         triage = plan["structure_unavailable_triage"]
         self.assertTrue(any(exp.label == f"native_structure_unavailable ({triage['total']})" for exp in app.expander))
         self.assertTrue(any("blocked-review opportunities; no predicted resolutions" in element.value for element in app.caption))
