@@ -48,7 +48,7 @@ def main() -> None:
         raise SystemExit(
             "supporting must not be counted as an important-gap class"
         )
-    if SCORING_VERSION != "stable-evidence-v1.14-phase6d20":
+    if SCORING_VERSION != "stable-evidence-v1.15-phase6d20":
         raise SystemExit(
             f"Unexpected scoring version: {SCORING_VERSION!r}"
         )

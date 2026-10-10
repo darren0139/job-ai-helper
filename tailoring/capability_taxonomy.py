@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
+from tailoring.requirement_scope import CONTEXTUAL_REQUIREMENT_RULES, complete_named_function_scope
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "taxonomy" / "capability_taxonomy_v1.json"
 ALLOWED_LABELS = {"direct", "transferable", "weak", "none"}
@@ -486,6 +487,8 @@ def classify_requirement_diagnostics(
 
     for item in taxonomy.capabilities:
         matcher = item.get("requirement") or {}
+        scope_rule = CONTEXTUAL_REQUIREMENT_RULES.get(item.get("capability_id"))
+        scope_proof = complete_named_function_scope(requirement) if scope_rule else None
         match_text = (
             _c_cpp_requirement_text(requirement)
             if item.get("evidence_policy") == "c_cpp_v1"
@@ -547,7 +550,7 @@ def classify_requirement_diagnostics(
                     matched_variant = detail
             variant_match = matched_variant is not None
         matched_any_terms = [term for term in any_terms if _contains(match_text, term)]
-        if (any_terms or variants) and not (matched_any_terms or variant_match):
+        if (any_terms or variants) and not (matched_any_terms or variant_match or scope_proof):
             continue
         if not _matches_groups(match_text, matcher.get("all_groups", [])):
             continue
@@ -558,7 +561,7 @@ def classify_requirement_diagnostics(
         matched_phrase = (
             str(matched_any_terms[0])
             if matched_any_terms
-            else str((matched_variant or {}).get("phrase") or "")
+            else original if scope_proof else str((matched_variant or {}).get("phrase") or "")
         )
         return {
             "normalized_requirement_text": normalise(original),
@@ -568,10 +571,10 @@ def classify_requirement_diagnostics(
             "capability_label": str(item.get("label") or ""),
             "matched_phrase": matched_phrase,
             "matched_taxonomy_rule_type": (
-                "native_any_term" if matched_any_terms else "contextual_phrase_variant"
+                "native_any_term" if matched_any_terms else "native_complete_scope_rule" if scope_proof else "contextual_phrase_variant"
             ),
             "contextual_phrase_rule": (
-                str((matched_variant or {}).get("phrase") or "") or None
+                scope_rule if scope_proof else str((matched_variant or {}).get("phrase") or "") or None
             ),
             "product_context_guard": (matched_variant or {}).get(
                 "product_context_guard"
@@ -584,6 +587,7 @@ def classify_requirement_diagnostics(
             ),
             "rejected_candidate_rules": rejected_rules,
             "reason": "taxonomy_requirement_rule_matched",
+            **({"requirement_scope_proof": scope_proof} if scope_proof else {}),
         }
     return {
         "normalized_requirement_text": normalise(original),

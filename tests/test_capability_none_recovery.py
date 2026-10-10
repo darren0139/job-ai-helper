@@ -347,7 +347,7 @@ class CapabilityNoneRecoveryTests(unittest.TestCase):
             raw_resume_text=evidence,
         )
 
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.14-phase6d20")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.15-phase6d20")
         self.assertEqual(
             CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             "capability-single-row-none-recovery-v1.1",

@@ -67,7 +67,7 @@ def main() -> None:
             "Hard Required Qualifications heading did not preserve required."
         )
 
-    if SCORING_VERSION != "stable-evidence-v1.14-phase6d20":
+    if SCORING_VERSION != "stable-evidence-v1.15-phase6d20":
         raise SystemExit(
             f"Unexpected scoring version: {SCORING_VERSION!r}"
         )

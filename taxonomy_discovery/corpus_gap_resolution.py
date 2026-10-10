@@ -1230,7 +1230,9 @@ def audit_corpus_resolution(
             text = str(requirement.get("requirement_text") or "").strip()
             if not text:
                 continue
-            current = _resolution({"text": text, "atomic_focus": text})
+            # Keep complete native scope: text-only lookups cannot admit bounded
+            # requirement rules or safely resolve parent-derived fragments.
+            current = _resolution(raw)
             identity_resolution = resolve_requirement_text(text)
             match_label = str(raw.get("match_label") or requirement.get("match_label") or "none").lower()
             selected_evidence = deepcopy(
@@ -1766,6 +1768,13 @@ def _temporary_knowledge(proposals: list[dict[str, Any]]) -> tuple[CapabilityTax
     return shadow_taxonomy, shadow_registry
 
 
+def _native_audit_requirements(audit):
+    """Preserve canonical sentence/parent provenance in read-only previews."""
+    return {(job["job_id"], row["requirement_id"]): row
+            for job in audit.get("corpus", {}).get("jobs", [])
+            for row in job.get("baseline_stable_analysis", {}).get("canonical_requirements", [])}
+
+
 def preview_local_resolution(audit: dict[str, Any], proposals: list[dict[str, Any]]) -> dict[str, Any]:
     """Compare current and temporary draft knowledge using the native resolver."""
     if audit.get("audit_version") != CORPUS_GAP_RESOLUTION_VERSION or not proposals:
@@ -1780,13 +1789,14 @@ def preview_local_resolution(audit: dict[str, Any], proposals: list[dict[str, An
     noise = {tuple(key) for proposal in proposals if proposal["resolution_type"] == "mark_noise_non_capability"
              for key in proposal["affected_requirement_keys"]}
     output = []
+    native_requirements = _native_audit_requirements(audit)
     with ExitStack() as stack:
         stack.enter_context(temporary_taxonomy_scope(shadow_taxonomy))
         stack.enter_context(temporary_registry_scope(shadow_registry))
         for row in audit["requirements"]:
             key = (row["job_id"], row["requirement_id"])
             before = deepcopy(row["current_resolution"])
-            after = _resolution({"text": row["requirement_text"], "atomic_focus": row["requirement_text"]})
+            after = _resolution(native_requirements.get(key, {"text": row["requirement_text"], "atomic_focus": row["requirement_text"]}))
             child_resolutions = []
             if key in decomposition:
                 for child in decomposition[key]["proposed_change"]["atomic_children"]:
@@ -2794,10 +2804,11 @@ def _preview_closure_scenario(
     intended_keys: set[tuple[Any, Any]],
 ) -> dict[str, Any]:
     output = []
+    native_requirements = _native_audit_requirements(audit)
     with temporary_taxonomy_scope(taxonomy), temporary_registry_scope(registry):
         for row in audit["requirements"]:
             before = deepcopy(row["current_resolution"])
-            after = _resolution({"text": row["requirement_text"], "atomic_focus": row["requirement_text"]})
+            after = _resolution(native_requirements.get((row["job_id"], row["requirement_id"]), {"text": row["requirement_text"], "atomic_focus": row["requirement_text"]}))
             semantic_fields = ("status", "resolution_source", "capability_id", "technology_id",
                                "technology_label", "registry_status", "registry_reason")
             changed = any(before.get(field) != after.get(field) for field in semantic_fields)

@@ -15,6 +15,7 @@ from taxonomy_discovery.technology_registry import get_default_registry
 from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.production_requirement_resolver import resolve_requirement_with_production_knowledge
 from tailoring.phase6d6_structured_matching import technology_requirement_structure
+from tailoring.requirement_scope import collaboration_functions
 
 SUPPORTED = "EXISTING_TAXONOMY_SUPPORTED"
 GAP = "TRUE_CAPABILITY_TAXONOMY_GAP"
@@ -50,13 +51,6 @@ MANUAL_RULES = (
      r"plan and guide your team's professional growth(?:,? in both general and technical areas)?",
      "Team professional-development responsibility is not a technical implementation obligation"),
 )
-ROLE_FUNCTIONS = {
-    "engineering": ["fellow engineers", "software engineers", "engineers", "technical lead", "architect"],
-    "policy": ["policy officers", "various partner agencies", "partner agencies"],
-    "design": ["ux designers", "designers", "solution architects"],
-    "security": ["cybersecurity specialists"],
-    "business": ["business analysts", "product owners", "project manager"],
-}
 
 
 def manual_triage(requirement, routes):
@@ -83,13 +77,10 @@ def manual_triage(requirement, routes):
                 result["native_sentence_scope"] = deepcopy(grounding)
     # Bounded explicit collaboration has full activity scope and at least two
     # named functions. General teamwork is explicitly insufficient in taxonomy.
-    roles = re.fullmatch(r"(?:you will |you'll )?(?:work|collaborate) closely with (.+?)(?: within an agile environment| as part of the project delivery)?", text, re.I)
-    if roles:
-        parts = [p.strip().lower() for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", roles[1])]
-        functions = {f for p in parts for f, names in ROLE_FUNCTIONS.items() if p in names}
-        known = {name for names in ROLE_FUNCTIONS.values() for name in names}
+    functions = collaboration_functions(text)
+    if functions:
         capability = get_default_taxonomy().by_id().get("collaboration.cross_functional")
-        if capability and len(functions) >= 2 and all(p in known for p in parts):
+        if capability:
             return {**result, "subfamily": "NON_TECHNICAL_COLLABORATION_OR_BEHAVIOUR", "reason_code": "COMPLETE_CROSS_FUNCTIONAL_SCOPE",
                 "decision": SUPPORTED, "rule": "explicit_collaboration_with_multiple_named_functions", "functions": sorted(functions),
                 "capability_id": capability["capability_id"], "capability_boundary": deepcopy(capability),

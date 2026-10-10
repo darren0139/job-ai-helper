@@ -104,7 +104,7 @@ Requirements:
     def test_scoring_version(self) -> None:
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.14-phase6d20",
+            "stable-evidence-v1.15-phase6d20",
         )
 
 
