@@ -353,14 +353,16 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
     dependencies = _dependency_projection(snapshot, actions, gap_rows, unresolved, links)
     from taxonomy_discovery.contextual_relationship_validation import build_inventory
     relationships = build_inventory(snapshot, actions, gap_rows)
+    from taxonomy_discovery.taxonomy_addressability import project as addressability_project
+    addressability = addressability_project(snapshot, unresolved, gap_rows)
     return maintenance._seal({"assistant_version": ASSISTANT_VERSION,
         "assistant_implementation_fingerprint": fingerprint({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-            for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py", "contextual_relationship_validation.py")}),
+            for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py", "contextual_relationship_validation.py", "taxonomy_addressability.py")}),
         "audit_identity": snapshot["manifest"], "audit_fingerprint": snapshot["audit_fingerprint"],
         "saved_research_fingerprint": _saved_identity(saved), "publication_fingerprint": fingerprint(pubs),
         "interpretation_version": research.INTERPRETATION_VERSION, "options": options,
         "max_actions": max_actions, "research_budget": research_budget, "selected_research_ids": selected_research_ids,
-        **dependencies, "contextual_relationship_inventory": relationships, "baseline": baseline, "identity_impact_summary": {
+        **dependencies, "taxonomy_addressability": addressability, "contextual_relationship_inventory": relationships, "baseline": baseline, "identity_impact_summary": {
             "unique_mentioned_requirement_keys": [dict(job_id=k[0], requirement_id=k[1]) for k in sorted(identity_keys)],
             "unique_mentioned_requirements": len(identity_keys),
             "estimated_directly_resolvable": 0, "validated_resolved": None,
@@ -435,6 +437,14 @@ def markdown_report(plan):
         "| Rank | Concept | Fix layer | Requirements | Jobs | State | Calls |", "|---|---|---|---:|---:|---|---:|"]
     for a in plan["ranked_actions"]:
         lines.append(f"| {a['rank']} | {a['concept'].replace('|', '/')} | {a['fix_layer']} | {a['requirements_affected']} | {a['jobs_affected']} | {a['research_state']} | {a['provider_calls_required']} |")
+    addressability = plan["taxonomy_addressability"]
+    lines += ["", "## Taxonomy addressability", "", "Separate semantic status; raw coverage and unresolved denominator remain unchanged.",
+        "", "| Semantic status | Requirements | Weight | Required/core weight |", "|---|---:|---:|---:|"]
+    for status, values in addressability["summary"].items():
+        lines.append(f"| {status} | {values['count']} | {values['weight']} | {values['required_core_weight']} |")
+    lines += ["", f"Accounted unique unresolved requirements: {addressability['unique_unresolved_requirements']}. Blocker associations are non-additive."]
+    lines += ["", "## High-confidence manual-review triage", "", "Maintenance progress only; no Job Match coverage improvement.",
+        "```json", json.dumps(addressability["manual_review_triage"], indent=2), "```"]
     lines += ["", "## Identity impact (foundational mentions, not direct resolution gains)", "",
         "| Concept | Mentioned | Natively addressable | Estimated directly resolvable | Validated resolved |",
         "|---|---:|---:|---:|---|"]

@@ -17,6 +17,28 @@ HARNESS = Path(__file__).with_name("taxonomy_maintenance_streamlit_harness.py")
 
 
 class MaintenanceUITests(unittest.TestCase):
+    def test_addressability_sections_preserve_raw_metrics_and_no_rerender_execution(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        app.button(key="tm_gap_run").click().run()
+        self.assertEqual(list(app.exception), [])
+        plan = app.session_state["tm_gap_plan"]
+        projection = plan["taxonomy_addressability"]
+        self.assertEqual(projection["unique_unresolved_requirements"], plan["baseline"]["unresolved"])
+        self.assertEqual(projection["raw_summary"]["taxonomy_resolved_requirements"], plan["baseline"]["resolved"])
+        self.assertTrue(any("TAXONOMY ADDRESSABILITY" in e.value for e in app.markdown))
+        for title in ("TRUE CAPABILITY GAPS", "NOT TAXONOMY-ADDRESSABLE", "UNDETERMINED", "EXISTING TAXONOMY / OTHER BLOCKERS"):
+            self.assertTrue(any(e.label == title for e in app.expander))
+        for title in ("HIGH-CONFIDENCE NON-ADDRESSABLE", "REMAINING UNDETERMINED MANUAL REVIEW"):
+            self.assertTrue(any(e.label == title for e in app.expander))
+        self.assertIn("HIGH_CONFIDENCE_CLASSIFIED_FROM_MANUAL_REVIEW", projection["manual_review_triage"])
+        calls = self.audit.call_count
+        app.run()
+        self.assertEqual(list(app.exception), [])
+        self.assertEqual(self.audit.call_count, calls)
+        self.assertEqual(app.session_state["tm_gap_plan"]["taxonomy_addressability"], projection)
+        self.research.assert_not_called(); self.publish.assert_not_called()
+        self.fixture.model_guard.assert_not_called(); self.fixture.network_guard.assert_not_called()
+
     def test_relationship_validation_requires_explicit_press_and_does_not_repeat_on_rerender(self):
         from taxonomy_discovery import contextual_relationship_validation as relationships
         app = AppTest.from_file(str(HARNESS), default_timeout=30).run()

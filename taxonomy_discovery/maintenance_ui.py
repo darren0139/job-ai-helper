@@ -442,6 +442,46 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
     st.write("CURRENT BASELINE — Taxonomy Knowledge")
     st.json(plan["baseline"])
     st.caption("Job Match Health remains separate. Estimated affected counts are not validated resolutions or score gains.")
+    addressability = plan.get("taxonomy_addressability")
+    if addressability:
+        st.write("TAXONOMY ADDRESSABILITY")
+        st.caption("Semantic knowledge status and remediation blockers are separate. All unresolved requirements remain accounted for; raw coverage and scoring are unchanged.")
+        st.dataframe([{"Semantic status": status, "Requirements": values["count"], "Weight": values["weight"],
+            "Required/core weight": values["required_core_weight"]} for status, values in addressability["summary"].items()],
+            hide_index=True, width="stretch")
+        triage = addressability.get("manual_review_triage")
+        if triage:
+            st.json(triage)
+            for title, chosen in (
+                ("HIGH-CONFIDENCE NON-ADDRESSABLE", [r for r in addressability["rows"]
+                    if r.get("manual_review_triage", {}).get("decision") == "NOT_TAXONOMY_ADDRESSABLE" and r["semantic_addressability"] == "NOT_TAXONOMY_ADDRESSABLE"]),
+                ("REMAINING UNDETERMINED MANUAL REVIEW", [r for r in addressability["rows"]
+                    if r["primary_blocker"] == service.MANUAL and r["semantic_addressability"] == "UNDETERMINED_NEEDS_SCOPE_REVIEW"])):
+                with st.expander(title):
+                    st.dataframe([{"job_id": r["job_id"], "requirement_id": r["requirement_id"], "requirement": r["canonical_text"],
+                        "reason_code": r["manual_review_triage"]["reason_code"], "subfamily": r["manual_review_triage"]["subfamily"],
+                        "why": r["manual_review_triage"]["why"]} for r in chosen], hide_index=True, width="stretch")
+                    if chosen:
+                        n = st.selectbox("Inspect triage reason and original provenance", range(len(chosen)),
+                            key="tm_manual_triage_" + title, format_func=lambda n, chosen=chosen: f"Job {chosen[n]['job_id']} · {chosen[n]['canonical_text']}")
+                        st.json(chosen[n])
+        sections = [("TRUE CAPABILITY GAPS", "TRUE_CAPABILITY_TAXONOMY_GAP"),
+            ("NOT TAXONOMY-ADDRESSABLE", "NOT_TAXONOMY_ADDRESSABLE"),
+            ("UNDETERMINED", "UNDETERMINED_NEEDS_SCOPE_REVIEW"),
+            ("EXISTING TAXONOMY / OTHER BLOCKERS", "EXISTING_TAXONOMY_SUPPORTED")]
+        for title, status in sections:
+            with st.expander(title):
+                rows = [r for r in addressability["rows"] if r["semantic_addressability"] == status]
+                st.dataframe([{k: r[k] for k in ("job_id", "requirement_id", "canonical_text", "importance", "weight",
+                    "addressability_reason", "primary_blocker", "secondary_blockers", "review_state")} for r in rows],
+                    hide_index=True, width="stretch")
+                if rows:
+                    index = st.selectbox("Inspect requirement", range(len(rows)), key="tm_addressability_" + status,
+                        format_func=lambda n, rows=rows: f"Job {rows[n]['job_id']} · {rows[n]['requirement_id']} · {rows[n]['canonical_text']}")
+                    st.json(rows[index])
+        with st.expander("True gap priorities / addressability accounting diagnostics"):
+            st.json({k: addressability[k] for k in ("top_true_capability_gaps", "unique_unresolved_requirements", "semantic_count_total",
+                "primary_blocker_counts", "blocker_association_counts", "raw_denominator_unchanged")})
     columns = ["rank", "concept", "fix_layer", "requirements_affected", "jobs_affected", "required_core_weight",
                "mentioned_requirements", "atomically_addressable_requirements", "estimated_directly_resolvable", "validated_resolved",
                "research_state", "provider_calls_required", "proposed_action", "priority_reason"]
