@@ -44,7 +44,16 @@ def _candidate(
     }
 
 
+from tests.tqd3_publication_fixture_support import PublicationFixture
+
+
 class TQD3ResearchTargetExtractionTests(unittest.TestCase):
+    def setUp(self):
+        # Historical missing-identity benchmark before approved v1.3 publication.
+        fixture = PublicationFixture(pre_identity_publication=True)
+        fixture.__enter__()
+        self.addCleanup(fixture.__exit__, None, None, None)
+
     def test_version_is_explicit(self) -> None:
         self.assertEqual(
             RESEARCH_TARGET_VERSION,

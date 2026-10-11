@@ -202,7 +202,7 @@ class QueueAndPlanningTests(unittest.TestCase):
             self.assertTrue(child_row["external_research_required"])
 
     def test_real_dotnet_sql_phrase_is_partial_and_requires_decomposition(self):
-        with PublicationFixture():
+        with PublicationFixture(pre_identity_publication=True):
             parent = candidate(".NET MVC and Core and SQL Server for backend development", "technology_relationship")
             row = bulk.build_candidate_queue([parent], saved_rows=[], publications=[])["rows"][0]
             self.assertEqual(row["atomicity"], "atomic")  # Preserve the historical H.1.1 diagnostic.

@@ -58,11 +58,11 @@ def saved_job(corpus):
 
 
 def approved_capability(f, *, aliases=None):
-    from tests.test_tqd3_governed_research import execute, fake_raw, candidate
+    from tests.test_tqd3_governed_research import execute, fake_raw, fake_capability_raw, candidate
     from tests.test_tqd3_regression_corpus import frozen_snapshot
     from taxonomy_discovery.regression_corpus import build_regression_corpus
     c=candidate(); subject=c["concept_key"]
-    result=execute(f,c,fake_raw(subject,subject+" is an engineering capability for implementing distinct computing protocols."))
+    result=execute(f,c,fake_capability_raw(subject))
     fields={"capability_id":"test.crystalline_computing","label":subject,"domain":"distributed_systems",
         "definition":"Synthetic only computing protocols.","match_concepts":[subject],"does_not_prove":["Name mention alone"],"aliases":aliases or [],
         "evidence_expectations":{"policy_references":["existing native evidence contract"],
@@ -310,7 +310,7 @@ class NativeFamilyTests(unittest.TestCase):
                 self.assertEqual(f.taxonomy_path.read_bytes(),before)
 
     def test_rejected_native_registry_review_cannot_be_silently_reapproved(self):
-        from tests.test_tqd3_governed_research import execute, fake_raw, candidate
+        from tests.test_tqd3_governed_research import execute, fake_raw, fake_capability_raw, candidate
         from tests.test_tqd3_regression_corpus import frozen_snapshot
         from taxonomy_discovery.regression_corpus import build_regression_corpus
         from database.technology_registry_proposal_manager import save_proposal_review
@@ -349,7 +349,7 @@ class NativeFamilyTests(unittest.TestCase):
         self.assertEqual(source,before)
 
     def test_identity_and_relationship_reuse_native_publisher(self):
-        from tests.test_tqd3_governed_research import execute, fake_raw, candidate
+        from tests.test_tqd3_governed_research import execute, fake_raw, fake_capability_raw, candidate
         from tests.test_tqd3_regression_corpus import frozen_snapshot
         from taxonomy_discovery.regression_corpus import build_regression_corpus
         from taxonomy_discovery.technology_registry import resolve_requirement_text
@@ -379,12 +379,12 @@ class NativeFamilyTests(unittest.TestCase):
                 self.assertEqual(resolve_requirement_text("C++")["capability_id"],"language.modern_cpp")
 
     def test_capability_publication_uses_native_taxonomy_entry_contract(self):
-        from tests.test_tqd3_governed_research import execute, fake_raw, candidate
+        from tests.test_tqd3_governed_research import execute, fake_raw, fake_capability_raw, candidate
         from tests.test_tqd3_regression_corpus import frozen_snapshot
         from taxonomy_discovery.regression_corpus import build_regression_corpus
         with isolated() as f:
             c=candidate(); subject=c["concept_key"]
-            result=execute(f,c,fake_raw(subject,subject+" is an engineering capability for implementing distinct computing protocols."))
+            result=execute(f,c,fake_capability_raw(subject))
             fields={"capability_id":"test.crystalline_computing","label":subject,"domain":"distributed_systems",
                 "definition":"Synthetic only computing protocols.","match_concepts":[subject],"does_not_prove":["Name mention alone"],
                 "evidence_expectations":{"policy_references":["existing native evidence contract"],

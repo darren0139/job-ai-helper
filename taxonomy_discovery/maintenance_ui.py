@@ -9,6 +9,55 @@ from taxonomy_discovery import maintenance_service as service
 _action_lock = RLock()
 
 
+def _render_technology_batch(st, snapshot, disabled):
+    from taxonomy_discovery import technology_identity_remediation as identities
+    from taxonomy_discovery import contextual_relationship_validation as relationships
+    from taxonomy_discovery.technology_registry import resolve_requirement_text
+    concepts = ["Python", "SQL", "Azure", "JavaScript", "AWS", "TypeScript", "Elasticsearch", "Java", "S3", "FastAPI", "GCP"]
+    with st.expander("Technology Maintenance Batch"):
+        st.caption("Identity → frozen replay → contextual relationship review. No replay runs on rerender; publication requires separate explicit human authorization.")
+        st.dataframe([{"Candidate": name, "Production status": resolve_requirement_text(name)["status"],
+            "Validation decision": "Existing production identity" if resolve_requirement_text(name).get("technology_id") else "Explicit validation required",
+            "New identity-only resolutions": "Not measured without a baseline validation receipt",
+            "Aliases": (service.gaps._local_identity(name) or {}).get("aliases", []),
+            "Requirements affected": len(service.gaps._seed_requirement_matches(snapshot["audit"],
+                (service.gaps._local_identity(name) or {}).get("aliases", [])))} for name in concepts], hide_index=True)
+        selected = st.multiselect("Identity batch candidates", concepts, key="tm_identity_batch_selection")
+        if st.button("Prepare Technology Identity Batch", disabled=disabled or not selected, key="tm_identity_batch_prepare"):
+            batch = _perform(st, lambda: identities.prepare_identity_batch(snapshot, selected, explicit_execution=True), "Preparing bounded identity batch…")
+            if batch:
+                st.session_state["tm_identity_batch"] = batch
+                st.session_state.pop("tm_identity_batch_validation", None)
+        batch = st.session_state.get("tm_identity_batch")
+        if batch and batch["audit_fingerprint"] == snapshot["audit_fingerprint"]:
+            st.dataframe(batch["candidates"], hide_index=True)
+            if st.button("Validate Technology Identity Batch", disabled=disabled or not batch["proposals"], key="tm_identity_batch_validate"):
+                result = _perform(st, lambda: identities.validate_identity_batch(snapshot, batch, explicit_execution=True)[0], "Replaying frozen identity batch…")
+                if result:
+                    st.session_state["tm_identity_batch_validation"] = result
+            receipt = st.session_state.get("tm_identity_batch_validation")
+            if receipt and receipt["batch_fingerprint"] == batch["batch_fingerprint"]:
+                st.write("Identity validation decision", receipt["validation_status"])
+                st.write("New identity-only resolutions", receipt["new_identity_resolutions"])
+                st.download_button("Download identity batch validation", json.dumps(receipt, indent=2), "identity_batch_validation.json")
+        # Read-only classification is cheap; only an explicit button activates replay.
+        from taxonomy_discovery.technology_registry import get_default_registry
+        native = get_default_registry()
+        ids = {resolve_requirement_text(n).get("technology_id") for n in concepts + ["MongoDB", "C#", "Node.js"]}
+        reviews = relationships.review_technology_contexts(snapshot["audit"], sorted(ids - {None}))
+        st.write("Contextual relationship decisions")
+        st.dataframe([{k: r[k] for k in ("technology", "job_id", "requirement_id", "context", "existing_capability_id", "decision", "validated_resolutions")} for r in reviews], hide_index=True)
+        if st.button("Validate Contextual Technology Batch", disabled=disabled, key="tm_relationship_batch_validate"):
+            result = _perform(st, lambda: relationships.validate_technology_contexts(snapshot, reviews, explicit_execution=True), "Replaying contextual technology hypotheses…")
+            if result:
+                st.session_state["tm_relationship_batch_validation"] = {"audit": snapshot["audit_fingerprint"], "result": result}
+        saved = st.session_state.get("tm_relationship_batch_validation")
+        if (saved and saved["audit"] == snapshot["audit_fingerprint"]
+                and saved["result"].get("implementation_fingerprint") == relationships._implementation()):
+            st.write("Validated relationship profiles", saved["result"]["safe_profiles"])
+            st.download_button("Download contextual batch validation", json.dumps(saved["result"], indent=2), "contextual_batch_validation.json")
+
+
 def _lines(text):
     return [value.strip() for value in text.splitlines() if value.strip()]
 
@@ -83,18 +132,35 @@ def render_taxonomy_maintenance():
 
     st.subheader("B. Summary")
     summary = snapshot["audit"]["summary"]
-    labels = {
-        "meaningful_technical_requirements": "Meaningful technical requirements",
-        "taxonomy_resolved_requirements": "Taxonomy resolved",
-        "taxonomy_unresolved_requirements": "Unresolved",
-    }
-    columns = st.columns(3)
-    for column, (key, label) in zip(columns, labels.items()):
-        column.metric(label, summary[key])
-    coverage_columns = st.columns(2)
-    coverage_columns[0].metric("Required/core weighted taxonomy coverage", f"{summary['required_core_weighted_coverage']['percent']:.2f}%")
-    coverage_columns[1].metric("Overall weighted taxonomy coverage", f"{summary['overall_weighted_coverage']['percent']:.2f}%")
+    from taxonomy_discovery.coverage_presentation import render_confirmed_coverage
+    render_confirmed_coverage(st, key="maintenance_coverage", allow_import=True)
+    with st.expander("Advanced diagnostics — corpus audit metrics"):
+        labels = {
+            "meaningful_technical_requirements": "Meaningful technical requirements",
+            "capability_resolved_requirements": "CAPABILITY RESOLVED",
+            "technology_identity_resolved_requirements": "TECHNOLOGY IDENTITY RESOLVED",
+            "knowledge_resolved_requirements": "TOTAL KNOWLEDGE RESOLVED",
+            "taxonomy_unresolved_requirements": "Raw unresolved",
+        }
+        columns = st.columns(len(labels))
+        for column, (key, label) in zip(columns, labels.items()):
+            column.metric(label, summary.get(key, "Unavailable"))
+        coverage_columns = st.columns(2)
+        coverage_columns[0].metric("Required/core model-resolved requirement share", f"{summary['required_core_weighted_coverage']['percent']:.2f}%")
+        coverage_columns[1].metric("Overall model-resolved requirement share", f"{summary['overall_weighted_coverage']['percent']:.2f}%")
+        if "capability_required_core_weighted_coverage" in summary:
+            st.caption("Capability-resolved requirement share: " + f"core {summary['capability_required_core_weighted_coverage']['percent']:.2f}% · overall {summary['capability_overall_weighted_coverage']['percent']:.2f}%. Identity knowledge grants no evidence or score.")
+        else:
+            st.caption("Separate capability/identity counts are unavailable in this legacy audit. Run the explicit audit to refresh them.")
+    with st.expander("TECHNOLOGY IDENTITY RESOLVED"):
+        st.dataframe([{"Job": r["job_id"], "Requirement": r["requirement_id"], "Text": r["requirement_text"],
+            "Technology identity": r["current_resolution"].get("technology_id") or ", ".join(
+                i["technology_id"] for i in r["current_resolution"].get("identity_scope", {}).get("identities", [])
+                if i.get("technology_id")), "Resolution source": "technology_identity",
+            "Capability": "none"} for r in snapshot["audit"]["requirements"]
+            if r["current_resolution"].get("knowledge_status") == "TECHNOLOGY_IDENTITY_RESOLVED"], hide_index=True, width="stretch")
     st.caption("Audited job IDs: " + ", ".join(map(str, snapshot["manifest"]["job_ids"])))
+    _render_technology_batch(st, snapshot, disabled)
     st.write("Fix-layer concept counts", snapshot["fix_layer_counts"])
     st.write("Parsing/noise source exclusions", len(snapshot["parsing_noise_diagnostics"]))
     with st.expander("Excluded source prose / parsing diagnostics"):
@@ -426,7 +492,10 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
                 snapshot = service.run_corpus_audit(explicit_execution=True, corpus=payload, job_ids=jobs)
                 st.session_state["tm_snapshot"] = snapshot
                 st.session_state["tm_audit_request"] = request_key
-            return assistant.build_plan(snapshot, max_actions=int(maximum), research_budget=int(budget), options=options)
+            previous=st.session_state.get("tm_gap_plan") or {}
+            seed=(previous.get("addressability_seed") if previous.get("lazy_addressability") else previous.get("taxonomy_addressability")) if previous.get("audit_fingerprint")==snapshot["audit_fingerprint"] else None
+            return assistant.build_plan(snapshot, max_actions=int(maximum), research_budget=int(budget), options=options,
+                lazy_addressability=True,addressability_seed=seed)
         plan = _perform(st, run, "Planning safe gap-reduction actions… No external calls.")
         if plan:
             st.session_state["tm_gap_plan"] = plan
@@ -562,6 +631,7 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
         st.json(plan)
     st.download_button("Download assistant JSON", json.dumps(plan, indent=2), "taxonomy_gap_reduction_plan.json", key="tm_gap_json")
     st.download_button("Download assistant Markdown", assistant.markdown_report(plan), "taxonomy_gap_reduction_plan.md", key="tm_gap_md")
+    st.fragment(_render_bulk_campaign)(st, snapshot, plan, valid)
     confirm = st.checkbox("I confirm this exact assistant plan (including any external calls shown)", key="tm_gap_confirm")
     fingerprint = st.text_input("Exact assistant plan fingerprint", key="tm_gap_fingerprint")
     external = st.checkbox("Authorize the bounded external research shown in this plan", key="tm_gap_external")
@@ -590,6 +660,85 @@ def _render_gap_assistant(st, source, upload, selected_jobs):
             st.write("VALIDATED IMPACT — temporary overlay; no approval or publication")
             with st.expander("Baseline/overlay changes, ranking, duplicate credit, canaries, caps and rejections"):
                 st.json(validation)
+
+
+def _render_bulk_campaign(st, snapshot, plan, valid):
+    from taxonomy_discovery import bulk_capability_campaign as campaign
+    st.subheader("Bulk Capability Gap Campaign")
+    st.caption("Whole-scope capability hypotheses and dependencies. Estimates are unique source weights, not promised resolutions.")
+    if st.button("Build bulk capability campaign", key="tm_campaign_build", disabled=not valid):
+        value = _perform(st, lambda: campaign.build(snapshot, plan, high_impact=True))
+        if value:
+            st.session_state["tm_campaign"] = value
+            st.session_state.pop("tm_campaign_validation", None)
+    value = st.session_state.get("tm_campaign")
+    if not value:
+        return
+    ready = valid and campaign.current(snapshot, plan, value)
+    if not ready:
+        st.warning("Campaign is stale. Rebuild from the current Assistant plan.")
+    st.write("CURRENT HIGH-IMPACT WORK QUEUE")
+    st.dataframe(campaign.table(value.get("top_15",value["top_25"])), hide_index=True, width="stretch")
+    initial=campaign.gap_accounting(plan["taxonomy_addressability"])
+    st.write("RAW UNRESOLVED",initial["raw_unresolved"])
+    st.write("PROVEN TRUE GAPS / MAINTENANCE DEPENDENCIES / NOT TAXONOMY-ADDRESSABLE / UNDETERMINED",initial["counts"])
+    selected = [c for c in value["clusters"] if c["cluster_id"] in value["batch_1"]]
+    st.write("Batch 1")
+    st.caption(f"{value['batch_unique_requirements']} unique requirements; {value['batch_unique_core_weight']:.2f} unique required/core weight. Selection may be smaller when scope is unproven.")
+    st.dataframe(campaign.table(selected), hide_index=True, width="stretch")
+    if st.button("Review top 10 and validate safe temporary remediations", key="tm_campaign_validate", disabled=not ready):
+        result = _perform(st, lambda: campaign.validate(snapshot, plan, value, explicit_execution=True, mature=True),
+                          "Reviewing scopes and saved evidence; replaying temporary knowledge only…")
+        if result:
+            st.session_state["tm_campaign_validation"] = result
+    result = st.session_state.get("tm_campaign_validation")
+    if result and result["campaign_fingerprint"] == value["campaign_fingerprint"] and ready:
+        service._intact(result, "validation_fingerprint")
+        if result["implementation_fingerprint"] != campaign.implementation():
+            st.warning("Validation implementation changed. Run the temporary preview again.")
+            return
+        for title, states in (("Validated safe", {"VALIDATED_SAFE", "VALIDATED_ZERO_IMPACT"}),
+                              ("Research required", {"NEEDS_RESEARCH"}),
+                              ("Scope review", {"NEEDS_SCOPE_REVIEW", "UNDETERMINED_DEFER", "UNSAFE"}),
+                              ("Maintenance dependencies", {campaign.IDENTITY,campaign.RELATIONSHIP,campaign.STRUCTURE}),
+                              ("Not taxonomy-addressable", {campaign.NOT})):
+            decisions = [d for d in result["decisions"] if d["decision"] in states]
+            with st.expander(f"{title} ({len(decisions)})"):
+                ids = {d["cluster_id"] for d in decisions}
+                st.dataframe(campaign.table([c for c in selected if c["cluster_id"] in ids], decisions), hide_index=True, width="stretch")
+                for d in decisions:
+                    st.caption(f"{d['concept']}: {d['reason']}")
+        st.write("SAFE COMBINED TEMPORARY IMPACT")
+        if result.get("high_impact"):
+            st.write("Reviewed-cluster gap accounting",result["gap_accounting"]["counts"])
+            st.dataframe(campaign.table(value["top_15"],result["decisions"]),hide_index=True,width="stretch")
+        impact = result["combined"]
+        before, after = impact["baseline"], impact["after"]
+        st.write(f"Baseline resolved: {before['taxonomy_resolved_requirements']} · Temporary resolved: {after['taxonomy_resolved_requirements']}")
+        st.write(f"Baseline unresolved: {before['taxonomy_unresolved_requirements']} · Temporary unresolved: {after['taxonomy_unresolved_requirements']}")
+        st.write(f"Validated safe candidates: {result['individually_validated_safe']} · Research required: {result['research_required']} · Scope review: {result['scope_review_required']} · Unsafe: {result['unsafe']}")
+        if result["individually_validated_safe"] == 0:
+            st.info("No safe overlay was applied.")
+        st.dataframe([{"State": name, "Resolved": s["taxonomy_resolved_requirements"],
+                       "Unresolved": s["taxonomy_unresolved_requirements"],
+                       "Required/core coverage %": s["required_core_weighted_coverage"]["percent"],
+                       "Overall coverage %": s["overall_weighted_coverage"]["percent"]}
+                      for name, s in (("Production baseline", before), ("Temporary batch", after))], hide_index=True, width="stretch")
+        if result["combined_decision"] == "UNSAFE":
+            st.warning("Temporary batch is unsafe. No resolution gains are accepted; inspect exact deltas below.")
+        else:
+            st.caption(f"{len(impact['newly_resolved'])} verified resolutions; {len(impact['unexpected_changes'])} unexpected changes. No production publication or approval.")
+        st.write("Batch 2 preview")
+        st.dataframe(campaign.table([c for c in result["post_batch_clusters"] if c["cluster_id"] in result["batch_2"]]), hide_index=True, width="stretch")
+        with st.expander("Campaign validation diagnostics / exact research plans"):
+            st.json(result)
+    with st.expander("Blocked dependencies"):
+        st.dataframe(campaign.table([c for c in value["clusters"] if c["remediation_type"] in
+            (campaign.IDENTITY, campaign.RELATIONSHIP, campaign.PARSER, campaign.MIXED)]), hide_index=True, width="stretch")
+    with st.expander("Complete inventory / memberships / scope diagnostics"):
+        st.json(value)
+    st.download_button("Download bulk campaign JSON", json.dumps({"campaign":value,"validation":result}, indent=2),
+                       "bulk_capability_campaign.json", key="tm_campaign_download")
 
 
 def _render_identity_remediation(st, snapshot, action, valid):

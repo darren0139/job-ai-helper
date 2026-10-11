@@ -24,7 +24,7 @@ class TechnologyIdentityRemediationTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.fixture = self.stack.enter_context(PublicationFixture())
+        self.fixture = self.stack.enter_context(PublicationFixture(pre_identity_publication=True))
         self.taxonomy_bytes = Path(TAXONOMY_PATH).read_bytes()
         self.snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus("Python", "React"),
             explicit_execution=True, review_db_path=self.fixture.tmp / "review.sqlite")
@@ -77,11 +77,18 @@ class TechnologyIdentityRemediationTests(unittest.TestCase):
         first = self.validate()
         self.assertEqual(first, self.validate())
         self.assertTrue(first["validated_impact"]["atomic_identity_recognized"])
-        self.assertEqual(first["validated_impact"]["newly_resolved"], 0)
+        self.assertEqual(first["validated_impact"]["newly_resolved"], 1)
         self.assertGreater(first["estimated_impact"]["requirements"], 0)
         self.assertEqual(first["unexpected_changes"], [])
         self.assertEqual(first["ranking_changes"], [])
-        self.assertEqual(first["baseline"], first["temporary_overlay"])
+        self.assertEqual(first["baseline"]["capability_resolved_requirements"], first["temporary_overlay"]["capability_resolved_requirements"])
+        self.assertEqual(first["temporary_overlay"]["technology_identity_resolved_requirements"], 1)
+        resolved = [r for r in first["all_changed_rows"] if r["newly_resolved"]]
+        self.assertEqual(len(resolved), 1)
+        self.assertIsNone(resolved[0]["after"]["capability_id"])
+        self.assertEqual(resolved[0]["after_resolution"]["knowledge_status"], "TECHNOLOGY_IDENTITY_RESOLVED")
+        for field in ("match_label", "evidence", "weighted_evidence_contribution"):
+            self.assertEqual(resolved[0]["before"][field], resolved[0]["after"][field])
         self.assertFalse(first["approval"])
         self.assertFalse(first["publication"])
         self.assertEqual(first["production_writes"], 0)
@@ -143,7 +150,16 @@ class TechnologyIdentityRemediationTests(unittest.TestCase):
         cid = next(r["candidate_id"] for r in snapshot["gap_rows"] if r["concept"] == "python")
         proposal = remediation.prepare_identity_proposal(snapshot, cid, explicit_execution=True)
         report = remediation.validate_identity_proposal(snapshot, proposal, explicit_execution=True)
-        self.assertEqual(report["validated_impact"]["newly_resolved"], 0)
+        self.assertEqual(report["validated_impact"]["newly_resolved"], 1)
+        resolved = [r for r in report["all_changed_rows"] if r["newly_resolved"]]
+        self.assertEqual([r["after"]["text"] for r in resolved], ["Proficiency in Python"])
+        self.assertIsNone(resolved[0]["after"]["capability_id"])
+        self.assertEqual(resolved[0]["before"]["weighted_evidence_contribution"], resolved[0]["after"]["weighted_evidence_contribution"])
+        sql_rows = [r for j in snapshot["audit"]["corpus"]["jobs"]
+                    for r in j["baseline_stable_analysis"]["canonical_requirements"] if r["text"] == "Proficiency in SQL"]
+        self.assertEqual(len(sql_rows), 1)
+        with temporary_registry_scope(registry):
+            self.assertNotEqual(gaps._resolution(sql_rows[0])["status"], "resolved")
         self.assertEqual(report["ranking_changes"], [])
         self.assertTrue(all(r["compound_provenance"] for r in report["affected_requirement_receipts"]))
 

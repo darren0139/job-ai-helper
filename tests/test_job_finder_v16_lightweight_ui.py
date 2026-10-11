@@ -24,6 +24,15 @@ class JobFinderV16LightweightUIContractTests(unittest.TestCase):
             self.text,
         )
 
+    def test_unresolved_requirements_are_not_presented_as_proven_gaps(self) -> None:
+        self.assertNotIn('"Taxonomy gaps"', self.text)
+        self.assertNotIn('"**Important taxonomy gaps**"', self.text)
+        self.assertIn('"Unresolved capability requirements"', self.text)
+        self.assertIn('"**Important unresolved capability requirements**"', self.text)
+        self.assertIn('"proven capability gaps. Technology identity, relationships, "', self.text)
+        # Retain the saved summary contract; presentation must not alter ranking.
+        self.assertIn('match_summary.get("taxonomy_gap_count", 0)', self.text)
+
     def test_query_index_is_cached(self) -> None:
         self.assertIn(
             "def _cached_query_jobs_v16(",

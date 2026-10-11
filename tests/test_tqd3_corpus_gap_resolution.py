@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from functools import wraps
 import json
 import sys
 import unittest
@@ -12,6 +13,20 @@ from job_discovery.matching import current_match_versions
 from taxonomy_discovery import corpus_gap_resolution as gaps
 from taxonomy_discovery.regression_corpus import CORPUS_VERSION
 from tests.tqd3_publication_fixture_support import PublicationFixture
+
+
+def pre_identity_publication(test):
+    """Missing-identity fixtures must not depend on later registry publication."""
+    @wraps(test)
+    def run(*args, **kwargs):
+        from taxonomy_discovery.technology_registry import TechnologyRegistry, get_default_registry, temporary_registry_scope
+        native = get_default_registry()
+        concepts = ('Python','SQL','Azure','JavaScript','AWS','TypeScript','Elasticsearch','Java','S3','FastAPI','GCP')
+        ids = {gaps._technology_id_for(gaps._local_identity(c)['canonical_name']) for c in concepts}
+        old = TechnologyRegistry('technology-registry-v1.2',tuple(e for e in native.entries if e['technology_id'] not in ids))
+        with temporary_registry_scope(old):
+            return test(*args, **kwargs)
+    return run
 
 
 def requirement(text, rid, *, importance="required"):
@@ -100,6 +115,7 @@ class CorpusGapAuditTests(unittest.TestCase):
             f.network_guard.assert_not_called()
             f.model_guard.assert_not_called()
 
+    @pre_identity_publication
     def test_compound_parent_retains_provenance_and_children_reenter_same_queue(self):
         with PublicationFixture():
             report = gaps.audit_corpus_resolution(corpus=corpus("Python and SQL"))
@@ -130,6 +146,7 @@ class CorpusGapAuditTests(unittest.TestCase):
         self.assertFalse(parent["local_safe"])
         self.assertIn("Open-ended example list", parent["local_plan"]["reason"])
 
+    @pre_identity_publication
     def test_arbitrary_prose_is_not_split_and_cloud_identity_does_not_force_mapping(self):
         with PublicationFixture():
             report = gaps.audit_corpus_resolution(corpus=corpus(
@@ -639,7 +656,7 @@ class CapabilityClosureTests(unittest.TestCase):
 
 class LocalProposalCompatibilityTests(unittest.TestCase):
     def test_common_identity_is_local_proposal_with_zero_network_and_no_mapping(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_identity_publication=True) as f:
             audit = gaps.audit_corpus_resolution(corpus=corpus("Python"))
             queue = gaps.build_gap_resolution_queue(audit)
             row = next(item for item in queue["rows"] if item["concept"] == "python")

@@ -466,7 +466,132 @@
       "notes": "Promoted from human-approved TQ-D2.7 research proposal prop_35e71ca183cd98faae69 in tranche 1.",
       "status": "approved",
       "technology_id": "vue.js"
+    },
+    {
+      "technology_id": "python",
+      "label": "Python",
+      "entry_kind": "language",
+      "aliases": [
+        "Python"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "sql",
+      "label": "SQL",
+      "entry_kind": "language",
+      "aliases": [
+        "SQL"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "microsoft.azure",
+      "label": "Microsoft Azure",
+      "entry_kind": "platform",
+      "aliases": [
+        "Azure",
+        "Microsoft Azure"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "javascript",
+      "label": "JavaScript",
+      "entry_kind": "language",
+      "aliases": [
+        "JavaScript"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "amazon.web.services",
+      "label": "Amazon Web Services",
+      "entry_kind": "platform",
+      "aliases": [
+        "AWS",
+        "Amazon Web Services"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "typescript",
+      "label": "TypeScript",
+      "entry_kind": "language",
+      "aliases": [
+        "TypeScript"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "elasticsearch",
+      "label": "Elasticsearch",
+      "entry_kind": "product",
+      "aliases": [
+        "Elasticsearch"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "java",
+      "label": "Java",
+      "entry_kind": "language",
+      "aliases": [
+        "Java"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "amazon.s3",
+      "label": "Amazon S3",
+      "entry_kind": "product",
+      "aliases": [
+        "Amazon S3",
+        "S3"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "fastapi",
+      "label": "FastAPI",
+      "entry_kind": "framework",
+      "aliases": [
+        "FastAPI"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
+    },
+    {
+      "technology_id": "google.cloud.platform",
+      "label": "Google Cloud Platform",
+      "entry_kind": "platform",
+      "aliases": [
+        "GCP",
+        "Google Cloud Platform"
+      ],
+      "status": "approved",
+      "capability_relationships": [],
+      "notes": "Explicitly authorized identity-only maintenance; no capability mapping."
     }
   ],
-  "registry_version": "technology-registry-v1.2"
+  "registry_version": "technology-registry-v1.3"
 }

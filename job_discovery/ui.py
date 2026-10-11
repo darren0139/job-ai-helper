@@ -5,7 +5,7 @@ from typing import Any
 
 import streamlit as st
 
-from database.db_manager import create_empty_application_session
+from database.phase9f_application_confirmation_manager import create_job_finder_application_session
 from database.job_match_manager import (
     init_job_match_schema,
     list_current_job_match_snapshots,
@@ -206,13 +206,14 @@ def _salary_label(job: dict[str, Any]) -> str:
     return " ".join(part for part in (currency, amount, period) if part)
 
 
-def _handoff_to_new_application(job: dict[str, Any]) -> None:
-    session_name = f"{job.get('title') or 'Job'} @ {job.get('company') or 'Unknown Company'}"
-    application_id = create_empty_application_session(
-        degree="",
-        session_name=session_name,
+def _handoff_to_new_application(job: dict[str, Any], snapshot_id: int | None = None) -> None:
+    application_id = create_job_finder_application_session(
+        discovered_job_id=int(job["id"]), snapshot_id=snapshot_id,
     )
     st.session_state["current_application_id"] = application_id
+    st.session_state["latest_report"] = None
+    st.session_state["resume_filename"] = ""
+    st.session_state["cover_letter"] = ""
     next_suffix = int(st.session_state.get("input_reset_counter", 0)) + 1
     st.session_state["input_reset_counter"] = next_suffix
     st.session_state[f"jd_text_{next_suffix}"] = str(job.get("description") or "")
@@ -226,7 +227,8 @@ def _handoff_to_new_application(job: dict[str, Any]) -> None:
     st.session_state["_pending_navigation_page"] = "Application Sessions"
     st.session_state["flash_message"] = (
         f"Created application session #{application_id} from Job Finder. "
-        "Review the prefilled JD, upload your résumé, then click Analyze Resume."
+        "The initial Job Match is saved. Open Tailor Resume with the same JD "
+        "and select this application when confirming the starting source."
     )
     st.rerun()
 
@@ -429,6 +431,9 @@ def render_job_finder() -> None:
 
     st.divider()
     st.header("Job Finder")
+    from taxonomy_discovery.coverage_presentation import render_confirmed_coverage
+    with st.expander("Advanced / global reviewed-corpus taxonomy health"):
+        render_confirmed_coverage(st, key="job_finder_coverage", allow_import=True)
     st.caption(
         "Search once, then narrow the indexed results with live filters. "
         "Changing a source, company, date, experience or employment filter immediately updates the results; "
@@ -1367,6 +1372,23 @@ def render_job_finder() -> None:
     if navigation_busy:
         navigation_busy_slot.empty()
 
+    # Reuse lightweight inspection to identify completed analyses. Only an
+    # explicit local refresh reads their full receipts; search rows themselves
+    # are never treated as reviewed taxonomy accounting.
+    from taxonomy_discovery.coverage_presentation import analyzed_job_records, render_analyzed_jobs_summary
+    taxonomy_states = all_match_states if all_match_states is not None else _cached_match_states_v16(filtered_jobs)
+    taxonomy_receipts = st.session_state.setdefault("job_finder_taxonomy_receipts", {})
+    st.caption("Taxonomy summary scope: analyzed jobs in the current filtered results. "
+               "Refresh reads saved analyses locally; it does not analyze jobs or research.")
+    if st.button("Refresh analyzed jobs taxonomy summary", key="job_finder_taxonomy_refresh"):
+        taxonomy_receipts.clear()
+        for row in filtered_jobs:
+            jid = int(row.get("id", 0) or 0)
+            if taxonomy_states.get(jid, {}).get("status") == "current":
+                taxonomy_receipts[jid] = inspect_job_match(row, context=match_context, versions=match_versions)
+    taxonomy_analyses = analyzed_job_records(filtered_jobs, taxonomy_states, taxonomy_receipts)
+    render_analyzed_jobs_summary(st, taxonomy_analyses)
+
     integrity_errors: list[str] = []
 
     if selected_sources:
@@ -1451,7 +1473,7 @@ def render_job_finder() -> None:
                         if summary
                         else None
                     ),
-                    "Important taxonomy %": (
+                    "Required/core capability-resolved %": (
                         summary.get("important_taxonomy_coverage_pct")
                         if summary
                         else None
@@ -1567,11 +1589,6 @@ def render_job_finder() -> None:
                 "Match": match_label,
                 "Alignment": (
                     summary.get("deterministic_alignment_score")
-                    if summary
-                    else None
-                ),
-                "Important taxonomy %": (
-                    summary.get("important_taxonomy_coverage_pct")
                     if summary
                     else None
                 ),
@@ -1741,6 +1758,22 @@ def render_job_finder() -> None:
         else None
     )
 
+    from taxonomy_discovery.coverage_presentation import render_jd_taxonomy_status
+    taxonomy_analysis = (snapshot or {}).get("stable_analysis")
+    if snapshot and not taxonomy_analysis:
+        # Page/ranking queries intentionally retain summary-only snapshots.
+        # Read only this selected analyzed job's canonical receipt,
+        # independently of review availability; never re-analyze.
+        taxonomy_state = inspect_job_match(job, context=match_context, versions=match_versions)
+        if taxonomy_state.get("status") == "current":
+            taxonomy_analysis = (taxonomy_state.get("snapshot") or {}).get("stable_analysis")
+    taxonomy_view = render_jd_taxonomy_status(
+        st, raw_jd_text=str(job.get("description") or ""),
+        stable_analysis=taxonomy_analysis, job_id=selected_job_id,
+        analyzed=match_state.get("status") != "none",
+        current=match_state.get("status") == "current",
+    )
+
     if isinstance(snapshot, dict):
         match_summary = snapshot.get("summary") or {}
         ranking_eligible = bool(
@@ -1755,7 +1788,7 @@ def render_job_finder() -> None:
         )
 
         metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        metric_col1.metric("Alignment", f"{raw_alignment}/100")
+        metric_col1.metric("Job Match", f"{raw_alignment}/100")
         metric_col2.metric(
             "Required/core",
             f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
@@ -1768,70 +1801,83 @@ def render_job_finder() -> None:
             "Evidence strength",
             f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
         )
+        with st.expander("How this match was analyzed"):
+            from tailoring.initial_analysis_explainer_ui import render_job_finder_explainer
+            full = snapshot
+            if not full.get("stable_analysis"):
+                # Read the exact displayed receipt, not a newly evaluated match.
+                from database.job_match_manager import _connect_read_only, _decode_row
+                from contextlib import closing
+                with closing(_connect_read_only()) as conn:
+                    full = _decode_row(conn.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?", (snapshot["id"], selected_job_id)).fetchone())
+            if full:
+                render_job_finder_explainer(st, full, str(job.get("description") or ""), taxonomy=taxonomy_view)
 
-        quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
-        quality_col1.metric(
-            "Important taxonomy",
-            f"{int(match_summary.get('important_taxonomy_coverage_pct', 0) or 0)}%",
-        )
-        quality_col2.metric(
-            "Overall taxonomy",
-            f"{int(match_summary.get('overall_taxonomy_coverage_pct', 0) or 0)}%",
-        )
-        quality_col3.metric(
-            "Taxonomy gaps",
-            int(match_summary.get("taxonomy_gap_count", 0) or 0),
-        )
-        quality_col4.metric(
-            "Ranking status",
-            "Eligible" if ranking_eligible else "Provisional",
-        )
+        with st.expander("Advanced diagnostics — selected job resolution and ranking"):
+            quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+            quality_col1.metric(
+                "Required/core capability-resolved share",
+                f"{int(match_summary.get('important_taxonomy_coverage_pct', 0) or 0)}%",
+            )
+            quality_col2.metric(
+                "Overall capability-resolved share",
+                f"{int(match_summary.get('overall_taxonomy_coverage_pct', 0) or 0)}%",
+            )
+            quality_col3.metric(
+                "Unresolved capability requirements",
+                int(match_summary.get("taxonomy_gap_count", 0) or 0),
+            )
+            quality_col4.metric(
+                "Ranking status",
+                "Eligible" if ranking_eligible else "Provisional",
+            )
 
-        if not ranking_eligible:
-            ranking_quality = (
-                match_summary.get("ranking_quality")
-                if isinstance(match_summary.get("ranking_quality"), dict)
-                else {}
-            )
-            min_important = round(
-                float(
-                    ranking_quality.get(
-                        "minimum_important_taxonomy_coverage",
-                        0.75,
-                    )
-                    or 0.75
+            if not ranking_eligible:
+                ranking_quality = (
+                    match_summary.get("ranking_quality")
+                    if isinstance(match_summary.get("ranking_quality"), dict)
+                    else {}
                 )
-                * 100
-            )
-            min_overall = round(
-                float(
-                    ranking_quality.get(
-                        "minimum_overall_taxonomy_coverage",
-                        0.65,
+                min_important = round(
+                    float(
+                        ranking_quality.get(
+                            "minimum_important_taxonomy_coverage",
+                            0.75,
+                        )
+                        or 0.75
                     )
-                    or 0.65
+                    * 100
                 )
-                * 100
-            )
-            st.warning(
-                f"Provisional alignment: {raw_alignment}/100. "
-                "It stays visible but does not drive the trusted Best Match "
-                f"tier until taxonomy coverage reaches ≥{min_important}% "
-                f"important and ≥{min_overall}% overall."
-            )
+                min_overall = round(
+                    float(
+                        ranking_quality.get(
+                            "minimum_overall_taxonomy_coverage",
+                            0.65,
+                        )
+                        or 0.65
+                    )
+                    * 100
+                )
+                st.warning(
+                    f"Provisional alignment: {raw_alignment}/100. "
+                    "It stays visible but does not drive the trusted Best Match "
+                    f"tier until capability resolution reaches ≥{min_important}% "
+                    f"important and ≥{min_overall}% overall."
+                )
 
         important_evidence_gaps = (
             match_summary.get("important_evidence_gaps")
             or []
         )
         if important_evidence_gaps:
-            st.write("**Important evidence gaps**")
+            st.write("**Important requirements — evidence review pending**")
             st.dataframe(
                 [
                     {
                         "Importance": gap.get("importance"),
                         "Requirement": gap.get("text"),
                         "Capability": gap.get("capability_id"),
+                        "Analysis status": "Review pending",
                     }
                     for gap in important_evidence_gaps
                 ],
@@ -1839,24 +1885,30 @@ def render_job_finder() -> None:
                 hide_index=True,
             )
 
-        important_taxonomy_gaps = (
-            match_summary.get("important_taxonomy_gaps")
-            or []
-        )
-        if important_taxonomy_gaps:
-            st.write("**Important taxonomy gaps**")
-            st.dataframe(
-                [
-                    {
-                        "Importance": gap.get("importance"),
-                        "Requirement": gap.get("text"),
-                        "Capability": gap.get("capability_id"),
-                    }
-                    for gap in important_taxonomy_gaps
-                ],
-                width="stretch",
-                hide_index=True,
+        with st.expander("Advanced diagnostics — requirements needing review"):
+            important_taxonomy_gaps = (
+                match_summary.get("important_taxonomy_gaps")
+                or []
             )
+            if important_taxonomy_gaps:
+                st.write("**Important unresolved capability requirements**")
+                st.caption(
+                    "Unresolved capability requirements need review; they are not "
+                    "proven capability gaps. Technology identity, relationships, "
+                    "structure, and scope may still need review."
+                )
+                st.dataframe(
+                    [
+                        {
+                            "Importance": gap.get("importance"),
+                            "Requirement": gap.get("text"),
+                            "Capability": gap.get("capability_id"),
+                        }
+                        for gap in important_taxonomy_gaps
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
 
         load_full_diagnostics = st.checkbox(
             "Load full match diagnostics",
@@ -1926,9 +1978,12 @@ def render_job_finder() -> None:
             "Use in new Application Session",
             key=f"job_finder_use_v16_{selected_job_id}",
             width="stretch",
-            disabled=len(str(job.get("description") or "").strip()) < 100,
+            disabled=not bool(snapshot) or len(str(job.get("description") or "").strip()) < 100,
         ):
-            _handoff_to_new_application(job)
+            try:
+                _handoff_to_new_application(job, snapshot_id=snapshot.get("id"))
+            except ValueError as exc:
+                st.error(str(exc))
 
     with action_col2:
         source_url = str(

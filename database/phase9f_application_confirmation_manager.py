@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import uuid
 from copy import deepcopy
@@ -69,6 +70,93 @@ def _safe_json(value: Any) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _jd_hash(text: str) -> str:
+    from tailoring.phase9f_jd_intake import validate_jd_text
+    return hashlib.sha256(validate_jd_text(text).encode("utf-8")).hexdigest()
+
+
+def _validate_entry_binding(connection, binding):
+    """Validate the sealed receipt against native currentness, without scoring."""
+    from job_discovery.matching import current_match_versions, fingerprint_evidence_items
+    from database.user_profile_manager import get_all_evidence_items_for_snapshot
+    from database.job_match_manager import _decode_row
+    seal = binding.get("binding_fingerprint")
+    content = {k: v for k, v in binding.items() if k != "binding_fingerprint"}
+    if not seal or seal != fingerprint_value(content):
+        raise Phase9FDConfirmationError("The handoff binding is corrupt.", code="entry_binding_corrupt")
+    job = connection.execute("SELECT * FROM discovered_jobs WHERE id=?",
+                             (binding["discovered_job_id"],)).fetchone()
+    if not job or job["content_hash"] != binding["job_content_hash"] or _jd_hash(job["description"]) != binding["raw_jd_sha256"]:
+        raise Phase9FDConfirmationError("The source job changed.", code="entry_job_mismatch")
+    snapshot = _decode_row(connection.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?",
+        (binding["snapshot"]["id"], binding["discovered_job_id"])).fetchone())
+    if snapshot != binding["snapshot"]:
+        raise Phase9FDConfirmationError("The saved match changed.", code="entry_snapshot_changed")
+    if snapshot["job_content_hash"] != binding["job_content_hash"]:
+        raise Phase9FDConfirmationError("The match belongs to another JD generation.", code="entry_snapshot_jd_mismatch")
+    versions = current_match_versions()
+    current_evidence = get_all_evidence_items_for_snapshot(read_only=True, db_path=db_manager.DB_PATH)
+    if any(snapshot.get(k) != versions.get(k) for k in ("match_version", "scoring_version", "taxonomy_version")) or snapshot.get("evidence_fingerprint") != fingerprint_evidence_items(current_evidence):
+        raise Phase9FDConfirmationError("Refresh Job Match explicitly before configuring this session.", code="entry_snapshot_stale")
+
+
+def create_job_finder_application_session(*, discovered_job_id: int, snapshot_id: int | None = None) -> int:
+    """Create one draft with its immutable saved Initial Analysis, atomically."""
+    from database.job_match_manager import _decode_row
+    from job_discovery.matching import build_profile_evidence_context
+    from tailoring.phase9f_jd_intake import _canonical_scope
+    db_manager.init_db()
+    from database.analysis_cache_manager import init_analysis_cache
+    init_analysis_cache()
+    connection = _connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        job = connection.execute("SELECT * FROM discovered_jobs WHERE id=?", (discovered_job_id,)).fetchone()
+        if not job:
+            raise Phase9FDConfirmationError("Source job missing.", code="entry_job_missing")
+        snapshot = _decode_row(connection.execute(
+            "SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?",
+            (snapshot_id, discovered_job_id)).fetchone()) if snapshot_id is not None else None
+        if not snapshot or not snapshot.get("stable_analysis") or not snapshot.get("jd_profile"):
+            raise Phase9FDConfirmationError("Analyze this job explicitly before creating its session.", code="entry_match_missing")
+        binding = {
+            "origin": "job_finder", "discovered_job_id": int(discovered_job_id),
+            "job_content_hash": job["content_hash"], "raw_jd_text": job["description"],
+            "raw_jd_sha256": _jd_hash(job["description"]),
+            "source_url": job["source_url"], "title": job["title"], "company": job["company"],
+            "snapshot": snapshot, "initial_analysis_id": uuid.uuid4().hex,
+            "canonical_requirement_fingerprint": _canonical_scope(
+                jd_profile=snapshot["jd_profile"], raw_text=job["description"])[2],
+        }
+        binding["binding_fingerprint"] = fingerprint_value(binding)
+        _validate_entry_binding(connection, binding)
+        now = _now()
+        cursor = connection.execute(
+            "INSERT INTO applications (session_name, report_json, entry_binding_json, created_at, updated_at) VALUES (?, '', ?, ?, ?)",
+            (f"{job['title']} @ {job['company']}", canonical_json(binding), now, now))
+        application_id = int(cursor.lastrowid)
+        context = build_profile_evidence_context(snapshot["evidence_snapshot"])
+        initial_report = {
+            "stable_analysis": deepcopy(snapshot["stable_analysis"]),
+            "jd_profile": deepcopy(snapshot["jd_profile"]), "raw_jd_text": job["description"],
+            "resume_profile": context["resume_profile"], "raw_resume_text": context["raw_resume_text"],
+            "overall_score": snapshot["stable_analysis"].get("deterministic_alignment_score"),
+            "meta": {"initial_analysis_reference": deepcopy(binding)},
+        }
+        insert_analysis_snapshot_with_connection(connection, application_id=application_id,
+            input_fingerprint=binding["binding_fingerprint"], report=initial_report,
+            analysis_model="saved-job-finder-match", resume_filename="Profile & Evidence",
+            analysis_id=binding["initial_analysis_id"], created_at=now,
+            pipeline_contract_version=snapshot["match_version"])
+        connection.commit()
+        return application_id
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def init_phase9f_application_confirmation_schema() -> None:
@@ -340,6 +428,8 @@ def confirm_phase9f_application_session(
     confirmed_intensity: str,
     application_intent_id: str,
     actor_label: str = "Local user",
+    existing_application_id: int | None = None,
+    discovered_job_id: int | None = None,
 ) -> dict[str, Any]:
     """Atomically create and exactly configure one existing Application Session."""
     prepared = prepare_phase9f_d_confirmation(
@@ -356,13 +446,45 @@ def confirm_phase9f_application_session(
         confirmation_content_fingerprint=prepared[
             "confirmation_content_fingerprint"
         ],
-        application_intent_id=application_intent_id,
+        application_intent_id=(f"application:{int(existing_application_id)}" if existing_application_id is not None else application_intent_id),
     )
     baseline = build_application_baseline_report(prepared)
     init_phase9f_application_confirmation_schema()
     connection = _connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        binding = None
+        if existing_application_id is not None:
+            target = connection.execute("SELECT * FROM applications WHERE id=?", (int(existing_application_id),)).fetchone()
+            if target is None:
+                raise Phase9FDConfirmationError("Application missing.", code="existing_application_missing")
+            binding = _safe_json(target["entry_binding_json"])
+            if not binding or binding.get("origin") != "job_finder":
+                raise Phase9FDConfirmationError("No compatible durable handoff exists.", code="existing_application_unbound")
+            if binding.get("binding_fingerprint") != fingerprint_value({k: v for k, v in binding.items() if k != "binding_fingerprint"}):
+                raise Phase9FDConfirmationError("The handoff binding is corrupt.", code="entry_binding_corrupt")
+            if _jd_hash(phase9f_a_snapshot.get("raw_text") or "") != binding["raw_jd_sha256"]:
+                raise Phase9FDConfirmationError("The application JD differs.", code="existing_application_jd_mismatch")
+            if phase9f_a_snapshot.get("canonical_requirement_fingerprint") != binding.get("canonical_requirement_fingerprint"):
+                raise Phase9FDConfirmationError("The canonical requirements differ.", code="existing_application_requirements_mismatch")
+            if discovered_job_id is not None and int(discovered_job_id) != binding["discovered_job_id"]:
+                raise Phase9FDConfirmationError("The discovered job differs.", code="existing_application_source_mismatch")
+            conflict = connection.execute("SELECT * FROM phase9f_application_confirmations WHERE application_id=?", (int(existing_application_id),)).fetchone()
+            if conflict is not None and conflict["confirmation_operation_key"] != operation_key:
+                raise Phase9FDConfirmationError("Application already configured differently.", code="existing_application_conflict")
+            if conflict is None:
+                if target["report_json"] or target["resume_filename"] or target["cover_letter"]:
+                    raise Phase9FDConfirmationError("Application is no longer a draft.", code="existing_application_not_draft")
+                for table in ("application_job_links", "application_blueprint_decisions",
+                              "application_tailoring_versions", "phase9f_application_executions",
+                              "phase9f_tailoring_executions"):
+                    if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                        if connection.execute(f"SELECT 1 FROM {table} WHERE application_id=? LIMIT 1", (int(existing_application_id),)).fetchone():
+                            raise Phase9FDConfirmationError("Application already has workflow state.", code="existing_application_not_draft")
+                initial_rows = connection.execute("SELECT analysis_id FROM application_analysis_versions WHERE application_id=?", (int(existing_application_id),)).fetchall()
+                if len(initial_rows) != 1 or initial_rows[0]["analysis_id"] != binding["initial_analysis_id"]:
+                    raise Phase9FDConfirmationError("Initial Analysis ownership differs.", code="existing_application_initial_mismatch")
+                _validate_entry_binding(connection, binding)
         existing = connection.execute(
             """
             SELECT * FROM phase9f_application_confirmations
@@ -372,6 +494,8 @@ def confirm_phase9f_application_session(
             (operation_key,),
         ).fetchone()
         if existing is not None:
+            if existing_application_id is not None and int(existing["application_id"]) != int(existing_application_id):
+                raise Phase9FDConfirmationError("Operation belongs to another application.", code="existing_application_conflict")
             connection.rollback()
             return {
                 "cache_status": "exact_operation_reused",
@@ -413,12 +537,17 @@ def confirm_phase9f_application_session(
             or selected.get("source_display_name")
             or "Immutable starting source"
         )
-        application_id = db_manager.insert_application_session_with_connection(
-            connection,
-            resume_filename=resume_filename,
-            report=baseline,
-            created_at=now,
-        )
+        if binding is None:
+            application_id = db_manager.insert_application_session_with_connection(
+                connection, resume_filename=resume_filename, report=baseline, created_at=now,
+            )
+        else:
+            application_id = int(existing_application_id)
+            baseline.setdefault("meta", {})["initial_analysis_reference"] = deepcopy(binding)
+            # Phase 9F-B remains the starting-source receipt, not a replacement
+            # for the historical Job Finder initial match.
+            connection.execute("UPDATE applications SET resume_filename=?, job_title=?, company=? WHERE id=?",
+                (resume_filename, baseline["jd_profile"].get("job_title", ""), baseline["jd_profile"].get("company", ""), application_id))
         linked_exact_jd = deepcopy(persisted_exact_jd_snapshot)
         linked_exact_jd["source_application_link"] = {
             "application_id": application_id,
@@ -451,12 +580,12 @@ def confirm_phase9f_application_session(
                 ],
             }
         )[:32]
+        if binding is not None:
+            analysis_id = binding["initial_analysis_id"]
         baseline.setdefault("meta", {})["created_at"] = now
         baseline["meta"]["analysis_cache"] = {
             "analysis_id": analysis_id,
-            "input_fingerprint": selected[
-                "candidate_analysis_snapshot_fingerprint"
-            ],
+            "input_fingerprint": binding["binding_fingerprint"] if binding else selected["candidate_analysis_snapshot_fingerprint"],
         }
         baseline["meta"]["phase9f_d_confirmation"] = {
             "confirmation_id": confirmation_id,
@@ -485,18 +614,17 @@ def confirm_phase9f_application_session(
                 application_id,
             ),
         )
-        insert_analysis_snapshot_with_connection(
-            connection,
-            application_id=application_id,
-            input_fingerprint=selected[
-                "candidate_analysis_snapshot_fingerprint"
-            ],
-            report=baseline,
-            analysis_model="deterministic-phase9f-b-baseline",
-            resume_filename=resume_filename,
-            analysis_id=analysis_id,
-            created_at=now,
-        )
+        if binding is None:
+            insert_analysis_snapshot_with_connection(
+                connection,
+                application_id=application_id,
+                input_fingerprint=selected["candidate_analysis_snapshot_fingerprint"],
+                report=baseline,
+                analysis_model="deterministic-phase9f-b-baseline",
+                resume_filename=resume_filename,
+                analysis_id=analysis_id,
+                created_at=now,
+            )
         phase9e_event = persist_exact_phase9f_d_binding_with_connection(
             connection,
             decision=phase9e_decision,
@@ -548,6 +676,12 @@ def confirm_phase9f_application_session(
             "execution_status": "not_started",
             "zero_cost_diagnostics": zero_cost_diagnostics(),
         }
+        if binding:
+            confirmation_snapshot["initial_analysis"] = {
+                "analysis_id": binding["initial_analysis_id"], "origin": "job_finder",
+                "job_match_snapshot_id": binding["snapshot"]["id"],
+                "binding_fingerprint": binding["binding_fingerprint"],
+            }
         persisted_jd = prepared["persisted_exact_jd"]
         connection.execute(
             """

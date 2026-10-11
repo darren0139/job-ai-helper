@@ -77,6 +77,7 @@ def init_db() -> None:
     _add_column_if_missing(cursor, "cover_letter", "TEXT")
     _add_column_if_missing(cursor, "created_at", "TEXT")
     _add_column_if_missing(cursor, "updated_at", "TEXT")
+    _add_column_if_missing(cursor, "entry_binding_json", "TEXT")
 
     conn.commit()
     conn.close()
@@ -147,6 +148,26 @@ def create_empty_application_session(
     conn.close()
 
     return application_id
+
+
+def list_job_finder_application_bindings() -> list[dict[str, Any]]:
+    """Recover durable handoffs without relying on browser session state."""
+    conn = _connect()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
+        if "entry_binding_json" not in columns:
+            return []
+        return [
+            {"application_id": row[0], "session_name": row[1],
+             "binding": json.loads(row[2])}
+            for row in conn.execute(
+                "SELECT id, session_name, entry_binding_json FROM applications "
+                "WHERE entry_binding_json IS NOT NULL AND entry_binding_json != '' "
+                "ORDER BY id DESC"
+            )
+        ]
+    finally:
+        conn.close()
 
 
 def insert_application_session_with_connection(

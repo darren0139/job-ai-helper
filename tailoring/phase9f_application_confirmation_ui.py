@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import streamlit as st
 
-from database.db_manager import get_application_by_id
+from database.db_manager import get_application_by_id, list_job_finder_application_bindings
 from database.jd_library_manager import (
     get_exact_job_description_version,
     save_job_description_to_library,
@@ -166,10 +166,10 @@ def render_phase9f_application_confirmation(
     )
 
     st.divider()
-    st.subheader("Create Application Session")
+    st.subheader("Configure Application Session")
     st.caption(
         "Confirm the exact JD, immutable starting source, and tailoring "
-        "intensity. This configures the existing Application Session only; "
+        "intensity. Choose an existing Job Finder session or create a new one; "
         "it does not start tailoring, fitting, approval, or verification."
     )
     with st.container(border=True):
@@ -251,8 +251,21 @@ def render_phase9f_application_confirmation(
 
         intent_key = f"phase9f_d_intent_{ranking_fingerprint}"
         st.session_state.setdefault(intent_key, uuid.uuid4().hex)
+        from database.phase9f_application_confirmation_manager import _jd_hash
+        handoffs = [row for row in list_job_finder_application_bindings()
+                    if row["binding"].get("raw_jd_sha256") == _jd_hash(phase9f_a_snapshot["raw_text"])]
+        options = [None, *[row["application_id"] for row in handoffs]]
+        labels = {row["application_id"]: f"Application #{row['application_id']} · {row['session_name']}" for row in handoffs}
+        current_id = st.session_state.get("current_application_id")
+        target_id = st.selectbox(
+            "Application Session to configure", options,
+            index=options.index(current_id) if current_id in options else 0,
+            format_func=lambda value: labels.get(value, "Create a new Application Session"),
+            key=f"phase9f_d_target_{ranking_fingerprint}",
+        )
+        target_binding = next((row["binding"] for row in handoffs if row["application_id"] == target_id), None)
         if st.button(
-            "Confirm and create Application Session",
+            "Confirm and configure Application Session" if target_id else "Confirm and create Application Session",
             type="primary",
             width="stretch",
             disabled=not bool(confirmed_intensity),
@@ -274,6 +287,8 @@ def render_phase9f_application_confirmation(
                     ),
                     confirmed_intensity=confirmed_intensity,
                     application_intent_id=st.session_state[intent_key],
+                    existing_application_id=target_id,
+                    discovered_job_id=target_binding["discovered_job_id"] if target_binding else None,
                 )
                 application_id = int(
                     result["confirmation"]["application_id"]

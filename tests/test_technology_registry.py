@@ -17,7 +17,7 @@ class TechnologyRegistryTests(unittest.TestCase):
         registry = get_default_registry()
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.2",
+            "technology-registry-v1.3",
         )
         self.assertGreaterEqual(len(registry.entries), 10)
 

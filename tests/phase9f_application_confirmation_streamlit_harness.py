@@ -48,13 +48,30 @@ recommendation = recommend_tailoring_intensity(
 )
 st.session_state["phase9f_d_harness_ranking"] = ranking
 st.session_state["phase9f_d_harness_recommendation"] = recommendation
+# Both modes use the same passive configuration surface. Isolate the fixture
+# from any real Job Finder bindings and fail if rendering starts paid work.
+target_id = st.session_state.get("phase9f_d_harness_existing_application_id")
+bindings = []
+if target_id is not None:
+    from database.phase9f_application_confirmation_manager import _jd_hash
+    bindings = [{"application_id": target_id, "session_name": "Frozen existing session",
+                 "binding": {"raw_jd_sha256": _jd_hash(exact_jd["raw_text"]), "discovered_job_id": 4}}]
+    st.session_state["current_application_id"] = target_id
 with patch(
     "tailoring.phase9f_application_confirmation_ui."
     "prepare_persisted_exact_jd_for_confirmation"
 ) as prepare_write, patch(
     "tailoring.phase9f_application_confirmation_ui."
     "confirm_phase9f_application_session"
-) as confirmation_write:
+) as confirmation_write, patch(
+    "tailoring.phase9f_application_confirmation_ui.list_job_finder_application_bindings",
+    return_value=bindings,
+), patch("litellm.completion", side_effect=AssertionError("Passive model call")) as model, patch(
+    "litellm.embedding", side_effect=AssertionError("Passive embedding call")
+) as embedding, patch(
+    "tailoring.phase8_verification.build_phase8_verification",
+    side_effect=AssertionError("Passive Phase8 execution"),
+) as phase8:
     render_phase9f_application_confirmation(
         phase9f_a_snapshot=exact_jd,
         ranking_result=ranking,
@@ -62,8 +79,9 @@ with patch(
     )
     persistence_writes = prepare_write.call_count + confirmation_write.call_count
 st.session_state["phase9f_d_harness_persistence_writes"] = persistence_writes
-st.markdown("MODEL_CALLS=0")
-st.markdown("EMBEDDING_CALLS=0")
+st.markdown(f"MODEL_CALLS={model.call_count}")
+st.markdown(f"EMBEDDING_CALLS={embedding.call_count}")
+st.markdown(f"PHASE8_CALLS={phase8.call_count}")
 st.markdown("CHROMA_READS=0")
 st.markdown("CHROMA_WRITES=0")
 st.markdown(f"PERSISTENCE_WRITES={persistence_writes}")

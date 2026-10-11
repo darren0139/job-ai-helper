@@ -250,7 +250,7 @@ def _research_state(row, saved, required_weight):
 
 
 def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, selected_research_ids=None,
-               db_path=None, review_db_path=None, transport=None):
+               db_path=None, review_db_path=None, transport=None, lazy_addressability=False, addressability_seed=None):
     """Pure dry-run, reusing an exact current native audit. No drafts or calls."""
     maintenance._require_current(snapshot, db_path)
     if type(max_actions) is not int or not 1 <= max_actions <= bulk.MAX_WORKING_BATCH:
@@ -346,6 +346,9 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
         for r in sorted(unresolved, key=lambda r: (r["job_id"], r["requirement_id"]))]
     summary = snapshot["audit"]["summary"]
     baseline = {"technical_requirements": summary["meaningful_technical_requirements"],
+        "capability_resolved": summary["capability_resolved_requirements"],
+        "technology_identity_resolved": summary["technology_identity_resolved_requirements"],
+        "total_knowledge_resolved": summary["knowledge_resolved_requirements"],
         "resolved": summary["taxonomy_resolved_requirements"], "unresolved": summary["taxonomy_unresolved_requirements"],
         "required_core_weighted_coverage": summary["required_core_weighted_coverage"],
         "overall_weighted_coverage": summary["overall_weighted_coverage"]}
@@ -354,7 +357,8 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
     from taxonomy_discovery.contextual_relationship_validation import build_inventory
     relationships = build_inventory(snapshot, actions, gap_rows)
     from taxonomy_discovery.taxonomy_addressability import project as addressability_project
-    addressability = addressability_project(snapshot, unresolved, gap_rows)
+    addressability = addressability_project(snapshot, unresolved, gap_rows,
+        **({"previous":addressability_seed,"reviewed_keys":[]} if lazy_addressability else {}))
     return maintenance._seal({"assistant_version": ASSISTANT_VERSION,
         "assistant_implementation_fingerprint": fingerprint({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
             for name in ("gap_reduction_assistant.py", "structure_unavailable_triage.py", "contextual_relationship_validation.py", "taxonomy_addressability.py")}),
@@ -362,7 +366,9 @@ def build_plan(snapshot, *, max_actions=10, research_budget=3, options=None, sel
         "saved_research_fingerprint": _saved_identity(saved), "publication_fingerprint": fingerprint(pubs),
         "interpretation_version": research.INTERPRETATION_VERSION, "options": options,
         "max_actions": max_actions, "research_budget": research_budget, "selected_research_ids": selected_research_ids,
-        **dependencies, "taxonomy_addressability": addressability, "contextual_relationship_inventory": relationships, "baseline": baseline, "identity_impact_summary": {
+        **dependencies, "taxonomy_addressability": addressability,
+        **({"lazy_addressability":True,"addressability_seed":addressability_seed} if lazy_addressability else {}),
+        "contextual_relationship_inventory": relationships, "baseline": baseline, "identity_impact_summary": {
             "unique_mentioned_requirement_keys": [dict(job_id=k[0], requirement_id=k[1]) for k in sorted(identity_keys)],
             "unique_mentioned_requirements": len(identity_keys),
             "estimated_directly_resolvable": 0, "validated_resolved": None,
@@ -388,7 +394,8 @@ def validate_plan(snapshot, plan, confirmed_fingerprint, *, db_path=None, review
         raise ValueError("Confirm the exact assistant plan fingerprint")
     fresh = build_plan(snapshot, max_actions=plan["max_actions"], research_budget=plan["research_budget"],
         options=plan["options"], selected_research_ids=plan["selected_research_ids"], db_path=db_path,
-        review_db_path=review_db_path, transport=transport)
+        review_db_path=review_db_path, transport=transport,
+        lazy_addressability=plan.get("lazy_addressability",False),addressability_seed=plan.get("addressability_seed"))
     if fresh["assistant_plan_fingerprint"] != confirmed_fingerprint:
         raise ValueError("Assistant plan changed; re-preview before execution")
 

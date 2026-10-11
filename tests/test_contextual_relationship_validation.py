@@ -71,7 +71,9 @@ class RelationshipInventoryTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack(); self.addCleanup(self.stack.close)
         self.fixture = self.stack.enter_context(PublicationFixture())
-        self.snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus("Experience with MongoDB", "Experience with Node.js"),
+        # Pure identities now resolve knowledge and correctly leave the gap queue.
+        # Relationship inventory tests require actual unresolved activity scope.
+        self.snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus("MongoDB for designing persistence", "Node.js for building APIs"),
             explicit_execution=True, review_db_path=self.fixture.tmp / "reviews.sqlite")
 
     def plan(self):

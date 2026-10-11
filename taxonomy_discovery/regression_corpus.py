@@ -21,14 +21,16 @@ def requirement_records(stable, *, job_id, snapshot_id):
     output = []
     for row in stable.get("canonical_requirements", []):
         registry = row.get("technology_registry_resolution") or {}
+        knowledge = row.get("knowledge_resolution") or {}
         capability = row.get("capability_id") or row.get("canonical_capability_id") or row.get("taxonomy_capability_id")
         output.append({
             "job_id": job_id, "snapshot_id": snapshot_id, "requirement_id": row.get("requirement_id"),
             "requirement_text": row.get("atomic_focus") or row.get("text"), "importance": row.get("importance"),
             "score_eligible": requirement_is_score_eligible(row), "capability_id": capability,
-            "resolution_status": "resolved" if capability else registry.get("status", "unresolved"),
-            "resolution_source": row.get("capability_resolution_source") or ("resolved_unspecified" if capability else "unresolved"),
-            "technology_id": registry.get("technology_id") or row.get("technology_registry_technology_id"),
+            "resolution_status": "resolved" if capability or knowledge.get("status") == "resolved" else registry.get("status", "unresolved"),
+            "knowledge_status": "CAPABILITY_RESOLVED" if capability else knowledge.get("knowledge_status", "UNRESOLVED"),
+            "resolution_source": knowledge.get("resolution_source") or row.get("capability_resolution_source") or ("resolved_unspecified" if capability else "unresolved"),
+            "technology_id": knowledge.get("technology_id") or registry.get("technology_id") or row.get("technology_registry_technology_id"),
             "technology_registry_resolution": deepcopy(registry),
             "match_label": row.get("match_label", "none"), "match_value": row.get("match_value", 0),
             "selected_evidence": deepcopy(row.get("evidence", [])),
@@ -181,14 +183,40 @@ def duplicate_credit_violations(stable, context):
     problems = []
     ids = [r.get("requirement_id") for r in stable.get("canonical_requirements", [])]
     problems += ["duplicate_requirement_id:" + str(rid) for rid, count in Counter(ids).items() if count > 1]
-    allowed = {r["evidence_id"] for r in build_resume_evidence_index(context["resume_profile"], context["raw_resume_text"])}
+    frozen = build_resume_evidence_index(context["resume_profile"], context["raw_resume_text"])
+    identity_fields = ("evidence_id", "section", "text", "source")
+    references = {tuple(e.get(k) for k in identity_fields) for e in frozen}
+    allowed = {r["evidence_id"] for r in frozen}
     credited = 0
     for row in stable.get("canonical_requirements", []):
+        row_references = references
+        row_allowed = allowed
+        if row.get("structured_match_status") == "applied":
+            from tailoring.phase6d6_structured_matching import STRUCTURED_MATCH_VERSION, structured_match_requirement
+            if row.get("structured_match_version") != STRUCTURED_MATCH_VERSION:
+                problems.append("frozen_structured_evidence_version_mismatch:" + str(row.get("requirement_id")))
+            else:
+                # An applied upgrade entered the native structured producer
+                # before its final label was installed. Reconstruct that
+                # producer from the same frozen profile, never live evidence.
+                # Its normalizer/IDs differ from the general evidence index.
+                decision = structured_match_requirement(
+                    {**row, "match_label": "none"},
+                    resume_profile=context["resume_profile"],
+                    raw_resume_text=context["raw_resume_text"],
+                )
+                if decision and decision["kind"] == row.get("structured_match_kind"):
+                    reference = decision["evidence"]
+                    row_references = references | {tuple(reference.get(k) for k in identity_fields)}
+                    row_allowed = allowed | {reference["evidence_id"]}
         evidence_ids = [e.get("evidence_id") for e in row.get("evidence", [])]
         if len(evidence_ids) != len(set(evidence_ids)):
             problems.append("duplicate_selected_evidence:" + str(row.get("requirement_id")))
-        if any(eid not in allowed for eid in evidence_ids):
+        if any(eid not in row_allowed for eid in evidence_ids):
             problems.append("evidence_not_in_frozen_resume:" + str(row.get("requirement_id")))
+        if any(e.get("evidence_id") in row_allowed and tuple(e.get(k) for k in identity_fields) not in row_references
+               for e in row.get("evidence", [])):
+            problems.append("frozen_evidence_source_mismatch:" + str(row.get("requirement_id")))
         if requirement_is_score_eligible(row) and row.get("match_label", "none") != "none":
             credited += 1
             if not evidence_ids:

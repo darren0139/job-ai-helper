@@ -17,13 +17,24 @@ class TechnologyRegistryTranche1PromotionTests(unittest.TestCase):
     def tearDown(self) -> None:
         get_default_registry.cache_clear()
 
-    def test_registry_is_promoted_v1_1_with_expected_size(self) -> None:
+    def test_current_registry_preserves_tranche1_and_identity_only_additions(self) -> None:
         registry = get_default_registry()
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.2",
+            "technology-registry-v1.3",
         )
-        self.assertEqual(len(registry.entries), 28)
+        # v1.3 adds exactly eleven approved identities to the 28-entry baseline.
+        self.assertEqual(len(registry.entries), 39)
+        identity_only = {
+            "python", "sql", "microsoft.azure", "javascript", "amazon.web.services",
+            "typescript", "elasticsearch", "java", "amazon.s3", "fastapi",
+            "google.cloud.platform",
+        }
+        by_id = registry.by_id()
+        for technology_id in identity_only:
+            with self.subTest(technology_id=technology_id):
+                self.assertIn(technology_id, by_id)
+                self.assertEqual(by_id[technology_id]["capability_relationships"], [])
 
     def test_tranche1_mappings_are_present(self) -> None:
         by_id = get_default_registry().by_id()
@@ -93,7 +104,7 @@ class TechnologyRegistryTranche1PromotionTests(unittest.TestCase):
         registry = load_registry(path)
         self.assertEqual(
             registry.version,
-            "technology-registry-v1.2",
+            "technology-registry-v1.3",
         )
 
     def test_promotion_manifest_matches_registry(self) -> None:

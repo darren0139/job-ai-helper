@@ -81,12 +81,22 @@ def render_model_expansion():
 
 
 def render_corpus_research_inputs():
+    import streamlit as st
+    from taxonomy_discovery.coverage_presentation import render_confirmed_coverage
+    view = render_confirmed_coverage(st, key="discovery_coverage", allow_import=True)
+    if view:
+        with st.expander("Advanced / authoritative discovery destinations"):
+            st.dataframe(view["routes"], hide_index=True, width="stretch")
+        st.caption("Only proven capability gaps belong to capability discovery. "
+                   "Identity, relationship, structural and deferred rows retain their existing review workflows. "
+                   "This display does not create candidates or execute research.")
     render_corpus_coverage()
     from taxonomy_discovery.taxonomy_evolution_ui import render_taxonomy_evolution
     render_taxonomy_evolution()
     import streamlit as st
-    with st.expander("Job Match corpus · governed taxonomy-gap research inputs"):
-        st.caption("Upload a frozen corpus export to inspect unresolved clusters. These observations require human review and do not create proposals or execute research.")
+    with st.expander("Advanced / raw unresolved corpus observations"):
+        st.caption("These are unconfirmed observations, not proven capability gaps or research authorization. "
+                   "Use matching reviewed Addressability accounting for authoritative discovery destinations.")
         uploaded = st.file_uploader("Frozen Job Match corpus JSON", type=["json"], key="tqd3_gap_corpus")
         if uploaded is None:
             return
@@ -96,9 +106,9 @@ def render_corpus_research_inputs():
             st.error(f"Corpus diagnostics unavailable: {exc}")
             return
         st.dataframe([{"Cluster":r["normalized_cluster"],"Requirements":r["occurrence_count"],"Jobs":r["job_count"],
-                       "Initial Phase-G research route":r["recommended_research_route"],"Technology terms":", ".join(r["technology_terms"])}
+                       "Historical route hypothesis (unconfirmed)":r["recommended_research_route"],"Technology terms":", ".join(r["technology_terms"])}
                       for r in report["observations"]],hide_index=True,width="stretch")
-        st.download_button("Download governed gap research inputs", data=json.dumps(report,indent=2,ensure_ascii=False)+"\n",
-                           file_name="tqd3_taxonomy_gap_inputs.json",mime="application/json")
+        st.download_button("Download raw unresolved diagnostics", data=json.dumps(report,indent=2,ensure_ascii=False)+"\n",
+                           file_name="tqd3_unresolved_diagnostics.json",mime="application/json")
         with st.expander("Advanced / gap provenance"):
             st.json(report)

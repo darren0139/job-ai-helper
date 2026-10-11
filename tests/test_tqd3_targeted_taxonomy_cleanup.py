@@ -78,7 +78,7 @@ class TargetedTaxonomyCleanupTests(unittest.TestCase):
         return corpus, audit, report
 
     def test_exact_target_dispositions_and_existing_capability_boundaries(self):
-        with PublicationFixture() as fixture:
+        with PublicationFixture(pre_identity_publication=True) as fixture:
             _, _, report = self._report()
         by_name = {row["candidate"]: row for row in report["targeted_items"]}
         self.assertEqual(report["disposition_counts"], {
@@ -103,7 +103,7 @@ class TargetedTaxonomyCleanupTests(unittest.TestCase):
         fixture.model_guard.assert_not_called()
 
     def test_capability_definitions_are_bounded_and_relationships_stay_separate(self):
-        with PublicationFixture():
+        with PublicationFixture(pre_identity_publication=True):
             _, _, report = self._report()
         by_name = {row["candidate"]: row for row in report["targeted_items"]}
         sql = by_name["SQL"]["proposed_capability"]
@@ -120,7 +120,7 @@ class TargetedTaxonomyCleanupTests(unittest.TestCase):
             self.assertFalse(draft["publication"])
 
     def test_distributed_systems_collision_remains_blocked(self):
-        with PublicationFixture():
+        with PublicationFixture(pre_identity_publication=True):
             _, _, report = self._report()
         distributed = next(
             row for row in report["targeted_items"]
@@ -157,7 +157,7 @@ class TargetedTaxonomyCleanupTests(unittest.TestCase):
         self.assertFalse(security_testing["false_rejection"])
 
     def test_integrated_preview_is_temporary_offline_and_does_not_add_relationships(self):
-        with PublicationFixture() as fixture:
+        with PublicationFixture(pre_identity_publication=True) as fixture:
             taxonomy_before = Path(gaps.TAXONOMY_PATH).read_bytes()
             registry_before = fixture.real_registry.read_bytes()
             corpus, audit, report = self._report()

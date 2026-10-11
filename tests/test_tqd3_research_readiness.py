@@ -33,7 +33,7 @@ class RegistryReadinessTests(unittest.TestCase):
         second = readiness.audit_technology_registry()
         self.assertEqual(first, second)
         self.assertEqual(first["technology_count"], len(first["entries"]))
-        self.assertEqual(first["technology_count"], 28)
+        self.assertEqual(first["technology_count"], 39)
         self.assertTrue(first["audit_fingerprint"])
         self.assertTrue(all(row["authority_rules_fingerprint"] for row in first["entries"]))
         self.assertEqual(first["network_calls"], 0)
@@ -193,7 +193,16 @@ class AuthorityAndEvidenceTests(unittest.TestCase):
                 self.assertTrue(interpreted["conflicts_blockers"])
 
 
+from tests.tqd3_publication_fixture_support import PublicationFixture
+
+
 class QueryAndQueueReadinessTests(unittest.TestCase):
+    def setUp(self):
+        # Historical missing-identity benchmark before approved v1.3 publication.
+        fixture = PublicationFixture(pre_identity_publication=True)
+        fixture.__enter__()
+        self.addCleanup(fixture.__exit__, None, None, None)
+
     def test_relationship_route_requires_current_production_identity(self):
         item = candidate("UnknownNovelTool", "technology_identity")
         item["candidate_route"] = "technology_relationship"

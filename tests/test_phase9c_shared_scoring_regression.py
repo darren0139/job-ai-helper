@@ -87,7 +87,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.15-phase6d20")
+        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -100,12 +100,12 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(result["required_core_coverage_score"], 100)
         self.assertEqual(result["preferred_coverage_score"], 0)
         self.assertEqual(result["evidence_strength_score"], 100)
-        # D2.7.3 intentionally changes stable-analysis identity because
-        # the approved technology-registry version/resolution contract is now
-        # a semantic dependency. Scoring semantics above remain unchanged.
+        # The existing reproducibility identity includes scorer and registry versions.
+        # Pin current v1.16 / v1.3; the former hash represented v1.15 / v1.2.
+        # All requirement, evidence and score assertions above remain unchanged.
         self.assertEqual(
             result["input_fingerprint"],
-            "04a885162c26b4569066c64ba78a2c888d9cb6917d4e5ad3c0f4e089e505e837",
+            "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

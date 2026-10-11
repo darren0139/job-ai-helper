@@ -20,10 +20,16 @@ class Phase9FApplicationConfirmationStreamlitTests(unittest.TestCase):
     def test_passive_confirmation_is_read_only_and_shows_recommendations(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=20).run()
         self.assertEqual(app.exception, [])
-        self.assertTrue(_contains(app.subheader, "Create Application Session"))
+        self.assertTrue(_contains(app.subheader, "Configure Application Session"))
+        self.assertTrue(_contains(app.markdown, "Recommended starting source"))
+        self.assertTrue(any("Recommended tailoring for this source" in c.value for c in app.caption))
+        target = next(s for s in app.selectbox if s.label == "Application Session to configure")
+        self.assertIsNone(target.value)  # CREATE_NEW remains an explicit choice.
+        self.assertNotIn("current_application_id", app.session_state)
         for marker in (
             "MODEL_CALLS=0",
             "EMBEDDING_CALLS=0",
+            "PHASE8_CALLS=0",
             "CHROMA_READS=0",
             "CHROMA_WRITES=0",
             "PERSISTENCE_WRITES=0",
@@ -38,6 +44,23 @@ class Phase9FApplicationConfirmationStreamlitTests(unittest.TestCase):
             if item.label == "Confirm and create Application Session"
         )
         self.assertFalse(confirm.disabled)
+
+    def test_existing_session_passive_configuration_preserves_identity(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=20)
+        app.session_state["phase9f_d_harness_existing_application_id"] = 321
+        for _ in range(2):
+            app.run()
+            self.assertEqual(app.exception, [])
+            self.assertTrue(_contains(app.subheader, "Configure Application Session"))
+            self.assertTrue(_contains(app.markdown, "Recommended starting source"))
+            self.assertEqual(app.session_state["current_application_id"], 321)
+            target = next(s for s in app.selectbox if s.label == "Application Session to configure")
+            self.assertEqual(target.value, 321)
+            confirm = next(b for b in app.button if b.label == "Confirm and configure Application Session")
+            self.assertFalse(confirm.disabled)
+            self.assertEqual(app.session_state["phase9f_d_harness_persistence_writes"], 0)
+            for marker in ("MODEL_CALLS=0", "EMBEDDING_CALLS=0", "PHASE8_CALLS=0", "PERSISTENCE_WRITES=0"):
+                self.assertTrue(_contains(app.markdown, marker))
 
     def test_nonwinner_requires_explicit_intensity_and_keeps_winner_recommendation(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=20).run()

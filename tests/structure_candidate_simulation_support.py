@@ -117,3 +117,41 @@ def replay(frozen, candidate=None):
     with simulation(candidate):
         result = corpus.replay_current_corpus(frozen)
         return result, {j["job_id"]: view(j) for j in result["jobs"]}
+
+import inspect
+import types
+
+# Test-only copied native callables; no repository mutation.
+def _dotted_net_trim(value, chars):
+    leading=value.lstrip(chars.replace('.', ''))
+    if re.match(r'^\.NET\b',leading,re.I):return leading.rstrip(chars)
+    return value.strip(chars)
+
+@contextmanager
+def structural_remediation_simulation(rule):
+    """Failed acceptance hypotheses only; never production rules.
+
+    Copied native callables run inside a restored test-only patch scope.
+    """
+    if rule not in {"dotnet_v3", "presentation"}:
+        raise ValueError("Unknown structural hypothesis")
+    ns=dict(vars(scorer));ns['_token_trim']=_dotted_net_trim
+    functions=['_normalise_requirement_surface']
+    if rule.startswith('dotnet'):functions+=['_split_requirement_sentences','_split_top_level_commas','_clause_record']
+    with ExitStack() as stack:
+        for name in functions:
+            source=inspect.getsource(getattr(scorer,name))
+            if name=='_normalise_requirement_surface':
+                if rule.startswith('dotnet'):source=source.replace('(?<=[.!?])(?=[A-Z])','(?<=[.!?])(?=[A-Z])(?![Nn][Ee][Tt]\\b)')
+                elif rule=='presentation':source=source.replace('text = _clean_text(value)','text = re.sub(r"^\\u00b7\\s+", "", _clean_text(value))')
+            elif rule.startswith('dotnet'):
+                # Preserve exactly a leading dotted NET token at native trim seams.
+                source=re.sub(r'((?:_clean_text\([^\n]+?\)|""\.join\(current\)|part))\.strip\((" ,;(?::)?\.\-")\)',r'_token_trim(\1, \2)',source)
+            exec(source,ns)
+            fn=ns[name]
+            # Native globals must remain live, including the other scoped patches.
+            fn=types.FunctionType(fn.__code__,vars(scorer),name,fn.__defaults__)
+            fn.__kwdefaults__=ns[name].__kwdefaults__
+            stack.enter_context(patch.object(scorer,name,fn))
+        stack.enter_context(patch.dict(vars(scorer),{'_token_trim':_dotted_net_trim}))
+        yield

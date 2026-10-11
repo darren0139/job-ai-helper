@@ -94,11 +94,11 @@ class ResolverInspectorTests(unittest.TestCase):
         )
         self.assertEqual(
             versions["technology_registry_version"],
-            "technology-registry-v1.2",
+            "technology-registry-v1.3",
         )
         self.assertEqual(
             versions["scoring_version"],
-            "stable-evidence-v1.15-phase6d20",
+            "stable-evidence-v1.16-phase6d20",
         )
         self.assertIs(adapter_resolver, resolve_requirement_with_production_knowledge)
         self.assertIs(inspector_resolver, resolve_requirement_with_production_knowledge)

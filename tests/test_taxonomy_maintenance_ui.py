@@ -17,6 +17,100 @@ HARNESS = Path(__file__).with_name("taxonomy_maintenance_streamlit_harness.py")
 
 
 class MaintenanceUITests(unittest.TestCase):
+    def test_legacy_knowledge_summary_is_stale_and_does_not_refresh_on_rerender(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        app.button(key="tm_audit").click().run()
+        old = deepcopy(app.session_state["tm_snapshot"])
+        for key in ("capability_resolved_requirements", "technology_identity_resolved_requirements", "knowledge_resolved_requirements", "capability_required_core_weighted_coverage", "capability_overall_weighted_coverage"):
+            old["audit"]["summary"].pop(key)
+        old["manifest"]["scoring_version"] = "stable-evidence-v1.15-phase6d20"
+        service._seal(old, "audit_fingerprint")
+        app.session_state["tm_snapshot"] = old
+        app.run()
+        self.assertEqual(list(app.exception), [])
+        self.assertTrue(any("STALE" in w.value for w in app.warning))
+        self.assertEqual({m.label:m.value for m in app.metric}["CAPABILITY RESOLVED"], "Unavailable")
+        self.assertEqual(self.audit.call_count, 1)
+        self.research.assert_not_called(); self.publish.assert_not_called()
+
+    def test_identity_knowledge_counts_are_separate_and_rerender_is_offline(self):
+        self.corpus = fixture_corpus("C#", "Experience with Node.js", "Experience with Keycloak", "Experience with MongoDB", "React")
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        app.button(key="tm_audit").click().run()
+        self.assertEqual(list(app.exception), [])
+        metrics = {m.label: str(m.value) for m in app.metric}
+        self.assertEqual(metrics["CAPABILITY RESOLVED"], "1")
+        self.assertEqual(metrics["TECHNOLOGY IDENTITY RESOLVED"], "4")
+        self.assertEqual(metrics["TOTAL KNOWLEDGE RESOLVED"], "5")
+        self.assertEqual(metrics["Raw unresolved"], "0")
+        snapshot = app.session_state["tm_snapshot"]
+        self.assertEqual(snapshot["gap_rows"], [])
+        self.assertTrue(any(e.label == "TECHNOLOGY IDENTITY RESOLVED" for e in app.expander))
+        app.run()
+        self.assertEqual(self.audit.call_count, 1)
+        self.research.assert_not_called(); self.publish.assert_not_called()
+        self.fixture.network_guard.assert_not_called(); self.fixture.model_guard.assert_not_called()
+
+    def test_bulk_campaign_build_and_validation_are_explicit_and_do_not_repeat(self):
+        from taxonomy_discovery import bulk_capability_campaign as campaign
+        from taxonomy_discovery import taxonomy_addressability as address
+        self.corpus = fixture_corpus("network access control", "Knowledge of secure coding practices")
+        with patch.object(campaign, "build", wraps=campaign.build) as build, patch.object(campaign, "validate", wraps=campaign.validate) as validate, \
+            patch.object(address,"classify",wraps=address.classify) as classify:
+            app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+            app.button(key="tm_gap_run").click().run()
+            build.assert_not_called(); validate.assert_not_called()
+            classify.assert_not_called()
+            self.assertTrue(app.session_state["tm_gap_plan"]["lazy_addressability"])
+            app.button(key="tm_campaign_build").click().run()
+            self.assertEqual(list(app.exception), [])
+            build.assert_called_once(); validate.assert_not_called()
+            app.run(); build.assert_called_once(); validate.assert_not_called()
+            app.button(key="tm_campaign_validate").click().run()
+            self.assertEqual(list(app.exception), [])
+            validate.assert_called_once()
+            result = app.session_state["tm_campaign_validation"]
+            self.assertTrue(result["high_impact"])
+            self.assertEqual(classify.call_count,len(result["reviewed_requirement_keys"]))
+            self.assertEqual(result["combined"]["newly_resolved"], [])
+            self.assertEqual(result["research_required"], 1)
+            self.assertEqual(result["provider_calls"], 0)
+            self.assertTrue(result["matured_locally"])
+            self.assertTrue(any(e.value == "No safe overlay was applied." for e in app.info))
+            self.assertTrue(any("Baseline resolved:" in e.value and "Temporary resolved:" in e.value for e in app.markdown))
+            reviewed=classify.call_count
+            app.run(); validate.assert_called_once()
+            self.assertEqual(classify.call_count,reviewed)
+        self.research.assert_not_called(); self.publish.assert_not_called()
+        self.fixture.network_guard.assert_not_called(); self.fixture.model_guard.assert_not_called()
+
+    def test_stale_bulk_campaign_cannot_validate_after_assistant_inputs_change(self):
+        app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+        app.button(key="tm_gap_run").click().run()
+        app.button(key="tm_campaign_build").click().run()
+        app.number_input(key="tm_gap_max").set_value(9).run()
+        self.assertTrue(app.button(key="tm_campaign_validate").disabled)
+        self.assertTrue(any("stale" in e.value.lower() for e in app.warning))
+        self.research.assert_not_called(); self.publish.assert_not_called()
+
+    def test_unsafe_bulk_preview_does_not_claim_verified_gains(self):
+        from taxonomy_discovery import bulk_capability_campaign as campaign
+        native_validate = campaign.validate
+        def unsafe(*args, **kwargs):
+            result = native_validate(*args, **kwargs)
+            result["combined_decision"] = "UNSAFE"
+            result["combined"]["duplicate_credit_violations"] = [{"job_id":1, "reason":"credit_without_evidence:fixture"}]
+            return service._seal(result, "validation_fingerprint")
+        with patch.object(campaign, "validate", side_effect=unsafe):
+            app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
+            app.button(key="tm_gap_run").click().run()
+            app.button(key="tm_campaign_build").click().run()
+            app.button(key="tm_campaign_validate").click().run()
+            self.assertEqual(list(app.exception), [])
+            self.assertTrue(any("No resolution gains are accepted" in e.value for e in app.warning))
+            self.assertFalse(any("verified resolutions" in e.value for e in app.caption))
+        self.research.assert_not_called(); self.publish.assert_not_called()
+
     def test_addressability_sections_preserve_raw_metrics_and_no_rerender_execution(self):
         app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
         app.button(key="tm_gap_run").click().run()
@@ -323,6 +417,13 @@ class MaintenanceUITests(unittest.TestCase):
         # NumPy extensions cannot be reimported after module-cache rollback.
         __import__("numpy")
         __import__("pandas")
+        # Keep the UI and test patch bound to the same module across the
+        # fixture's sys.modules rollback after campaign-triggered lazy imports.
+        __import__("taxonomy_discovery.contextual_relationship_validation")
+        # Addressability is also imported lazily by campaign validation. Keep
+        # its module in the snapshot so later tests patch the runtime classifier,
+        # rather than a stale package attribute left by sys.modules rollback.
+        __import__("taxonomy_discovery.taxonomy_addressability")
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.fixture = self.stack.enter_context(PublicationFixture())

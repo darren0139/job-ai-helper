@@ -1,0 +1,267 @@
+{
+  "source_verdict": "SCORING_POLICY_FROZEN_NO_CHANGE",
+  "ambiguous": [
+    {
+      "job_id": 15,
+      "requirement_id": "req_71321f9eff59",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 15,
+      "requirement_id": "req_2e581717a7ab",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 16,
+      "requirement_id": "req_b451ce69ddd0",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 31,
+      "requirement_id": "req_bc26569100e0",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 31,
+      "requirement_id": "req_d0a20edbb7ae",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 31,
+      "requirement_id": "req_2410dfcbbf45",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 44,
+      "requirement_id": "req_6e081bd46d54",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 44,
+      "requirement_id": "req_4c055b99aecf",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 45,
+      "requirement_id": "req_90583b43be1b",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 45,
+      "requirement_id": "req_7140ec72373b",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 48,
+      "requirement_id": "req_89ae867baae9",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 48,
+      "requirement_id": "req_62c9cf0a14a8",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 50,
+      "requirement_id": "req_b1ca22b99bd9",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 72,
+      "requirement_id": "req_27324ba0a7db",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 81,
+      "requirement_id": "req_8424f364cc7f",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 81,
+      "requirement_id": "req_e535e7d8cf00",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 81,
+      "requirement_id": "req_4917719674ce",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 141,
+      "requirement_id": "req_1fe3445f9749",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 141,
+      "requirement_id": "req_03d7f10bed8c",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 146,
+      "requirement_id": "req_9778668ec0d8",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 146,
+      "requirement_id": "req_1bc2b4d68488",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 173,
+      "requirement_id": "req_f17d2d634c4f",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 173,
+      "requirement_id": "req_52b74dd06399",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 359,
+      "requirement_id": "req_e74e6af3c866",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 370,
+      "requirement_id": "req_f96670b7b7e9",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 370,
+      "requirement_id": "req_f92a88d61bd5",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 370,
+      "requirement_id": "req_636c94bb99c3",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 493,
+      "requirement_id": "req_c3b362e0255b",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 551,
+      "requirement_id": "req_b5f429000f4a",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 556,
+      "requirement_id": "req_4ff10792d2df",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 556,
+      "requirement_id": "req_f31cdb2daced",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_acb845cbe814",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_b34860727bff",
+      "negative_evidence_status": "SEARCHED_BUT_SCOPE_LIMITED"
+    },
+    {
+      "job_id": 644,
+      "requirement_id": "req_f6ff3f430250",
+      "negative_evidence_status": "CANDIDATE_REJECTED"
+    }
+  ],
+  "positive_controls": [
+    {
+      "job_id": 31,
+      "requirement_id": "req_8d47527c8f34",
+      "evidence_label": "direct"
+    },
+    {
+      "job_id": 45,
+      "requirement_id": "req_076aaad11115",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 72,
+      "requirement_id": "req_e51386968bbf",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 81,
+      "requirement_id": "req_53eaaf45d273",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 144,
+      "requirement_id": "req_6c3b74434db5",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 146,
+      "requirement_id": "req_ba405c092a55",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 146,
+      "requirement_id": "req_8068b2faffec",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 158,
+      "requirement_id": "req_1c8deffcd417",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 187,
+      "requirement_id": "req_0c8cc53a6b76",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 359,
+      "requirement_id": "req_a9ae28a146ce",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 361,
+      "requirement_id": "req_4f2552ef7124",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 370,
+      "requirement_id": "req_abaa970f4165",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 370,
+      "requirement_id": "req_dd1aa57348bb",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 479,
+      "requirement_id": "req_9863497d713a",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 479,
+      "requirement_id": "req_957b0d986dc0",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 493,
+      "requirement_id": "req_cfc6614dce69",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_b6a54adf20de",
+      "evidence_label": "transferable"
+    },
+    {
+      "job_id": 595,
+      "requirement_id": "req_9d96f2eedf53",
+      "evidence_label": "transferable"
+    }
+  ]
+}

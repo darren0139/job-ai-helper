@@ -109,7 +109,7 @@ class RefinementTests(unittest.TestCase):
             self.assertTrue(next(r for r in overlap["high_overlap_candidates"] if r["capability_id"]=="integration.client_software")["unmet_requirement_groups"])
 
     def test_product_name_subphrase_not_capability_semantics(self):
-        with PublicationFixture():
+        with PublicationFixture(pre_identity_publication=True):
             c=candidate("hands-on experience with Amazon Web Services EC2 Cognito S3 DynamoDB etc")
             self.assertEqual(c["candidate_route"],"technology_identity")
             self.assertTrue(c["overlap"]["requirement_phrase_product_context_conflict"])

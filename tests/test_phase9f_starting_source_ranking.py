@@ -581,7 +581,8 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
                 for row in result["ranked_candidates"]
             ],
         }
-        # D2.7.3.x intentionally refreshes stable-scoring identity.
+        # The scorer v1.14 -> v1.16 identity refresh changes blueprint/source
+        # fingerprints; the v1.14 identity reproduces the historical pin exactly.
         # The pin advances while winner, ordering, and ranking metrics remain
         # guarded as semantic invariants.
         self.assertEqual(

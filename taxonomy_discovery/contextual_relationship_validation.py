@@ -238,6 +238,89 @@ def report_current(snapshot, inventory, report):
         return False
 
 
+def review_technology_contexts(audit, technology_ids):
+    """Review only actual activity-bearing contexts after native identity exists.
+
+    Uses existing context predicates, not technology-to-capability associations.
+    A hypothesis is never an approved mapping; independent replay is required.
+    """
+    from tailoring.requirement_scope import technology_identity_scope
+    native_registry = registry.get_default_registry()
+    records = _records(audit["corpus"])
+    native = {(r["job_id"], r["requirement_id"]): r for r in audit["requirements"]}
+    reviews = []
+    for tid in dict.fromkeys(technology_ids):
+        entry = native_registry.by_id().get(tid)
+        if not entry:
+            raise ValueError("Relationship review requires finalized native identity first")
+        # Native owned aliases are already collision checked. The generic seed
+        # helper excludes tiny prose tokens and would miss valid C# / S3 contexts.
+        # This remains a whole-phrase mention predicate, never a mapping rule.
+        matched = [r for r in audit["requirements"] if gaps._technology_concept_present(
+            r["requirement_text"], tuple(entry["aliases"]))]
+        for source in matched:
+            key = source["job_id"], source["requirement_id"]
+            row = records[key]
+            scope = technology_identity_scope(row, registry=native_registry)
+            if scope["identity_resolved"]:
+                continue  # Pure identities never generate relationship hypotheses.
+            text = row.get("atomic_focus") or row["text"]
+            # Keep parent/provenance failures visible instead of treating shortened
+            # technology children as complete independent activity obligations.
+            family, capability, old, why = context(row, tid)
+            resolution = native[key]["current_resolution"]
+            decision = {
+                "NEEDS_CAPABILITY_RESEARCH": "TRUE_CAPABILITY_GAP",
+                "BLOCKED_BY_PARSER_OR_NORMALIZATION": "PARSER_OR_DECOMPOSITION_BLOCKED",
+                "NEEDS_SCOPE_REVIEW": "NEEDS_SCOPE_REVIEW",
+                "NO_RELATIONSHIP_JUSTIFIED": "IDENTITY_ONLY_NOT_ENOUGH",
+            }[old]
+            if resolution.get("capability_id"):
+                decision, capability = "EXISTING_CAPABILITY_ALREADY_RESOLVES", resolution["capability_id"]
+            elif "\ufffd" in text or "\u200b" in text or re.search(r"(?<![\w.])net\b", text, re.I):
+                decision = "NORMALIZATION_BLOCKED"
+            elif scope["category"] == "PARSER_OR_DECOMPOSITION_BLOCKED":
+                decision = "PARSER_OR_DECOMPOSITION_BLOCKED"
+            profile = family if family in PROFILES else None
+            if profile:
+                # Complete native parent occurrence required. A shortened child
+                # cannot borrow a mapping for the uncovered parent activity.
+                sources = row.get("source_provenance") or []
+                if not sources or any(not p.get("parent_occurrence_id") or
+                    not eligible(p.get("parent_text", ""), profile) or
+                    not eligible(p.get("raw_parent_text", ""), profile) for p in sources):
+                    decision, profile = "PARSER_OR_DECOMPOSITION_BLOCKED", None
+                    why = "Full recorded parent activity does not satisfy the existing bounded predicate"
+            reviews.append({"technology_id": tid, "technology": entry["label"], "job_id": key[0],
+                "requirement_id": key[1], "text": text, "context": family,
+                "existing_capability_id": capability, "decision": decision, "reason": why,
+                "profile": profile, "validated_resolutions": 0, "identity_scope": scope["category"]})
+    return reviews
+
+
+def validate_technology_contexts(snapshot, reviews, *, explicit_execution=False, db_path=None):
+    """Individually replay only bounded hypotheses; zero-impact is never published."""
+    if explicit_execution is not True:
+        raise ValueError("Explicit relationship replay required")
+    maintenance._require_current(snapshot, db_path)
+    reports = []
+    safe = []
+    for profile in sorted({r["profile"] for r in reviews if r.get("profile") and r["decision"] == "NEEDS_SCOPE_REVIEW"}):
+        result = _replay_report(snapshot, [profile])
+        negative = _negative_checks([profile])
+        valid = (not result["unexpected_changes"] and not result["newly_unresolved"]
+                 and not result["evidence_label_deltas"] and result["before_ranking"] == result["after_ranking"]
+                 and all(n["passed"] for n in negative))
+        result["decision"] = "VALIDATED_SAFE" if valid and result["newly_resolved"] else "VALIDATED_ZERO_IMPACT" if valid else "UNSAFE"
+        reports.append(result)
+        if result["decision"] == "VALIDATED_SAFE":
+            safe.append(profile)
+    combined = _replay_report(snapshot, safe)
+    return {"individual_replays": reports, "safe_profiles": safe, "combined": combined,
+            "reviews": deepcopy(reviews), "implementation_fingerprint": _implementation(),
+            "publication": False, "provider_calls": 0}
+
+
 def _replay_report(snapshot, profiles):
     before = snapshot["audit"]["corpus"]
     original = _records(before)

@@ -354,12 +354,13 @@ class MaintenanceServiceTests(unittest.TestCase):
             f.embedding_guard.assert_not_called()
 
     def test_fix_layer_separation_and_exact_provenance(self):
-        with PublicationFixture() as f:
-            snapshot = service.run_corpus_audit(corpus=fixture_corpus("Python", "C#", "distributed systems", "Python and SQL"),
+        with PublicationFixture(pre_identity_publication=True) as f:
+            # Pure C# is now identity-resolved; activity still needs a governed relationship.
+            snapshot = service.run_corpus_audit(corpus=fixture_corpus("Python", "C# development", "distributed systems", "Python and SQL"),
                 review_db_path=f.tmp / "missing.sqlite", explicit_execution=True)
             by_concept = {r["concept"]: r for r in snapshot["gap_rows"]}
             self.assertEqual(by_concept["python"]["fix_layer"], service.IDENTITY_GAP)
-            self.assertEqual(by_concept["c#"]["fix_layer"], service.RELATIONSHIP_GAP)
+            self.assertEqual(by_concept["c# development"]["fix_layer"], service.RELATIONSHIP_GAP)
             row = by_concept["distributed systems"]
             self.assertEqual(row["fix_layer"], service.CAPABILITY_GAP)
             self.assertTrue(row["requirements"])

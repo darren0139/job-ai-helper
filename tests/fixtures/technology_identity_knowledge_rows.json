@@ -1,0 +1,310 @@
+[
+  {
+    "job_id": 15,
+    "requirement": {
+      "requirement_id": "req_d32de03a9826",
+      "text": "You will work closely with fellow engineers, policy officers, UX designers, cybersecurity specialists, and various partner agencies. \u200b",
+      "atomic_focus": "You will work closely with fellow engineers, policy officers, UX designers, cybersecurity specialists, and various partner agencies. \u200b",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_e29395d96319",
+          "parent_text": "You will work closely with fellow engineers, policy officers, UX designers, cybersecurity specialists, and various partner agencies. \u200b",
+          "raw_parent_text": "Collaborative Mindset: Effective communication is key. You will work closely with fellow engineers, policy officers, UX designers, cybersecurity specialists, and various partner agencies. \u200b",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 1.0,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_60713bcbda40",
+            "line_index": 19,
+            "section": "requirements",
+            "section_heading": "\u200b\u200bStrong Programming Foundation in one or more of the following:",
+            "section_detection": "inferred_child_list",
+            "section_reason": "dominant_child_list_semantics",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 2,
+            "sentence_text": "You will work closely with fellow engineers, policy officers, UX designers, cybersecurity specialists, and various partner agencies. \u200b"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 1.0
+    }
+  },
+  {
+    "job_id": 146,
+    "requirement": {
+      "requirement_id": "req_951a4d36e0a9",
+      "text": "C#",
+      "atomic_focus": "C#",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_5db467601d70",
+          "parent_text": "(a) C#, JavaScript, HTML, CSS",
+          "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 0.25,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_91434e2ef3e5",
+            "line_index": 26,
+            "section": "requirements",
+            "section_heading": "Requirements",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "(a) C#, JavaScript, HTML, CSS"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 0.25
+    }
+  },
+  {
+    "job_id": 479,
+    "requirement": {
+      "requirement_id": "req_379c7eb5d785",
+      "text": "Work closely with Business Analysts, Solution Architects, Product Owners and Software Engineers within an Agile environment",
+      "atomic_focus": "Work closely with Business Analysts, Solution Architects, Product Owners and Software Engineers within an Agile environment",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_5750109e39ba",
+          "parent_text": "Work closely with Business Analysts, Solution Architects, Product Owners and Software Engineers within an Agile environment",
+          "raw_parent_text": "Work closely with Business Analysts, Solution Architects, Product Owners and Software Engineers within an Agile environment.",
+          "source": "raw_jd.responsibilities",
+          "profile_field": "",
+          "source_group_fraction": 1.0,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_38691b51be7a",
+            "line_index": 10,
+            "section": "responsibilities",
+            "section_heading": "Key Responsibilities",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "Work closely with Business Analysts, Solution Architects, Product Owners and Software Engineers within an Agile environment"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 1.0
+    }
+  },
+  {
+    "job_id": 493,
+    "requirement": {
+      "requirement_id": "req_4731e7fdb9f1",
+      "text": "work closely with project manager, technical lead and architect as part of the project delivery",
+      "atomic_focus": "work closely with project manager, technical lead and architect as part of the project delivery",
+      "importance": "supporting",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_a28e5d4b2b48",
+          "parent_text": "You will be part of a project team to deliver project objectives based on your role trained. You will work closely with project manager, technical lead and architect as part of the project delivery.",
+          "raw_parent_text": "You will be part of a project team to deliver project objectives based on your role trained. You will work closely with project manager, technical lead and architect as part of the project delivery.",
+          "source": "raw_jd.unheaded_explicit_role_obligation",
+          "profile_field": "",
+          "source_group_fraction": 0.5,
+          "grounding": {
+            "kind": "unheaded_explicit_role_obligation",
+            "admission_method": "explicit_role_obligation_sentence",
+            "span_id": "jdspan_41d7bae622bc",
+            "line_index": 7,
+            "sentence_index": 2,
+            "sentence_text": "You will work closely with project manager, technical lead and architect as part of the project delivery",
+            "section": ""
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 0.5
+    }
+  },
+  {
+    "job_id": 556,
+    "requirement": {
+      "requirement_id": "req_cb0a1b003784",
+      "text": "Proficiency in C#",
+      "atomic_focus": "Proficiency in C#",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_2d6a5111614c",
+          "parent_text": "Proficiency in C#",
+          "raw_parent_text": "Proficiency in C#, .NET (MVC & Core), and SQL Server for backend development",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 1.0,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_4fe63ef023f2",
+            "line_index": 21,
+            "section": "requirements",
+            "section_heading": "REQUIREMENTS",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "Proficiency in C#"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "structured_match_required_terms": [
+        "C#"
+      ],
+      "structured_match_group_mode": "all",
+      "structured_match_kind": "exact_structured_skill",
+      "group_weight_fraction": 1.0
+    }
+  },
+  {
+    "job_id": 566,
+    "requirement": {
+      "requirement_id": "req_86d57d2e033d",
+      "text": "\u00b7 Knowledge of web services, API, REST, and gRPC",
+      "atomic_focus": "\u00b7 Knowledge of web services, API, REST, and gRPC",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_edf36a98e657",
+          "parent_text": "\u00b7 Knowledge of web services, API, REST, and gRPC",
+          "raw_parent_text": "\u00b7 Knowledge of web services, API, REST, and gRPC",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 1.0,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_5d9ad40bdc6d",
+            "line_index": 29,
+            "section": "requirements",
+            "section_heading": "\u00b7 Understanding of data storage and database technologies, such as SQL and NoSQL",
+            "section_detection": "inferred_child_list",
+            "section_reason": "dominant_child_list_semantics",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "\u00b7 Knowledge of web services, API, REST, and gRPC"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 1.0
+    }
+  },
+  {
+    "job_id": 632,
+    "requirement": {
+      "requirement_id": "req_ead8b32809ed",
+      "text": "Experience with Node.js",
+      "atomic_focus": "Experience with Node.js",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_026409e2b9b2",
+          "parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ",
+          "raw_parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ.",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 0.090909,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_2d883358adaa",
+            "line_index": 15,
+            "section": "requirements",
+            "section_heading": "Qualifications:",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 0.090909
+    }
+  },
+  {
+    "job_id": 632,
+    "requirement": {
+      "requirement_id": "req_d63f4a0cdaab",
+      "text": "Experience with Keycloak",
+      "atomic_focus": "Experience with Keycloak",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_026409e2b9b2",
+          "parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ",
+          "raw_parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ.",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 0.090909,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_2d883358adaa",
+            "line_index": 15,
+            "section": "requirements",
+            "section_heading": "Qualifications:",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 0.090909
+    }
+  },
+  {
+    "job_id": 632,
+    "requirement": {
+      "requirement_id": "req_1cc9a79bdaf0",
+      "text": "Experience with MongoDB",
+      "atomic_focus": "Experience with MongoDB",
+      "importance": "core",
+      "score_eligible": true,
+      "source_provenance": [
+        {
+          "parent_occurrence_id": "srcgrp_026409e2b9b2",
+          "parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ",
+          "raw_parent_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ.",
+          "source": "raw_jd.requirements",
+          "profile_field": "",
+          "source_group_fraction": 0.090909,
+          "grounding": {
+            "kind": "explicit_raw_section",
+            "span_id": "jdspan_2d883358adaa",
+            "line_index": 15,
+            "section": "requirements",
+            "section_heading": "Qualifications:",
+            "section_detection": "exact",
+            "section_reason": "controlled_exact_heading",
+            "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+            "sentence_index": 1,
+            "sentence_text": "Experience with Node.js, React, Kafka, Keycloak, MQTT, Microservices, Docker, Kubernetes, Podman, MongoDB, and IBM MQ"
+          },
+          "contributes_scoring_allocation": true
+        }
+      ],
+      "group_weight_fraction": 0.090909
+    }
+  }
+]

@@ -11,6 +11,7 @@ from tailoring.capability_taxonomy import (
     strip_leading_alpha_list_marker,
 )
 from taxonomy_discovery.technology_registry import resolve_requirement_text
+from tailoring.requirement_scope import technology_identity_scope
 
 
 def resolve_requirement_with_production_knowledge(
@@ -77,7 +78,24 @@ def resolve_requirement_with_production_knowledge(
             }
             resolution_source = "unresolved"
 
+    identity = None
+    knowledge_status = "CAPABILITY_RESOLVED" if decision.get("capability_id") else "UNRESOLVED"
+    if knowledge_status == "UNRESOLVED":
+        identity = technology_identity_scope(requirement)
+        if identity["identity_resolved"]:
+            knowledge_status = "TECHNOLOGY_IDENTITY_RESOLVED"
+            resolution_source = "technology_identity"
+    identities = (identity or {}).get("identities", [])
+    primary = identities[0] if len(identities) == 1 else (registry_resolution or {})
     return {
+        "status": "resolved" if knowledge_status != "UNRESOLVED" else "unresolved",
+        "knowledge_status": knowledge_status,
+        "knowledge_outcome": "RESOLVED_BY_TECHNOLOGY_IDENTITY" if knowledge_status == "TECHNOLOGY_IDENTITY_RESOLVED" else knowledge_status,
+        "technology_id": primary.get("technology_id"),
+        "technology_label": primary.get("technology_label"),
+        "matched_alias": primary.get("matched_alias"),
+        "matched_term": primary.get("matched_term"),
+        "identity_scope": identity,
         "resolution_source": resolution_source,
         "decision": decision,
         "registry_resolution": registry_resolution,

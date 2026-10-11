@@ -171,9 +171,19 @@ def classify(requirement, routes, profiles):
     return UNDETERMINED, "No complete native equivalence or bounded gap contract; preserve unresolved accounting and review scope", proof
 
 
-def project(snapshot, unresolved, gap_rows):
+def project(snapshot, unresolved, gap_rows, *, previous=None, reviewed_keys=None):
     """Pure projection of the exact existing meaningful-unresolved union."""
     raw = _records(snapshot["audit"]["corpus"])
+    lazy = reviewed_keys is not None
+    reviewed = {tuple(k) for k in (reviewed_keys or [])}
+    expected_review = {(r["job_id"],r["requirement_id"]) for r in unresolved}
+    if not reviewed <= expected_review:
+        raise ValueError("Review keys must belong to the unresolved union")
+    if previous is not None:
+        maintenance._intact(previous,"addressability_fingerprint")
+        if previous["audit_fingerprint"] != snapshot["audit_fingerprint"]:
+            raise ValueError("Addressability seed belongs to another audit")
+    prior = {(r["job_id"],r["requirement_id"]):r for r in (previous or {}).get("rows",[])}
     profiles = gaps.load_capability_closure_profiles()["profiles"]
     linked = {}
     for candidate in gap_rows:
@@ -183,6 +193,11 @@ def project(snapshot, unresolved, gap_rows):
     for audit in sorted(unresolved, key=lambda r: (r["job_id"], r["requirement_id"])):
         key = audit["job_id"], audit["requirement_id"]
         source = raw[key]
+        if lazy and key not in reviewed and key in prior:
+            if prior[key]["canonical_text"] != source["text"] or prior[key]["weight"] != gaps._weight(audit):
+                raise ValueError("Unreviewed source changed; refresh its explicit review")
+            rows.append(deepcopy(prior[key]))
+            continue
         related = linked.get(key, [])
         routes = {r["fix_layer"] for r in related}
         if any(r.get("boundary_state") == maintenance.NEEDS_DECOMPOSITION for r in related):
@@ -190,7 +205,8 @@ def project(snapshot, unresolved, gap_rows):
         structure = technology_requirement_structure(source)
         if structure["mode"]:
             routes.add("NEEDS_DECOMPOSITION_OR_MIXED_SCOPE")
-        status, reason, proof = classify(source, routes, profiles)
+        status, reason, proof = classify(source, routes, profiles) if not lazy or key in reviewed else (
+            UNDETERMINED,"Not reviewed: classify only when selected for remediation",{})
         # Candidate routes are diagnostic associations, not proof of necessity.
         # Semantic gap claims use the contract above, never route-name equality.
         blockers = routes - {maintenance.CAPABILITY_GAP}
@@ -217,6 +233,11 @@ def project(snapshot, unresolved, gap_rows):
     v1_counts = dict(Counter(r["semantic_addressability"] for r in rows))
     manual = [r for r in rows if r["primary_blocker"] == maintenance.MANUAL]
     for row in manual:
+        if lazy and (row["job_id"],row["requirement_id"]) not in reviewed:
+            row.setdefault("v1_semantic_addressability",row["semantic_addressability"])
+            row.setdefault("manual_review_triage",{"subfamily":"UNREVIEWED","decision":None,
+                "reason_code":"UNREVIEWED","why":"Await ranked on-demand review; no semantic classification performed"})
+            continue
         triage = manual_triage(raw[(row["job_id"], row["requirement_id"])], set(row["native_fix_layers"]))
         row["manual_review_triage"] = triage
         row["v1_semantic_addressability"] = row["semantic_addressability"]
@@ -256,6 +277,7 @@ def project(snapshot, unresolved, gap_rows):
                "research_readiness": "REVIEW_NATIVE_READINESS_BEFORE_EXECUTION"} for concept, g in groups.items()]
     ranked.sort(key=lambda g: (-g["required_core_weight"], -g["unique_requirements"], -len(g["jobs"]), g["concept"]))
     return maintenance._seal({"audit_fingerprint": snapshot["audit_fingerprint"], "classification_version": "taxonomy-addressability-triage-v2",
+        **({"classification_mode":"lazy","reviewed_requirement_keys":[list(k) for k in sorted(reviewed)]} if lazy else {}),
         "v1_status_counts": {s: v1_counts.get(s, 0) for s in STATUSES},
         "manual_review_triage": {"manual_review_before": len(manual),
             "HIGH_CONFIDENCE_CLASSIFIED_FROM_MANUAL_REVIEW": sum(r["v1_semantic_addressability"] == UNDETERMINED and r["semantic_addressability"] != UNDETERMINED for r in manual),

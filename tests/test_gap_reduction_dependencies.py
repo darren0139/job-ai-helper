@@ -11,7 +11,9 @@ from tests.tqd3_publication_fixture_support import PublicationFixture
 class GapDependencyTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack(); self.addCleanup(self.stack.close)
-        self.fixture = self.stack.enter_context(PublicationFixture())
+        # These graphs exercise missing identities as foundational dependencies.
+        # Keep that historical state explicit after the approved v1.3 additions.
+        self.fixture = self.stack.enter_context(PublicationFixture(pre_identity_publication=True))
         self.snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus(*[
             "Proficiency in programming languages such as Python, SQL, or Java"] * 8,
             "Experience with cloud platforms such as AWS, Azure, or equivalent tools"),

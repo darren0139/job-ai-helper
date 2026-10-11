@@ -48,7 +48,8 @@ class TechnologyCompoundBridgeTests(unittest.TestCase):
 
     def test_exact_overlay_component_never_implies_parent_capability(self):
         current = registry.get_default_registry()
-        overlay = registry.TechnologyRegistry(current.version, tuple(deepcopy(current.entries)) + ({
+        baseline = tuple(deepcopy(e) for e in current.entries if e['technology_id'] not in {'python','sql'})
+        overlay = registry.TechnologyRegistry(current.version, baseline + ({
             "technology_id": "python", "label": "Python", "aliases": ["Python"], "entry_kind": "language", "capability_relationships": []},))
         original = deepcopy(current.entries)
         with registry.temporary_registry_scope(overlay):
@@ -62,7 +63,7 @@ class TechnologyCompoundBridgeTests(unittest.TestCase):
         self.assertEqual(registry.get_default_registry().entries, original)
 
     def test_assistant_identity_mentions_not_additive_direct_resolutions(self):
-        with PublicationFixture() as f:
+        with PublicationFixture(pre_identity_publication=True) as f:
             snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus("Advanced proficiency in at least one analytical tool such as Python, SQL, or equivalent tools"),
                 explicit_execution=True, review_db_path=f.tmp / "review.sqlite")
             plan = assistant.build_plan(snapshot, review_db_path=f.tmp / "review.sqlite")

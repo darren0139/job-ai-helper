@@ -236,6 +236,10 @@ _ROUTE_TO_RESEARCH = {
 # is inferred from this table.
 _COMMON_IDENTITIES = {
     "python": {"canonical_name": "Python", "aliases": ["Python"], "technology_kind": "language"},
+    "typescript": {"canonical_name": "TypeScript", "aliases": ["TypeScript"], "technology_kind": "language"},
+    "elasticsearch": {"canonical_name": "Elasticsearch", "aliases": ["Elasticsearch"], "technology_kind": "product"},
+    "fastapi": {"canonical_name": "FastAPI", "aliases": ["FastAPI"], "technology_kind": "framework"},
+    "s3": {"canonical_name": "Amazon S3", "aliases": ["S3", "Amazon S3"], "technology_kind": "product"},
     "sql": {"canonical_name": "SQL", "aliases": ["SQL"], "technology_kind": "language"},
     "java": {"canonical_name": "Java", "aliases": ["Java"], "technology_kind": "language"},
     "javascript": {"canonical_name": "JavaScript", "aliases": ["JavaScript"], "technology_kind": "language"},
@@ -253,13 +257,18 @@ def _resolution(requirement: dict[str, Any]) -> dict[str, Any]:
     resolved = resolve_requirement_with_production_knowledge(requirement)
     decision = resolved.get("decision") or {}
     registry = resolved.get("registry_resolution") or {}
-    status = "resolved" if decision.get("capability_id") else registry.get("status", "unresolved")
+    status = "resolved" if resolved["status"] == "resolved" else registry.get("status", "unresolved")
     return {
         "status": status,
+        "knowledge_status": resolved["knowledge_status"],
+        "knowledge_outcome": resolved["knowledge_outcome"],
+        "matched_alias": resolved["matched_alias"],
+        "matched_term": resolved["matched_term"],
+        "identity_scope": resolved["identity_scope"],
         "resolution_source": resolved.get("resolution_source"),
         "capability_id": decision.get("capability_id"),
-        "technology_id": registry.get("technology_id"),
-        "technology_label": registry.get("technology_label"),
+        "technology_id": resolved["technology_id"],
+        "technology_label": resolved["technology_label"],
         "registry_status": registry.get("status") or "not_checked",
         "registry_reason": registry.get("reason"),
         "taxonomy_diagnostics": {
@@ -392,7 +401,7 @@ def _taxonomy_effect(row: dict[str, Any]) -> tuple[bool, str]:
         return True, "Production taxonomy selected a stronger compatible evidence row."
     if diagnostics.get("capability_none_recovery"):
         return True, "Production taxonomy recovered a grounded match from a preliminary none result."
-    if row["current_resolution"].get("status") == "resolved":
+    if row["current_resolution"].get("capability_id"):
         return False, "A capability resolves now, but the saved row records no taxonomy match intervention."
     return False, "No production taxonomy effect is recorded for this saved match result."
 
@@ -641,7 +650,9 @@ def _job_match_health_report(
     positive = [row for row in eligible if row["positive_grounded_evidence_match"]]
     no_evidence = [row for row in eligible if not row["has_grounded_evidence_reference"]]
     no_positive_match = [row for row in eligible if not row["positive_grounded_evidence_match"]]
-    taxonomy_resolved = [row for row in eligible if row["current_resolution"]["status"] == "resolved"]
+    taxonomy_resolved = [row for row in eligible if row["current_resolution"].get("capability_id")]
+    knowledge_resolved = [row for row in eligible if row["current_resolution"]["status"] == "resolved"]
+    identity_resolved = [row for row in knowledge_resolved if row["current_resolution"].get("knowledge_status") == "TECHNOLOGY_IDENTITY_RESOLVED"]
     recognized_unmapped = [
         row for row in eligible
         if row["technology_identity_resolution"].get("status") == "recognized_unmapped"
@@ -659,6 +670,7 @@ def _job_match_health_report(
         category: {"evidence_positive": 0, "evidence_negative": 0, "total": 0}
         for category in (
             "taxonomy_resolved",
+            "technology_identity_resolved",
             "technology_recognized_unmapped",
             "taxonomy_unresolved",
             "contextual_or_non_capability",
@@ -667,8 +679,10 @@ def _job_match_health_report(
     for row in eligible:
         key = (row["job_id"], row["requirement_id"])
         route = route_by_key.get(key, "")
-        if row["current_resolution"]["status"] == "resolved":
+        if row["current_resolution"].get("capability_id"):
             category = "taxonomy_resolved"
+        elif row["current_resolution"].get("knowledge_status") == "TECHNOLOGY_IDENTITY_RESOLVED":
+            category = "technology_identity_resolved"
         elif row["technology_identity_resolution"].get("status") == "recognized_unmapped":
             category = "technology_recognized_unmapped"
         elif route in {"needs_decomposition", "manual_review", "noise_or_non_capability"}:
@@ -754,6 +768,8 @@ def _job_match_health_report(
             "score_eligible": "Production semantic eligibility; independent of taxonomy resolution.",
             "positive_grounded_evidence_match": "Final deterministic direct, transferable, or weak match with selected evidence.",
             "taxonomy_resolved": "Current production taxonomy or approved registry relationship supplied a capability_id.",
+            "technology_identity_resolved": "Complete pure technology obligation resolved by exact production identity, without a capability or score grant.",
+            "knowledge_resolved": "Capability or complete technology-identity knowledge; independent of candidate evidence.",
             "technology_recognized_unmapped": "Current registry recognized the identity but has no approved capability relationship.",
             "taxonomy_capped": "The production taxonomy lowered or rejected a pre-taxonomy positive match.",
         },
@@ -776,15 +792,20 @@ def _job_match_health_report(
         },
         "taxonomy_knowledge": {
             "taxonomy_resolved_requirements": len(taxonomy_resolved),
+            "capability_resolved_requirements": len(taxonomy_resolved),
+            "technology_identity_resolved_requirements": len(identity_resolved),
+            "knowledge_resolved_requirements": len(knowledge_resolved),
             "technology_recognized_unmapped_requirements": len(recognized_unmapped),
             "taxonomy_unresolved_requirements": len(unresolved),
             "taxonomy_resolution_percent_of_score_eligible": _percent(
                 len(taxonomy_resolved), len(eligible)
             ),
             "taxonomy_resolution_percent_of_meaningful": _percent(
-                sum(row["current_resolution"]["status"] == "resolved" for row in meaningful),
+                sum(bool(row["current_resolution"].get("capability_id")) for row in meaningful),
                 len(meaningful),
             ),
+            "knowledge_resolution_percent_of_meaningful": _percent(
+                sum(row["current_resolution"]["status"] == "resolved" for row in meaningful), len(meaningful)),
         },
         "cross_tab": [
             {"knowledge_state": category, **counts}
@@ -1341,6 +1362,8 @@ def audit_corpus_resolution(
         and (row["job_id"], row["requirement_id"]) not in noise_requirement_ids
     ]
     resolved = [row for row in meaningful if row["current_resolution"]["status"] == "resolved"]
+    capability_resolved = [row for row in resolved if row["current_resolution"].get("capability_id")]
+    identity_resolved = [row for row in resolved if row["current_resolution"].get("knowledge_status") == "TECHNOLOGY_IDENTITY_RESOLVED"]
     unresolved = [row for row in meaningful if row["current_resolution"]["status"] != "resolved"]
     queue.sort(key=lambda row: (-row["required_core_impact"], -row["job_count"], -row["occurrences"], row["concept"], row["candidate_id"]))
     for index, row in enumerate(queue, 1):
@@ -1357,6 +1380,10 @@ def audit_corpus_resolution(
         "score_eligible_requirements": sum(row["score_eligible"] for row in rows),
         "score_ineligible_requirements": sum(not row["score_eligible"] for row in rows),
         "taxonomy_resolved_requirements": len(resolved),
+        "capability_resolved_requirements": len(capability_resolved),
+        "technology_identity_resolved_requirements": len(identity_resolved),
+        "knowledge_resolved_requirements": len(resolved),
+        "knowledge_unresolved_requirements": len(unresolved),
         "taxonomy_unresolved_requirements": len(unresolved),
         "positive_grounded_evidence_matches": sum(
             row["positive_grounded_evidence_match"] for row in rows
@@ -1367,7 +1394,13 @@ def audit_corpus_resolution(
         ),
         # Compatibility aliases retained for saved consumers. These count
         # taxonomy resolution and must not be presented as scoring coverage.
-        "resolved_scorable_requirements": len(resolved),
+        "resolved_scorable_requirements": len(capability_resolved),
+        "capability_required_core_weighted_coverage": _coverage([
+            {**row, "current_resolution": {**row["current_resolution"], "status": "resolved" if row["current_resolution"].get("capability_id") else "unresolved"}}
+            for row in meaningful], {"required", "core", "deal_breaker"}),
+        "capability_overall_weighted_coverage": _coverage([
+            {**row, "current_resolution": {**row["current_resolution"], "status": "resolved" if row["current_resolution"].get("capability_id") else "unresolved"}}
+            for row in meaningful], {"required", "core", "deal_breaker", "preferred"}),
         "unresolved_technical_requirements": len(unresolved),
         "taxonomy_resolution_required_core_weighted_coverage": required_core_taxonomy_coverage,
         "taxonomy_resolution_supporting_preferred_weighted_coverage": preferred_taxonomy_coverage,

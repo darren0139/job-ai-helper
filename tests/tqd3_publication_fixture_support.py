@@ -24,8 +24,9 @@ class PublicationFixture:
     name = "V17CPPTool"
     capability = "language.modern_cpp"
 
-    def __init__(self, *, pre_resolver_publication=False):
+    def __init__(self, *, pre_resolver_publication=False, pre_identity_publication=False):
         self.pre_resolver_publication = pre_resolver_publication
+        self.pre_identity_publication = pre_identity_publication
 
     def __enter__(self):
         self.stack = ExitStack()
@@ -34,6 +35,13 @@ class PublicationFixture:
         self.real_registry = Path(production.REGISTRY_PATH)
         self.real_registry_bytes = self.real_registry.read_bytes()
         self.registry_path.write_bytes(self.real_registry_bytes)
+        if self.pre_identity_publication:
+            raw = json.loads(self.real_registry_bytes)
+            # Historical identity proposal fixture; never touch production.
+            aliases = {"python", "sql", "azure", "javascript", "aws", "typescript", "elasticsearch", "java", "s3", "fastapi", "gcp"}
+            raw["entries"] = [e for e in raw["entries"] if not aliases.intersection(a.lower() for a in e["aliases"])]
+            raw["registry_version"] = "technology-registry-v1.2"
+            self.registry_path.write_text(json.dumps(raw), encoding="utf-8")
         self.proposal_db = self.tmp / "proposals.sqlite3"
         self.review_db = self.tmp / "verification.sqlite3"
         self.stack.enter_context(patch.object(production, "REGISTRY_PATH", self.registry_path))

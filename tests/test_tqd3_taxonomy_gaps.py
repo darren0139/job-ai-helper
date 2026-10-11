@@ -65,6 +65,7 @@ class TaxonomyGapTests(unittest.TestCase):
         with PublicationFixture() as f:
             corpus = gap_corpus()
             st = FakeStreamlit()
+            st.columns = lambda count: [st for _ in range(count)]
             st.file_uploader = lambda *args,**kwargs: SimpleNamespace(getvalue=lambda: json.dumps(corpus).encode())
             with patch.dict(sys.modules,{"streamlit":st}):
                 render_corpus_research_inputs()

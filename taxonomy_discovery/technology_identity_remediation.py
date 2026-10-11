@@ -176,7 +176,9 @@ def validate_identity_proposal(snapshot, proposal, *, explicit_execution=False, 
             job["baseline_stable_analysis"], job["frozen_inputs"]["context"]) if reason not in baseline_violations)
     def metrics(audit):
         s = audit["summary"]
-        return {k: s[k] for k in ("meaningful_technical_requirements", "taxonomy_resolved_requirements", "taxonomy_unresolved_requirements", "required_core_weighted_coverage", "overall_weighted_coverage")}
+        return {k: s[k] for k in ("meaningful_technical_requirements", "taxonomy_resolved_requirements", "taxonomy_unresolved_requirements",
+            "capability_resolved_requirements", "technology_identity_resolved_requirements", "knowledge_resolved_requirements",
+            "required_core_weighted_coverage", "overall_weighted_coverage")}
     _check(snapshot, proposal, db_path)
     report = {"proposal_id": proposal["proposal_id"], "proposal_fingerprint": proposal["proposal_fingerprint"],
         "audit_fingerprint": snapshot["audit_fingerprint"], "production_identity": snapshot["manifest"],
@@ -207,3 +209,201 @@ def markdown_report(proposal, report):
             ("Temporary overlay", report["temporary_overlay"]), ("Affected requirements", report["affected_requirement_receipts"]),
             ("All changed rows", report["all_changed_rows"]), ("Unexpected changes", report["unexpected_changes"]),
             ("Ranking", report["after_ranking"])))
+
+
+def prepare_identity_batch(snapshot, concepts, *, historical_pairs=(), explicit_execution=False, db_path=None):
+    """Bounded local maintenance over existing proposals; not research or approval.
+
+    Historical receipts supply identity details only. Every identity is checked
+    again against native aliases, current corpus and complete-scope negatives.
+    """
+    from tailoring.requirement_scope import technology_identity_scope
+    if explicit_execution is not True:
+        raise ValueError("Explicit identity batch preparation required")
+    maintenance._require_current(snapshot, db_path)
+    native = get_default_registry()
+    historical = {}
+    for proposal, receipt in historical_pairs:
+        maintenance._intact(proposal, "proposal_fingerprint")
+        maintenance._intact(receipt, "validation_fingerprint")
+        if (receipt.get("proposal_fingerprint") != proposal["proposal_fingerprint"]
+                or receipt.get("validation_status") != "ready_for_human_review"
+                or receipt.get("unexpected_changes") or proposal.get("resolution_type") != "add_technology_identity"):
+            raise ValueError("Invalid historical identity receipt")
+        historical[normalise(proposal["canonical_label"])] = proposal
+    proposals, candidates, selected_ids = [], [], set()
+    for concept in dict.fromkeys(concepts):
+        local = gaps._local_identity(concept)
+        candidate = {"identity": concept, "production_before": resolve_requirement_text(concept),
+                     "temporary_decision": "DEFERRED", "production_decision": "NOT_PUBLISHED"}
+        candidates.append(candidate)
+        if not local or normalise(concept) in {"net", ".net", "microservices", "distributed systems", "cloud security"}:
+            candidate["reason"] = "No bounded local identity definition; scope/normalization review required"
+            continue
+        label, aliases = local["canonical_name"], local["aliases"]
+        tid = gaps._technology_id_for(label)
+        if tid in selected_ids:
+            candidate["reason"] = "Duplicate identity selection"
+            continue
+        selected_ids.add(tid)
+        matched = gaps._seed_requirement_matches(snapshot["audit"], aliases)
+        # The generic bootstrap helper deliberately excludes tiny prose tokens.
+        # Selected local entity aliases containing digits (e.g. S3) have a
+        # bounded native mention predicate; this is provenance, never resolution.
+        short_entities = tuple(a for a in aliases if len(normalise(a)) == 2
+                               and any(c.isdigit() for c in a))
+        if short_entities:
+            extra = [r for r in snapshot["audit"]["requirements"]
+                     if gaps._technology_concept_present(r["requirement_text"], short_entities)]
+            matched = list({(r["job_id"], r["requirement_id"]): r for r in matched + extra}.values())
+        candidate.update(technology_id=tid, aliases=aliases, requirements_affected=len(matched))
+        if not matched:
+            candidate["reason"] = "No traceable current corpus mentions"
+            continue
+        owners = {normalise(a): e["technology_id"] for e in native.entries for a in e["aliases"]}
+        collisions = [{"alias": a, "owner": owners[normalise(a)]} for a in aliases if normalise(a) in owners]
+        candidate["collision_status"] = collisions or "CLEAR"
+        if collisions or tid in native.by_id():
+            candidate["reason"] = "Existing identity/alias: separate relationship or manual workflow"
+            continue
+        old = historical.get(normalise(label))
+        if old and old["proposed_change"]["identity"] != local:
+            raise ValueError("Historical identity details differ; manual review required")
+        source = {"seed_id": "identitybatch_" + tid, "canonical_name": label}
+        proposal = gaps._bootstrap_proposal(source, resolution_type="add_technology_identity",
+            proposed_change={"technology_id": tid, "identity": deepcopy(local)}, matched=matched)
+        _, temporary = gaps._temporary_knowledge([proposal])
+        temporary = TechnologyRegistry(native.version, temporary.entries)
+        def complete(text):
+            row = {"text": text, "atomic_focus": text, "importance": "core", "source_provenance": [{
+                "parent_occurrence_id": "bounded_negative_fixture", "parent_text": text,
+                "raw_parent_text": text, "source": "raw_jd.requirements"}]}
+            return technology_identity_scope(row, registry=temporary)["identity_resolved"]
+        positive = all(resolve_requirement_text(a, registry=temporary).get("technology_id") == tid
+                       and complete(a) for a in aliases)
+        negative_texts = [a + "ish" for a in aliases] + ["prefix" + a for a in aliases] + [
+            f"{concept} for building internal tools", f"{concept} for architecting cloud solutions",
+            f"Build APIs using {concept}", f"Experience with {concept} and teamwork"]
+        negative = all(not complete(text) for text in negative_texts)
+        candidate.update(proposal_source="historical_revalidated" if old else "existing_local_identity_vocabulary",
+            historical_proposal_fingerprint=old.get("proposal_fingerprint") if old else None,
+            normalization={a: normalise(a) for a in aliases}, negative_cases=negative_texts,
+            temporary_decision="INDIVIDUALLY_VALIDATED" if positive and negative else "UNSAFE",
+            proposal_id=proposal["proposal_id"])
+        if positive and negative:
+            proposals.append(proposal)
+    return maintenance._seal({"audit_fingerprint": snapshot["audit_fingerprint"],
+        "production_identity": snapshot["manifest"], "implementation_fingerprint": _implementation(),
+        "candidates": candidates, "proposals": proposals, "approval": False, "publication": False}, "batch_fingerprint")
+
+
+def validate_identity_batch(snapshot, batch, *, explicit_execution=False, db_path=None):
+    """Native full frozen replay. Neither versions nor diagnostics are evidence."""
+    from tailoring.requirement_scope import technology_identity_scope
+    if explicit_execution is not True:
+        raise ValueError("Explicit combined identity replay required")
+    maintenance._require_current(snapshot, db_path)
+    maintenance._intact(batch, "batch_fingerprint")
+    if (batch["audit_fingerprint"] != snapshot["audit_fingerprint"]
+            or batch["implementation_fingerprint"] != _implementation()):
+        raise ValueError("Stale identity batch")
+    before = snapshot["audit"]["corpus"]
+    _, shadow = gaps._temporary_knowledge(batch["proposals"])
+    shadow = TechnologyRegistry(get_default_registry().version, shadow.entries)
+    expected = {k for k, r in _records(before).items()
+                if technology_identity_scope(r, registry=shadow)["identity_resolved"]
+                and not r.get("capability_id")}
+    with offline_execution("Technology maintenance forbids external research"), temporary_registry_scope(shadow):
+        after = replay_current_corpus(before)
+        audit = gaps.audit_corpus_resolution(corpus=after)
+    report = _batch_replay_receipt(snapshot["audit"], audit, expected_identity_keys=expected)
+    report.update(batch_fingerprint=batch["batch_fingerprint"], audit_fingerprint=snapshot["audit_fingerprint"],
+                  production_identity=snapshot["manifest"], implementation_fingerprint=_implementation())
+    maintenance._require_current(snapshot, db_path)
+    return maintenance._seal(report, "validation_fingerprint"), audit
+
+
+def _batch_replay_receipt(before_audit, after_audit, *, expected_identity_keys):
+    before, after = before_audit["corpus"], after_audit["corpus"]
+    original, updated = _records(before), _records(after)
+    unexpected, evidence, capabilities = [], [], []
+    for key in sorted(original.keys() | updated.keys()):
+        b, a = _receipt(original.get(key)), _receipt(updated.get(key))
+        # Native registry metadata may change with an identity publication. All
+        # actual capability, evidence, allocation and provenance fields stay pinned.
+        for row in (b, a):
+            if row is not None:
+                row.pop("technology_registry_resolution", None)
+        if b != a:
+            evidence.append(list(key))
+        if (original.get(key) or {}).get("capability_id") != (updated.get(key) or {}).get("capability_id"):
+            capabilities.append(list(key))
+    bres = {(r["job_id"], r["requirement_id"]): r["current_resolution"] for r in before_audit["requirements"]}
+    ares = {(r["job_id"], r["requirement_id"]): r["current_resolution"] for r in after_audit["requirements"]}
+    identities = {k for k, r in ares.items() if r["knowledge_status"] == "TECHNOLOGY_IDENTITY_RESOLVED"}
+    if identities != expected_identity_keys:
+        unexpected = [list(k) for k in sorted(identities ^ expected_identity_keys)]
+    newly = [list(k) for k in sorted(ares) if ares[k]["status"] == "resolved" and bres.get(k, {}).get("status") != "resolved"]
+    unresolved = [list(k) for k in sorted(bres) if bres[k]["status"] == "resolved" and ares.get(k, {}).get("status") != "resolved"]
+    rankings = gaps._integrated_ranking(before), gaps._integrated_ranking(after)
+    violations = [{"job_id": j["job_id"], "reason": v} for j in after["jobs"]
+                  for v in duplicate_credit_violations(j["baseline_stable_analysis"], j["frozen_inputs"]["context"])]
+    blocked = after.get("current_replay", {}).get("jobs_blocked", 0)
+    clean = not (evidence or capabilities or unexpected or unresolved or violations or blocked or rankings[0] != rankings[1])
+    return {"validation_status": "VALIDATED_SAFE" if clean else "UNSAFE", "new_identity_resolutions": newly,
+        "new_capability_resolutions": capabilities, "newly_unresolved": unresolved, "unexpected_changes": unexpected,
+        "evidence_deltas": evidence, "ranking_deltas": [] if rankings[0] == rankings[1] else rankings,
+        "frozen_or_duplicate_violations": violations, "jobs_blocked": blocked, "jobs_replayed": len(after["jobs"]),
+        "baseline": before_audit["summary"], "temporary": after_audit["summary"], "ranking": rankings[1],
+        "provider_calls": 0, "network_calls": 0, "model_calls": 0, "approval": False, "publication": False}
+
+
+def publish_identity_batch(snapshot, batch, validation, *, explicit_publish=False, authorized_ids=(), db_path=None):
+    """Explicit human-authorized native registry file update, no local DB writes.
+
+    The existing atomic knowledge replacement is reused. This is a repository
+    maintenance adapter, not an automatic UI approval/publication path.
+    """
+    from taxonomy_discovery import technology_registry as registry_module
+    from taxonomy_discovery.governed_publication import _next_version
+    from database.technology_registry_proposal_manager import _replace_knowledge
+    if explicit_publish is not True:
+        raise ValueError("Explicit human-authorized identity publication required")
+    maintenance._require_current(snapshot, db_path)
+    maintenance._intact(batch, "batch_fingerprint")
+    maintenance._intact(validation, "validation_fingerprint")
+    selected = {p["proposed_change"]["technology_id"] for p in batch["proposals"]}
+    individually_safe = {c.get("technology_id") for c in batch["candidates"]
+                         if c["temporary_decision"] == "INDIVIDUALLY_VALIDATED"}
+    if (set(authorized_ids) != selected or not selected
+            or selected != individually_safe
+            or validation["validation_status"] != "VALIDATED_SAFE"
+            or validation["batch_fingerprint"] != batch["batch_fingerprint"]
+            or validation["production_identity"] != snapshot["manifest"]
+            or batch["audit_fingerprint"] != snapshot["audit_fingerprint"]
+            or validation["implementation_fingerprint"] != _implementation()):
+        raise ValueError("Current individually/combined-safe batch and exact authorization required")
+    for proposal in batch["proposals"]:
+        change = proposal["proposed_change"]
+        if (proposal["resolution_type"] != "add_technology_identity"
+                or set(change) != {"technology_id", "identity"}
+                or change["identity"] != gaps._local_identity(proposal["technology"])):
+            raise ValueError("Identity proposal differs from bounded local definition")
+    path = Path(registry_module.REGISTRY_PATH)
+    original = path.read_bytes()
+    raw = json.loads(original)
+    _, shadow = gaps._temporary_knowledge(batch["proposals"])
+    entries = deepcopy(list(shadow.entries))
+    if any(e.get("capability_relationships") for e in entries if e["technology_id"] in selected):
+        raise ValueError("Identity publication cannot create capability mappings")
+    for entry in entries:
+        if entry["technology_id"] in selected:
+            entry["notes"] = "Explicitly authorized identity-only maintenance; no capability mapping."
+    raw.update(entries=entries, registry_version=_next_version(raw["registry_version"], "technology-registry-v"))
+    encoded = (json.dumps(raw, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    _replace_knowledge(path, original, encoded, registry_module.load_registry)
+    return {"identities_added": sorted(selected), "version_before": snapshot["manifest"]["technology_registry_version"],
+        "version_after": raw["registry_version"], "artifact_hash_before": hashlib.sha256(original).hexdigest(),
+        "artifact_hash_after": hashlib.sha256(encoded).hexdigest(), "batch_fingerprint": batch["batch_fingerprint"],
+        "validation_fingerprint": validation["validation_fingerprint"], "explicit_human_authorization": True,
+        "publication": True, "capability_mappings_added": 0}

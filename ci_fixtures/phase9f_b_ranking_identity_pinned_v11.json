@@ -1,15 +1,15 @@
 {
   "fixture_version": "phase9f-b-ranking-identity-pinned-v11",
-  "ranking_input_fingerprint": "da649d25e2f05a0c00f5de5d735fff764209027ab566a07edc168ee666d4cc4a",
-  "ranking_fingerprint": "7614b2990544747c04a0d9e2bb947c7043099d851fededd5633db66919e7bd4b",
-  "winner": "13c4d10ae011ef6f48f005cd94aee26d20885fa1ab7f177bd25e6d4d22fd2cb7",
+  "ranking_input_fingerprint": "9b8401d5a36148035d7d47bdbefda49f87107fefaeefb833fd041122fd789f3c",
+  "ranking_fingerprint": "7adec8157cae180226b828f3b46aab405c6017a6ef0d10a58d4fe9bfa07720e3",
+  "winner": "d58dae699b288f9e9ae18c8156a5d3baa21e6cce3636b03e71040e00fc0b409d",
   "candidate_order": [
-    "13c4d10ae011ef6f48f005cd94aee26d20885fa1ab7f177bd25e6d4d22fd2cb7",
+    "d58dae699b288f9e9ae18c8156a5d3baa21e6cce3636b03e71040e00fc0b409d",
     "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25"
   ],
   "candidate_metrics": [
     {
-      "normalized_source_fingerprint": "13c4d10ae011ef6f48f005cd94aee26d20885fa1ab7f177bd25e6d4d22fd2cb7",
+      "normalized_source_fingerprint": "d58dae699b288f9e9ae18c8156a5d3baa21e6cce3636b03e71040e00fc0b409d",
       "deterministic_alignment_score": 93,
       "required_core_coverage_score": 92,
       "preferred_coverage_score": 100,

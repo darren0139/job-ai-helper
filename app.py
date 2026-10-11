@@ -1681,7 +1681,7 @@ def build_stable_alignment_summary(report: dict[str, Any]) -> str:
             str(row.get("text", ""))
             for row in gaps[:4]
         )
-        lines.append(f"- **Most important evidence gaps:** {gap_text}.")
+        lines.append(f"- **Important requirements — evidence review pending:** {gap_text}.")
 
     lines.append(
         "- Review the evidence-linked requirement rows rather than treating "
@@ -3299,6 +3299,10 @@ elif page == "Application Sessions":
     report = current_analysis_report
     current_application_id = st.session_state.get("current_application_id")
 
+    if current_application_id is not None:
+        from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis
+        render_application_initial_analysis(st, int(current_application_id))
+
     if report:
         overall_score = int(report.get("overall_score", 0))
         passed = bool(report.get("passes_ats_threshold", False))
@@ -3327,6 +3331,15 @@ elif page == "Application Sessions":
                 )
                 or {}
             )
+
+        # Presentation only: bind taxonomy meaning to the Initial JD, never to
+        # the generated/tailored resume or a selected starting-source score.
+        from taxonomy_discovery.coverage_presentation import render_jd_taxonomy_status
+        render_jd_taxonomy_status(
+            st,
+            raw_jd_text=phase9a_jd_record.get("raw_text") or report.get("raw_jd_text") or "",
+            stable_analysis=report.get("stable_analysis"),
+        )
 
         # `persisted_application_report` remains the historical DB/session
         # payload. `current_analysis_report` is the deterministic current view.

@@ -26,6 +26,14 @@ _EVIDENCE_STRENGTH_CAP = {
 }
 
 
+def _record_knowledge(row, resolution):
+    """Snapshot diagnostics only; capability/evidence policy is untouched."""
+    row["knowledge_status"] = resolution["knowledge_status"]
+    row["knowledge_resolution"] = {key: deepcopy(resolution[key]) for key in (
+        "status", "knowledge_status", "knowledge_outcome", "resolution_source",
+        "technology_id", "technology_label", "matched_alias", "matched_term", "identity_scope")}
+
+
 def cap_requirement_with_taxonomy(
     requirement: dict[str, Any],
     *,
@@ -50,6 +58,9 @@ def cap_requirement_with_taxonomy(
         in {"applied", "confirmed_existing_direct"}
     )
     if structured_any_language_group:
+        knowledge = resolve_requirement_with_production_knowledge(row, evidence_text=evidence_text)
+        if knowledge["knowledge_status"] == "TECHNOLOGY_IDENTITY_RESOLVED":
+            _record_knowledge(row, knowledge)
         row["capability_retrieval"] = build_capability_retrieval_trace(
             row, exact_capability_id=None,
             mode_override=retrieval_mode_override,
@@ -65,6 +76,10 @@ def cap_requirement_with_taxonomy(
     decision = resolution["decision"]
     resolution_source = str(resolution["resolution_source"])
     registry_resolution = resolution["registry_resolution"]
+    _record_knowledge(row, resolution)
+    # Keep capability provenance separate from identity-only knowledge metadata.
+    if resolution_source == "technology_identity":
+        resolution_source = "unresolved"
     if registry_resolution is not None:
         row["technology_registry_resolution"] = deepcopy(registry_resolution)
 

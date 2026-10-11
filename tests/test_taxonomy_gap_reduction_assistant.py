@@ -19,7 +19,7 @@ class GapReductionAssistantTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.f = self.stack.enter_context(PublicationFixture())
+        self.f = self.stack.enter_context(PublicationFixture(pre_identity_publication=True))
         self.db = self.f.tmp / "h1.sqlite"
         self.snapshot = m.run_corpus_audit(corpus=fixture_corpus("crystalline computing protocols", "Python", "BigFix", "React"),
             review_db_path=self.db, explicit_execution=True)
