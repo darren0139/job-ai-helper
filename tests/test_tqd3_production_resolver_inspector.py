@@ -12,6 +12,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock, patch
+from tests.network_guard_support import block_external_network_allow_loopback
 
 from database import job_match_manager
 from tailoring.capability_taxonomy import TAXONOMY_PATH
@@ -180,7 +181,7 @@ class ResolverInspectorTests(unittest.TestCase):
         fake_llm = ModuleType("llm")
         model_call = Mock(side_effect=AssertionError("model call"))
         fake_llm.ask_json = fake_llm.ask_text = fake_llm.completion = model_call
-        with patch("socket.socket.connect", side_effect=AssertionError("network")), patch.dict(
+        with block_external_network_allow_loopback(), patch.dict(
             sys.modules, {"llm": fake_llm}
         ), patch(
             "taxonomy_discovery.tavily_research._default_transport",

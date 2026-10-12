@@ -12,7 +12,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 class Phase9E1UIOrderingTests(unittest.TestCase):
     def test_application_flow_renders_source_before_analysis_details(self) -> None:
         text = (REPO_ROOT / "app.py").read_text(encoding="utf-8")
-        flow_start = text.index('        if current_application_id is not None:\n            st.caption(f"Current application session: #{current_application_id}")')
+        # The full seven-stage hierarchy is owned by
+        # test_application_workflow_hierarchy. This test retains the separate
+        # legacy detail/action ordering contract under that workflow umbrella.
+        flow_start = text.index('elif page == "Application Sessions":')
         flow = text[flow_start:]
 
         overview = flow.index("render_application_workflow_overview(")

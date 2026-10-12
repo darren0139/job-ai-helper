@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import unittest
 from unittest.mock import patch
+from tests.network_guard_support import block_external_network_allow_loopback
 import numpy  # Binary dependencies must predate PublicationFixture rollback.
 import pandas
 
@@ -173,7 +174,7 @@ class TechnologyMaintenanceBatchTests(unittest.TestCase):
 
     def test_nac_never_researched(self):
         snapshot = maintenance.run_corpus_audit(corpus=fixture_corpus(),explicit_execution=True)
-        with patch('socket.socket.connect',side_effect=AssertionError('No provider calls')):
+        with block_external_network_allow_loopback():
             batch = identities.prepare_identity_batch(snapshot,['Network Access Control','.NET'],explicit_execution=True)
         self.assertEqual(batch['proposals'],[])
 

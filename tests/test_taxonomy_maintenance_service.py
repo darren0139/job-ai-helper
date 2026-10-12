@@ -237,7 +237,7 @@ class MaintenanceServiceTests(unittest.TestCase):
             with patch.object(service.gaps, "audit_corpus_resolution", side_effect=forbidden):
                 with self.assertRaisesRegex(RuntimeError, "Maintenance audit is offline"):
                     service.run_corpus_audit(corpus=fixture_corpus(), explicit_execution=True)
-            self.assertIs(socket.socket.connect, f.network_guard)
+            self.assertIs(socket.socket.connect, f.network_guard.connect_wrapper)
             f.network_guard.assert_not_called()
 
     def test_explicit_fake_research_persists_in_fresh_context_and_never_approves(self):

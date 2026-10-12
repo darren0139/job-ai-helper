@@ -9,6 +9,7 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
+from tests.network_guard_support import block_external_network_allow_loopback
 
 from database import job_match_manager
 from database.technology_registry_proposal_manager import (
@@ -62,7 +63,7 @@ class PublicationFixture:
             self.stack.enter_context(patch.object(taxonomy_evolution, "TAXONOMY_PATH", self.taxonomy_path))
             capability_taxonomy.get_default_taxonomy.cache_clear()
         self.stack.enter_context(patch.dict(os.environ, {"CAPABILITY_RAG_MODE": "off"}))
-        self.network_guard = self.stack.enter_context(patch("socket.socket.connect", side_effect=AssertionError("Runtime network call")))
+        self.network_guard = self.stack.enter_context(block_external_network_allow_loopback())
         self.embedding_guard = self.stack.enter_context(patch("tailoring.phase6d5_retrieval.retrieve_taxonomy_candidates",
                                                              side_effect=AssertionError("Runtime embedding call")))
         self.model_guard = Mock(side_effect=AssertionError("Runtime model call"))

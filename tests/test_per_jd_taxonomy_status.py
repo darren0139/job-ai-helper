@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from tests.network_guard_support import block_external_network_allow_loopback
 from streamlit.testing.v1 import AppTest
 from taxonomy_discovery import coverage_presentation as coverage
 from scripts import audit_jd_scoring_eligibility as audit
@@ -123,7 +124,7 @@ render_jd_taxonomy_status(st,raw_jd_text=st.session_state['raw'],stable_analysis
         app.session_state['raw']=raw;app.session_state['stable']=stable
         with patch('litellm.completion',side_effect=AssertionError('Model')), \
                 patch('litellm.embedding',side_effect=AssertionError('Embedding')), \
-                patch('socket.socket.connect',side_effect=AssertionError('Network')), \
+                block_external_network_allow_loopback(), \
                 patch.object(coverage.maintenance,'run_corpus_audit',side_effect=AssertionError('Replay')):
             app.run();app.run()
         self.assertFalse(app.exception)

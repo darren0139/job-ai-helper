@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from tests.network_guard_support import block_external_network_allow_loopback
 
 from taxonomy_discovery import bulk_candidate_operations as bulk
 from taxonomy_discovery import governed_research as research
@@ -331,8 +332,7 @@ class QueryAndQueueReadinessTests(unittest.TestCase):
         payload = json.loads(NO_IDENTITY_COHORT.read_text(encoding="utf-8"))
         self.assertEqual(len(payload["candidates"]), 47)
         self.assertEqual(len({row["candidate_id"] for row in payload["candidates"]}), 47)
-        network = Mock(side_effect=AssertionError("readiness audit must remain offline"))
-        with patch("socket.socket.connect", network):
+        with block_external_network_allow_loopback() as network:
             queue = bulk.build_candidate_queue(
                 payload["candidates"], saved_rows=[], publications=[], include_hidden=True
             )

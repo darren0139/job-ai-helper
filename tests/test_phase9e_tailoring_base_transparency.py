@@ -13,7 +13,8 @@ class Phase9ETailoringBaseTransparencyTests(unittest.TestCase):
         source = UI.read_text(encoding="utf-8")
         self.assertIn("Master résumé", source)
         self.assertIn("Application source résumé", source)
-        self.assertIn('" · Alignment "', source)
+        self.assertIn('" · Job Match "', source)
+        self.assertNotIn('" · Alignment "', source)
 
     def test_exact_scoring_snapshot_preview_is_read_only(self):
         source = UI.read_text(encoding="utf-8")

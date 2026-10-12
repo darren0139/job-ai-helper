@@ -211,7 +211,18 @@ class MaintenanceUITests(unittest.TestCase):
         self.fixture.model_guard.assert_not_called()
 
     def test_pre_v2_refresh_removes_stale_zero_call_preview(self):
+        self.stack.enter_context(patch.dict(os.environ, {"TAVILY_API_KEY": "fake-test-key"}))
+        self._assert_pre_v2_refresh_plan("READY TO EXECUTE")
+
+    def test_pre_v2_refresh_without_provider_key_remains_blocked(self):
+        self.stack.enter_context(patch.dict(os.environ))
+        os.environ.pop("TAVILY_API_KEY", None)
+        self._assert_pre_v2_refresh_plan("BLOCKED")
+
+    def _assert_pre_v2_refresh_plan(self, expected_status):
         from tests.test_tqd3_refresh_planner_handoff import RefreshPlannerHandoffTests
+        provider = self.stack.enter_context(patch.object(service.research, "tavily_transport",
+            side_effect=AssertionError("Planning must not call Tavily")))
         self.corpus = fixture_corpus("cloud security")
         snapshot, c, old = RefreshPlannerHandoffTests().seed(self.fixture)
         db = self.fixture.tmp / "h1.sqlite"
@@ -228,7 +239,7 @@ class MaintenanceUITests(unittest.TestCase):
         self.assertEqual(list(app.exception), [])
         plan = app.session_state["tm_plan_receipt"]
         self.assertEqual(plan["planned_tavily_calls"], 1)
-        self.assertEqual(plan["execution_preview"][0]["execution_status"], "READY TO EXECUTE")
+        self.assertEqual(plan["execution_preview"][0]["execution_status"], expected_status)
         self.assertFalse(any("Refresh existing saved evidence" in item.value for item in app.info))
         groups = service.build_review_targets(app.session_state["tm_snapshot"],
             saved_rows=store.list_governed_research_results(db_path=db))
@@ -237,6 +248,7 @@ class MaintenanceUITests(unittest.TestCase):
         self.publish.assert_not_called()
         self.fixture.network_guard.assert_not_called()
         self.fixture.model_guard.assert_not_called()
+        provider.assert_not_called()
 
     def test_gap_assistant_first_press_is_dry_run_and_reuses_current_audit(self):
         from taxonomy_discovery import gap_reduction_assistant as assistant

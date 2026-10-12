@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from tests.network_guard_support import block_external_network_allow_loopback
 
 from streamlit.testing.v1 import AppTest
 from scripts import calibrate_jd_scoring_eligibility as calibration
@@ -91,7 +92,7 @@ class AnalyzedJobsSummaryTests(unittest.TestCase):
 from taxonomy_discovery.coverage_presentation import render_analyzed_jobs_summary
 render_analyzed_jobs_summary(st,[{"job_id":1,"status":"current","stable_analysis":{"canonical_requirements":[{}]}}])
 '''
-        with patch("socket.socket.connect",side_effect=AssertionError("Network")), \
+        with block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \
             patch.object(coverage.maintenance,"publish_validated",side_effect=AssertionError("Publish")):
             app=AppTest.from_string(code,default_timeout=30).run();app.run()
@@ -107,7 +108,7 @@ render_analyzed_jobs_summary(st,st.session_state["analyses"])
         app=AppTest.from_string(code,default_timeout=30)
         app.session_state["tm_coverage_receipt"]=self.bundle
         app.session_state["analyses"]=[self.record(163),self.record(566)]
-        with patch("socket.socket.connect",side_effect=AssertionError("Network")), \
+        with block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \
             patch.object(coverage.maintenance,"publish_validated",side_effect=AssertionError("Publish")):
             app.run();app.run()
@@ -165,7 +166,7 @@ class CalibrationTests(unittest.TestCase):
     def test_preview_is_bounded_zero_exclusions_and_immutable(self):
         before=deepcopy(self.bundle)
         with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
-            patch("socket.socket.connect",side_effect=AssertionError("Network")), \
+            block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \
             patch.object(coverage.maintenance,"publish_validated",side_effect=AssertionError("Publish")):
             repeated=calibration.build_calibration(self.bundle["snapshot"],self.bundle["plan"])
@@ -244,7 +245,7 @@ class FinalAdjudicationTests(unittest.TestCase):
         before=deepcopy(self.bundle)
         with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
             patch.object(calibration.audit,"counterfactual",side_effect=AssertionError("Unproven preview")), \
-            patch("socket.socket.connect",side_effect=AssertionError("Network")), \
+            block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \
             patch.object(coverage.maintenance,"publish_validated",side_effect=AssertionError("Publish")):
             result=calibration.build_adjudication(self.bundle["snapshot"],self.bundle["plan"])
@@ -265,7 +266,7 @@ class FinalAdjudicationTests(unittest.TestCase):
         original=scorer._best_resume_evidence
         # The production replay is offline. Freeze its input under the same
         # existing context, including retrieval diagnostic metadata.
-        with patch("socket.socket.connect",side_effect=AssertionError("Network")), \
+        with block_external_network_allow_loopback(), \
                 offline_execution("Native calibration fixture is offline"):
             corpus=build_regression_corpus([frozen_snapshot("React")])
             before=deepcopy(corpus)
