@@ -8,6 +8,7 @@ Run locally:
 from __future__ import annotations
 
 import json
+import sqlite3
 import os
 import tempfile
 import uuid
@@ -129,6 +130,7 @@ from analyzer import (
     compute_overall_score,
 )
 from analysis_stability import build_stable_analysis
+from tailoring.document_grounded_analysis import DOCUMENT_ANALYSIS_VERSION
 from tailoring.jd_user_input_overrides import (
     PREFERRED_REQUIREMENTS_HELP,
     PREFERRED_REQUIREMENTS_LABEL,
@@ -162,7 +164,7 @@ from database.analysis_cache_manager import (
     find_reusable_analysis,
     init_analysis_cache,
     prepare_reusable_analysis_report,
-    save_analysis_snapshot,
+    persist_explicit_application_analysis,
 )
 from database.application_blueprint_manager import (
     delete_application_blueprint_decisions,
@@ -2007,15 +2009,15 @@ def run_resume_analysis(
     }
 
     log.write("[Final] Computing deterministic evidence-linked alignment...")
-    report["stable_analysis"] = build_stable_analysis(
-        jd_profile=jd_profile,
-        keyword_match=keyword_match,
-        raw_jd_text=jd_text,
-        raw_resume_text=resume_text,
-        resume_profile=resume_profile,
-        bullet_quality_score=bullets.get("bullet_quality_avg", 0),
-        structure_score=structure.get("structure_score", 0),
-    )
+    from tailoring.document_grounded_analysis import analyze_actual_resume_against_jd
+    document = analyze_actual_resume_against_jd(resume_text=resume_text, jd_text=jd_text,
+        jd_profile=jd_profile, resume_profile=resume_profile)
+    report.update({k: v for k, v in document.items() if k != "document_analysis"})
+    report['ai_keyword_diagnostic'] = deepcopy(keyword_match)
+    # Preserve the existing legacy ATS arithmetic diagnostic. The document
+    # scorer consumes the native present/missing rows, not this model grade.
+    report['keyword_match']['keyword_match_score'] = keyword_match.get('keyword_match_score', 0)
+    report["meta"]["document_analysis"] = document["document_analysis"]
 
     log.write("[Final] Computing legacy score and summary...")
     overall_score = compute_overall_score(report)
@@ -2776,6 +2778,10 @@ elif page == "Application Tracker":
     render_application_tracker()
 
 elif page == "Application Sessions":
+    st.header("Application workflow")
+    if st.session_state.get("current_application_id") is not None:
+        from tailoring.initial_analysis_explainer_ui import render_application_bound_jd
+        render_application_bound_jd(st, int(st.session_state["current_application_id"]))
     input_suffix = st.session_state["input_reset_counter"]
 
     has_loaded_application_report = bool(
@@ -2980,6 +2986,7 @@ elif page == "Application Sessions":
                             "0.30",
                         ),
                         "jd_user_override_identity": override_cache_identity,
+                        "document_authority": DOCUMENT_ANALYSIS_VERSION,
                     },
                 )
 
@@ -3017,12 +3024,7 @@ elif page == "Application Sessions":
                         report["api_cost_summary"] = summarise_api_calls([])
                         cache_analysis_id = ""
                     else:
-                        activated = activate_analysis_snapshot(
-                            application_id=application_id,
-                            analysis_id=str(
-                                cached_analysis.get("analysis_id") or ""
-                            ),
-                        )
+                        activated = cached_analysis
                         report = deepcopy(
                             activated.get("report") or {}
                         )
@@ -3122,12 +3124,23 @@ elif page == "Application Sessions":
                 source_url=jd_source_url_input,
                 preferred_requirements=preferred_requirement_overrides,
             )
+            # User-input normalization affects metadata/requirement policy;
+            # the authoritative receipt retains the exact analyzed JD text.
+            report["raw_jd_text"] = jd_text
+            report["raw_resume_text"] = resume_text
+            from tailoring.document_grounded_analysis import seal_document_report
+            seal_document_report(report)
 
-            update_application_report(
+            snapshot = persist_explicit_application_analysis(
                 application_id=application_id,
+                input_fingerprint=analysis_fingerprint,
                 resume_filename=uploaded_resume.name,
                 report=report,
+                analysis_model=get_active_model("analysis"),
+                raw_jd_text=jd_text,
+                reused_snapshot=cached_analysis if analysis_cache_hit else None,
             )
+            report.setdefault("meta", {})["analysis_cache"]["analysis_id"] = snapshot["analysis_id"]
 
             # A fresh analysis or a newly attached cross-application snapshot
             # replaces what is currently displayed, but historical approved/draft
@@ -3232,25 +3245,6 @@ elif page == "Application Sessions":
                         report=report,
                     )
 
-                snapshot = save_analysis_snapshot(
-                    application_id=application_id,
-                    input_fingerprint=analysis_fingerprint,
-                    report=report,
-                    analysis_model=get_active_model("analysis"),
-                    resume_filename=uploaded_resume.name,
-                )
-                report.setdefault("meta", {})[
-                    "analysis_cache"
-                ]["analysis_id"] = snapshot.get(
-                    "analysis_id",
-                    "",
-                )
-
-            update_application_report(
-                application_id=application_id,
-                resume_filename=uploaded_resume.name,
-                report=report,
-            )
             st.session_state["latest_report"] = report
             st.session_state["resume_filename"] = uploaded_resume.name
             st.session_state[
@@ -3299,24 +3293,31 @@ elif page == "Application Sessions":
     report = current_analysis_report
     current_application_id = st.session_state.get("current_application_id")
 
-    if current_application_id is not None:
-        from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis
-        render_application_initial_analysis(st, int(current_application_id))
-
+    if current_application_id is not None and not report:
+        st.subheader("Step 1 — Initial Résumé Analysis")
+        from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis, render_discovery_history
+        render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
+        render_discovery_history(st, int(current_application_id))
     if report:
         overall_score = int(report.get("overall_score", 0))
         passed = bool(report.get("passes_ats_threshold", False))
 
         st.divider()
-        st.header("Results")
+        if current_application_id is not None:
+            render_application_workflow_overview(
+                application_id=int(current_application_id), baseline_report=report,
+            )
+            st.subheader("Step 1 — Initial Résumé Analysis")
+            from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis, render_discovery_history
+            render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
+            render_discovery_history(st, int(current_application_id))
+            from tailoring.initial_analysis_explainer_ui import render_tailoring_evidence_opportunities
+            st.subheader("Step 2 — Evidence available for tailoring")
+            render_tailoring_evidence_opportunities(st, report)
 
         has_current_legacy_result = False
         if current_application_id is not None:
             st.caption(f"Current application session: #{current_application_id}")
-            render_application_workflow_overview(
-                application_id=int(current_application_id),
-                baseline_report=report,
-            )
             has_current_legacy_result = (
                 render_current_legacy_resume_result(
                     application_id=int(current_application_id),
@@ -3332,14 +3333,7 @@ elif page == "Application Sessions":
                 or {}
             )
 
-        # Presentation only: bind taxonomy meaning to the Initial JD, never to
-        # the generated/tailored resume or a selected starting-source score.
-        from taxonomy_discovery.coverage_presentation import render_jd_taxonomy_status
-        render_jd_taxonomy_status(
-            st,
-            raw_jd_text=phase9a_jd_record.get("raw_text") or report.get("raw_jd_text") or "",
-            stable_analysis=report.get("stable_analysis"),
-        )
+        # The authoritative document receipt renders its taxonomy accounting once.
 
         # `persisted_application_report` remains the historical DB/session
         # payload. `current_analysis_report` is the deterministic current view.
@@ -3351,6 +3345,13 @@ elif page == "Application Sessions":
             ],
         }
         if current_application_id is not None:
+            st.subheader("Step 3 — Tailoring base decision")
+            source_comparison_report = deepcopy(persisted_application_report)
+            try:
+                from tailoring.initial_analysis_explainer import load_frozen_document_report
+                source_comparison_report['frozen_initial_resume_report'] = load_frozen_document_report(int(current_application_id))
+            except (ValueError, sqlite3.Error):
+                pass
             if has_current_legacy_result:
                 with st.expander(
                     "Optional Phase 9E source migration",
@@ -3359,14 +3360,33 @@ elif page == "Application Sessions":
                     phase9e_context = (
                         render_phase9e_blueprint_selection(
                             application_id=int(current_application_id),
-                            baseline_report=persisted_application_report,
+                            baseline_report=source_comparison_report,
                         )
                     )
             else:
                 phase9e_context = render_phase9e_blueprint_selection(
                     application_id=int(current_application_id),
-                    baseline_report=persisted_application_report,
+                    baseline_report=source_comparison_report,
                 )
+            selected_report = phase9e_context.get("effective_report")
+            st.subheader("Step 4 — Selected base")
+            selected_decision = phase9e_context.get("decision") or {}
+            if (not selected_report and selected_decision.get("current_scope_status") == "current"
+                    and selected_decision.get("scope_activation_status") == "active"):
+                # A bound source can be displayed before explicit execution.
+                # Reuse its frozen native receipt, without starting tailoring.
+                from tailoring.phase9e_blueprint_selection import build_effective_tailoring_report
+                try:
+                    selected_report = build_effective_tailoring_report(source_comparison_report, selected_decision)
+                except (ValueError, KeyError, TypeError) as exc:
+                    st.caption("Selected receipt unavailable — " + str(exc))
+            if (selected_decision.get("current_scope_status") == "current" and isinstance(selected_report, dict)
+                    and (selected_report.get("meta") or {}).get("document_analysis")):
+                from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
+                render_selected_base_analysis(st, selected_report)
+            else:
+                st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
+            st.subheader("Step 5 — Tailor résumé")
             if (
                 phase9e_context.get("status")
                 == PHASE9F_D_EXECUTION_NOT_STARTED_STATUS

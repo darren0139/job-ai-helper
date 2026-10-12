@@ -238,6 +238,117 @@ def prepare_reusable_analysis_report(
     return report
 
 
+def persist_explicit_application_analysis(
+    *, application_id: int, input_fingerprint: str, report: dict[str, Any],
+    analysis_model: str, resume_filename: str, raw_jd_text: str,
+    reused_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Save an explicit Analyze Resume result and freeze its first receipt atomically.
+
+    Reuse is validated against the persisted source, then attached locally using
+    the existing cache format. Historical initial receipts are never rewritten.
+    This function is deliberately not called by cache reads/currentness refresh.
+    """
+    from tailoring.phase9f_starting_source_ranking import canonical_requirement_scope_fingerprint
+    from tailoring.job_match_ab_analysis import current_ab_identity
+    from tailoring.phase9e_blueprint_selection import fingerprint_value
+
+    if not input_fingerprint or not raw_jd_text or report.get("raw_jd_text") != raw_jd_text:
+        raise ValueError("Analysis/application JD identity mismatch")
+    stable = report.get("stable_analysis") or {}
+    rows = stable.get("canonical_requirements") or []
+    if not rows or len({r.get("requirement_id") for r in rows}) != len(rows) or any(not r.get("requirement_id") for r in rows):
+        raise ValueError("Canonical requirement identity unavailable or ambiguous")
+    scope = canonical_requirement_scope_fingerprint(rows)
+    identity = current_ab_identity(raw_jd_text)
+    document_authority = None
+    if (report.get("meta") or {}).get("document_analysis"):
+        from tailoring.document_grounded_analysis import validate_document_report
+        document_authority = validate_document_report(report)
+    for field, key in (("scoring_version", "scoring_version"),
+                       ("capability_taxonomy_version", "taxonomy_version"),
+                       ("technology_registry_version", "registry_version")):
+        if stable.get(field) != identity[key]:
+            raise ValueError("Analysis is stale; refresh explicitly before binding")
+    base_manager.init_db()
+    init_analysis_cache()
+    connection = _connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        application = connection.execute("SELECT * FROM applications WHERE id=?", (int(application_id),)).fetchone()
+        if application is None:
+            raise ValueError("Application unavailable")
+        entry = json.loads(application["entry_binding_json"] or "{}")
+        confirmation = None
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE name='phase9f_application_confirmations'").fetchone():
+            confirmation = connection.execute("SELECT 1 FROM phase9f_application_confirmations WHERE application_id=?", (application_id,)).fetchone()
+        already_bound = bool(application["initial_analysis_id"] or entry or confirmation)
+        previous = json.loads(application["report_json"] or "{}")
+        bound_jd = entry.get("raw_jd_text") or previous.get("raw_jd_text")
+        if not already_bound and bound_jd and " ".join(bound_jd.split()) != " ".join(raw_jd_text.split()):
+            raise ValueError("Application JD differs from the proposed initial receipt")
+        snapshot = None
+        if reused_snapshot is not None:
+            source = connection.execute("SELECT * FROM application_analysis_versions WHERE application_id=? AND analysis_id=?",
+                (reused_snapshot.get("application_id"), reused_snapshot.get("analysis_id"))).fetchone()
+            if source is None or _row_to_dict(source) != reused_snapshot:
+                raise ValueError("Exact saved analysis changed or is unavailable")
+            snapshot = _row_to_dict(source)
+            source_report = snapshot["report"]
+            source_rows = (source_report.get("stable_analysis") or {}).get("canonical_requirements") or []
+            if (snapshot["input_fingerprint"] != input_fingerprint
+                or snapshot["cache_version"] != ANALYSIS_CACHE_VERSION
+                or snapshot["pipeline_contract_version"] != ANALYSIS_PIPELINE_CONTRACT_VERSION
+                # Historical normal-session receipts stored collapsed whitespace.
+                # Their exact cache input fingerprint still proves input identity.
+                or " ".join(str(source_report.get("raw_jd_text") or "").split()) != " ".join(raw_jd_text.split())
+                or canonical_requirement_scope_fingerprint(source_rows) != scope
+                or source_report.get("stable_analysis") != stable):
+                raise ValueError("Saved analysis JD/input/canonical scope is incompatible")
+        owned_reuse = snapshot is not None and snapshot["application_id"] == int(application_id)
+        analysis_id = snapshot["analysis_id"] if owned_reuse else uuid.uuid4().hex
+        persisted_report = deepcopy(report)
+        persisted_report.setdefault("meta", {}).setdefault("analysis_cache", {})["analysis_id"] = analysis_id
+        origin = "EXACT_SAVED_REUSE" if snapshot is not None else "FRESH_ANALYSIS"
+        # Binding metadata references the existing native receipt, never a new
+        # analysis format. Owned cache hits need no receipt rewrite.
+        reference = {"origin": origin, "initial_analysis_id": analysis_id,
+                "raw_jd_text": raw_jd_text,
+                "raw_jd_sha256": _sha(raw_jd_text), "canonical_requirement_fingerprint": scope,
+                "input_fingerprint": input_fingerprint, "identity": identity,
+                "source_application_id": snapshot["application_id"] if snapshot else application_id,
+                "source_analysis_id": snapshot["analysis_id"] if snapshot else analysis_id,
+                "source_snapshot_id": snapshot["id"] if snapshot else None}
+        reference["binding_fingerprint"] = fingerprint_value(reference)
+        if not owned_reuse:
+            insert_analysis_snapshot_with_connection(connection, application_id=application_id,
+                input_fingerprint=input_fingerprint, report=persisted_report, analysis_model=analysis_model,
+                resume_filename=resume_filename, analysis_id=analysis_id, created_at=_now(),
+                pipeline_contract_version=ANALYSIS_PIPELINE_CONTRACT_VERSION)
+        connection.execute("UPDATE application_analysis_versions SET status=CASE WHEN analysis_id=? THEN 'active' ELSE 'archived' END WHERE application_id=?",
+                           (analysis_id, application_id))
+        if not already_bound:
+            connection.execute("UPDATE applications SET initial_analysis_id=?, initial_analysis_binding_json=? WHERE id=? AND initial_analysis_id IS NULL",
+                               (analysis_id, json.dumps(reference, ensure_ascii=False), application_id))
+        if document_authority and not application["initial_resume_analysis_id"]:
+            reference["document_analysis"] = document_authority
+            reference.pop("binding_fingerprint", None)
+            reference["binding_fingerprint"] = fingerprint_value(reference)
+            connection.execute("UPDATE applications SET initial_resume_analysis_id=?, initial_resume_analysis_binding_json=? WHERE id=? AND initial_resume_analysis_id IS NULL",
+                               (analysis_id, json.dumps(reference, ensure_ascii=False), application_id))
+        base_manager.update_application_report(application_id=application_id, resume_filename=resume_filename,
+                                               report=persisted_report, connection=connection)
+        saved = connection.execute("SELECT * FROM application_analysis_versions WHERE application_id=? AND analysis_id=?",
+                                   (application_id, analysis_id)).fetchone()
+        connection.commit()
+        return _row_to_dict(saved)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def save_analysis_snapshot(
     *,
     application_id: int,
@@ -261,7 +372,18 @@ def save_analysis_snapshot(
     resolved_id = str(analysis_id or uuid.uuid4().hex)
 
     connection = _connect()
+    connection.execute("BEGIN IMMEDIATE")
     cursor = connection.cursor()
+    # Cache activation may change, but a frozen application receipt may not.
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='applications'").fetchone():
+        columns = {r[1] for r in connection.execute("PRAGMA table_info(applications)")}
+        if "initial_analysis_id" in columns:
+            owner = connection.execute("SELECT * FROM applications WHERE id=?", (int(application_id),)).fetchone()
+            if owner:
+                initial_id = owner["initial_analysis_id"] or json.loads(owner["entry_binding_json"] or "{}").get("initial_analysis_id")
+                if initial_id == resolved_id or ("initial_resume_analysis_id" in owner.keys() and owner["initial_resume_analysis_id"] == resolved_id):
+                    connection.close()
+                    raise ValueError("Frozen Initial Analysis cannot be overwritten")
     cursor.execute(
         """
         UPDATE application_analysis_versions

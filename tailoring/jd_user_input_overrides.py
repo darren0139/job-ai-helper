@@ -846,6 +846,16 @@ def refresh_application_session_analysis_report(
     historical database payload remains unchanged.
     """
     source = deepcopy(report or {})
+    if (source.get('meta') or {}).get('document_analysis'):
+        from tailoring.document_grounded_analysis import validate_document_report
+        from tailoring.job_match_ab_analysis import current_ab_identity
+        authority = validate_document_report(source)
+        current = authority['identity'] == current_ab_identity(source.get('raw_jd_text') or '')
+        source.setdefault('meta', {})['stable_analysis_currentness'] = {
+            'mode': 'reused_current_document_receipt' if current else 'stale_currentness_required',
+            'rebuilt': False, 'stale_requires_refresh': not current,
+            'resume_text_source': 'stored_raw_resume_text'}
+        return source
     stored = source.get("stable_analysis")
     stored_stable = stored if isinstance(stored, dict) else {}
 

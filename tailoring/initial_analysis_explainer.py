@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from contextlib import closing
 import json
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -89,7 +90,7 @@ def job_finder_receipt(snapshot, raw_jd_text):
             "id", "discovered_job_id", "job_content_hash", "evidence_fingerprint", "match_version", "scoring_version", "taxonomy_version")})
 
 
-def load_application_initial(application_id, *, db_path=None):
+def load_application_initial(application_id, *, db_path=None, resume_only=False):
     """Read the authoritative existing reference with mode=ro; never initialize DBs."""
     path = Path(db_path or db_manager.DB_PATH).resolve()
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
@@ -98,11 +99,27 @@ def load_application_initial(application_id, *, db_path=None):
         if app is None:
             raise ValueError("Application unavailable")
         binding = json.loads(app["entry_binding_json"] or "{}") if "entry_binding_json" in app.keys() else {}
-        if binding:
+        reference = {}
+        if resume_only:
+            if "initial_resume_analysis_id" not in app.keys() or not app["initial_resume_analysis_id"]:
+                raise ValueError("No authoritative Initial Resume Analysis reference")
+            initial_id = app["initial_resume_analysis_id"]
+            reference = json.loads(app["initial_resume_analysis_binding_json"] or "{}")
+            source = reference.get("origin")
+            if source not in {'EXACT_SAVED_REUSE', 'FRESH_ANALYSIS'}:
+                raise ValueError('Initial Resume Analysis origin unavailable')
+            binding = {}
+        elif binding:
             if binding.get("binding_fingerprint") != fingerprint_value({k: v for k, v in binding.items() if k != "binding_fingerprint"}):
                 raise ValueError("Initial binding integrity mismatch")
             initial_id = binding["initial_analysis_id"]
             source = "JOB_FINDER_INITIAL_MATCH"
+        elif "initial_analysis_id" in app.keys() and app["initial_analysis_id"]:
+            initial_id = app["initial_analysis_id"]
+            reference = json.loads(app["initial_analysis_binding_json"] or "{}")
+            source = reference.get("origin")
+            if source not in {"EXACT_SAVED_REUSE", "FRESH_ANALYSIS"}:
+                raise ValueError("Initial Analysis origin unavailable")
         else:
             if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='phase9f_application_confirmations'").fetchone():
                 raise ValueError("No authoritative Initial Analysis reference")
@@ -111,20 +128,48 @@ def load_application_initial(application_id, *, db_path=None):
                 raise ValueError("No authoritative Initial Analysis reference")
             initial_id = json.loads(confirmation[0])["initial_analysis"]["analysis_id"]
             source = "PHASE9F_BASELINE_INITIAL_ANALYSIS"
-        saved = conn.execute("SELECT report_json FROM application_analysis_versions WHERE application_id=? AND analysis_id=?", (int(application_id), initial_id)).fetchall()
+        saved = conn.execute("SELECT * FROM application_analysis_versions WHERE application_id=? AND analysis_id=?", (int(application_id), initial_id)).fetchall()
         if len(saved) != 1:
             raise ValueError("Initial Analysis reference unavailable or ambiguous")
-        report = json.loads(saved[0][0])
+        saved_row = saved[0]
+        report = json.loads(saved_row["report_json"])
+        if resume_only:
+            from tailoring.document_grounded_analysis import validate_document_report
+            if validate_document_report(report) != reference.get("document_analysis"):
+                raise ValueError("Frozen document authority differs from its receipt")
+        if source in {"EXACT_SAVED_REUSE", "FRESH_ANALYSIS"} and reference:
+            if (reference.get("binding_fingerprint") != fingerprint_value({k: v for k, v in reference.items() if k != "binding_fingerprint"})
+                or reference.get("initial_analysis_id") != initial_id
+                or reference.get("input_fingerprint") != saved_row["input_fingerprint"]
+                or reference.get("raw_jd_sha256") != hashlib.sha256(reference.get("raw_jd_text", "").encode("utf-8")).hexdigest()
+                or " ".join(reference.get("raw_jd_text", "").split()) != " ".join(report.get("raw_jd_text", "").split())
+                or reference.get("canonical_requirement_fingerprint") != canonical_requirement_scope_fingerprint((report.get("stable_analysis") or {}).get("canonical_requirements") or [])):
+                raise ValueError("Frozen initial receipt identity mismatch")
         if binding and (report.get("stable_analysis") != binding["snapshot"]["stable_analysis"] or report.get("raw_jd_text") != binding["raw_jd_text"]):
             raise ValueError("Frozen initial receipt integrity mismatch")
-    view = build_analysis_receipt(report.get("stable_analysis"), raw_jd_text=report.get("raw_jd_text"), provenance=source,
+    view = build_analysis_receipt(report.get("stable_analysis"), raw_jd_text=reference.get("raw_jd_text") or report.get("raw_jd_text"), provenance=source,
         identity={"application_id": int(application_id), "initial_analysis_id": initial_id,
-                  "saved_snapshot_id": binding.get("snapshot", {}).get("id"),
+                  "saved_snapshot_id": binding.get("snapshot", {}).get("id") or saved_row["id"],
                   "discovered_job_id": binding.get("discovered_job_id"),
-                  "jd_hash": binding.get("raw_jd_sha256"),
+                  "jd_hash": binding.get("raw_jd_sha256") or reference.get("raw_jd_sha256"),
                   "evidence_fingerprint": binding.get("snapshot", {}).get("evidence_fingerprint"),
-                  "input_fingerprint": (report.get("stable_analysis") or {}).get("input_fingerprint")})
+                  "input_fingerprint": saved_row["input_fingerprint"],
+                  "analysis_identity": reference.get("identity"),
+                  "source_snapshot_id": reference.get("source_snapshot_id")})
+    view['document_grounded'] = bool((report.get('meta') or {}).get('document_analysis'))
+    view['document_analysis'] = deepcopy((report.get('meta') or {}).get('document_analysis'))
     return view
+
+
+def load_frozen_document_report(application_id, *, db_path=None):
+    view = load_application_initial(application_id, db_path=db_path, resume_only=True)
+    path = Path(db_path or db_manager.DB_PATH).resolve()
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
+        row = conn.execute('SELECT report_json FROM application_analysis_versions WHERE application_id=? AND analysis_id=?',
+                           (application_id, view['identity']['initial_analysis_id'])).fetchone()
+    if row is None:
+        raise ValueError('Frozen document receipt unavailable')
+    return json.loads(row[0])
 
 
 def compare_analysis_receipts(initial, final):

@@ -611,7 +611,8 @@ def render_application_workflow_overview(
                 "verification."
             )
 
-    st.subheader("Application workflow")
+    st.subheader("Workflow status")
+    st.caption("Initial Résumé Analysis → Evidence available → Tailoring base decision → Selected base → Tailoring → Final Résumé Analysis → Comparison")
     with st.container(border=True):
         st.write(
             f"### {overview['job_title']} @ {overview['company']}"

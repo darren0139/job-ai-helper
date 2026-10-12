@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any
 
 import streamlit as st
@@ -57,7 +58,7 @@ def _score_suffix(comparison: dict[str, Any] | None) -> str:
     if not isinstance(comparison, dict):
         return ""
     return (
-        " · Alignment "
+        " · Job Match "
         f"{int(comparison.get('deterministic_alignment_score', 0) or 0)}"
         " · Core "
         f"{int(comparison.get('required_core_coverage_score', 0) or 0)}%"
@@ -359,6 +360,8 @@ def _ranking_report_snapshot(
     """Keep only source inputs that can affect read-only Tailoring Base scores."""
     report = baseline_report if isinstance(baseline_report, dict) else {}
     meta = report.get("meta") or {}
+    if meta.get('document_analysis'):
+        return deepcopy(report)
     return {
         "resume_profile": report.get("resume_profile") or {},
         "raw_resume_text": str(report.get("raw_resume_text") or ""),
@@ -480,7 +483,7 @@ def _show_decision(decision: dict[str, Any], *, heading: str) -> None:
     st.write(f"**{decision_label}**")
     metrics = st.columns(4)
     metrics[0].metric(
-        "Alignment",
+        "Job Match",
         comparison.get("deterministic_alignment_score", 0),
     )
     metrics[1].metric(
@@ -1207,12 +1210,11 @@ def render_phase9e_blueprint_selection(
     excluded_blueprints = recommendation.get("excluded_blueprints") or []
     if excluded_blueprints:
         st.warning(
-            f"Excluded {len(excluded_blueprints)} stale Blueprint "
-            "source(s) from this new Tailoring Base selection because their "
-            "scorer or taxonomy provenance is no longer current. Base Resume "
-            "and Original Resume remain available."
+            f"Excluded {len(excluded_blueprints)} Blueprint source(s) whose "
+            "currentness or document authority could not be established. "
+            "Review the exact reasons below."
         )
-        with st.expander("Excluded stale Blueprint sources", expanded=False):
+        with st.expander("Excluded Blueprint sources", expanded=False):
             st.dataframe(
                 [
                     {
@@ -1285,7 +1287,8 @@ def render_phase9e_blueprint_selection(
                     ),
                     "Variant": "—" if row.get("source_type") in {"original_resume", "base_resume"} else (_clean((row.get("blueprint") or {}).get("variant_label")) or "Primary"),
                     "Family": "Application source" if row.get("source_type") == "original_resume" else "Neutral master source" if row.get("source_type") == "base_resume" else _clean((row.get("blueprint") or {}).get("role_family_label")),
-                    "Alignment": int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
+                    "Job Match": int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
+                    "Analysis source": (row.get("comparison") or {}).get("analysis_source") or 'Legacy profile/text comparison',
                     "Required/Core": f"{int((row.get('comparison') or {}).get('required_core_coverage_score', 0) or 0)}%",
                     "Preferred": f"{int((row.get('comparison') or {}).get('preferred_coverage_score', 0) or 0)}%",
                     "Evidence": f"{int((row.get('comparison') or {}).get('evidence_strength_score', 0) or 0)}%",
@@ -1302,7 +1305,7 @@ def render_phase9e_blueprint_selection(
             f"taxonomy {resolution_identity['capability_taxonomy_version']} · "
             f"registry {resolution_identity['technology_registry_version']}"
         )
-        st.caption("Scores are recalculated for this Application Session's exact JD. A reusable same-family Blueprint keeps the safe automatic prior. When none exists, Master résumé and Application source résumé are ranked as neutral fallbacks; cross-family Blueprints remain manual choices.")
+        st.caption("Comparable source analyses use this session's exact JD. An exact Application résumé reuses its frozen initial document receipt; Master résumé is analyzed independently. Legacy sources without document authority are excluded from document comparisons.")
 
     recommended_id = _clean((recommended or {}).get("blueprint_id"))
     original_key = "original_resume"
@@ -1464,7 +1467,7 @@ def render_phase9e_blueprint_selection(
                     ):
                         _show_decision(
                             preview,
-                            heading="Deterministic decision preview",
+                            heading="Tailoring base decision",
                         )
                 else:
                     _show_decision(
@@ -1472,7 +1475,7 @@ def render_phase9e_blueprint_selection(
                         heading=(
                             "Proposed replacement decision"
                             if active_current
-                            else "Deterministic decision preview"
+                            else "Tailoring base decision"
                         ),
                     )
         except (Phase9EDecisionError, ValueError, RuntimeError) as exc:

@@ -73,7 +73,56 @@ def _snapshot_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _render_document_comparison(analysis, label):
+    st.markdown('#### ' + label)
+    if not analysis or analysis.get('comparable') is not True:
+        st.warning('Compatible saved analyses are unavailable; comparison withheld.')
+        return
+    summary = analysis['summary']
+    cols = st.columns(3)
+    cols[0].metric(label.split(' vs ')[0], summary['initial_score'])
+    cols[1].metric('Final', summary['tailored_score'])
+    cols[2].metric('Job Match Δ', summary['score_delta'])
+    st.dataframe([{
+        'Requirement ID': row['requirement_id'], 'Requirement': row.get('requirement_text'),
+        'Importance': row.get('importance'), 'Match transition': row.get('match_transition'),
+        'Classification': row.get('classification'),
+        'Contribution Δ': row.get('score_contribution_delta'),
+        'Baseline evidence': _evidence_summary(row.get('initial') or {}),
+        'Final evidence': _evidence_summary(row.get('tailored') or {}),
+    } for row in analysis.get('requirements', [])], hide_index=True, width='stretch')
+    with st.expander(label + ' diagnostics'):
+        st.json(analysis)
+
+
 def _render_job_match_ab(result: dict[str, Any]) -> None:
+    if result.get('document_analysis'):
+        st.markdown('### Step 6 — Final Résumé Analysis / Phase8')
+        st.caption('Phase 8 evaluates the actual final document. Available Profile/Evidence alone receives no document credit.')
+        final = (result.get('job_match_ab') or {}).get('tailored') or {}
+        cols = st.columns(4)
+        native = result.get('after_stable_analysis') or {}
+        for col, label, key in zip(cols, ('Job Match', 'Required/Core', 'Preferred', 'Evidence strength'),
+                ('deterministic_alignment_score', 'required_core_coverage_score', 'preferred_coverage_score', 'evidence_strength_score')):
+            col.metric(label, native.get(key, 'Unavailable'))
+        st.dataframe(_snapshot_rows(final), hide_index=True, width='stretch')
+        # Initial explainability already appears in Step 1. Reuse the existing
+        # native arithmetic formatter for Final alone, without a duplicate
+        # initial/before-fitting panel in document sessions.
+        from tailoring.phase8_score_explainability import build_score_breakdown
+        from tailoring.phase8_score_explainability_ui import _render_breakdown
+        _render_breakdown('Final Résumé Analysis', build_score_breakdown(native))
+        st.markdown('### Step 7 — Analysis comparison')
+        st.caption('Saved native receipts use the same JD, scorer, taxonomy and registry. Changes alone do not prove their cause.')
+        _render_document_comparison(result.get('job_match_ab'), 'Initial vs Final')
+        selected = result.get('selected_base_analysis')
+        if selected and selected.get('same_as_initial'):
+            st.caption('Selected base is the original Application résumé. The comparison above also represents Selected Base vs Final.')
+        elif selected:
+            _render_document_comparison(result.get('selected_base_job_match_ab'), 'Selected Base vs Final')
+        else:
+            st.caption('This historical verification has no saved selected-base receipt; Selected Base vs Final is unavailable.')
+        return
     analysis = result.get("job_match_ab") or {}
     lifecycle = result.get("job_match_ab_lifecycle") or {}
     if not isinstance(analysis, dict) or not analysis:
@@ -90,13 +139,13 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
     initial = analysis.get("initial") or {}
     tailored = analysis.get("tailored") or {}
     summary = analysis.get("summary") or {}
-    st.markdown("#### Job Match — Initial vs Tailored")
+    st.markdown("#### Initial vs Tailored Analysis" if result.get('document_analysis') else "#### Job Match — Initial vs Tailored")
     st.caption(
         "Both views use the same JD, scorer, taxonomy, and technology registry. "
         "Requirements are joined by stable requirement ID."
     )
     initial_tab, tailored_tab, comparison_tab = st.tabs(
-        ["Initial Job Match", "Tailored Job Match", "Initial vs Tailored"]
+        ["Initial Résumé Analysis", "Tailored Résumé Analysis", "Initial vs Tailored"] if result.get('document_analysis') else ["Initial Job Match", "Tailored Job Match", "Initial vs Tailored"]
     )
     with initial_tab:
         counts = initial.get("match_counts") or {}
@@ -142,6 +191,7 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
                     "Importance": row.get("importance", ""),
                     "Classification": row.get("classification", ""),
                     "Match transition": row.get("match_transition", ""),
+                    "Delta reason": next((r.get('delta_reason', '') for r in (result.get('comparison') or {}).get('improved_requirements', []) if r['requirement_id'] == row.get('requirement_id')), ''),
                     "Contribution Δ": round(
                         float(row.get("score_contribution_delta", 0.0) or 0.0), 3
                     ),
@@ -227,11 +277,11 @@ def _render_result(result: dict[str, Any]) -> None:
     comparison_valid = bool(result.get("comparison_valid", True))
     metric1, metric2, metric3, metric4 = st.columns(4)
     metric1.metric(
-        "Before score",
+        "Initial Job Match" if result.get('document_analysis') else "Before score",
         comparison.get("before_score", 0),
     )
     metric2.metric(
-        "After score",
+        "Final Job Match" if result.get('document_analysis') else "After score",
         comparison.get("after_score", 0),
         delta=(
             comparison.get("score_delta", 0)
@@ -240,7 +290,7 @@ def _render_result(result: dict[str, Any]) -> None:
         ),
     )
     metric3.metric(
-        "Required/Core Δ",
+        "Initial → Final Required/Core Δ" if result.get('document_analysis') else "Required/Core Δ",
         (
             comparison.get("required_core_coverage_delta", 0)
             if comparison_valid
@@ -253,7 +303,8 @@ def _render_result(result: dict[str, Any]) -> None:
     )
 
     _render_job_match_ab(result)
-    render_phase8_score_explainability(result)
+    if not result.get('document_analysis'):
+        render_phase8_score_explainability(result)
 
     reconciliation = (
         result.get("requirement_reconciliation", {}) or {}

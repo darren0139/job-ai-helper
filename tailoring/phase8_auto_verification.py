@@ -7,6 +7,7 @@ from tailoring.phase8_verification import (
     PHASE8_PREAPPROVAL_GATE_VERSION,
     PHASE8_VERIFICATION_VERSION,
     build_phase8_generation_snapshot_fingerprint,
+    document_artifact_is_current,
 )
 from tailoring.job_match_ab_analysis import inspect_job_match_ab_lifecycle
 
@@ -20,6 +21,8 @@ def phase8_verification_is_current(
     if not isinstance(verification, dict) or not isinstance(generation_state, dict):
         return False
     if not isinstance(generation_state.get("fit_result"), dict):
+        return False
+    if not document_artifact_is_current(verification, generation_state):
         return False
     if str(verification.get("phase8_version") or "").strip() != PHASE8_VERIFICATION_VERSION:
         return False
@@ -51,6 +54,8 @@ def phase8_verification_refresh_reason(
         return "generation_missing"
     if not isinstance(generation_state.get("fit_result"), dict):
         return "fit_missing"
+    if not document_artifact_is_current(verification, generation_state):
+        return 'actual_final_document_changed_or_unavailable'
     if str(verification.get("phase8_version") or "").strip() != PHASE8_VERIFICATION_VERSION:
         return "phase8_version_mismatch"
     if (

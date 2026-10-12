@@ -615,6 +615,7 @@ def _blueprint_comparison_summary(
 ) -> dict[str, Any]:
     """Keep only visible deterministic metrics used for source ranking."""
     return {
+        "analysis_source": comparison.get("analysis_source", "Legacy frozen profile/text comparison"),
         "deterministic_alignment_score": int(
             comparison.get("deterministic_alignment_score", 0) or 0
         ),
@@ -669,6 +670,12 @@ def recommend_active_blueprint(
     )
     family_id = _clean(classification.get("role_family_id"))
     preferred_requirements = _application_local_preferred_requirements(application_report)
+    document_mode = bool(((application_report or {}).get('meta') or {}).get('document_analysis'))
+    if document_mode and isinstance(base_resume_starting_snapshot, dict):
+        base_resume_starting_snapshot = deepcopy(base_resume_starting_snapshot)
+        base_resume_starting_snapshot['document_analysis_mode'] = True
+        base_resume_starting_snapshot.pop('starting_snapshot_fingerprint', None)
+        base_resume_starting_snapshot['starting_snapshot_fingerprint'] = fingerprint_value(base_resume_starting_snapshot)
 
     # Discovery must fail closed per Blueprint, not for unrelated neutral
     # sources. A Blueprint created under an older scorer/taxonomy is not
@@ -699,6 +706,11 @@ def recommend_active_blueprint(
             continue
 
         candidate = deepcopy(row)
+        if document_mode:
+            excluded_blueprints.append({'blueprint_id': _clean(row.get('blueprint_id')),
+                'reason_code': 'document_authority_unavailable',
+                'reason': 'Legacy blueprint profile/text is not an authoritative document receipt.'})
+            continue
         try:
             validated = validate_active_blueprint(candidate)
         except Phase9EDecisionError as exc:
@@ -772,6 +784,11 @@ def recommend_active_blueprint(
             build_original_resume_starting_snapshot(application_report),
             jd, preferred_requirements=preferred_requirements,
         )
+    if document_mode and base_resume_comparison is not None and original_comparison is not None:
+        from tailoring.document_grounded_analysis import text_fingerprint, document_outcomes
+        if text_fingerprint(base_resume_starting_snapshot['resume_text_snapshot']) == text_fingerprint(application_report['raw_resume_text']):
+            if document_outcomes(base_resume_comparison['stable_analysis_snapshot']) != document_outcomes(original_comparison['stable_analysis_snapshot']):
+                raise Phase9EDecisionError('Identical document identity produced inconsistent evidence/score receipts')
 
     source_rankings = [deepcopy(row) for row in diagnostic_rankings]
     if base_resume_comparison is not None:
@@ -1026,6 +1043,25 @@ def build_original_resume_starting_snapshot(
         "resume_text_snapshot": str(resume_text),
         "source_identity": semantic_source_identity,
     }
+    if (application_report.get('meta') or {}).get('document_analysis'):
+        from tailoring.document_grounded_analysis import validate_document_report, document_outcomes
+        authority = validate_document_report(application_report)
+        frozen = application_report.get('frozen_initial_resume_report')
+        selected = application_report
+        if isinstance(frozen, dict):
+            original_authority = validate_document_report(frozen)
+            if (original_authority['resume_text_sha256'] == authority['resume_text_sha256']
+                and original_authority['identity'] == authority['identity']
+                and original_authority['canonical_requirement_fingerprint'] == authority['canonical_requirement_fingerprint']):
+                if document_outcomes(frozen['stable_analysis']) != document_outcomes(application_report['stable_analysis']):
+                    raise Phase9EDecisionError('Identical document identity produced inconsistent evidence/score receipts')
+                selected = frozen
+        result['document_report_snapshot'] = {k: deepcopy(selected[k]) for k in
+            ('stable_analysis', 'keyword_match', 'resume_profile', 'jd_profile', 'raw_resume_text', 'raw_jd_text')}
+        result['document_report_snapshot']['meta'] = {k: deepcopy(selected.get('meta', {}).get(k))
+            for k in ('document_analysis', 'jd_user_inputs') if k in selected.get('meta', {})}
+        result['analysis_source'] = 'Frozen Initial Résumé Analysis' if selected is frozen else 'Document-grounded analysis'
+        result['source_identity']['document_analysis_version'] = authority['version']
     result["starting_snapshot_fingerprint"] = fingerprint_value(result)
     return result
 
@@ -1299,10 +1335,30 @@ def _build_phase9e_starting_analysis(
     This mirrors the raw-JD precedence boundary used by Application Sessions
     and never writes the supplemental requirement to shared JD storage.
     """
+    from tailoring.phase9f_starting_source_ranking import canonical_requirement_scope_fingerprint
     profile = starting_snapshot.get("resume_profile_snapshot")
     resume_text = starting_snapshot.get("resume_text_snapshot")
     if not isinstance(profile, dict) or not _clean(resume_text):
         raise Phase9EDecisionError("The starting resume snapshot is incomplete.")
+    if starting_snapshot.get('document_report_snapshot') or starting_snapshot.get('document_analysis_mode'):
+        from tailoring.document_grounded_analysis import analyze_actual_resume_against_jd, validate_document_report
+        from tailoring.jd_user_input_overrides import apply_application_session_jd_user_inputs
+        saved = starting_snapshot.get('document_report_snapshot')
+        expected, local_scope = build_effective_application_local_requirement_scope(
+            (jd.get('canonicalisation') or {}).get('requirements') or jd.get('canonical_requirements') or [], preferred_requirements)
+        if saved:
+            authority = validate_document_report(saved)
+            from tailoring.job_match_ab_analysis import current_ab_identity
+            if authority['identity'] != current_ab_identity(jd['raw_text']) or canonical_requirement_scope_fingerprint(saved['stable_analysis']['canonical_requirements']) != canonical_requirement_scope_fingerprint(expected):
+                raise Phase9EDecisionError('Frozen document receipt is incompatible with current JD/scope/versions')
+            return deepcopy(saved['stable_analysis']), deepcopy(saved['keyword_match']), local_scope
+        document = analyze_actual_resume_against_jd(resume_text=resume_text, jd_text=jd['raw_text'],
+            jd_profile=jd['jd_profile'], resume_profile=profile)
+        prepared = apply_application_session_jd_user_inputs(document, raw_jd_text=jd['raw_text'],
+            raw_resume_text=resume_text, preferred_requirements=preferred_requirements)
+        if canonical_requirement_scope_fingerprint(prepared['stable_analysis']['canonical_requirements']) != canonical_requirement_scope_fingerprint(expected):
+            raise Phase9EDecisionError('Document comparison changed canonical scope')
+        return prepared['stable_analysis'], prepared['keyword_match'], local_scope
 
     canonical = jd.get("canonicalisation") or {}
     base_requirements = canonical.get("requirements") or jd.get(
@@ -1547,6 +1603,7 @@ def evaluate_starting_snapshot(
         "stable_analysis_snapshot": deepcopy(analysis),
         "keyword_match_snapshot": deepcopy(keyword_match),
     }
+    result['analysis_source'] = starting_snapshot.get('analysis_source') or ('Document-grounded analysis' if starting_snapshot.get('document_analysis_mode') else 'Legacy frozen profile/text comparison')
     if overrides:
         result["application_local_jd_user_inputs"] = deepcopy(local_scope)
     return result
@@ -1726,6 +1783,11 @@ def build_phase9e_decision(
     if int(application_id) <= 0:
         raise Phase9EDecisionError("application_id must be positive.")
     exact_jd = validate_exact_jd_snapshot(deepcopy(exact_jd))
+    if (application_report.get('meta') or {}).get('document_analysis') and isinstance(base_resume_starting_snapshot, dict):
+        base_resume_starting_snapshot = deepcopy(base_resume_starting_snapshot)
+        base_resume_starting_snapshot['document_analysis_mode'] = True
+        base_resume_starting_snapshot.pop('starting_snapshot_fingerprint', None)
+        base_resume_starting_snapshot['starting_snapshot_fingerprint'] = fingerprint_value(base_resume_starting_snapshot)
     application_local_preferred_requirements = (
         _application_local_preferred_requirements(application_report)
     )
@@ -2167,6 +2229,11 @@ def build_effective_tailoring_report(
     effective["keyword_match"] = deepcopy(
         comparison["keyword_match_snapshot"]
     )
+    if (application_report.get('meta') or {}).get('document_analysis'):
+        from tailoring.document_grounded_analysis import seal_document_report
+        effective['frozen_initial_resume_report'] = deepcopy(
+            application_report.get('frozen_initial_resume_report') or application_report)
+        seal_document_report(effective)
     effective.setdefault("meta", {})["phase9e_starting_context"] = {
         "decision_id": decision["decision_id"],
         "decision_fingerprint": decision["decision_fingerprint"],

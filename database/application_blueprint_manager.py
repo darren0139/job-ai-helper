@@ -248,7 +248,11 @@ def _application_report(application_id: int) -> dict[str, Any]:
         raise Phase9EDecisionError(
             "Analyze and persist the application before selecting a blueprint."
         )
-    return deepcopy(report)
+    report = deepcopy(report)
+    if (report.get('meta') or {}).get('document_analysis'):
+        from tailoring.initial_analysis_explainer import load_frozen_document_report
+        report['frozen_initial_resume_report'] = load_frozen_document_report(application_id)
+    return report
 
 
 def _active_blueprints() -> list[dict[str, Any]]:

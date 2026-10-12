@@ -14,6 +14,7 @@ from tailoring.phase8_verification import (
     PHASE8_VERIFICATION_VERSION,
     build_phase8_generation_snapshot_fingerprint,
     refresh_phase8_readiness,
+    document_artifact_is_current,
 )
 from tailoring.job_match_ab_analysis import inspect_job_match_ab_lifecycle
 
@@ -22,6 +23,9 @@ _IMMUTABLE_ANALYSIS_FIELDS = (
     "before_stable_analysis",
     "after_stable_analysis",
     "job_match_ab",
+    "document_analysis",
+    "selected_base_analysis",
+    "selected_base_job_match_ab",
 )
 
 
@@ -279,6 +283,8 @@ def get_tailoring_verification_approval_gate(
     if verification is None:
         reasons.append("verification_missing")
     else:
+        if generation and not document_artifact_is_current(verification, generation):
+            reasons.append('actual_final_document_changed_or_unavailable')
         if (
             str(verification.get("phase8_version") or "").strip()
             != PHASE8_VERIFICATION_VERSION

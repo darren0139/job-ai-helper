@@ -236,6 +236,10 @@ def render_evidence_opportunity_analysis(
     an opportunity forecast from mutable library evidence would misrepresent
     the durable scope that the later paid stages must use.
     """
+    if (baseline_report.get('meta') or {}).get('document_analysis'):
+        # Document-mode opportunities are explained once under Results, without
+        # a hypothetical numeric score or a second projection pipeline.
+        return
     st.divider()
     if isinstance(frozen_phase9f_scope, dict):
         section_scope = frozen_phase9f_scope.get("section_scope") or {}

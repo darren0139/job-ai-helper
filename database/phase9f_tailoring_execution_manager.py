@@ -487,7 +487,11 @@ def _load_execution_inputs(application_id: int) -> tuple[
             "The current Phase 9F-D confirmation, binding, or exact JD is missing.",
             code="phase9f_d_scope_missing",
         )
-    return confirmation, decision, exact_jd, application, application["report"]
+    report = deepcopy(application['report'])
+    if (report.get('meta') or {}).get('document_analysis'):
+        from tailoring.initial_analysis_explainer import load_frozen_document_report
+        report['frozen_initial_resume_report'] = load_frozen_document_report(application_id)
+    return confirmation, decision, exact_jd, application, report
 
 
 def _source_artifact_identity(artifact: dict[str, Any]) -> dict[str, Any]:

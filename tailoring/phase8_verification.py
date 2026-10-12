@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import Path
 from copy import deepcopy
 from typing import Any
 
@@ -620,6 +621,10 @@ def _verification_fingerprint(
         "projects": effective.get("projects"),
         "skills": effective.get("skills"),
     }
+    if (baseline_report.get('meta') or {}).get('document_analysis'):
+        path = Path(str((generation_state.get('fit_result') or {}).get('docx_path') or ''))
+        payload['document_analysis'] = baseline_report['meta']['document_analysis']
+        payload['final_document_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -641,6 +646,8 @@ def refresh_phase8_readiness(
     blueprint readiness are derived from the current saved generation each time.
     """
     refreshed = deepcopy(result)
+    if not document_artifact_is_current(result, generation_state):
+        raise ValueError('Actual final document changed or is unavailable; verify it again')
 
     status = (
         _clean(generation_state.get("status")).lower()
@@ -709,6 +716,17 @@ def refresh_phase8_readiness(
     return refreshed
 
 
+def document_artifact_is_current(result, generation_state):
+    authority = result.get('document_analysis')
+    if not authority:
+        return True  # Historical profile-based receipts retain their contract.
+    try:
+        path = Path(str((generation_state.get('fit_result') or {}).get('docx_path') or ''))
+        return hashlib.sha256(path.read_bytes()).hexdigest() == authority['final_document_sha256']
+    except (OSError, KeyError, TypeError):
+        return False
+
+
 def build_phase8_verification(
     *,
     baseline_report: dict[str, Any],
@@ -729,6 +747,18 @@ def build_phase8_verification(
         )
 
     canonical_jd_text = _normalise_multiline_text(raw_jd_text)
+    document_mode = bool((baseline_report.get('meta') or {}).get('document_analysis'))
+    document_authority = None
+    selected_base = None
+    if document_mode:
+        from tailoring.document_grounded_analysis import validate_document_report, selected_base_analysis
+        selected_base = selected_base_analysis(baseline_report)
+        initial_report = baseline_report.get('frozen_initial_resume_report') or baseline_report
+        authority = validate_document_report(initial_report)
+        from tailoring.job_match_ab_analysis import current_ab_identity
+        if authority['identity'] != current_ab_identity(raw_jd_text):
+            raise ValueError('Frozen initial document analysis is incompatible with current JD/versions')
+        canonical_jd_text = raw_jd_text
     if not canonical_jd_text:
         raise ValueError(
             "Phase 8 requires the application's original job-description text. "
@@ -736,36 +766,54 @@ def build_phase8_verification(
             "canonical requirement set."
         )
 
-    before, baseline_resolution = (
-        resolve_phase8_baseline_analysis(
-            baseline_report=baseline_report,
-            raw_jd_text=canonical_jd_text,
-        )
-    )
+    if document_mode:
+        before = deepcopy(initial_report['stable_analysis'])
+        baseline_resolution = {'mode': 'frozen_initial_document_receipt', 'document_analysis': authority}
+    else:
+        before, baseline_resolution = resolve_phase8_baseline_analysis(
+            baseline_report=baseline_report, raw_jd_text=canonical_jd_text)
 
     final_profile = build_final_resume_profile(
         baseline_report.get("resume_profile", {}),
         generation_state,
     )
-    final_resume_text = build_resume_text_from_profile(final_profile)
-    verification_keyword_match = build_verification_keyword_match(
-        baseline_report,
-        generation_state,
-    )
+    if not document_mode:
+        final_resume_text = build_resume_text_from_profile(final_profile)
+        verification_keyword_match = build_verification_keyword_match(
+            baseline_report,
+            generation_state,
+        )
 
-    after = build_stable_analysis(
-        jd_profile=baseline_report.get("jd_profile", {}) or {},
-        keyword_match=verification_keyword_match,
-        raw_jd_text=canonical_jd_text,
-        raw_resume_text=final_resume_text,
-        resume_profile=final_profile,
-        bullet_quality_score=(
-            baseline_report.get("bullets", {}) or {}
-        ).get("bullet_quality_avg", 0),
-        structure_score=(
-            baseline_report.get("structure", {}) or {}
-        ).get("structure_score", 0),
-    )
+        after = build_stable_analysis(
+            jd_profile=baseline_report.get("jd_profile", {}) or {},
+            keyword_match=verification_keyword_match,
+            raw_jd_text=canonical_jd_text,
+            raw_resume_text=final_resume_text,
+            resume_profile=final_profile,
+            bullet_quality_score=(
+                baseline_report.get("bullets", {}) or {}
+            ).get("bullet_quality_avg", 0),
+            structure_score=(
+                baseline_report.get("structure", {}) or {}
+            ).get("structure_score", 0),
+        )
+    if document_mode:
+        from parse import read_resume_docx
+        from tailoring.document_grounded_analysis import analyze_actual_resume_against_jd, seal_document_report
+        from tailoring.jd_user_input_overrides import apply_application_session_jd_user_inputs
+        final_path = Path(str(fit_result.get('docx_path') or ''))
+        final_resume_text = read_resume_docx(str(final_path), preserve_complete_text=True)
+        final_document = analyze_actual_resume_against_jd(resume_text=final_resume_text,
+            jd_text=canonical_jd_text, jd_profile=baseline_report.get('jd_profile') or {}, resume_profile=final_profile)
+        preferred = ((baseline_report.get('meta') or {}).get('jd_user_inputs') or {}).get('preferred_requirement_overrides') or []
+        final_document = apply_application_session_jd_user_inputs(final_document, raw_jd_text=canonical_jd_text,
+            raw_resume_text=final_resume_text, preferred_requirements=preferred)
+        final_document['raw_jd_text'] = canonical_jd_text
+        final_document.setdefault('meta', {})['document_analysis'] = final_document.pop('document_analysis')
+        seal_document_report(final_document)
+        after = final_document['stable_analysis']
+        document_authority = {'initial': authority, 'final': final_document['meta']['document_analysis'],
+            'final_document_sha256': hashlib.sha256(final_path.read_bytes()).hexdigest()}
     raw_comparison = compare_stable_analyses(before, after)
     lineage = audit_claim_lineage(
         baseline_report.get("resume_profile", {}),
@@ -777,14 +825,35 @@ def build_phase8_verification(
         generation_state=generation_state,
         claim_lineage=lineage,
     )
+    if document_mode:
+        # Reconciliation may restrict document credit, never introduce projected
+        # generation evidence that the native actual-document analysis rejected.
+        from analysis_stability.stable_evidence_scoring import compute_deterministic_alignment
+        reconciled_rows = {r['requirement_id']: r for r in after['canonical_requirements']}
+        after = deepcopy(final_document['stable_analysis'])
+        for row in after['canonical_requirements']:
+            reconciled = reconciled_rows.get(row['requirement_id'])
+            if reconciled and MATCH_RANK.get(reconciled.get('match_label'), -1) < MATCH_RANK.get(row.get('match_label'), -1):
+                for key in ('match_label', 'match_value', 'evidence_strength'):
+                    row[key] = reconciled[key]
+                row['evidence'] = []
+        after.update(compute_deterministic_alignment(after['canonical_requirements']))
 
     final_scoring_seed = build_final_scoring_seed(after)
     after.update(deepcopy(final_scoring_seed.get("aggregate") or {}))
+    if document_mode:
+        final_document['stable_analysis'] = after
+        seal_document_report(final_document)
+        document_authority['final'] = final_document['meta']['document_analysis']
     final_scoring_seed = build_final_scoring_seed(after)
     final_scoring_seed_fingerprint = (
         fingerprint_final_scoring_seed(final_scoring_seed)
     )
     comparison = compare_stable_analyses(before, after)
+    if document_mode:
+        for row in comparison['improved_requirements']:
+            if row['before_label'] == 'none':
+                row['delta_reason'] = 'NEW_FINAL_RESUME_EVIDENCE'
 
     generation_snapshot_fingerprint = (
         build_phase8_generation_snapshot_fingerprint(generation_state)
@@ -804,6 +873,15 @@ def build_phase8_verification(
         initial_job_match,
         tailored_job_match,
     )
+    # Presentation-only second comparison: consume the selected source's saved
+    # native analysis, keeping Phase 8's original baseline and readiness intact.
+    selected_base_job_match_ab = None
+    if selected_base and not selected_base['same_as_initial']:
+        selected_base_job_match_ab = build_job_match_ab_analysis(
+            build_job_match_snapshot(role='initial',
+                stable_analysis=selected_base['stable_analysis'], raw_jd_text=canonical_jd_text),
+            tailored_job_match,
+        )
 
     important_regressions = comparison["important_regressions"]
     claim_risks = int(
@@ -875,6 +953,9 @@ def build_phase8_verification(
 
     return {
         "phase8_version": PHASE8_VERIFICATION_VERSION,
+        "document_analysis": document_authority,
+        "selected_base_analysis": selected_base,
+        "selected_base_job_match_ab": selected_base_job_match_ab,
         "verification_mode": "zero_cost_deterministic",
         "verification_fingerprint": _verification_fingerprint(
             baseline_report,
@@ -937,6 +1018,8 @@ def build_phase8_verification(
                 "When the saved baseline scoring version differs from the current "
                 "stable scorer, Phase 8 deterministically rebuilds the original "
                 "résumé baseline before comparing it with the final résumé."
+                if not document_mode else
+                "The frozen initial document receipt is reused. Incompatible JD or versions stop verification; the initial is never rebuilt."
             ),
             (
                 "The comparison is valid only when the canonical requirement "
@@ -953,6 +1036,8 @@ def build_phase8_verification(
                 "performs a conservative reconciliation pass. It restores "
                 "credit only when unchanged source evidence or lineage-verified "
                 "final project/skill evidence is still present."
+                if not document_mode else
+                "Actual final-document evidence bounds all credit. Generation mappings and lineage cannot substitute for document presence."
             ),
             (
                 "It is conservative and may miss a new non-technical semantic "

@@ -78,6 +78,10 @@ def init_db() -> None:
     _add_column_if_missing(cursor, "created_at", "TEXT")
     _add_column_if_missing(cursor, "updated_at", "TEXT")
     _add_column_if_missing(cursor, "entry_binding_json", "TEXT")
+    _add_column_if_missing(cursor, "initial_analysis_id", "TEXT")
+    _add_column_if_missing(cursor, "initial_analysis_binding_json", "TEXT")
+    _add_column_if_missing(cursor, "initial_resume_analysis_id", "TEXT")
+    _add_column_if_missing(cursor, "initial_resume_analysis_binding_json", "TEXT")
 
     conn.commit()
     conn.close()
@@ -292,6 +296,7 @@ def update_application_report(
     application_id: int,
     resume_filename: str,
     report: dict[str, Any],
+    connection: sqlite3.Connection | None = None,
 ) -> None:
     """Update an existing draft/current session with the analysis report."""
     jd_profile = report.get("jd_profile", {})
@@ -308,7 +313,7 @@ def update_application_report(
     else:
         session_name = job_title
 
-    conn = _connect()
+    conn = connection if connection is not None else _connect()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -342,8 +347,9 @@ def update_application_report(
         ),
     )
 
-    conn.commit()
-    conn.close()
+    if connection is None:
+        conn.commit()
+        conn.close()
 
 
 def update_application_cover_letter(application_id: int, cover_letter: str) -> None:
