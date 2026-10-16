@@ -1814,6 +1814,21 @@ def render_job_finder() -> None:
                 render_job_finder_explainer(st, full, str(job.get("description") or ""), taxonomy=taxonomy_view)
 
         with st.expander("Advanced diagnostics — selected job resolution and ranking"):
+            saved_quality=match_summary.get('ranking_quality') or {}
+            st.caption('Saved ranking quality uses importance-weighted capability resolution over '
+                f"{saved_quality.get('eligible_requirement_count', 'the saved')} score-eligible canonical requirements. "
+                'Technology-identity-only rows do not count as capability-resolved. This is separate from '
+                "this JD's confirmed taxonomy subset; these saved ranking values are not recomputed on display.")
+            from analysis_stability.stable_evidence_scoring import requirement_is_score_eligible
+            saved_resolution={r.get('requirement_id'):r for r in
+                (match_summary.get('taxonomy_resolution') or {}).get('rows',[]) if isinstance(r,dict)}
+            disagreements=[r['requirement_id'] for r in ((full or {}).get('stable_analysis') or {}).get('canonical_requirements',[])
+                if requirement_is_score_eligible(r) and r.get('knowledge_status')=='CAPABILITY_RESOLVED'
+                and r.get('capability_id') and saved_resolution.get(r['requirement_id'],{}).get('capability_id')!=r['capability_id']]
+            if disagreements:
+                st.info(f"Saved ranking accounting differs from {len(disagreements)} final native capability decision(s). "
+                    'The knowledge table uses final canonical records. This historical ranking receipt is shown unchanged; '
+                    'it is not recalculated on display.')
             quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
             quality_col1.metric(
                 "Required/core capability-resolved share",

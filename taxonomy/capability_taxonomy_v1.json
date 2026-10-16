@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "phase6d-capability-taxonomy-v1.5",
+  "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
   "capabilities": [
     {
       "capability_id": "motivation.subjective",
@@ -1429,6 +1429,15 @@
             "guard_contract_version": "native-product-context-guard-v1",
             "phrase": "web services",
             "product_context_guard": "exclude_recognized_multiword_technology_spans"
+          }
+        ],
+        "recognition_fallback_rules": [
+          {
+            "rule_id": "backend.rest_api_development",
+            "rule_version": "bounded-rest-api-fallback-v1",
+            "kind": "bounded_rest_api_development",
+            "precedence": "after_native_unresolved",
+            "source_scope": "complete_requirement"
           }
         ]
       },

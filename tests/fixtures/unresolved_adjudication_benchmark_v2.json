@@ -1,0 +1,700 @@
+{
+  "schema_version": "unresolved-adjudication-v1",
+  "prompt_version": "unresolved-routing-prompt-v1",
+  "source_path": "tests/fixtures/confirmed_taxonomy_coverage.json",
+  "source_fingerprint": "e993ed6df531967df30289602fe772b930021520a9d83e71407c7e39e8baf1a7",
+  "review_state": "INDEPENDENT_HUMAN_REVIEW_PENDING",
+  "expectations": [
+    {
+      "key": [
+        31,
+        "req_2410dfcbbf45"
+      ],
+      "input_fingerprint": "d0225739ef0d530e788b661bfa135784e25860eb9e606ee11f6869eb48796055",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Explicit MongoDB relationship hypothesis/non-gap control; exact route needs reviewer adjudication.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        163,
+        "req_2f6aedb603aa"
+      ],
+      "input_fingerprint": "ae2f988f70d2c4d6c788059b1211774497be38eb84d46871134bc0927d0807d4",
+      "review_bucket": "TRUE_CAPABILITY_TAXONOMY_GAP",
+      "primary_blocker": "ACTUAL_CAPABILITY_TAXONOMY_GAP",
+      "acceptable_routes": [
+        "TRUE_GAP_CANDIDATE"
+      ],
+      "critical": true,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Explicit user-reviewed NAC positive control; proposal only, never proven publication.",
+      "human_review": {
+        "state": "INHERITED_CONFIRMED",
+        "parent_fingerprint": "e264f159cf0ef216020d5fc5a775c0bd169b331cd6a10833a7f59043e06a2a5f",
+        "original_review_reason": "Explicit user-reviewed NAC positive control; proposal only, never proven publication."
+      }
+    },
+    {
+      "key": [
+        163,
+        "req_6677d37f660c"
+      ],
+      "input_fingerprint": "3eb95ee9e5ab303b9c70eb9049fe3cb9da1f344c2eb6f402188c47af9d524b5e",
+      "review_bucket": "TRUE_CAPABILITY_TAXONOMY_GAP",
+      "primary_blocker": "ACTUAL_CAPABILITY_TAXONOMY_GAP",
+      "acceptable_routes": [
+        "TRUE_GAP_CANDIDATE"
+      ],
+      "critical": true,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Explicit user-reviewed NAC positive control; proposal only, never proven publication.",
+      "human_review": {
+        "state": "INHERITED_CONFIRMED",
+        "parent_fingerprint": "e264f159cf0ef216020d5fc5a775c0bd169b331cd6a10833a7f59043e06a2a5f",
+        "original_review_reason": "Explicit user-reviewed NAC positive control; proposal only, never proven publication."
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_2b6f4ea8fdb3"
+      ],
+      "input_fingerprint": "6806858c138412943c2d9316489a4a5cc977aa2be8172d9b248fc67c4141825b",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_71321f9eff59"
+      ],
+      "input_fingerprint": "f89acefa17bd9598692deb244037b8e71ce42324412fe492eef9873fa8edda2a",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_7b667a24f1e0"
+      ],
+      "input_fingerprint": "4b48ad7754770fb5ca702a94e0eca493dc0963af84886915c418e8b320e94c27",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        158,
+        "req_0c34f8e720fe"
+      ],
+      "input_fingerprint": "d3a172882a21a324257668b1162b9e9ced027796c62628137e301a5739fc31c7",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        158,
+        "req_60119945897e"
+      ],
+      "input_fingerprint": "e504732eb8518914ab2157aa19d10b41c5d60fcbe6d51b31313b826f25d1e198",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        493,
+        "req_74e080b49b36"
+      ],
+      "input_fingerprint": "6d7837d05b82a472aabbc353b16d19480c67e31d70c2751d9cdebba21ce271af",
+      "review_bucket": "NOT_TAXONOMY_ADDRESSABLE",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": true,
+      "non_gap_control": true,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        146,
+        "req_ba405c092a55"
+      ],
+      "input_fingerprint": "5add8e5222c79ad5e9efba4e963e4cba8e3d4526ce557bf4f200b1d81e38d50e",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        16,
+        "req_b451ce69ddd0"
+      ],
+      "input_fingerprint": "8f85e4cfb41b73df1d2cd39047efc01546001441adff6c36bbe1297fef66c39d",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        144,
+        "req_6c3b74434db5"
+      ],
+      "input_fingerprint": "f8ba77e5a91d4325d2787acb6e4a7c9f2ff58565853df9352c0d94f532f3d59f",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        493,
+        "req_cfc6614dce69"
+      ],
+      "input_fingerprint": "a9713c74d1004d47498557e4782178bf95397a4f541deda4e30f5b43b492b7e4",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        44,
+        "req_55269def7b17"
+      ],
+      "input_fingerprint": "a79eeacbdfeb82301755cd3eb4937d2b2701c4e3b27d8034a3a39fc75a38c8c2",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        50,
+        "req_12004e0f666c"
+      ],
+      "input_fingerprint": "bcc32a59c56f150bf2bcb218027e1e2c478702b1924b2aaa2bb3d7472cac789c",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        50,
+        "req_b01957201b40"
+      ],
+      "input_fingerprint": "469d96f5d4f0d6dc40d227fe2609a324140f1679cc8d5612c7e36366e6f510ff",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        146,
+        "req_36e64f19f57a"
+      ],
+      "input_fingerprint": "7be11bbe67b6074cca47200c59feb024a7ab5e0055e2060ca8306f69f427da3e",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        146,
+        "req_e5e239560bc1"
+      ],
+      "input_fingerprint": "748d6071ad54dda7eee6bfcf31079a4759c3594c9a3b96793646eadf959f1be7",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        158,
+        "req_19ace2467250"
+      ],
+      "input_fingerprint": "8d3387e9f25110cde10d00fd67849c69d440a9aa40062d525132f51ebef71c5b",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "TECHNOLOGY_IDENTITY_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_a8fc7690ed6f"
+      ],
+      "input_fingerprint": "54745af4cd9cb1bc05bf0a604206afddf97a47324cbf594992f79b9796616272",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_e33272d9bf25"
+      ],
+      "input_fingerprint": "1601ce33a11c1026458d37de1eed4a9c6b3fb4806221285c79d4820b3c474516",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        31,
+        "req_05c5e7fc5dd5"
+      ],
+      "input_fingerprint": "e47d585c4fe36bbb42d0ade80d3caf9627eb105b8399f3f31a109783f7f42b0c",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        45,
+        "req_83ab15340c75"
+      ],
+      "input_fingerprint": "513af11bcdc9c94d6b0f6261a8026f3c6cfb6dd558b5d8d46b0d7f6c9cb2f0a6",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        479,
+        "req_61217e45f716"
+      ],
+      "input_fingerprint": "d325939b6ca5c5610f7c06a0d6d67c4af3cb469b27b1e928af17fb0c99374b1d",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        556,
+        "req_2502c9c4d2fe"
+      ],
+      "input_fingerprint": "09994d9d3d9bc3ae8ec2ae4597947a8c48a53e88ad527387726328940896a5e6",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "CONTEXTUAL_RELATIONSHIP_GAP",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_2e581717a7ab"
+      ],
+      "input_fingerprint": "9a20eea1cb7ddc66efddeaa59cd62a84ae1e0504b9d49902d03e3017490d65e5",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        16,
+        "req_191dd0c2eef9"
+      ],
+      "input_fingerprint": "3a4a4b5407ba2fcf1a354c98197d57ad1a8b91793ee4a800282a409453c6ac7d",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        44,
+        "req_4c055b99aecf"
+      ],
+      "input_fingerprint": "f39d7ae063c0d1ea4477efac25c1fe2d3472fd00f5aa96db1e0a154b9dc5c67d",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        44,
+        "req_6e081bd46d54"
+      ],
+      "input_fingerprint": "3065e39da2605c4423cd96a767f982c2814087f79287692704335d090b021be4",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        45,
+        "req_7140ec72373b"
+      ],
+      "input_fingerprint": "5dffcaf3028cea4115137f92ed4fc43c7b393de5628f978e527d549331cc699d",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        45,
+        "req_90583b43be1b"
+      ],
+      "input_fingerprint": "0ea55fb183f3e7f909f708f0be3342a31a573af8e65f6a4f69ecefc79a2fe8e3",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "NEEDS_DECOMPOSITION_OR_MIXED_SCOPE",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        31,
+        "req_8d47527c8f34"
+      ],
+      "input_fingerprint": "35ec941462913c1da8610ccafa83ca1d97a4702bfce59c2c088ffbd97802e372",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        31,
+        "req_bc26569100e0"
+      ],
+      "input_fingerprint": "9a4f06fade7dfa70734da7ccdd7e5884e6502280bc75fff9ce6094a0c89872cf",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        31,
+        "req_d0a20edbb7ae"
+      ],
+      "input_fingerprint": "87da7401215c05b5ad3243ebb88719aaa59617b65f9aecb3feb932913f56bcc9",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        45,
+        "req_076aaad11115"
+      ],
+      "input_fingerprint": "cd5a52f5373e448dfa38554537de0092803d8ac073bad6a40c1404cd33296dd4",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "JD_PARSING_CANONICALISATION_PROBLEM",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_36f5f1f102a6"
+      ],
+      "input_fingerprint": "f595e1e0cb1c3ac3316304f67eb5de4e201833245dd182ae317c44e572d185d3",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_423f39c746ef"
+      ],
+      "input_fingerprint": "9a48158a8ee0042f6ab11d4e2d5e854bca6c66cdef5d101bcdbc981dbd0973cc",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_97717be0fa85"
+      ],
+      "input_fingerprint": "f3ddf3fd7d1ebbf4b5af260a9f0959ac8ca56c540ca0bc6a6de002943ad0f948",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_bc4d89199fb0"
+      ],
+      "input_fingerprint": "2daaabc2b85faf5d2f6a571049a53174a23036cffaaf6686913193e5241881ae",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    },
+    {
+      "key": [
+        15,
+        "req_dcc530bf4685"
+      ],
+      "input_fingerprint": "cc02ef4f7a1de23a30db364544dc966e7137c9d78ab0f1c386f57e32d9cb7ab9",
+      "review_bucket": "UNDETERMINED_NEEDS_SCOPE_REVIEW",
+      "primary_blocker": "MANUAL_REVIEW",
+      "acceptable_routes": [],
+      "critical": false,
+      "non_gap_control": false,
+      "identity_only_control": false,
+      "review_reason": "Existing bucket is provenance only. Exact acceptable routes/scope/entity expectations need independent human review.",
+      "human_review": {
+        "state": "PENDING"
+      }
+    }
+  ],
+  "fingerprint": "8ea85102c50ee7ead641173efe6cad153cc3609c63f9ca8fbd0b35ac7d7e903b",
+  "review_version": "unresolved-human-gold-review-v2",
+  "parent_fingerprint": "e264f159cf0ef216020d5fc5a775c0bd169b331cd6a10833a7f59043e06a2a5f"
+}

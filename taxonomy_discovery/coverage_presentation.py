@@ -151,6 +151,24 @@ def render_confirmed_coverage(st, *, key, allow_import=False):
     return view
 
 
+def _native_detail_rows(rows, status):
+    """Readable requirement ledgers from saved native results, never review routes."""
+    details=[]
+    for row in rows:
+        knowledge=row.get('knowledge_resolution') or {}
+        if (row.get('knowledge_status') or knowledge.get('knowledge_status'))!=status:continue
+        item={'Requirement ID':row['requirement_id'],'Requirement':row['text'],
+              'Knowledge status':status}
+        if status=='CAPABILITY_RESOLVED':item['Capability']=row['capability_id']
+        else:
+            registry=row.get('technology_registry_resolution') or {}
+            item['Technology ID']=knowledge.get('technology_id') or registry.get('technology_id') or 'Not recorded'
+            item['Technology']=knowledge.get('technology_label') or registry.get('technology_label') or row['text']
+            item['Matched alias']=knowledge.get('matched_alias') or registry.get('matched_alias') or 'Not recorded'
+        details.append(item)
+    return details
+
+
 def jd_coverage(snapshot, plan, *, raw_jd_text, stable_analysis, job_id=None):
     """Native positive resolutions suffice; reviewed proofs only establish gaps.
 
@@ -199,7 +217,10 @@ def jd_coverage(snapshot, plan, *, raw_jd_text, stable_analysis, job_id=None):
         "denominator": capability, "percentage": 100.0 if capability else None,
         "additional_analysis_items": len(rows) - capability,
         "breakdown": {}, "proven_gaps": [], "routes": [],
-        "reviewed_accounting": False}
+        "reviewed_accounting": False,
+        "analysis_item_count":len(rows),
+        "capability_rows":_native_detail_rows(rows,'CAPABILITY_RESOLVED'),
+        "technology_identity_rows":_native_detail_rows(rows,'TECHNOLOGY_IDENTITY_RESOLVED')}
     if not snapshot or not plan:
         return native
     # Complete corpus review remains the global contract. A compatible partial
@@ -251,11 +272,14 @@ def jd_coverage(snapshot, plan, *, raw_jd_text, stable_analysis, job_id=None):
     result = _jd_coverage_with_view(snapshot, view, raw_jd_text=raw_jd_text,
                                    stable_analysis=stable_analysis, job_id=job_id)
     result["capability_resolved"] = capability
+    result["technology_identity_resolved"] = identities
     result["denominator"] = capability + result["proven_gap_count"]
     result["percentage"] = 100 * capability / result["denominator"] if result["denominator"] else None
     if not view["routes"]:
         result["additional_analysis_items"] = len(rows) - result["denominator"]
     result["reviewed_accounting"] = True
+    for field in ('analysis_item_count','capability_rows','technology_identity_rows'):
+        result[field]=native[field]
     return result
 
 
@@ -326,10 +350,28 @@ def render_jd_taxonomy_status(st, *, raw_jd_text, stable_analysis=None, job_id=N
                f"Additional analysis items: {view['additional_analysis_items']}. "
                "Additional analysis items are excluded from confirmed taxonomy coverage until their taxonomy status is established. "
                "They are not assumed to be gaps. Confirmed coverage does not mean every JD requirement is understood.")
-    with st.expander("Advanced / this JD's reviewed accounting"):
+    st.caption(f"Confirmed subset only — {view['denominator']} of {view['analysis_item_count']} saved JD analysis items. "
+               "Technology identity alone does not establish a capability mapping. Ranking uses a separate "
+               "importance-weighted capability-resolution denominator over score-eligible canonical requirements.")
+    with st.expander("Advanced / this JD's knowledge accounting"):
         st.write("Technology identity resolved", view["technology_identity_resolved"])
-        st.write(view["breakdown"])
-        st.dataframe(view["routes"], hide_index=True, width="stretch")
+        if view['technology_identity_rows']:
+            st.dataframe(view['technology_identity_rows'],hide_index=True,width='stretch')
+        else:st.caption('No technology-identity-only requirement rows in this saved analysis.')
+        st.write('Capability-resolved requirements',view['capability_resolved'])
+        if view['capability_rows']:st.dataframe(view['capability_rows'],hide_index=True,width='stretch')
+        else:st.caption('No capability-resolved requirement rows in this saved analysis.')
+        st.write('Reviewed unresolved remediation routes')
+        st.caption('These are independent review decisions for unresolved requirements, not recognized technology identities.')
+        if view['routes']:
+            st.dataframe([{'Review destination':DESTINATIONS.get(k,k),'Requirements':v}
+                          for k,v in view['breakdown'].items()],hide_index=True,width='stretch')
+            st.dataframe([{'Requirement ID':r['requirement_id'],'Requirement':r.get('canonical_text',''),
+                           'Review destination':DESTINATIONS.get(r.get('destination'),r.get('destination'))}
+                          for r in view['routes']],hide_index=True,width='stretch')
+        else:st.info('No compatible reviewed unresolved-remediation route rows are available for this JD. '
+                     'Native capability and technology-identity counts above remain available.')
+        if view.get('review_blocker'):st.caption('Reviewed accounting unavailable: '+view['review_blocker'])
     return view
 
 

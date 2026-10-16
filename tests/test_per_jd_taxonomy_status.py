@@ -8,6 +8,7 @@ from tests.network_guard_support import block_external_network_allow_loopback
 from streamlit.testing.v1 import AppTest
 from taxonomy_discovery import coverage_presentation as coverage
 from scripts import audit_jd_scoring_eligibility as audit
+from tests.governed_review_fixtures import isolated_taxonomy
 
 FIXTURE = Path(__file__).with_name("fixtures") / "per_jd_scoring_audit.json"
 
@@ -18,6 +19,7 @@ class PerJDTaxonomyTests(unittest.TestCase):
         cls.native = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
     def setUp(self):
+        self.enterContext(isolated_taxonomy())
         self.receipt = deepcopy(self.native)
         self.current = patch.object(coverage.maintenance, "currentness", return_value={"current": True,"blockers":[]})
         self.current.start(); self.addCleanup(self.current.stop)
@@ -238,6 +240,7 @@ class ScoringEligibilityAuditTests(unittest.TestCase):
         cls.native = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
     def setUp(self):
+        self.enterContext(isolated_taxonomy())
         self.receipt=deepcopy(self.native)
         current=patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]})
         current.start();self.addCleanup(current.stop)

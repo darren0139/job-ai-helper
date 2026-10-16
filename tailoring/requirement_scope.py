@@ -15,6 +15,57 @@ CONTEXTUAL_REQUIREMENT_RULES = {
     "collaboration.cross_functional": "explicit_collaboration_with_multiple_named_functions",
 }
 
+# Inactive unless an explicitly versioned taxonomy opts into this finite policy.
+# This is requirement recognition only; it never evaluates applicant evidence.
+API_DEVELOPMENT_SCOPE_POLICY = "bounded-rest-api-development-v1"
+API_RECOGNITION_FALLBACK = {
+    'rule_id':'backend.rest_api_development', 'rule_version':'bounded-rest-api-fallback-v1',
+    'kind':'bounded_rest_api_development', 'precedence':'after_native_unresolved',
+    'source_scope':'complete_requirement',
+}
+_API_DEVELOPMENT_OBLIGATION = re.compile(
+    r"(?:(?:you will )?(?:design and develop|design and implement|develop|build|implement|create) "
+    r"(?:RESTful|REST) APIs?(?: endpoints| services)?|"
+    r"(?:hands-on )?experience (?:building|developing|implementing|designing and developing) "
+    r"(?:RESTful|REST) APIs?(?: endpoints| services)?)", re.I)
+
+
+def bounded_api_development_scope(requirement):
+    """Whole API-development obligation, with every recorded parent preserved.
+
+    No AND/OR object lists, ancillary activities, negation, product names or
+    arbitrary tails. Multiple development verbs describe the same API object.
+    Standalone text is permitted; recorded source boundaries cannot be ignored.
+    """
+    def surface(value):
+        return ' '.join(str(value or '').split()).strip().rstrip('. ')
+    text=surface(requirement.get('text') or requirement.get('atomic_focus'))
+    focus=surface(requirement.get('atomic_focus') or text)
+    if focus.casefold()!=text.casefold() or not _API_DEVELOPMENT_OBLIGATION.fullmatch(text):
+        return None
+    if requirement.get('parent_text') and surface(requirement['parent_text']).casefold()!=text.casefold():
+        return None
+    provenance=requirement.get('source_provenance')
+    if provenance is not None and (not isinstance(provenance,list) or not provenance):
+        return None
+    if requirement.get('is_atomic') and not provenance:
+        return None
+    for source in provenance or []:
+        if not isinstance(source,dict) or not source.get('parent_occurrence_id') or not source.get('source'):
+            return None
+        parent=surface(source.get('parent_text'));raw=surface(source.get('raw_parent_text'))
+        if parent.casefold()!=text.casefold() or not raw:
+            return None
+        if raw.casefold()!=text.casefold():
+            grounding=source.get('grounding') or {}
+            if not (grounding.get('kind')=='explicit_raw_section' and grounding.get('span_id')
+                    and type(grounding.get('sentence_index')) is int and grounding['sentence_index']>=1
+                    and surface(grounding.get('sentence_text')).casefold()==text.casefold()
+                    and text.casefold() in raw.casefold()):
+                return None
+    return {'policy':API_DEVELOPMENT_SCOPE_POLICY,'scope':'complete_api_development_obligation',
+            'evidence_credit':False,'parent_weight_modified':False}
+
 
 def scope_surface(value):
     return str(value or "").replace("\u200b", "").replace("\u2019", "'").strip().rstrip(". ")

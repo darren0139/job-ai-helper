@@ -85,7 +85,8 @@ def save_governed_research_review(result_id, *, result_fingerprint, decision, re
             if not regression.get("jobs") or any(not j.get("available") or j.get("duplicate_credit_violations") or j.get("classification") == "hard_regression/invariant_violation" for j in regression["jobs"]):
                 raise ValueError("Temporary impact is unavailable or has invariant failures")
             if saved_draft.get("kind") == "resolver_improvement":
-                from taxonomy_discovery.resolver_improvement import resolver_overlay
+                from taxonomy_discovery.resolver_improvement import resolver_overlay, validate_bounded_regression_controls
+                validate_bounded_regression_controls(saved_draft,regression)
                 shadow = resolver_overlay(saved_draft)
                 table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='governed_temporary_impacts'").fetchone()
                 latest = conn.execute("SELECT report_json FROM governed_temporary_impacts WHERE result_id=?", (result_id,)).fetchone() if table else None

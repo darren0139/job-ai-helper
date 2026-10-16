@@ -1,0 +1,87 @@
+{
+  "schema_version": "ollama-synthetic-holdout-v1.2",
+  "expectation_provenance": "AUTHORED_SYNTHETIC_NOT_HUMAN_GOLD",
+  "capability_context_provenance": {
+    "capability_id": "quality.qa_testing",
+    "taxonomy_version": "phase6d-capability-taxonomy-v1.5",
+    "definition_fingerprint": "a98f6e0acc919a02fc0615960b5bb3108ee45b16439df38441a4376bc55aa585"
+  },
+  "cases": [
+    {
+      "id": "holdout_01",
+      "requirement": "Some familiarity with Elixir would be useful.",
+      "context": [],
+      "expected_routes": [
+        "TECH_ID"
+      ],
+      "explicit_technology_names": [
+        "Elixir"
+      ],
+      "boundary": "JD identity/familiarity, not proof of applicant language skill.",
+      "fingerprint": "f0b7def1d968ef56f6227860bb77403bc8b383b0b721cde9286180b4ab0a4953"
+    },
+    {
+      "id": "holdout_02",
+      "requirement": "Implement regression testing for checkout behavior.",
+      "context": [
+        "Supplied existing QA/testing contract: {\"does_not_prove\": [\"manual review without testing criteria\", \"generic debugging as formal QA\"], \"label\": \"Quality assurance and testing\", \"requirement\": {\"all_terms\": [], \"any_terms\": [\"quality assurance\", \"qa\", \"testing\", \"test cases\", \"regression testing\", \"defect verification\", \"defect investigation\", \"investigate software defects\", \"reproduce failures\", \"verify fixes\", \"fix verification\", \"bug reproduction\", \"defect reproduction\"]}}"
+      ],
+      "expected_routes": [
+        "CAPABILITY"
+      ],
+      "explicit_technology_names": [],
+      "boundary": "Existing supplied QA predicate, not generic debugging or applicant evidence.",
+      "fingerprint": "278ebd8ed148c83d590b605b2043b5ac033cf75d7fedcbef49f7d641f5c12883"
+    },
+    {
+      "id": "holdout_03",
+      "requirement": "Use RabbitMQ to implement asynchronous order messaging.",
+      "context": [],
+      "expected_routes": [
+        "RELATIONSHIP"
+      ],
+      "explicit_technology_names": [
+        "RabbitMQ"
+      ],
+      "boundary": "Bounded technology/activity contextual investigation; no global mapping or canonical ID invented.",
+      "fingerprint": "4057c0f1c58ef9a4a5e127fdb38c17fe0a08af258e1d9c05d49496a68ceaae21"
+    },
+    {
+      "id": "holdout_04",
+      "requirement": "Respond courteously when teammates request clarification.",
+      "context": [],
+      "expected_routes": [
+        "NOT_TAXONOMY_ADDRESSABLE"
+      ],
+      "explicit_technology_names": [],
+      "boundary": "Meaningful interpersonal behavior; no production eligibility decision.",
+      "fingerprint": "cc15f2ca3d696c9463e4f30c25cfde6ae7ebc256ab119c388c0dde4fb781ad76"
+    },
+    {
+      "id": "holdout_05",
+      "requirement": "Work on the service stack where appropriate.",
+      "context": [],
+      "expected_routes": [
+        "UNKNOWN"
+      ],
+      "explicit_technology_names": [],
+      "boundary": "Unspecified activity/domain; genuinely ambiguous diagnostic scope.",
+      "fingerprint": "96b5e73a97c459551a6a7b22d71b214698958e67e7e7cfd614ee5f8d7b9c734a"
+    },
+    {
+      "id": "holdout_06",
+      "requirement": "Exposure to MariaDB or Neo4j is welcome; these examples do not require database design or administration.",
+      "context": [],
+      "expected_routes": [
+        "TECH_ID"
+      ],
+      "explicit_technology_names": [
+        "MariaDB",
+        "Neo4j"
+      ],
+      "boundary": "Alternative familiarity/examples, no mandatory pair, schema design, administration or true gap inference.",
+      "fingerprint": "63949b52537f8a4bc495a19fecac350df3d6befc38797245c6d8c7bc86442e64"
+    }
+  ],
+  "fingerprint": "506859aabe9a6f4a085fafe3631805f41a5c2a507fb9cef489ed14632c4edb51"
+}

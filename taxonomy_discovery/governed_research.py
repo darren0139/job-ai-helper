@@ -428,8 +428,15 @@ def interpret(target, research, *, authority_registry_path=None):
     if decomposition_blocked:
         blockers.append("Multiple technology entities require explicit decomposition")
     elif route == "existing_capability_resolver_issue":
+        from tailoring.requirement_scope import API_RECOGNITION_FALLBACK, bounded_api_development_scope
+        requested=c.get('requested_recognition_rule')
+        if requested is not None:
+            if requested!=API_RECOGNITION_FALLBACK or not bounded_api_development_scope(c.get('recognition_requirement',{})):
+                raise ValueError('Unsupported recognition policy request')
+            if research['raw_provider_evidence'].get('provider')!='local_deterministic' or target.get('external_requested'):
+                raise ValueError('Bounded recognition requires local deterministic source review')
         action = ("no_change" if local["exact_matches"] else
-                  "resolver_improvement" if local["high_overlap_candidates"] else
+                  "resolver_improvement" if local["high_overlap_candidates"] or requested else
                   "requirement_decomposition_review")
         evidence_outcome = action
     elif route == "technology_relationship":

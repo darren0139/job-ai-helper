@@ -15,7 +15,8 @@ from unittest.mock import Mock, patch
 from tests.network_guard_support import block_external_network_allow_loopback
 
 from database import job_match_manager
-from tailoring.capability_taxonomy import TAXONOMY_PATH
+from tailoring.capability_taxonomy import TAXONOMY_PATH, get_default_taxonomy
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.phase6d_stable_scoring_adapter import (
     cap_requirement_with_taxonomy,
     resolve_requirement_with_production_knowledge as adapter_resolver,
@@ -35,7 +36,7 @@ from taxonomy_discovery.production_resolver_inspector import (
 from taxonomy_discovery.production_resolver_inspector_ui import (
     render_production_resolver_inspector,
 )
-from taxonomy_discovery.technology_registry import REGISTRY_PATH
+from taxonomy_discovery.technology_registry import REGISTRY_PATH, get_default_registry
 
 
 class _Block:
@@ -91,15 +92,15 @@ class ResolverInspectorTests(unittest.TestCase):
         versions = current_production_versions()
         self.assertEqual(
             versions["taxonomy_version"],
-            "phase6d-capability-taxonomy-v1.5",
+            get_default_taxonomy().version,
         )
         self.assertEqual(
             versions["technology_registry_version"],
-            "technology-registry-v1.3",
+            get_default_registry().version,
         )
         self.assertEqual(
             versions["scoring_version"],
-            "stable-evidence-v1.16-phase6d20",
+            SCORING_VERSION,
         )
         self.assertIs(adapter_resolver, resolve_requirement_with_production_knowledge)
         self.assertIs(inspector_resolver, resolve_requirement_with_production_knowledge)

@@ -147,6 +147,11 @@ def render_production_resolver_inspector(
                     hide_index=True,
                     width="stretch",
                 )
+                from tailoring.unresolved_requirement_review_ui import render_unresolved_requirement_review
+                render_unresolved_requirement_review(st,{'identity':{'discovered_job_id':int(job_id),
+                    'id':metadata['snapshot_id'],'job_content_hash':metadata['job_content_hash']},
+                    'provenance':'SAVED_JOB_FINDER_INSPECTOR',
+                    'requirements':[{'native':r} for r in saved['persisted_requirements']]})
                 if saved.get("persisted_execution_metadata"):
                     st.markdown("**Persisted provider / execution metadata**")
                     st.json(saved["persisted_execution_metadata"])

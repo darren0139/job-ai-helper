@@ -20,6 +20,7 @@ from analysis_stability.stable_evidence_scoring import (
 from tailoring.capability_taxonomy import (
     CapabilityTaxonomy,
     classify_requirement_record,
+    classify_requirement_fallback_diagnostics,
     get_default_taxonomy,
     normalise,
 )
@@ -60,7 +61,9 @@ def build_taxonomy_resolution_diagnostics(
 
     This function never re-queries today's registry for old snapshots. Canonical
     taxonomy remains authoritative; registry resolution is honored only when it
-    was pinned into the same stable-analysis row.
+    was pinned into the same stable-analysis row. A final native bounded-rule
+    decision is reconciled only with its pinned rule and matching taxonomy
+    identity. Historical rows are not upgraded from text or a capability hint.
     """
     taxonomy = taxonomy or get_default_taxonomy()
     output_rows: list[dict[str, Any]] = []
@@ -74,6 +77,21 @@ def build_taxonomy_resolution_diagnostics(
             _clean(capability.get("capability_id"))
             if isinstance(capability, dict) else ""
         )
+        knowledge=row.get('knowledge_resolution')
+        knowledge=knowledge if isinstance(knowledge,dict) else {}
+        fallback = None
+        if (not canonical_id and row.get('knowledge_status')=='CAPABILITY_RESOLVED'
+                and row.get('capability_resolution_source')=='canonical_taxonomy'
+                and stable_analysis.get('capability_taxonomy_version')==taxonomy.version
+                and row.get('capability_taxonomy_version')==taxonomy.version
+                and knowledge.get('status')=='resolved'
+                and knowledge.get('knowledge_status')=='CAPABILITY_RESOLVED'
+                and row.get('capability_recognition_rule')):
+            fallback=classify_requirement_fallback_diagnostics(row,taxonomy)
+            if (fallback and row.get('capability_id')==fallback['capability_id']
+                    and row['capability_recognition_rule']==fallback['recognition_rule']):
+                canonical_id=fallback['capability_id']
+            else:fallback=None
         registry_resolution = row.get("technology_registry_resolution")
         registry_resolution = (
             registry_resolution if isinstance(registry_resolution, dict) else {}
@@ -90,14 +108,14 @@ def build_taxonomy_resolution_diagnostics(
         capability_id = canonical_id or registry_id
         if canonical_id:
             source = "canonical_taxonomy"
-            reason = "canonical_capability_resolved"
+            reason = fallback['reason'] if fallback else "canonical_capability_resolved"
         elif registry_id:
             source = "technology_registry"
             reason = "technology_registry_resolved"
         else:
             source = "unresolved"
             reason = "no_canonical_capability_resolved"
-        output_rows.append({
+        output_row={
             "requirement_id": _clean(row.get("requirement_id")),
             "requirement_text": requirement_text,
             "importance": _clean(row.get("importance")),
@@ -112,11 +130,14 @@ def build_taxonomy_resolution_diagnostics(
             ) or None,
             "technology_id": _clean(registry_resolution.get("technology_id")) or None,
             "reason": reason,
-        })
+        }
+        if fallback:output_row['recognition_rule']=deepcopy(fallback['recognition_rule'])
+        output_rows.append(output_row)
 
     resolved_count = sum(1 for row in output_rows if row["status"] == "resolved")
     return {
         "discovery_version": DISCOVERY_VERSION,
+        "accounting_stage": "final_native_capability_resolution_with_pinned_fallback",
         "taxonomy_version": taxonomy.version,
         "technology_registry_version": _clean(
             stable_analysis.get("technology_registry_version")

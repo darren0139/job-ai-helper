@@ -29,6 +29,8 @@ _EVIDENCE_STRENGTH_CAP = {
 def _record_knowledge(row, resolution):
     """Snapshot diagnostics only; capability/evidence policy is untouched."""
     row["knowledge_status"] = resolution["knowledge_status"]
+    if resolution.get('recognition_rule'):
+        row['capability_recognition_rule']=deepcopy(resolution['recognition_rule'])
     row["knowledge_resolution"] = {key: deepcopy(resolution[key]) for key in (
         "status", "knowledge_status", "knowledge_outcome", "resolution_source",
         "technology_id", "technology_label", "matched_alias", "matched_term", "identity_scope")}

@@ -57,6 +57,8 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
         })
     st.dataframe(display, hide_index=True, width="stretch")
     st.caption("Evidence supports its recorded scope. Whole-parent completeness is not inferred from component credit.")
+    from tailoring.unresolved_requirement_review_ui import render_unresolved_requirement_review
+    render_unresolved_requirement_review(st,view)
     with st.expander("Analysis diagnostics"):
         st.write("Provenance", view["provenance"])
         st.write("Contribution receipt", view["contribution_status"])

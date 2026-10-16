@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
-from tailoring.requirement_scope import CONTEXTUAL_REQUIREMENT_RULES, complete_named_function_scope
+from tailoring.requirement_scope import (CONTEXTUAL_REQUIREMENT_RULES, complete_named_function_scope,
+    API_DEVELOPMENT_SCOPE_POLICY, API_RECOGNITION_FALLBACK, bounded_api_development_scope)
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "taxonomy" / "capability_taxonomy_v1.json"
 ALLOWED_LABELS = {"direct", "transferable", "weak", "none"}
@@ -334,6 +335,13 @@ def _validate_capability(item: dict[str, Any], seen: set[str]) -> None:
     requirement = item.get("requirement")
     if not isinstance(requirement, dict):
         raise ValueError(f"{capability_id}: requirement must be an object")
+    if 'scope_policy' in requirement and (capability_id!='backend.api_development'
+            or requirement['scope_policy']!=API_DEVELOPMENT_SCOPE_POLICY):
+        raise ValueError(f"{capability_id}: unsupported requirement scope policy")
+    rules=requirement.get('recognition_fallback_rules',[])
+    if not isinstance(rules,list) or (rules and
+            (capability_id!='backend.api_development' or rules!=[API_RECOGNITION_FALLBACK])):
+        raise ValueError(f"{capability_id}: unsupported or duplicate recognition fallback")
     if not isinstance(requirement.get("any_terms", []), list):
         raise ValueError(f"{capability_id}: requirement.any_terms must be a list")
     if not isinstance(requirement.get("all_terms", []), list):
@@ -487,6 +495,14 @@ def classify_requirement_diagnostics(
 
     for item in taxonomy.capabilities:
         matcher = item.get("requirement") or {}
+        if matcher.get('scope_policy'):
+            if (item.get('capability_id')!='backend.api_development'
+                    or matcher['scope_policy']!=API_DEVELOPMENT_SCOPE_POLICY
+                    or not bounded_api_development_scope(requirement)):
+                rejected_rules.append({'capability_id':item.get('capability_id'),
+                    'reason':'bounded_api_development_scope_not_proven',
+                    'scope_policy':matcher.get('scope_policy')})
+                continue
         scope_rule = CONTEXTUAL_REQUIREMENT_RULES.get(item.get("capability_id"))
         scope_proof = complete_named_function_scope(requirement) if scope_rule else None
         match_text = (
@@ -610,6 +626,22 @@ def classify_requirement_diagnostics(
         "rejected_candidate_rules": rejected_rules,
         "reason": "no_taxonomy_requirement_rule_matched",
     }
+
+
+def classify_requirement_fallback_diagnostics(requirement, taxonomy=None):
+    """Opt-in bounded fallback; caller must first exhaust native knowledge."""
+    taxonomy=taxonomy or get_default_taxonomy()
+    item=taxonomy.by_id().get('backend.api_development')
+    rules=(item or {}).get('requirement',{}).get('recognition_fallback_rules',[])
+    if rules!=[API_RECOGNITION_FALLBACK] or not bounded_api_development_scope(requirement):
+        return None
+    return {'capability_record':item,'capability_id':item['capability_id'],
+        'capability_label':item['label'],'taxonomy_version':taxonomy.version,
+        'normalized_requirement_text':normalise(requirement.get('text')),
+        'matched_phrase':requirement.get('atomic_focus') or requirement.get('text'),
+        'matched_taxonomy_rule_type':'approved_bounded_recognition_fallback',
+        'reason':'approved_complete_rest_api_development_obligation',
+        'recognition_rule':dict(API_RECOGNITION_FALLBACK)}
 
 
 def classify_requirement(

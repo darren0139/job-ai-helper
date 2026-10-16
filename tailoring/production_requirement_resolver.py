@@ -6,6 +6,7 @@ from typing import Any
 
 from tailoring.capability_taxonomy import (
     classify_requirement_diagnostics,
+    classify_requirement_fallback_diagnostics,
     evaluate_capability_evidence,
     get_default_taxonomy,
     strip_leading_alpha_list_marker,
@@ -86,6 +87,15 @@ def resolve_requirement_with_production_knowledge(
             knowledge_status = "TECHNOLOGY_IDENTITY_RESOLVED"
             resolution_source = "technology_identity"
     identities = (identity or {}).get("identities", [])
+    recognition_rule=None
+    if knowledge_status=='UNRESOLVED':
+        fallback=classify_requirement_fallback_diagnostics(requirement,taxonomy)
+        if fallback:
+            taxonomy_diagnostics=fallback
+            recognition_rule=fallback['recognition_rule']
+            decision=evaluate_capability_evidence(fallback['capability_id'],requirement,evidence_text,taxonomy)
+            knowledge_status='CAPABILITY_RESOLVED'
+            resolution_source='canonical_taxonomy'
     primary = identities[0] if len(identities) == 1 else (registry_resolution or {})
     return {
         "status": "resolved" if knowledge_status != "UNRESOLVED" else "unresolved",
@@ -100,4 +110,5 @@ def resolve_requirement_with_production_knowledge(
         "decision": decision,
         "registry_resolution": registry_resolution,
         "taxonomy_diagnostics": taxonomy_diagnostics,
+        "recognition_rule": recognition_rule,
     }

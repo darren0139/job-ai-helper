@@ -1,0 +1,3980 @@
+{
+  "provenance": "Read-only projection of snapshot 56. Only JD/native accounting fields; other resume evidence removed. Not human gold.",
+  "discovered_job_id": 146,
+  "source_snapshot_id": 56,
+  "historical_snapshot_id": 40,
+  "job_content_hash": "8925a25e5c847c728ddabc189a2152f17dafe04aa335feb5ae60139d31ab9605",
+  "stable_analysis": {
+    "scoring_version": "stable-evidence-v1.16-phase6d20",
+    "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+    "technology_registry_version": "technology-registry-v1.3",
+    "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+    "technology_registry_resolution_version": "technology-registry-stable-resolution-v1",
+    "deterministic_alignment_score": 20,
+    "alignment_band": "weak alignment",
+    "canonical_requirements": [
+      {
+        "requirement_id": "req_da5fcaeef334",
+        "text": "As a member of SGN’s digital products team, you will develop, deliver",
+        "atomic_focus": "As a member of SGN’s digital products team, you will develop, deliver",
+        "parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.5,
+        "atomic_group_id": "grp_927c839f37b6",
+        "scoring_parent_occurrence_id": "srcgrp_459e27547be8",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 4,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+              "span_id": "jdspan_ef0e8049d439"
+            },
+            "parent_occurrence_id": "srcgrp_459e27547be8",
+            "parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+            "profile_field": "",
+            "raw_parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities. There is also opportunity to work on other digital products within the wider EDB organisation.",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 0.5
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_980219c0dceb",
+        "text": "maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+        "atomic_focus": "maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+        "parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.5,
+        "atomic_group_id": "grp_927c839f37b6",
+        "scoring_parent_occurrence_id": "srcgrp_459e27547be8",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 4,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+              "span_id": "jdspan_ef0e8049d439"
+            },
+            "parent_occurrence_id": "srcgrp_459e27547be8",
+            "parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+            "profile_field": "",
+            "raw_parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities. There is also opportunity to work on other digital products within the wider EDB organisation.",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 0.5
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_0e8d230d270c",
+        "text": "There is also opportunity to work on other digital products within the wider EDB organisation",
+        "atomic_focus": "There is also opportunity to work on other digital products within the wider EDB organisation",
+        "parent_text": "There is also opportunity to work on other digital products within the wider EDB organisation",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_1180f298dd42",
+        "scoring_parent_occurrence_id": "srcgrp_ae65fc55ca9b",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 4,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 2,
+              "sentence_text": "There is also opportunity to work on other digital products within the wider EDB organisation",
+              "span_id": "jdspan_ef0e8049d439"
+            },
+            "parent_occurrence_id": "srcgrp_ae65fc55ca9b",
+            "parent_text": "There is also opportunity to work on other digital products within the wider EDB organisation",
+            "profile_field": "",
+            "raw_parent_text": "As a member of SGN’s digital products team, you will develop, deliver and maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities. There is also opportunity to work on other digital products within the wider EDB organisation.",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_bf4699dccca9",
+        "text": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+        "atomic_focus": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+        "parent_text": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_6c5beeb45547",
+        "scoring_parent_occurrence_id": "srcgrp_2ff8ada2fd6e",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 5,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 2,
+              "sentence_text": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+              "span_id": "jdspan_454e6d365495"
+            },
+            "parent_occurrence_id": "srcgrp_2ff8ada2fd6e",
+            "parent_text": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+            "profile_field": "",
+            "raw_parent_text": "We are looking for a Full Stack Developer with a strong technical background to join our passionate and purpose-driven team. This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world.",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_4d66db0265e9",
+        "text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+        "atomic_focus": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+        "parent_text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "quality.qa_testing",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_2e0a88955532",
+        "scoring_parent_occurrence_id": "srcgrp_b17958b16a42",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 6,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+              "span_id": "jdspan_165f87b4b377"
+            },
+            "parent_occurrence_id": "srcgrp_b17958b16a42",
+            "parent_text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+            "profile_field": "",
+            "raw_parent_text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "weak",
+        "match_value": 0.2,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_de791ae8f952",
+        "text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+        "atomic_focus": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+        "parent_text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "collaboration.cross_functional",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_5e8a1da52aff",
+        "scoring_parent_occurrence_id": "srcgrp_900c60efad4a",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 7,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+              "span_id": "jdspan_e8033d6b6be9"
+            },
+            "parent_occurrence_id": "srcgrp_900c60efad4a",
+            "parent_text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+            "profile_field": "",
+            "raw_parent_text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "weak",
+        "match_value": 0.2,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_984d9acc4359",
+        "text": "Create performant code by figuring out how to make a feature work best for users",
+        "atomic_focus": "Create performant code by figuring out how to make a feature work best for users",
+        "parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.5,
+        "atomic_group_id": "grp_1d6e5d598849",
+        "scoring_parent_occurrence_id": "srcgrp_8e17af7007f3",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 8,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+              "span_id": "jdspan_ade6f95f0d54"
+            },
+            "parent_occurrence_id": "srcgrp_8e17af7007f3",
+            "parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+            "profile_field": "",
+            "raw_parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 0.5
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_f78af3da7bf5",
+        "text": "under-the-hood optimization, while conforming to system design",
+        "atomic_focus": "under-the-hood optimization, while conforming to system design",
+        "parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.5,
+        "atomic_group_id": "grp_1d6e5d598849",
+        "scoring_parent_occurrence_id": "srcgrp_8e17af7007f3",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 8,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+              "span_id": "jdspan_ade6f95f0d54"
+            },
+            "parent_occurrence_id": "srcgrp_8e17af7007f3",
+            "parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+            "profile_field": "",
+            "raw_parent_text": "Create performant code by figuring out how to make a feature work best for users as well as under-the-hood optimization, while conforming to system design",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 0.5
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_0ec16745d552",
+        "text": "Design and create automated tests to ensure functionality of components and applications",
+        "atomic_focus": "Design and create automated tests to ensure functionality of components and applications",
+        "parent_text": "Design and create automated tests to ensure functionality of components and applications",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_bf3cc8dbe353",
+        "scoring_parent_occurrence_id": "srcgrp_50128f5c9016",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 9,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Design and create automated tests to ensure functionality of components and applications",
+              "span_id": "jdspan_8b12bae6adfa"
+            },
+            "parent_occurrence_id": "srcgrp_50128f5c9016",
+            "parent_text": "Design and create automated tests to ensure functionality of components and applications",
+            "profile_field": "",
+            "raw_parent_text": "Design and create automated tests to ensure functionality of components and applications",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_c3ff772d976f",
+        "text": "Participate in code reviews",
+        "atomic_focus": "Participate in code reviews",
+        "parent_text": "Participate in code reviews",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_ac8f85e41f0f",
+        "scoring_parent_occurrence_id": "srcgrp_4e419030ce9e",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 10,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Participate in code reviews",
+              "span_id": "jdspan_f659fb64eec9"
+            },
+            "parent_occurrence_id": "srcgrp_4e419030ce9e",
+            "parent_text": "Participate in code reviews",
+            "profile_field": "",
+            "raw_parent_text": "Participate in code reviews",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "transferable",
+        "match_value": 0.55,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_9f78b1187a2b",
+        "text": "Participate in full life-cycle library, component, application design and development",
+        "atomic_focus": "Participate in full life-cycle library, component, application design and development",
+        "parent_text": "Participate in full life-cycle library, component, application design and development",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_71ed901f5c67",
+        "scoring_parent_occurrence_id": "srcgrp_16c8b79839e2",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 11,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Participate in full life-cycle library, component, application design and development",
+              "span_id": "jdspan_f569ed9ab11a"
+            },
+            "parent_occurrence_id": "srcgrp_16c8b79839e2",
+            "parent_text": "Participate in full life-cycle library, component, application design and development",
+            "profile_field": "",
+            "raw_parent_text": "Participate in full life-cycle library, component, application design and development",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "weak",
+        "match_value": 0.2,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_31d2818e8c1b",
+        "text": "Support, maintenance and documentation of software functionalities and technical specifications",
+        "atomic_focus": "Support, maintenance and documentation of software functionalities and technical specifications",
+        "parent_text": "Support, maintenance and documentation of software functionalities and technical specifications",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_a4cd7e1a1984",
+        "scoring_parent_occurrence_id": "srcgrp_ab819b085ce9",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 12,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Support, maintenance and documentation of software functionalities and technical specifications",
+              "span_id": "jdspan_0525c9418035"
+            },
+            "parent_occurrence_id": "srcgrp_ab819b085ce9",
+            "parent_text": "Support, maintenance and documentation of software functionalities and technical specifications",
+            "profile_field": "",
+            "raw_parent_text": "Support, maintenance and documentation of software functionalities and technical specifications",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_9778668ec0d8",
+        "text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+        "atomic_focus": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+        "parent_text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_a0cc5a43d8a1",
+        "scoring_parent_occurrence_id": "srcgrp_50c2d8af978b",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 13,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+              "span_id": "jdspan_8371bd6f592f"
+            },
+            "parent_occurrence_id": "srcgrp_50c2d8af978b",
+            "parent_text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+            "profile_field": "",
+            "raw_parent_text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_9270e95898c8",
+        "text": "Design and develop RESTful APIs",
+        "atomic_focus": "Design and develop RESTful APIs",
+        "parent_text": "Design and develop RESTful APIs",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "backend.api_development",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "capability_recognition_rule": {
+          "kind": "bounded_rest_api_development",
+          "precedence": "after_native_unresolved",
+          "rule_id": "backend.rest_api_development",
+          "rule_version": "bounded-rest-api-fallback-v1",
+          "source_scope": "complete_requirement"
+        },
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_fb7dcb6bc71b",
+        "scoring_parent_occurrence_id": "srcgrp_a0e815f48d1e",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 14,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Design and develop RESTful APIs",
+              "span_id": "jdspan_2950a0993bda"
+            },
+            "parent_occurrence_id": "srcgrp_a0e815f48d1e",
+            "parent_text": "Design and develop RESTful APIs",
+            "profile_field": "",
+            "raw_parent_text": "Design and develop RESTful APIs",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "direct",
+        "match_value": 1.0,
+        "evidence": [
+          {
+            "capability_evidence_reason": "explicit_backend_api_implementation",
+            "evidence_id": "ev_3e06933c2432",
+            "evidence_similarity": "0.000",
+            "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+            "section": "projects",
+            "source": "resume_profile.projects[1].bullets[1]",
+            "text": "Implemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations."
+          }
+        ]
+      },
+      {
+        "requirement_id": "req_c059f48018a4",
+        "text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+        "atomic_focus": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+        "parent_text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_5f8e4883bf6a",
+        "scoring_parent_occurrence_id": "srcgrp_85389379a36e",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 15,
+              "section": "responsibilities",
+              "section_detection": "exact",
+              "section_heading": "Responsibilities",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+              "span_id": "jdspan_ad5f936c4442"
+            },
+            "parent_occurrence_id": "srcgrp_85389379a36e",
+            "parent_text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+            "profile_field": "",
+            "raw_parent_text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+            "source": "raw_jd.responsibilities",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.responsibilities"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_504adbfff7e7",
+        "text": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+        "atomic_focus": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+        "parent_text": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+        "importance": "required",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_3cb1a0cc0bff",
+        "scoring_parent_occurrence_id": "srcgrp_2c2181fd261e",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 18,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+              "span_id": "jdspan_9faae3569828"
+            },
+            "parent_occurrence_id": "srcgrp_2c2181fd261e",
+            "parent_text": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+            "profile_field": "",
+            "raw_parent_text": "Resourcefulness, integrity, drive, and a good team player are must-haves. Some combination of the following would help for favourable consideration",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_9757e793960d",
+        "text": "Some combination of the following would help for favourable consideration",
+        "atomic_focus": "Some combination of the following would help for favourable consideration",
+        "parent_text": "Some combination of the following would help for favourable consideration",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_2b39fe4ab16d",
+        "scoring_parent_occurrence_id": "srcgrp_fd55543538ed",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 18,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 2,
+              "sentence_text": "Some combination of the following would help for favourable consideration",
+              "span_id": "jdspan_9faae3569828"
+            },
+            "parent_occurrence_id": "srcgrp_fd55543538ed",
+            "parent_text": "Some combination of the following would help for favourable consideration",
+            "profile_field": "",
+            "raw_parent_text": "Resourcefulness, integrity, drive, and a good team player are must-haves. Some combination of the following would help for favourable consideration",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_2f03d487747f",
+        "text": "At least 3 years of experience as a software developer or equivalent position",
+        "atomic_focus": "At least 3 years of experience as a software developer or equivalent position",
+        "parent_text": "At least 3 years of experience as a software developer or equivalent position",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "experience.duration",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_7e3a4009ec03",
+        "scoring_parent_occurrence_id": "srcgrp_85ef853b4eab",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 19,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "At least 3 years of experience as a software developer or equivalent position",
+              "span_id": "jdspan_4f9fb0b67e94"
+            },
+            "parent_occurrence_id": "srcgrp_85ef853b4eab",
+            "parent_text": "At least 3 years of experience as a software developer or equivalent position",
+            "profile_field": "",
+            "raw_parent_text": "At least 3 years of experience as a software developer or equivalent position",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_a4790f76c7d8",
+        "text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+        "atomic_focus": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+        "parent_text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_c994e56450ba",
+        "scoring_parent_occurrence_id": "srcgrp_84fa7c7820b8",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 20,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+              "span_id": "jdspan_c08e17679a1a"
+            },
+            "parent_occurrence_id": "srcgrp_84fa7c7820b8",
+            "parent_text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+            "profile_field": "",
+            "raw_parent_text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_f5bce67ecd70",
+        "text": "Experience with cloud-based application development and web security",
+        "atomic_focus": "Experience with cloud-based application development and web security",
+        "parent_text": "Experience with cloud-based application development and web security",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_72557679ed2b",
+        "scoring_parent_occurrence_id": "srcgrp_f6769fa0e75f",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 21,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience with cloud-based application development and web security",
+              "span_id": "jdspan_0ee6a00e30a5"
+            },
+            "parent_occurrence_id": "srcgrp_f6769fa0e75f",
+            "parent_text": "Experience with cloud-based application development and web security",
+            "profile_field": "",
+            "raw_parent_text": "Experience with cloud-based application development and web security",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "transferable",
+        "match_value": 0.55,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_8f8aaa236fc2",
+        "text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+        "atomic_focus": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+        "parent_text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_be9971eed791",
+        "scoring_parent_occurrence_id": "srcgrp_e0590cad6dbb",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 22,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+              "span_id": "jdspan_fe6d5b084f45"
+            },
+            "parent_occurrence_id": "srcgrp_e0590cad6dbb",
+            "parent_text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+            "profile_field": "",
+            "raw_parent_text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_685b5e50c0f3",
+        "text": "Experience in agile development teams",
+        "atomic_focus": "Experience in agile development teams",
+        "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_4a8a21a594a6",
+        "scoring_parent_occurrence_id": "srcgrp_e1aa099c8895",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 23,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+              "span_id": "jdspan_1acd22831a5e"
+            },
+            "parent_occurrence_id": "srcgrp_e1aa099c8895",
+            "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "profile_field": "",
+            "raw_parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "direct",
+        "match_value": 1.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_ac3bcbd553c8",
+        "text": "Experience in employing relevant methodologies and practices such as Scrum",
+        "atomic_focus": "Experience in employing relevant methodologies and practices such as Scrum",
+        "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_coherent_example_or_alternative_parent"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_4a8a21a594a6",
+        "scoring_parent_occurrence_id": "srcgrp_e1aa099c8895",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 23,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+              "span_id": "jdspan_1acd22831a5e"
+            },
+            "parent_occurrence_id": "srcgrp_e1aa099c8895",
+            "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "profile_field": "",
+            "raw_parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_675a7bcfcd75",
+        "text": "Experience in Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools",
+        "atomic_focus": "Experience in Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools",
+        "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "quality.qa_testing",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_4a8a21a594a6",
+        "scoring_parent_occurrence_id": "srcgrp_e1aa099c8895",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 23,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+              "span_id": "jdspan_1acd22831a5e"
+            },
+            "parent_occurrence_id": "srcgrp_e1aa099c8895",
+            "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "profile_field": "",
+            "raw_parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "weak",
+        "match_value": 0.2,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_d95d881beecc",
+        "text": "Experience in scripts for configuration management",
+        "atomic_focus": "Experience in scripts for configuration management",
+        "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "operations.configuration",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_4a8a21a594a6",
+        "scoring_parent_occurrence_id": "srcgrp_e1aa099c8895",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 23,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+              "span_id": "jdspan_1acd22831a5e"
+            },
+            "parent_occurrence_id": "srcgrp_e1aa099c8895",
+            "parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "profile_field": "",
+            "raw_parent_text": "Experience in agile development teams, employing relevant methodologies and practices such as Scrum, Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools, scripts for configuration management",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_55640ee6001e",
+        "text": "Knowledge of modern Software Engineering best practices",
+        "atomic_focus": "Knowledge of modern Software Engineering best practices",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_ba7933e7c579",
+        "text": "Knowledge of software development life cycle including coding standards",
+        "atomic_focus": "Knowledge of software development life cycle including coding standards",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_coherent_example_or_alternative_parent"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_7f87bdf86595",
+        "text": "Knowledge of code reviews",
+        "atomic_focus": "Knowledge of code reviews",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "direct",
+        "match_value": 1.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_1d7e0380fae6",
+        "text": "Knowledge of source control management",
+        "atomic_focus": "Knowledge of source control management",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_f9669a8177b8",
+        "text": "Knowledge of build processes",
+        "atomic_focus": "Knowledge of build processes",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_4a7c3fcb6073",
+        "text": "Knowledge of testing",
+        "atomic_focus": "Knowledge of testing",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "CAPABILITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": null,
+          "knowledge_outcome": "CAPABILITY_RESOLVED",
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_id": "quality.qa_testing",
+        "capability_resolution_source": "canonical_taxonomy",
+        "capability_taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "weak",
+        "match_value": 0.2,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_775b8ef1f4f9",
+        "text": "Knowledge of operations",
+        "atomic_focus": "Knowledge of operations",
+        "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Missing, activity-bearing, or unverifiable parent provenance",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.142857,
+        "atomic_group_id": "grp_17dfe0f7ef7f",
+        "scoring_parent_occurrence_id": "srcgrp_a451ff74d652",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 24,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+              "span_id": "jdspan_9a68f8d2b16a"
+            },
+            "parent_occurrence_id": "srcgrp_a451ff74d652",
+            "parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations",
+            "profile_field": "",
+            "raw_parent_text": "Knowledge of modern Software Engineering best practices, software development life cycle including coding standards, code reviews, source control management, build processes, testing, and operations.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.142857
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_486956c50136",
+        "text": "Proficiency in",
+        "atomic_focus": "Proficiency in",
+        "parent_text": "Proficiency in",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_0a27e2f089db",
+        "scoring_parent_occurrence_id": "srcgrp_ab6b44b0aa60",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 25,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Proficiency in",
+              "span_id": "jdspan_3f57ff133aad"
+            },
+            "parent_occurrence_id": "srcgrp_ab6b44b0aa60",
+            "parent_text": "Proficiency in",
+            "profile_field": "",
+            "raw_parent_text": "Proficiency in",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_951a4d36e0a9",
+        "text": "C#",
+        "atomic_focus": "C#",
+        "parent_text": "(a) C#, JavaScript, HTML, CSS",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "TECHNOLOGY_IDENTITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PURE_ATOMIC_TECHNOLOGY",
+            "identities": [
+              {
+                "capability_id": null,
+                "matched_alias": "C#",
+                "matched_term": "C#",
+                "reason": "registry_entry_has_no_approved_capability_mapping",
+                "registry_version": "technology-registry-v1.3",
+                "relationship_type": null,
+                "status": "recognized_unmapped",
+                "technology_id": "csharp",
+                "technology_label": "C#"
+              }
+            ],
+            "identity_resolved": true,
+            "knowledge_outcome": "RESOLVED_BY_TECHNOLOGY_IDENTITY",
+            "reason": "Complete technology obligation recognized",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "RESOLVED_BY_TECHNOLOGY_IDENTITY",
+          "knowledge_status": "TECHNOLOGY_IDENTITY_RESOLVED",
+          "matched_alias": "C#",
+          "matched_term": "C#",
+          "resolution_source": "technology_identity",
+          "status": "resolved",
+          "technology_id": "csharp",
+          "technology_label": "C#"
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": "C#",
+          "matched_term": "C#",
+          "reason": "registry_entry_has_no_approved_capability_mapping",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "recognized_unmapped",
+          "technology_id": "csharp",
+          "technology_label": "C#"
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_a97ec3f47e8b",
+        "scoring_parent_occurrence_id": "srcgrp_5db467601d70",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 26,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(a) C#, JavaScript, HTML, CSS",
+              "span_id": "jdspan_91434e2ef3e5"
+            },
+            "parent_occurrence_id": "srcgrp_5db467601d70",
+            "parent_text": "(a) C#, JavaScript, HTML, CSS",
+            "profile_field": "",
+            "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "direct",
+        "match_value": 1.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_eda71746c01c",
+        "text": "JavaScript",
+        "atomic_focus": "JavaScript",
+        "parent_text": "(a) C#, JavaScript, HTML, CSS",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "TECHNOLOGY_IDENTITY_RESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PURE_ATOMIC_TECHNOLOGY",
+            "identities": [
+              {
+                "capability_id": null,
+                "matched_alias": "JavaScript",
+                "matched_term": "JavaScript",
+                "reason": "registry_entry_has_no_approved_capability_mapping",
+                "registry_version": "technology-registry-v1.3",
+                "relationship_type": null,
+                "status": "recognized_unmapped",
+                "technology_id": "javascript",
+                "technology_label": "JavaScript"
+              }
+            ],
+            "identity_resolved": true,
+            "knowledge_outcome": "RESOLVED_BY_TECHNOLOGY_IDENTITY",
+            "reason": "Complete technology obligation recognized",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "RESOLVED_BY_TECHNOLOGY_IDENTITY",
+          "knowledge_status": "TECHNOLOGY_IDENTITY_RESOLVED",
+          "matched_alias": "JavaScript",
+          "matched_term": "JavaScript",
+          "resolution_source": "technology_identity",
+          "status": "resolved",
+          "technology_id": "javascript",
+          "technology_label": "JavaScript"
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": "JavaScript",
+          "matched_term": "JavaScript",
+          "reason": "registry_entry_has_no_approved_capability_mapping",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "recognized_unmapped",
+          "technology_id": "javascript",
+          "technology_label": "JavaScript"
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_a97ec3f47e8b",
+        "scoring_parent_occurrence_id": "srcgrp_5db467601d70",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 26,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(a) C#, JavaScript, HTML, CSS",
+              "span_id": "jdspan_91434e2ef3e5"
+            },
+            "parent_occurrence_id": "srcgrp_5db467601d70",
+            "parent_text": "(a) C#, JavaScript, HTML, CSS",
+            "profile_field": "",
+            "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "direct",
+        "match_value": 1.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_e5e239560bc1",
+        "text": "HTML",
+        "atomic_focus": "HTML",
+        "parent_text": "(a) C#, JavaScript, HTML, CSS",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_a97ec3f47e8b",
+        "scoring_parent_occurrence_id": "srcgrp_5db467601d70",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 26,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(a) C#, JavaScript, HTML, CSS",
+              "span_id": "jdspan_91434e2ef3e5"
+            },
+            "parent_occurrence_id": "srcgrp_5db467601d70",
+            "parent_text": "(a) C#, JavaScript, HTML, CSS",
+            "profile_field": "",
+            "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_36e64f19f57a",
+        "text": "CSS",
+        "atomic_focus": "CSS",
+        "parent_text": "(a) C#, JavaScript, HTML, CSS",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 0.25,
+        "atomic_group_id": "grp_a97ec3f47e8b",
+        "scoring_parent_occurrence_id": "srcgrp_5db467601d70",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 26,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(a) C#, JavaScript, HTML, CSS",
+              "span_id": "jdspan_91434e2ef3e5"
+            },
+            "parent_occurrence_id": "srcgrp_5db467601d70",
+            "parent_text": "(a) C#, JavaScript, HTML, CSS",
+            "profile_field": "",
+            "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 0.25
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": true,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_0f60b77247f3",
+        "text": "Proficiency in other modern programming languages is a plus",
+        "atomic_focus": "Proficiency in other modern programming languages is a plus",
+        "parent_text": "Proficiency in other modern programming languages is a plus",
+        "importance": "preferred",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_43fad04acdcf",
+        "scoring_parent_occurrence_id": "srcgrp_a7a27de91cc0",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 26,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 2,
+              "sentence_text": "Proficiency in other modern programming languages is a plus",
+              "span_id": "jdspan_91434e2ef3e5"
+            },
+            "parent_occurrence_id": "srcgrp_a7a27de91cc0",
+            "parent_text": "Proficiency in other modern programming languages is a plus",
+            "profile_field": "",
+            "raw_parent_text": "(a) C#, JavaScript, HTML, CSS. Proficiency in other modern programming languages is a plus.",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_ba405c092a55",
+        "text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+        "atomic_focus": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+        "parent_text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_coherent_example_or_alternative_parent"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_84d81ce366f3",
+        "scoring_parent_occurrence_id": "srcgrp_60c959b87238",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 27,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+              "span_id": "jdspan_9705813e623b"
+            },
+            "parent_occurrence_id": "srcgrp_60c959b87238",
+            "parent_text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+            "profile_field": "",
+            "raw_parent_text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "transferable",
+        "match_value": 0.55,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_8068b2faffec",
+        "text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+        "atomic_focus": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+        "parent_text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "PARSER_OR_DECOMPOSITION_BLOCKED",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_coherent_example_or_alternative_parent"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_6d906c0121ac",
+        "scoring_parent_occurrence_id": "srcgrp_08aba035544c",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 28,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+              "span_id": "jdspan_124b972521cb"
+            },
+            "parent_occurrence_id": "srcgrp_08aba035544c",
+            "parent_text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+            "profile_field": "",
+            "raw_parent_text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "transferable",
+        "match_value": 0.55,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_1bc2b4d68488",
+        "text": "Deploying and maintaining content management systems and web applications in the cloud",
+        "atomic_focus": "Deploying and maintaining content management systems and web applications in the cloud",
+        "parent_text": "Deploying and maintaining content management systems and web applications in the cloud",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_f1ecbdff03cd",
+        "scoring_parent_occurrence_id": "srcgrp_780ba86b232c",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 29,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Deploying and maintaining content management systems and web applications in the cloud",
+              "span_id": "jdspan_5720f17b9f5a"
+            },
+            "parent_occurrence_id": "srcgrp_780ba86b232c",
+            "parent_text": "Deploying and maintaining content management systems and web applications in the cloud",
+            "profile_field": "",
+            "raw_parent_text": "Deploying and maintaining content management systems and web applications in the cloud",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_995b1529ddd2",
+        "text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+        "atomic_focus": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+        "parent_text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "TECHNOLOGY_PLUS_ACTIVITY",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Named activity requires independent capability resolution",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_76d24de67de8",
+        "scoring_parent_occurrence_id": "srcgrp_731d66d4f7a8",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 30,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+              "span_id": "jdspan_9ba3ccffa344"
+            },
+            "parent_occurrence_id": "srcgrp_731d66d4f7a8",
+            "parent_text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+            "profile_field": "",
+            "raw_parent_text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      },
+      {
+        "requirement_id": "req_d63b3d75dd2e",
+        "text": "Singaporean",
+        "atomic_focus": "Singaporean",
+        "parent_text": "Singaporean",
+        "importance": "core",
+        "score_eligible": true,
+        "evidence_eligible": true,
+        "tailoring_eligible": true,
+        "knowledge_status": "UNRESOLVED",
+        "knowledge_resolution": {
+          "identity_scope": {
+            "capability_id": null,
+            "category": "AMBIGUOUS",
+            "identities": [],
+            "identity_resolved": false,
+            "reason": "Complete scope not bounded by native identity structure",
+            "structure": {
+              "components": [],
+              "mode": null,
+              "parent_weight_preserved": true,
+              "scoring_children_created": false,
+              "source": "native_structure_unavailable"
+            }
+          },
+          "knowledge_outcome": "UNRESOLVED",
+          "knowledge_status": "UNRESOLVED",
+          "matched_alias": null,
+          "matched_term": null,
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "capability_resolution_source": "unresolved",
+        "technology_registry_resolution": {
+          "capability_id": null,
+          "matched_alias": null,
+          "matched_term": null,
+          "reason": "no_exact_registry_alias_match",
+          "registry_version": "technology-registry-v1.3",
+          "relationship_type": null,
+          "status": "unresolved",
+          "technology_id": null,
+          "technology_label": null
+        },
+        "group_weight_fraction": 1.0,
+        "atomic_group_id": "grp_d63b3d75dd2e",
+        "scoring_parent_occurrence_id": "srcgrp_0e176ac33485",
+        "source_provenance": [
+          {
+            "contributes_scoring_allocation": true,
+            "grounding": {
+              "jd_structure_inference_version": "jd-structure-inference-v1.0.3",
+              "kind": "explicit_raw_section",
+              "line_index": 31,
+              "section": "requirements",
+              "section_detection": "exact",
+              "section_heading": "Requirements",
+              "section_reason": "controlled_exact_heading",
+              "sentence_index": 1,
+              "sentence_text": "Singaporean",
+              "span_id": "jdspan_a92ccdd8b8e0"
+            },
+            "parent_occurrence_id": "srcgrp_0e176ac33485",
+            "parent_text": "Singaporean",
+            "profile_field": "",
+            "raw_parent_text": "Singaporean",
+            "source": "raw_jd.requirements",
+            "source_group_fraction": 1.0
+          }
+        ],
+        "sources": [
+          "raw_jd.requirements"
+        ],
+        "is_atomic": false,
+        "match_label": "none",
+        "match_value": 0.0,
+        "evidence": []
+      }
+    ]
+  },
+  "saved_summary": {
+    "taxonomy_resolution": {
+      "discovery_version": "capability-taxonomy-discovery-v1",
+      "eligible_requirement_count": 43,
+      "resolved_count": 6,
+      "rows": [
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_da5fcaeef334",
+          "requirement_text": "As a member of SGN’s digital products team, you will develop, deliver",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_980219c0dceb",
+          "requirement_text": "maintain a tech stack that enables SGN’s work in fostering connections between and within Singapore’s global business and talent communities",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_0e8d230d270c",
+          "requirement_text": "There is also opportunity to work on other digital products within the wider EDB organisation",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_bf4699dccca9",
+          "requirement_text": "This is an excellent opportunity to be part of a start-up environment, building up the digital platform and infrastructure to serve a large-scale network all around the world",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "quality.qa_testing",
+          "importance": "core",
+          "match_label": "weak",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_4d66db0265e9",
+          "requirement_text": "As a full-stack developer, you will be responsible for the design, implementation, testing and deployment of end-to-end software solutions, with the following key responsibilities",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "collaboration.cross_functional",
+          "importance": "core",
+          "match_label": "weak",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_de791ae8f952",
+          "requirement_text": "Spearhead work with cross-functional teams to develop engaging and user-centric web and mobile applications, supported by necessary back-end applications and databases for functionality",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_984d9acc4359",
+          "requirement_text": "Create performant code by figuring out how to make a feature work best for users",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_f78af3da7bf5",
+          "requirement_text": "under-the-hood optimization, while conforming to system design",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_0ec16745d552",
+          "requirement_text": "Design and create automated tests to ensure functionality of components and applications",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "transferable",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_c3ff772d976f",
+          "requirement_text": "Participate in code reviews",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "weak",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_9f78b1187a2b",
+          "requirement_text": "Participate in full life-cycle library, component, application design and development",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_31d2818e8c1b",
+          "requirement_text": "Support, maintenance and documentation of software functionalities and technical specifications",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_9778668ec0d8",
+          "requirement_text": "Ensure quality of releases, responsiveness and security of applications, debugging issues, fix bugs, and identify bottlenecks",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "direct",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_9270e95898c8",
+          "requirement_text": "Design and develop RESTful APIs",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_c059f48018a4",
+          "requirement_text": "Proactively stay abreast of developments in web applications and programming languages to identify and recommend existing components and technologies that can be leveraged to deliver on our goals",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "required",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_504adbfff7e7",
+          "requirement_text": "Resourcefulness, integrity, drive, and a good team player are must-haves",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_9757e793960d",
+          "requirement_text": "Some combination of the following would help for favourable consideration",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "experience.duration",
+          "importance": "core",
+          "match_label": "none",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_2f03d487747f",
+          "requirement_text": "At least 3 years of experience as a software developer or equivalent position",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_a4790f76c7d8",
+          "requirement_text": "Diploma or degree in Computer Science, Computer or Electronics Engineering, Information Technology or related disciplines",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "transferable",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_f5bce67ecd70",
+          "requirement_text": "Experience with cloud-based application development and web security",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_8f8aaa236fc2",
+          "requirement_text": "Experience in gathering user’s requirements – clarifying them with Product Owners and Designers through high fidelity mock-ups or prototypes",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "direct",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_685b5e50c0f3",
+          "requirement_text": "Experience in agile development teams",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_ac3bcbd553c8",
+          "requirement_text": "Experience in employing relevant methodologies and practices such as Scrum",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "quality.qa_testing",
+          "importance": "core",
+          "match_label": "weak",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_675a7bcfcd75",
+          "requirement_text": "Experience in Continuous Integration and Deployment to enable rapid delivery of value such as scripts for automated testing tools",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "operations.configuration",
+          "importance": "core",
+          "match_label": "none",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_d95d881beecc",
+          "requirement_text": "Experience in scripts for configuration management",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_55640ee6001e",
+          "requirement_text": "Knowledge of modern Software Engineering best practices",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_ba7933e7c579",
+          "requirement_text": "Knowledge of software development life cycle including coding standards",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "direct",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_7f87bdf86595",
+          "requirement_text": "Knowledge of code reviews",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_1d7e0380fae6",
+          "requirement_text": "Knowledge of source control management",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_f9669a8177b8",
+          "requirement_text": "Knowledge of build processes",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": "quality.qa_testing",
+          "importance": "core",
+          "match_label": "weak",
+          "reason": "canonical_capability_resolved",
+          "requirement_id": "req_4a7c3fcb6073",
+          "requirement_text": "Knowledge of testing",
+          "resolution_source": "canonical_taxonomy",
+          "status": "resolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_775b8ef1f4f9",
+          "requirement_text": "Knowledge of operations",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_486956c50136",
+          "requirement_text": "Proficiency in",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "direct",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_951a4d36e0a9",
+          "requirement_text": "C#",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": "csharp",
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "direct",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_eda71746c01c",
+          "requirement_text": "JavaScript",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": "javascript",
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_e5e239560bc1",
+          "requirement_text": "HTML",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_36e64f19f57a",
+          "requirement_text": "CSS",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "preferred",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_0f60b77247f3",
+          "requirement_text": "Proficiency in other modern programming languages is a plus",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "transferable",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_ba405c092a55",
+          "requirement_text": "(b) Relational and non-relational databases, such as MS SQL, PostgreSQL, MongoDB etc",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "transferable",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_8068b2faffec",
+          "requirement_text": "(c) Front-end frameworks such as React, Node.js, or Angular 2",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_1bc2b4d68488",
+          "requirement_text": "Deploying and maintaining content management systems and web applications in the cloud",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_995b1529ddd2",
+          "requirement_text": "Curious, inquisitive, keen and quick to learn, and generous and patient to share knowledge with team mates and mentor fellow developers",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        },
+        {
+          "capability_id": null,
+          "importance": "core",
+          "match_label": "none",
+          "reason": "no_canonical_capability_resolved",
+          "requirement_id": "req_d63b3d75dd2e",
+          "requirement_text": "Singaporean",
+          "resolution_source": "unresolved",
+          "status": "unresolved",
+          "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+          "technology_id": null,
+          "technology_registry_version": "technology-registry-v1.3"
+        }
+      ],
+      "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+      "technology_registry_version": "technology-registry-v1.3",
+      "unresolved_count": 37
+    },
+    "ranking_quality": {
+      "eligible_requirement_count": 43,
+      "important_requirement_count": 42,
+      "important_taxonomy_coverage": 0.141732,
+      "important_taxonomy_coverage_pct": 14,
+      "important_taxonomy_gap_count": 36,
+      "minimum_eligible_requirements": 3,
+      "minimum_important_taxonomy_coverage": 0.75,
+      "minimum_overall_taxonomy_coverage": 0.65,
+      "overall_taxonomy_coverage": 0.140625,
+      "overall_taxonomy_coverage_pct": 14,
+      "ranking_eligible": false,
+      "ranking_ineligible_reasons": [
+        "insufficient_overall_taxonomy_coverage",
+        "insufficient_important_taxonomy_coverage"
+      ],
+      "ranking_status": "insufficient_taxonomy_coverage",
+      "ranking_version": "job-match-ranking-v1",
+      "resolved_important_requirement_count": 6,
+      "resolved_requirement_count": 6,
+      "taxonomy_gap_count": 37
+    },
+    "ranking_eligible": false,
+    "ranking_status": "insufficient_taxonomy_coverage",
+    "deterministic_alignment_score": 20
+  },
+  "target_evidence_recovery": {
+    "capability_id": "backend.api_development",
+    "combined_evidence_rows": false,
+    "policy_version": "capability-single-row-none-recovery-v1.1",
+    "recovered_label": "direct",
+    "resolution_source": "canonical_taxonomy",
+    "selected_evidence_id": "ev_3e06933c2432",
+    "selected_evidence_source": "resume_profile.projects[1].bullets[1]",
+    "selected_requirement_coverage": 0.0,
+    "selected_requirement_overlap_count": 0,
+    "status": "recovered_from_none",
+    "taxonomy_reason": "explicit_backend_api_implementation"
+  }
+}

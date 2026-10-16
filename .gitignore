@@ -50,3 +50,19 @@ debug_exports/
 *.bak.*
 /tqd3_*.json
 /tqd3_*.csv
+
+# Generated reports and test artifacts
+/reports/*
+
+
+# Generated review packets
+/docs/unresolved_gold_review_packet_v*.md
+/docs/unresolved_independent_review_packet_v*.md
+
+# Ignore local research documents
+/docs/*
+
+# Keep essential implementation documentation
+!/docs/governed_requirement_resolution_v1_1.md
+!/docs/governed_review_v1_2_2.md
+!/docs/post_publication_accounting_audit.md

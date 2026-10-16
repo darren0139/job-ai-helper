@@ -11,6 +11,7 @@ from tailoring.phase8_score_explainability import build_score_breakdown
 from tests import test_shared_application_session_identity as shared
 from tests.test_phase8_score_explainability import row
 from job_discovery.matching import current_match_versions
+from tests.governed_review_fixtures import isolated_taxonomy
 
 
 def analysis():
@@ -56,6 +57,8 @@ class InitialAnalysisFormatterTests(unittest.TestCase):
         self.assertEqual(row['Evidence'],'direct')
 
     def test_nac_reviewed_gap_and_direct_are_independent_in_ui(self):
+        # The reviewed coverage receipt below belongs to the frozen v1.5 artifact.
+        self.enterContext(isolated_taxonomy())
         from streamlit.testing.v1 import AppTest
         fixture=Path(__file__).resolve().parent/'fixtures'/'per_jd_scoring_audit.json'
         bundle=json.loads(fixture.read_text(encoding='utf-8'))

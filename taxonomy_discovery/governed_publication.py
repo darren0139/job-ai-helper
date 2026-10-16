@@ -68,6 +68,9 @@ def _approved(conn, result_id):
     report = review.get("regression")
     if not report or report.get("draft_fingerprint") != fingerprint(draft):
         raise ValueError("Approval belongs to a different draft")
+    if draft.get('kind')=='resolver_improvement':
+        from taxonomy_discovery.resolver_improvement import validate_bounded_regression_controls
+        validate_bounded_regression_controls(draft,report)
     if report.get("regression_fingerprint") != fingerprint({k:v for k,v in report.items() if k != "regression_fingerprint"}):
         raise ValueError("Regression fingerprint changed")
     table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='governed_temporary_impacts'").fetchone()
@@ -123,14 +126,22 @@ def _prepare(conn, result_id, proposal_db_path=None):
                 raise ValueError("Product-context vocabulary missing/changed: preview locally and explicitly approve again")
             cid = draft["target_capability_id"]
             target = next(e for e in raw["capabilities"] if e["capability_id"] == cid)
-            if target["requirement"].get("contextual_phrase_variants"):
+            bounded=draft['proposed_resolver_change'].get('type')=='bounded_recognition_fallback'
+            if not bounded and target["requirement"].get("contextual_phrase_variants"):
                 raise ValueError("Conflicting/duplicate production resolver rule exists")
-            applied = deepcopy(shadow.by_id()[cid]["requirement"]["contextual_phrase_variants"])
-            for variant in applied:
-                variant["excluded_product_names"] = names
-                variant["guard_contract_version"] = taxonomy.PRODUCT_CONTEXT_GUARD_VERSION
-            target["requirement"]["contextual_phrase_variants"] = applied
-            change = {"capability_id":cid,"contextual_phrase_variants":applied}
+            if bounded:
+                applied=deepcopy(shadow.by_id()[cid]['requirement']['recognition_fallback_rules'])
+                if target['requirement'].get('recognition_fallback_rules'):
+                    raise ValueError('Duplicate/conflicting recognition fallback')
+                target['requirement']['recognition_fallback_rules']=applied
+                change={'capability_id':cid,'recognition_fallback_rules':applied}
+            else:
+                applied = deepcopy(shadow.by_id()[cid]["requirement"]["contextual_phrase_variants"])
+                for variant in applied:
+                    variant["excluded_product_names"] = names
+                    variant["guard_contract_version"] = taxonomy.PRODUCT_CONTEXT_GUARD_VERSION
+                target["requirement"]["contextual_phrase_variants"] = applied
+                change = {"capability_id":cid,"contextual_phrase_variants":applied}
         else:
             from taxonomy_discovery.taxonomy_evolution import temporary_overlay
             proposal = draft["proposal"]
@@ -222,6 +233,8 @@ def _present(receipt):
     change = receipt["change_applied"]
     if receipt["kind"] == "resolver_improvement":
         entry = next((c for c in raw["capabilities"] if c["capability_id"] == change["capability_id"]),{})
+        if 'recognition_fallback_rules' in change:
+            return entry.get('requirement',{}).get('recognition_fallback_rules')==change['recognition_fallback_rules']
         return all(v in entry.get("requirement",{}).get("contextual_phrase_variants",[]) for v in change["contextual_phrase_variants"])
     if receipt["kind"] == "capability":
         return change["entry"] in raw["capabilities"]
@@ -312,6 +325,39 @@ def list_linkage_receipts(*, db_path=None):
         return [json.loads(r[0]) for r in conn.execute("SELECT report_json FROM governed_publication_linkage")]
 
 
+def rollback_recognition_publication(publication_id, *, explicit_rollback=False, reviewer='', db_path=None):
+    """Exact-current bounded rule removal through the existing atomic primitive.
+
+    Advance the native knowledge version; never reuse a historical version or
+    rewrite analyses. Only this finite rule family supports this rollback.
+    """
+    if explicit_rollback is not True or not str(reviewer).strip():
+        raise ValueError('Explicit rollback and reviewer required')
+    from tailoring import capability_taxonomy as taxonomy
+    from database.technology_registry_proposal_manager import _replace_knowledge
+    with closing(store._connect(store._resolved_path(db_path),create_parent=False)) as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        row=conn.execute('SELECT receipt_json FROM governed_publications WHERE publication_id=?',(publication_id,)).fetchone()
+        if not row:raise ValueError('Unknown publication')
+        receipt=json.loads(row[0]);change=receipt['change_applied']
+        path=Path(receipt['production_artifact']).resolve()
+        if path!=Path(taxonomy.TAXONOMY_PATH).resolve() or receipt['status']!='published' or 'recognition_fallback_rules' not in change:
+            raise ValueError('Active bounded-rule publication required')
+        original=path.read_bytes()
+        if _sha(original)!=receipt['artifact_hash_after'] or not _present(receipt):
+            raise ValueError('Subsequent knowledge change; new reviewed rollback required')
+        raw=json.loads(original);target=next(c for c in raw['capabilities'] if c['capability_id']==change['capability_id'])
+        target['requirement'].pop('recognition_fallback_rules')
+        before=raw['taxonomy_version'];raw['taxonomy_version']=_next_version(before,'phase6d-capability-taxonomy-v')
+        encoded=(json.dumps(raw,ensure_ascii=False,indent=2)+'\n').encode()
+        _replace_knowledge(path,original,encoded,taxonomy.load_taxonomy)
+        receipt.update(status='rolled_back',rollback={'reviewer':str(reviewer).strip(),'timestamp':_now(),
+            'version_before':before,'version_after':raw['taxonomy_version'],'artifact_hash_after':_sha(encoded)})
+        conn.execute('UPDATE governed_publications SET receipt_json=? WHERE publication_id=?',(json.dumps(receipt,sort_keys=True),publication_id))
+        conn.commit()
+    return receipt
+
+
 def refresh_published_jobs(receipt, *, explicit_refresh=False, db_path=None):
     """Native zero-model rebuild; unavailable/changed inputs stay visibly stale."""
     if explicit_refresh is not True or receipt not in list_publications(db_path=db_path) or receipt.get("status") != "published" or not _present(receipt):
@@ -348,9 +394,9 @@ def refresh_published_jobs(receipt, *, explicit_refresh=False, db_path=None):
     return linkage
 
 
-def publish_approved_change(result_id, *, explicit_publish=False, db_path=None, proposal_db_path=None):
+def publish_approved_change(result_id, *, explicit_publish=False, db_path=None, proposal_db_path=None, refresh_jobs=True):
     receipt = _publish_approved_change(result_id,explicit_publish=explicit_publish,db_path=db_path,proposal_db_path=proposal_db_path)
-    if not any(r["publication_id"] == receipt["publication_id"] for r in list_linkage_receipts(db_path=db_path)):
+    if refresh_jobs and 'recognition_fallback_rules' not in receipt.get('change_applied',{}) and not any(r["publication_id"] == receipt["publication_id"] for r in list_linkage_receipts(db_path=db_path)):
         refresh_published_jobs(receipt,explicit_refresh=True,db_path=db_path)
     return receipt
 
