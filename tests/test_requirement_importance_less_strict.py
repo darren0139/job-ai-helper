@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from job_discovery.matching import current_match_versions
 
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
@@ -116,7 +117,7 @@ class RequirementImportanceLessStrictTests(unittest.TestCase):
     def test_scoring_version(self) -> None:
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            current_match_versions()['scoring_version'],
         )
 
 

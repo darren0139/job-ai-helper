@@ -24,6 +24,7 @@ COMPILE_TARGETS = (
 )
 
 QUICK_TEST_MODULES = (
+    "tests.test_api_evidence_completeness",
     "tests.test_capability_taxonomy_loader",
     "tests.test_capability_taxonomy_v1_4",
     "tests.test_capability_taxonomy_research",

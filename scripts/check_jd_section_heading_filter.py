@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from job_discovery.matching import current_match_versions
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
     canonicalise_requirements,
@@ -46,7 +47,7 @@ Medical coverage and annual leave.
 
     filtered = result.get("filtered_section_headings", [])
     assert len(filtered) >= 4
-    assert SCORING_VERSION == "stable-evidence-v1.16-phase6d20"
+    assert SCORING_VERSION == current_match_versions()['scoring_version']
 
     sentence_result = canonicalise_requirements(
         {},

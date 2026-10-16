@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from job_discovery.matching import current_match_versions
 
 from analysis_stability.stable_evidence_scoring import (
     JD_STRUCTURE_INFERENCE_VERSION,
@@ -79,13 +80,12 @@ class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
             ),
         )
 
-        # The previous hash represented scorer v1.15 / registry v1.2.
-        # Pin the existing v1.16 / v1.3 identity. Rejected parser
-        # hypotheses must not silently alter production currentness.
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        # Approved API completeness increments scoring to v1.17. Keep the
+        # exact current identity (taxonomy v1.6 / registry v1.3) pinned.
+        self.assertEqual(SCORING_VERSION, current_match_versions()['scoring_version'])
         self.assertEqual(
             result["input_fingerprint"],
-            "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
+            "fc6d2e4ba4b9b83964ab7a7dc839b62e9065892ec9dbb5f3c1e66e3b4d1bd4be",
         )
         self.assertEqual(
             JD_STRUCTURE_INFERENCE_VERSION,

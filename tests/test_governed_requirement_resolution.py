@@ -47,12 +47,16 @@ class GovernedResolutionTests(unittest.TestCase):
         self.assertIsNone(bounded_api_development_scope({**self.row,'atomic_focus':'RESTful APIs'}))
         self.assertIsNone(bounded_api_development_scope({**self.row,'is_atomic':True}))
 
-    def test_exact_v2_source_case_only_one_of_thirteen_changes(self):
-        path=Path(__file__).resolve().parents[1]/'reports/unresolved_existing_predicate_investigation_v2_manifest.json'
-        manifest=json.loads(path.read_text(encoding='utf-8'))
-        row=next(x['input'] for x in manifest['cases'] if x['job_id']==146)
+    def test_saved_edb_source_only_api_requirement_changes(self):
+        # Keep this regression runnable from a clean checkout. The original
+        # thirteen-case investigation manifest is an ignored local report.
+        path=Path(__file__).with_name('fixtures')/'post_publication_accounting_snapshot56.json'
+        snapshot=json.loads(path.read_text(encoding='utf-8'))
+        inputs=[g.requirement_input(r) for r in snapshot['stable_analysis']['canonical_requirements']]
+        self.assertEqual(len(inputs),43)
+        row=next(r for r in inputs if r['requirement_id']=='req_9270e95898c8')
         proposal=g.propose(row)
-        result=g.compare_inputs([x['input'] for x in manifest['cases']],proposal)
+        result=g.compare_inputs(inputs,proposal)
         changed=[x for x in result if x['knowledge_changed']]
         self.assertEqual([x['requirement_id'] for x in changed],['req_9270e95898c8'])
         self.assertEqual(changed[0]['after']['capability_id'],'backend.api_development')

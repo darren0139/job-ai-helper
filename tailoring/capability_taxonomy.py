@@ -16,6 +16,7 @@ from tailoring.requirement_scope import (CONTEXTUAL_REQUIREMENT_RULES, complete_
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "taxonomy" / "capability_taxonomy_v1.json"
 ALLOWED_LABELS = {"direct", "transferable", "weak", "none"}
 PRODUCT_CONTEXT_GUARD_VERSION = "native-product-context-guard-v1"
+API_EVIDENCE_COMPLETENESS_VERSION = "api-evidence-completeness-v1.1"
 
 
 def _clean(value: Any) -> str:
@@ -652,6 +653,145 @@ def classify_requirement(
     return str(record["capability_id"]) if record else None
 
 
+_API_DEVELOP_ACTION = r"(?:build|builds|building|built|implement(?:s|ed|ing)?|develop(?:s|ed|ing)?|creat(?:e|es|ed|ing)|author(?:s|ed|ing)?|add(?:s|ed|ing)?|writ(?:e|es|ing)|wrote)"
+_API_DESIGN_ACTION = r"design(?:s|ed|ing)?"
+_API_INTEGRATION_ACTION = r"(?:integrat(?:e|es|ed|ing)|consum(?:e|es|ed|ing)|connect(?:s|ed|ing)?|call(?:s|ed|ing)?)"
+_API_ACTION = re.compile(
+    rf"\b(?:{_API_DEVELOP_ACTION}|{_API_DESIGN_ACTION}|{_API_INTEGRATION_ACTION}"
+    r"|document(?:s|ed|ing)?|test(?:s|ed|ing)?|us(?:e|es|ed|ing))\b", re.I,
+)
+_API_OBJECT = re.compile(
+    r"^\s*(?:(?:a|an|the|new|additional|existing|custom|secure|backend|java|python|"
+    r"rest(?:ful)?|grpc|postgrest|fastapi|http|json|crud|multiple|several|versioned)\s+|"
+    r"(?:rest(?:ful)?|grpc)\s+and\s+){0,8}"
+    r"(?:apis?(?:\s+(?:endpoints?|handlers?|interfaces?|contracts?|services?))?|"
+    r"endpoints?|handlers?|web\s+services?)\b", re.I,
+)
+
+
+def _api_evidence_label(focus: str, evidence_row: str) -> tuple[str, str]:
+    """Bound API credit to an affirmative activity and its actual API object.
+
+    This is a requirement-specific completeness predicate in the existing
+    evaluator, not a new source selector. One source row must support the
+    obligation; a technology name or an unrelated implementation verb cannot
+    establish endpoint authorship.
+    """
+    requested = {p for p in ("rest", "grpc")
+                 if _contains_any(focus, ["rest", "restful"] if p == "rest" else [p])}
+    alternative = bool(re.search(
+        r"\brest(?:ful)?\s+(?:or|and/or)\s+grpc\b|\bgrpc\s+(?:or|and/or)\s+rest(?:ful)?\b",
+        focus, re.I,
+    ))
+    development_required = bool(re.search(
+        rf"\b(?:{_API_DEVELOP_ACTION}|development|implementation|authoring)\b", focus, re.I,
+    ))
+    design_required = bool(re.search(rf"\b{_API_DESIGN_ACTION}\b", focus, re.I))
+    integration_required = bool(re.search(
+        rf"\b(?:{_API_INTEGRATION_ACTION}|integration|consumption)\b", focus, re.I,
+    ))
+    integration_only = integration_required and not (development_required or design_required)
+    activities: dict[str, list[set[str]]] = {"development": [], "design": [], "integration": []}
+    denied: dict[str, list[set[str]]] = {kind: [] for kind in activities}
+    negated_authoring = False
+
+    for clause in re.split(r"[;,.!?]|\bbut\b", evidence_row, flags=re.I):
+        # Passive source statements still assert implementation. Preserve their
+        # local negation when normalizing the finite API-object grammar.
+        clause = re.sub(
+            rf"(?P<object>\b(?:(?:rest(?:ful)?|grpc|postgrest)\s+)?"
+            rf"(?:api(?:s)?(?:\s+endpoints?)?|endpoints?))\s+(?:was|were|is|are)\s+"
+            rf"(?P<negative>(?:not|never)\s+)?(?P<action>{_API_DEVELOP_ACTION}|{_API_DESIGN_ACTION})\b",
+            lambda m: f"{m.group('negative') or ''}{m.group('action')} {m.group('object')}",
+            clause, flags=re.I,
+        )
+        actions = list(_API_ACTION.finditer(clause))
+        for index, action in enumerate(actions):
+            end = actions[index + 1].start() if index + 1 < len(actions) else len(clause)
+            object_text = clause[action.end():end]
+            # Coordinated verbs share an object: "designed and implemented
+            # REST endpoints". Do not share across unrelated intervening words.
+            if re.fullmatch(r"\s+(?:and|and then)\s+", object_text, re.I) and index + 1 < len(actions):
+                next_end = actions[index + 2].start() if index + 2 < len(actions) else len(clause)
+                object_text = clause[actions[index + 1].end():next_end]
+            verb = action.group()
+            kind = ("development" if re.fullmatch(_API_DEVELOP_ACTION, verb, re.I)
+                    else "design" if re.fullmatch(_API_DESIGN_ACTION, verb, re.I)
+                    else "integration" if re.fullmatch(_API_INTEGRATION_ACTION, verb, re.I)
+                    else None)
+            if kind == "integration":
+                object_text = re.sub(r"^\s+(?:with|to)\b", " ", object_text, flags=re.I)
+            obj = _API_OBJECT.match(object_text)
+            if not obj:
+                continue
+            # An API client, documentation, test, or consumption implementation
+            # is not an authored service. Keep this exclusion local to the object.
+            if re.match(r"\s+(?:documentation|docs?|tests?|testing)\b",
+                        object_text[obj.end():], re.I):
+                continue
+            if kind != "integration" and re.match(
+                r"\s+(?:clients?|integration|consumption|access)\b", object_text[obj.end():], re.I,
+            ):
+                continue
+            prefix = clause[:action.start()]
+            if re.search(
+                r"\b(?:(?:learned|learning|studied|studying|planned|planning|proposed|intended)"
+                r"\s+(?:how\s+)?to|(?:knowledge|understanding)\s+of|can|could|would|will)\s*$",
+                prefix, re.I,
+            ):
+                continue
+            negated = bool(re.search(
+                r"\b(?:no|not|never|without|didn't|haven't|hasn't|wasn't|weren't)\b"
+                r"(?:\s+\w+){0,3}\s*$", prefix, re.I,
+            )) and not bool(re.search(r"\bnot\s+only\s*$", prefix, re.I))
+            if kind is None:
+                continue
+            protocols = {p for p in ("rest", "grpc") if _contains_any(
+                object_text, ["rest", "restful", "postgrest"] if p == "rest" else [p],
+            )}
+            if negated:
+                negated_authoring |= kind in {"development", "design"}
+                denied[kind].append(protocols)
+                continue
+            activities[kind].append(protocols)
+
+    for kind, positives in activities.items():
+        activities[kind] = [p for p in positives if not any(
+            not p or not negative or p & negative for negative in denied[kind]
+        )]
+
+    def complete(protocols: set[str]) -> bool:
+        return not requested or (bool(requested & protocols) if alternative else requested <= protocols)
+
+    # A generic handler implementation can refer to explicitly designed REST
+    # interfaces in this same source row. An explicitly different protocol
+    # cannot inherit REST support from a consumption/design clause.
+    designs = activities["design"]
+    implementations = activities["development"]
+    design_protocols = set().union(*designs)
+    implementation_protocols = set().union(*implementations)
+    if implementations and not implementation_protocols:
+        implementation_protocols = design_protocols
+    implementation_complete = bool(implementations) and complete(implementation_protocols)
+    if integration_only:
+        return (("direct", "explicit_api_integration") if any(complete(p) for p in activities["integration"])
+                else ("none", "api_integration_not_established"))
+    if not implementation_complete:
+        reason = ("api_implementation_negated" if negated_authoring
+                  else "requested_api_protocol_evidence_missing" if implementations and requested
+                  else "api_authorship_not_established")
+        return "none", reason
+    design_complete = bool(designs) and complete(design_protocols)
+    if alternative:
+        design_complete &= bool(requested & design_protocols & implementation_protocols)
+    if design_required and not design_complete:
+        return "weak", "api_implementation_without_design_evidence"
+    if integration_required and not any(complete(p) for p in activities["integration"]):
+        return "none", "api_integration_not_established"
+    return "direct", ("explicit_api_design_and_implementation" if design_required
+                      else "explicit_backend_api_implementation")
+
+
 def _evaluate_capability_record(
     *,
     capability: dict[str, Any],
@@ -671,7 +811,9 @@ def _evaluate_capability_record(
                 for protocol in requested:
                     terms = ["rest", "restful", "postgrest"] if protocol == "rest" else ["grpc"]
                     negated = re.search(
-                        r"\b(?:no|not|without|never)\b(?:\W+\w+){0,4}\W+(?:"
+                        r"\b(?:no|not|without|never)\b(?:\s+(?:experience|knowledge|of|in|"
+                        r"any|the|yet|implemented|implementing|used|using|developed|developing|"
+                        r"built|building|supported|support|enabled|configured)){0,4}\s+(?:"
                         + "|".join(terms) + r")\b", evidence_row, re.I,
                     )
                     negated = negated or re.search(
@@ -699,6 +841,15 @@ def _evaluate_capability_record(
                     "taxonomy_version": taxonomy_version,
                     "does_not_prove": capability.get("does_not_prove", []),
                 }
+        decisions = [_api_evidence_label(focus, row) for row in evidence_text.splitlines() if row.strip()]
+        label, reason = max(decisions, key=lambda d: {"none": 0, "weak": 1, "direct": 3}[d[0]],
+                            default=("none", "no_evidence"))
+        return {
+            "capability_id": capability["capability_id"], "label": label, "reason": reason,
+            "concepts": ["backend_api"], "taxonomy_version": taxonomy_version,
+            "evidence_policy_version": API_EVIDENCE_COMPLETENESS_VERSION,
+            "does_not_prove": capability.get("does_not_prove", []),
+        }
     if capability.get("evidence_policy"):
         focus = _clean(requirement.get("atomic_focus") or requirement.get("text"))
         decisions = [

@@ -1,0 +1,979 @@
+{
+  "provenance": "23 disposable scenarios from Evidence Completeness V1; expectations apply only to the approved V1.1 contract, not independently verified candidate facts. Baseline rows are frozen for comparison, never rewritten by scoring.",
+  "cases": [
+    {
+      "case": "postgrest",
+      "requirement": "Design and develop RESTful APIs",
+      "evidence": [
+        "Implemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_9270e95898c8",
+          "text": "Design and develop RESTful APIs",
+          "atomic_focus": "Design and develop RESTful APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_3e06933c2432",
+              "section": "projects",
+              "text": "Implemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.000"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_3e06933c2432",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.0,
+            "selected_requirement_overlap_count": 0,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "intern_development",
+      "requirement": "Develop RESTful APIs",
+      "evidence": [
+        "Extended an existing Java backend by developing REST API endpoints to support data exchange with the Unity-based Maritime Digital Twin, collaborating on MinIO storage integration."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_5044719def5a",
+          "text": "Develop RESTful APIs",
+          "atomic_focus": "Develop RESTful APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "intern_combined",
+      "requirement": "Design and develop RESTful APIs",
+      "evidence": [
+        "Extended an existing Java backend by developing REST API endpoints to support data exchange with the Unity-based Maritime Digital Twin, collaborating on MinIO storage integration."
+      ],
+      "expected_evaluator_labels": [
+        "weak"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_9270e95898c8",
+          "text": "Design and develop RESTful APIs",
+          "atomic_focus": "Design and develop RESTful APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "designed_implemented",
+      "requirement": "Design and develop RESTful APIs",
+      "evidence": [
+        "Designed REST endpoint interfaces and implemented API handlers with request validation."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_9270e95898c8",
+          "text": "Design and develop RESTful APIs",
+          "atomic_focus": "Design and develop RESTful APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_2e853b930801",
+              "section": "projects",
+              "text": "Designed REST endpoint interfaces and implemented API handlers with request validation.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.250"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_2e853b930801",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.25,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "fastapi",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Implemented REST API endpoints using FastAPI."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_b30495ac010d",
+              "section": "projects",
+              "text": "Implemented REST API endpoints using FastAPI.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.333"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_b30495ac010d",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.333333,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "fastapi_implicit_rest",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Implemented FastAPI endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "integration",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Integrated an existing REST API for data retrieval."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_c5d7cf03c207",
+              "section": "projects",
+              "text": "Integrated an existing REST API for data retrieval.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.333"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_c5d7cf03c207",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.333333,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "integration_obligation",
+      "requirement": "REST API integration",
+      "evidence": [
+        "Integrated an existing REST API for data retrieval."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_130cdbd931ae",
+          "text": "REST API integration",
+          "atomic_focus": "REST API integration",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "weak",
+          "match_value": 0.2,
+          "match_source": "missing",
+          "evidence": [
+            {
+              "evidence_id": "ev_c5d7cf03c207",
+              "section": "projects",
+              "text": "Integrated an existing REST API for data retrieval.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "The current r\u00e9sum\u00e9 contains a lexically related but incomplete piece of evidence, so only weak credit was assigned.",
+              "evidence_similarity": "0.900"
+            }
+          ],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 22
+    },
+    {
+      "case": "skills_only",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "REST API, PostgREST, FastAPI"
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "documentation",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Created REST API documentation for an existing service."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_e5c6e4599c73",
+              "section": "projects",
+              "text": "Created REST API documentation for an existing service.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.333"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_e5c6e4599c73",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.333333,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "non_authoring",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Integrated an existing REST API; no API endpoints were designed or developed."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_8d9c4aa7d962",
+              "section": "projects",
+              "text": "Integrated an existing REST API; no API endpoints were designed or developed.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.333"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_8d9c4aa7d962",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.333333,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "negated_implementation",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "I never implemented REST API endpoints; I consumed the existing service."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "grpc_not_rest",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Built gRPC API endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "grpc",
+      "requirement": "gRPC API development",
+      "evidence": [
+        "Implemented gRPC API endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_0b3aa3ce8817",
+          "text": "gRPC API development",
+          "atomic_focus": "gRPC API development",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "weak",
+          "match_value": 0.2,
+          "match_source": "missing",
+          "evidence": [
+            {
+              "evidence_id": "ev_b68bb92e59c5",
+              "section": "projects",
+              "text": "Implemented gRPC API endpoints.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "The current r\u00e9sum\u00e9 contains a lexically related but incomplete piece of evidence, so only weak credit was assigned.",
+              "evidence_similarity": "0.600"
+            }
+          ],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 22
+    },
+    {
+      "case": "both_protocols",
+      "requirement": "API, REST and gRPC",
+      "evidence": [
+        "Implemented REST and gRPC API endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_f111cea86c37",
+          "text": "API, REST and gRPC",
+          "atomic_focus": "API, REST and gRPC",
+          "is_atomic": false,
+          "knowledge_status": "UNRESOLVED",
+          "capability_id": null,
+          "match_label": "weak",
+          "match_value": 0.2,
+          "match_source": "missing",
+          "evidence": [
+            {
+              "evidence_id": "ev_92a1368a2165",
+              "section": "projects",
+              "text": "Implemented REST and gRPC API endpoints.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "The current r\u00e9sum\u00e9 contains a lexically related but incomplete piece of evidence, so only weak credit was assigned.",
+              "evidence_similarity": "0.900"
+            }
+          ],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 22
+    },
+    {
+      "case": "separate_protocols",
+      "requirement": "API, REST and gRPC",
+      "evidence": [
+        "Implemented REST API endpoints.",
+        "Implemented gRPC API endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "none",
+        "none"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "none",
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_f111cea86c37",
+          "text": "API, REST and gRPC",
+          "atomic_focus": "API, REST and gRPC",
+          "is_atomic": false,
+          "knowledge_status": "UNRESOLVED",
+          "capability_id": null,
+          "match_label": "weak",
+          "match_value": 0.2,
+          "match_source": "missing",
+          "evidence": [
+            {
+              "evidence_id": "ev_dd6b73507e08",
+              "section": "projects",
+              "text": "Implemented REST API endpoints.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "The current r\u00e9sum\u00e9 contains a lexically related but incomplete piece of evidence, so only weak credit was assigned.",
+              "evidence_similarity": "0.600"
+            }
+          ],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 22
+    },
+    {
+      "case": "mixed_obligation",
+      "requirement": "Develop REST APIs and integrate MinIO storage",
+      "evidence": [
+        "Implemented REST API endpoints."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_b5920a961ec0",
+          "text": "Develop REST APIs and integrate MinIO storage",
+          "atomic_focus": "Develop REST APIs and integrate MinIO storage",
+          "is_atomic": false,
+          "knowledge_status": "UNRESOLVED",
+          "capability_id": null,
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "mixed_evidence",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Integrated MinIO storage and implemented REST API endpoints in an existing Java backend."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_06bd588060f0",
+              "section": "projects",
+              "text": "Integrated MinIO storage and implemented REST API endpoints in an existing Java backend.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.333"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_06bd588060f0",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.333333,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "selection",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Implemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations.",
+        "Extended an existing Java backend by developing REST API endpoints to support data exchange with the Unity-based Maritime Digital Twin, collaborating on MinIO storage integration."
+      ],
+      "expected_evaluator_labels": [
+        "none",
+        "direct"
+      ],
+      "expected_native_label": "weak",
+      "baseline_evaluator_labels": [
+        "direct",
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_3e06933c2432",
+              "section": "projects",
+              "text": "Implemented backend data access through PostgREST and applied Row-Level Security policies to secure database operations.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.000"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_3e06933c2432",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.0,
+            "selected_requirement_overlap_count": 0,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "legacy_valid",
+      "requirement": "API development",
+      "evidence": [
+        "Built API endpoints with request validation."
+      ],
+      "expected_evaluator_labels": [
+        "direct"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "direct"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_a8d594ff6a66",
+          "text": "API development",
+          "atomic_focus": "API development",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_089293113740",
+              "section": "projects",
+              "text": "Built API endpoints with request validation.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_backend_api_implementation",
+              "evidence_similarity": "0.500"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "backend.api_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_089293113740",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.5,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_backend_api_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "backend_control",
+      "requirement": "Develop REST APIs",
+      "evidence": [
+        "Implemented Java database queries and backend data access."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "none",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_720a672cbce3",
+          "text": "Develop REST APIs",
+          "atomic_focus": "Develop REST APIs",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "backend.api_development",
+          "match_label": "none",
+          "match_value": 0.0,
+          "match_source": "missing",
+          "evidence": [],
+          "capability_none_recovery": null
+        }
+      ],
+      "baseline_score": 0
+    },
+    {
+      "case": "cpp_control",
+      "requirement": "Experience developing systems software in C++",
+      "evidence": [
+        "Built a C++ asset manager for a custom game engine."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_7b2927390fe4",
+          "text": "Experience developing systems software in C++",
+          "atomic_focus": "Experience developing systems software in C++",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "language.modern_cpp",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_4fd27aa1e40a",
+              "section": "projects",
+              "text": "Built a C++ asset manager for a custom game engine.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_requested_language_implementation",
+              "evidence_similarity": "0.250"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "language.modern_cpp",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_4fd27aa1e40a",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.25,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_requested_language_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    },
+    {
+      "case": "frontend_control",
+      "requirement": "Frontend development",
+      "evidence": [
+        "Built React frontend UI components and dashboard views."
+      ],
+      "expected_evaluator_labels": [
+        "none"
+      ],
+      "expected_native_label": "direct",
+      "baseline_evaluator_labels": [
+        "none"
+      ],
+      "baseline_native_rows": [
+        {
+          "requirement_id": "req_d2b2b487199e",
+          "text": "Frontend development",
+          "atomic_focus": "Frontend development",
+          "is_atomic": false,
+          "knowledge_status": "CAPABILITY_RESOLVED",
+          "capability_id": "frontend.ui_development",
+          "match_label": "direct",
+          "match_value": 1.0,
+          "match_source": "capability_none_recovery",
+          "evidence": [
+            {
+              "evidence_id": "ev_62beea2e9c31",
+              "section": "projects",
+              "text": "Built React frontend UI components and dashboard views.",
+              "source": "resume_profile.projects[0].bullets[0]",
+              "reason": "One existing resume row independently satisfies the already resolved canonical capability. No evidence rows were combined.",
+              "capability_evidence_reason": "explicit_frontend_implementation",
+              "evidence_similarity": "0.500"
+            }
+          ],
+          "capability_none_recovery": {
+            "policy_version": "capability-single-row-none-recovery-v1.1",
+            "status": "recovered_from_none",
+            "capability_id": "frontend.ui_development",
+            "resolution_source": "canonical_taxonomy",
+            "recovered_label": "direct",
+            "selected_evidence_id": "ev_62beea2e9c31",
+            "selected_evidence_source": "resume_profile.projects[0].bullets[0]",
+            "selected_requirement_coverage": 0.5,
+            "selected_requirement_overlap_count": 1,
+            "taxonomy_reason": "explicit_frontend_implementation",
+            "combined_evidence_rows": false
+          }
+        }
+      ],
+      "baseline_score": 100
+    }
+  ]
+}

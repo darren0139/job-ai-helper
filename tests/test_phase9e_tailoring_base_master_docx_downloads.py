@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from job_discovery.matching import current_match_versions
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,7 +30,7 @@ class Phase9ETailoringBaseMasterDocxDownloadTests(unittest.TestCase):
     def test_ui_only_upgrade_keeps_scoring_identity(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            current_match_versions()['scoring_version'],
         )
         self.assertEqual(
             PHASE9E_TAILORING_BASE_VISUAL_PREVIEW_VERSION,

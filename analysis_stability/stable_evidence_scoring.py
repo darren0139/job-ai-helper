@@ -30,6 +30,7 @@ from analysis_stability.jd_section_inference import (
     infer_semantic_list_heading,
 )
 from tailoring.capability_taxonomy import (
+    API_EVIDENCE_COMPLETENESS_VERSION,
     evaluate_capability_evidence,
     evaluate_evidence,
     get_default_taxonomy,
@@ -44,7 +45,7 @@ from tailoring.phase6d6_structured_matching import (
 from taxonomy_discovery.technology_registry import get_default_registry
 
 # Requirement recognition is part of snapshot/A-B reproducibility identity.
-SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
+SCORING_VERSION = "stable-evidence-v1.17-phase6d21"
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
@@ -3569,8 +3570,15 @@ def _apply_capability_none_recovery(
 
         # Weak is the least specific positive capability label. When the
         # preliminary lexical result was none, require at least one grounded
-        # requirement/evidence token before allowing a weak recovery.
-        if recovered_label == "weak" and best_overlap <= 0:
+        # requirement/evidence token before allowing a weak recovery, except
+        # for the approved API implementation-without-design decision, which
+        # already establishes the implemented obligation semantically.
+        api_partial_implementation = (
+            capability_id == "backend.api_development"
+            and best_decision.get("reason") == "api_implementation_without_design_evidence"
+            and best_decision.get("evidence_policy_version") == API_EVIDENCE_COMPLETENESS_VERSION
+        )
+        if recovered_label == "weak" and best_overlap <= 0 and not api_partial_implementation:
             continue
 
         selected_evidence = {

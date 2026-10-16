@@ -18,7 +18,7 @@ class CapabilityTaxonomyLoaderTests(unittest.TestCase):
         payload = json.loads(TAXONOMY_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
             taxonomy.version,
-            "phase6d-capability-taxonomy-v1.5",
+            "phase6d-capability-taxonomy-v1.6",
         )
         self.assertEqual(
             taxonomy.version,

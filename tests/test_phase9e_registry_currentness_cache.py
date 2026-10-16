@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from job_discovery.matching import current_match_versions
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ class Phase9ERegistryCurrentnessCacheTests(unittest.TestCase):
     def test_scoring_identity_is_not_changed(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            current_match_versions()['scoring_version'],
         )
 
     def test_registry_version_changes_resolution_identity(self):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from job_discovery.matching import current_match_versions
 
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
@@ -63,7 +64,7 @@ class ResumeEvidenceStructuralHeadingTests(unittest.TestCase):
     def test_scoring_version_bumped(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            current_match_versions()['scoring_version'],
         )
 
     def test_structural_headings_are_not_evidence_rows(self):

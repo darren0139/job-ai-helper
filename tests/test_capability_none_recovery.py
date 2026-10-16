@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from job_discovery.matching import current_match_versions
 
 from analysis_stability.stable_evidence_scoring import (
     CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
@@ -347,7 +348,7 @@ class CapabilityNoneRecoveryTests(unittest.TestCase):
             raw_resume_text=evidence,
         )
 
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        self.assertEqual(SCORING_VERSION, current_match_versions()['scoring_version'])
         self.assertEqual(
             CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             "capability-single-row-none-recovery-v1.1",

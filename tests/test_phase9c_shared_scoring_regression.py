@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from job_discovery.matching import current_match_versions
 
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
@@ -87,7 +88,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        self.assertEqual(SCORING_VERSION, current_match_versions()['scoring_version'])
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -101,11 +102,11 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         self.assertEqual(result["preferred_coverage_score"], 0)
         self.assertEqual(result["evidence_strength_score"], 100)
         # The existing reproducibility identity includes scorer and registry versions.
-        # Pin current v1.16 / v1.3; the former hash represented v1.15 / v1.2.
+        # Pin scorer v1.17 / taxonomy v1.6 / registry v1.3 after the approved bump.
         # All requirement, evidence and score assertions above remain unchanged.
         self.assertEqual(
             result["input_fingerprint"],
-            "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
+            "fc6d2e4ba4b9b83964ab7a7dc839b62e9065892ec9dbb5f3c1e66e3b4d1bd4be",
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 from database import job_match_manager as manager
-from job_discovery.matching import summarize_stable_match
+from job_discovery.matching import summarize_stable_match, current_match_versions
 from job_discovery.match_ranking import build_ranking_quality
 from tailoring import capability_taxonomy as taxonomy
 from taxonomy_discovery import coverage_presentation as coverage
@@ -25,6 +25,11 @@ class AccountingTests(unittest.TestCase):
         self.fixture=json.loads(FIXTURE.read_text(encoding='utf-8'))
         self.analysis=deepcopy(self.fixture['stable_analysis'])
         self.target=next(r for r in self.analysis['canonical_requirements'] if r['requirement_id']=='req_9270e95898c8')
+        # These presentation tests inspect an immutable historical receipt in
+        # its original scoring context. Do not relabel the saved fixture as new.
+        historical_versions={**current_match_versions(),
+                             'scoring_version':self.analysis['scoring_version']}
+        self.enterContext(patch('job_discovery.matching.current_match_versions',return_value=historical_versions))
         self.enterContext(block_external_network_allow_loopback())
 
     def app(self, analysis=None):
@@ -136,7 +141,7 @@ class AccountingTests(unittest.TestCase):
             evidence_fingerprint='historical',taxonomy_version=historical['capability_taxonomy_version'])
         self.assertEqual(old_again,frozen);self.assertEqual(old_again['summary']['taxonomy_resolution']['resolved_count'],6)
 
-    def test_fresh_native_producer_then_summary_agree_without_policy_change(self):
+    def test_fresh_native_producer_then_summary_agree_after_policy_change(self):
         from analysis_stability.stable_evidence_scoring import build_stable_analysis
         text=self.target['text'];evidence=self.target['evidence'][0]['text']
         native=build_stable_analysis(jd_profile={'responsibilities':[text]},
@@ -151,15 +156,24 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(diagnostic['capability_id'],target['capability_id']);self.assertEqual(diagnostic['status'],'resolved')
         self.assertEqual(native,frozen)
 
-    def test_current_postgrest_evidence_policy_is_documented_not_changed(self):
+    def test_saved_credit_is_preserved_but_fresh_postgrest_authorship_is_rejected(self):
+        self.assertEqual((self.target['match_label'],self.target['match_value']),('direct',1.0))
         decision=taxonomy.evaluate_capability_evidence('backend.api_development',self.target,self.target['evidence'][0]['text'])
-        self.assertEqual((decision['label'],decision['reason']),('direct','explicit_backend_api_implementation'))
+        self.assertEqual((decision['label'],decision['reason']),('none','api_authorship_not_established'))
         self.assertEqual(self.fixture['target_evidence_recovery']['selected_requirement_coverage'],0)
         self.assertEqual(self.fixture['target_evidence_recovery']['selected_requirement_overlap_count'],0)
         # Existing protocol completeness remains fail-closed for gRPC.
         compound={**self.target,'text':'Knowledge of API, REST, and gRPC','atomic_focus':'Knowledge of API, REST, and gRPC'}
         self.assertEqual(taxonomy.evaluate_capability_evidence('backend.api_development',compound,
             self.target['evidence'][0]['text'])['label'],'none')
+
+    def test_historical_receipt_is_stale_under_new_scoring_without_mutation(self):
+        frozen=deepcopy(self.analysis)
+        with patch('job_discovery.matching.current_match_versions',return_value=current_match_versions()):
+            with self.assertRaisesRegex(ValueError,'scoring_version'):
+                coverage.jd_coverage(None,None,raw_jd_text='Public EDB Job 146 accounting test context',
+                                     stable_analysis=self.analysis,job_id=146)
+        self.assertEqual(self.analysis,frozen)
 
 
 if __name__=='__main__':unittest.main()
