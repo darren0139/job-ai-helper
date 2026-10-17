@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:job-ai-helper:source-aware-unresolved-inventory:v1",
+  "title": "Offline source-aware JD requirement inventory V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schema_fingerprint", "export_fingerprint", "knowledge_identity", "views", "records", "counts"],
+  "properties": {
+    "schema_version": {"const": "source-aware-unresolved-inventory-v1"},
+    "schema_fingerprint": {"$ref": "#/$defs/hash"},
+    "export_fingerprint": {"$ref": "#/$defs/hash"},
+    "knowledge_identity": {"type": "object", "required": ["versions", "artifact_sha256"], "properties": {"versions": {"type": "object"}, "artifact_sha256": {"type": "object", "additionalProperties": {"$ref": "#/$defs/hash"}}}, "additionalProperties": false},
+    "counts": {"type": "object", "required": ["unique_jobs", "distinct_source_views", "records", "duplicate_input_views"], "additionalProperties": {"type": "integer", "minimum": 0}},
+    "views": {"type": "array", "items": {"$ref": "#/$defs/view"}},
+    "records": {"type": "array", "items": {"$ref": "#/$defs/record"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "strings": {"type": "array", "items": {"type": "string"}},
+    "view": {
+      "type": "object", "additionalProperties": false,
+      "required": ["view_id", "job_id", "cohort", "source_versions", "references", "raw_jd_reference", "record_ids", "source_allocations"],
+      "properties": {
+        "view_id": {"type": "string", "pattern": "^srcview_[a-f0-9]{24}$"},
+        "job_id": {"type": "integer"},
+        "cohort": {"enum": ["saved_primary", "saved_alternate", "raw_jd_only"]},
+        "source_versions": {"type": "object"},
+        "references": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["fixture", "fixture_sha256", "job_index", "row_container"], "properties": {"fixture": {"enum": ["tests/fixtures/per_jd_scoring_audit.json", "tests/fixtures/confirmed_taxonomy_coverage.json"]}, "fixture_sha256": {"$ref": "#/$defs/hash"}, "job_index": {"type": "integer", "minimum": 0}, "row_container": {"enum": ["baseline_stable_analysis.canonical_requirements", "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"]}}}},
+        "raw_jd_reference": {"type": "object", "required": ["available", "text_sha256", "location"], "properties": {"available": {"type": "boolean"}, "text_sha256": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]}, "location": {"enum": ["frozen_inputs.raw_jd_text", null]}}, "additionalProperties": false},
+        "record_ids": {"$ref": "#/$defs/strings"},
+        "source_allocations": {"type": "array", "items": {"type": "object", "required": ["parent_occurrence_id", "contributing_sum", "status", "source_occurrence_count"], "properties": {"parent_occurrence_id": {"type": "string"}, "contributing_sum": {"type": ["number", "null"]}, "status": {"enum": ["CONSERVED", "NON_CONTRIBUTING_PROVENANCE_ONLY", "PARTIAL_RETAINED_ALLOCATION", "OVERALLOCATED", "UNAVAILABLE_OR_INVALID_FRACTION"]}, "source_occurrence_count": {"type": "integer", "minimum": 1}}, "additionalProperties": false}}
+      }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "view_id", "job_id", "requirement_id", "requirement", "original_requirement_fingerprint", "exported_requirement_fingerprint", "native_structure", "qualifier_observations", "source_completeness", "native_resolution", "evidence", "readiness", "stage2_diagnostic", "privacy"],
+      "properties": {
+        "record_id": {"type": "string", "pattern": "^srcinv_[a-f0-9]{24}$"},
+        "view_id": {"type": "string", "pattern": "^srcview_[a-f0-9]{24}$"},
+        "job_id": {"type": "integer"},
+        "requirement_id": {"type": "string", "minLength": 1},
+        "requirement": {"type": "object", "required": ["requirement_id", "text"], "properties": {"requirement_id": {"type": "string"}, "text": {"type": "string"}, "source_provenance": {"type": "array", "items": {"type": "object"}}, "group_weight_fraction": {"type": "number", "minimum": 0, "maximum": 1}}, "not": {"anyOf": [{"required": ["evidence"]}, {"required": ["resume_profile"]}, {"required": ["raw_resume_text"]}]}},
+        "original_requirement_fingerprint": {"$ref": "#/$defs/hash"},
+        "exported_requirement_fingerprint": {"$ref": "#/$defs/hash"},
+        "native_structure": {"type": "object", "required": ["components", "mode", "source", "parent_weight_preserved", "scoring_children_created"], "properties": {"mode": {"enum": ["all", "any", null]}, "components": {"type": "array"}, "parent_weight_preserved": {"const": true}, "scoring_children_created": {"const": false}}},
+        "qualifier_observations": {"type": "object", "required": ["optional_cue", "negative_cue", "meaning"], "properties": {"optional_cue": {"type": "boolean"}, "negative_cue": {"type": "boolean"}, "meaning": {"const": "LEXICAL_DIAGNOSTIC_ONLY_NATIVE_IMPORTANCE_AND_STRUCTURE_RETAINED"}}, "additionalProperties": false},
+        "source_completeness": {"type": "object", "required": ["status", "blockers", "parent_occurrence_count"], "properties": {"status": {"enum": ["COMPLETE_AVAILABLE_SOURCE", "PARTIAL_SOURCE_CONTEXT"]}, "blockers": {"$ref": "#/$defs/strings"}, "parent_occurrence_count": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+        "native_resolution": {"type": "object", "required": ["knowledge_status", "resolution_source", "capability_id", "technology_id", "reason", "taxonomy_diagnostics", "registry_diagnostics", "identity_scope"], "properties": {"knowledge_status": {"enum": ["CAPABILITY_RESOLVED", "TECHNOLOGY_IDENTITY_RESOLVED", "UNRESOLVED"]}, "resolution_source": {"type": "string"}, "capability_id": {"type": ["string", "null"]}, "technology_id": {"type": ["string", "null"]}, "reason": {"type": ["string", "null"]}, "taxonomy_diagnostics": {"type": "object"}, "registry_diagnostics": {"type": ["object", "null"]}, "identity_scope": {"type": ["object", "null"]}}, "additionalProperties": false},
+        "evidence": {"type": "object", "required": ["evaluation", "inputs_available", "stored_receipt", "blockers"], "properties": {"evaluation": {"const": "NOT_RUN"}, "inputs_available": {"type": "boolean"}, "stored_receipt": {"type": ["object", "null"]}, "blockers": {"$ref": "#/$defs/strings"}}, "additionalProperties": false},
+        "readiness": {"type": "object", "required": ["native_probe_executed", "recognition", "recognition_blockers", "current_full_pipeline", "current_full_pipeline_blockers", "historical_reproduction", "historical_reproduction_blockers"], "properties": {"native_probe_executed": {"const": true}, "recognition": {"enum": ["READY_CURRENT_INPUT", "PARTIAL_SOURCE_CONTEXT", "BLOCKED_REDACTED_EXPORT"]}, "recognition_blockers": {"$ref": "#/$defs/strings"}, "current_full_pipeline": {"enum": ["BLOCKED", "INPUTS_AVAILABLE_NOT_EXECUTED"]}, "current_full_pipeline_blockers": {"$ref": "#/$defs/strings"}, "historical_reproduction": {"enum": ["BLOCKED", "INPUTS_AVAILABLE_NOT_EXECUTED"]}, "historical_reproduction_blockers": {"$ref": "#/$defs/strings"}}, "additionalProperties": false},
+        "stage2_diagnostic": {"type": "boolean"},
+        "privacy": {"type": "object", "required": ["redacted", "native_diagnostics_basis"], "properties": {"redacted": {"type": "boolean"}, "native_diagnostics_basis": {"const": "ORIGINAL_LOCAL_JD_INPUT_BEFORE_REDACTION"}}, "additionalProperties": false}
+      }
+    }
+  }
+}

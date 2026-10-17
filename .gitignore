@@ -65,4 +65,9 @@ debug_exports/
 # Keep essential implementation documentation
 !/docs/governed_requirement_resolution_v1_1.md
 !/docs/governed_review_v1_2_2.md
-!/docs/post_publication_accounting_audit.md
+!/docs/post_publication_accounting_audit.md/bulk_unresolved_v1_inventory.json
+/bulk_unresolved_v1_preview.json
+/bulk_unresolved_v1_preview.json)
+/bulk_unresolved_v1_preview.json)
+/bulk_unresolved_v1_inventory.json 
+/bulk_unresolved_v1_preview.json

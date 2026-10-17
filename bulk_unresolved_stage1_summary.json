@@ -1,0 +1,350 @@
+{
+  "artifact_kind": "compact_summary_not_full_export",
+  "summary_version": "source-aware-inventory-summary-v1",
+  "schema_version": "source-aware-unresolved-inventory-v1",
+  "schema_fingerprint": "0697587028a63f7824199a9b832593b20f42b8c35f3e916295d1787f7f041ee4",
+  "export_fingerprint": "6eea250344de01911932ef554e0efeddab5be7c7205dae18040a0ff2797862c6",
+  "counts": {
+    "unique_jobs": 30,
+    "distinct_source_views": 90,
+    "records": 2170,
+    "duplicate_input_views": 0
+  },
+  "sources": {
+    "tests/fixtures/per_jd_scoring_audit.json": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+    "tests/fixtures/confirmed_taxonomy_coverage.json": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299"
+  },
+  "knowledge_identity": {
+    "versions": {
+      "match_version": "job-match-snapshot-v2.3.0|registry=technology-registry-v1.3",
+      "match_contract_version": "job-match-snapshot-v2.3.0",
+      "scoring_version": "stable-evidence-v1.17-phase6d21",
+      "taxonomy_version": "phase6d-capability-taxonomy-v1.6",
+      "technology_registry_version": "technology-registry-v1.3"
+    },
+    "artifact_sha256": {
+      "taxonomy/capability_taxonomy_v1.json": "1c68940cbfa1bc459b81bdc8182e2165f370eb628bfe0e3e1940388a15f57513",
+      "taxonomy/technology_registry_v1.json": "56ca633f2beb26cd2d290b7f328f3d59fcd6cb27bc7588d4c075759a3e2a9675",
+      "tailoring/production_requirement_resolver.py": "d773bdfaebdaad0dfcf4da5cec376c6756cdd5809069dd5834191e08917061bb",
+      "tailoring/requirement_scope.py": "053c694ecbc3f9e5233d686ff946863a41cd569bbc9578820b73461cf38d3c7c",
+      "tailoring/capability_taxonomy.py": "373c3cb8d7aedd8122d258c2fc395d49dbb5ca73f93ff02a87b3a254ba7db96f",
+      "tailoring/phase6d6_structured_matching.py": "90658676df9bb04e6215345f468c6837b7157c5ddf7decb4abda4aabf100e744",
+      "analysis_stability/stable_evidence_scoring.py": "3e4fad843517f20d446650c35b7173ad08eab30e16f3e09f97e4f4d4b2adfaa0"
+    }
+  },
+  "cohorts": {
+    "raw_jd_only": {
+      "rows": 716,
+      "jobs": 30,
+      "source_completeness": {
+        "COMPLETE_AVAILABLE_SOURCE": 716
+      },
+      "recognition_readiness": {
+        "READY_CURRENT_INPUT": 711,
+        "BLOCKED_REDACTED_EXPORT": 5
+      },
+      "knowledge_status": {
+        "CAPABILITY_RESOLVED": 191,
+        "UNRESOLVED": 519,
+        "TECHNOLOGY_IDENTITY_RESOLVED": 6
+      },
+      "current_full_pipeline": {
+        "BLOCKED": 716
+      },
+      "blockers": {
+        "ORIGINAL_EXTRACTED_JD_PROFILE_UNAVAILABLE": 716,
+        "COMPLETE_FROZEN_CANDIDATE_EVIDENCE_UNAVAILABLE": 716
+      }
+    },
+    "saved_alternate": {
+      "rows": 727,
+      "jobs": 30,
+      "source_completeness": {
+        "PARTIAL_SOURCE_CONTEXT": 727
+      },
+      "recognition_readiness": {
+        "PARTIAL_SOURCE_CONTEXT": 723,
+        "BLOCKED_REDACTED_EXPORT": 4
+      },
+      "knowledge_status": {
+        "UNRESOLVED": 536,
+        "CAPABILITY_RESOLVED": 191
+      },
+      "current_full_pipeline": {
+        "BLOCKED": 727
+      },
+      "blockers": {
+        "ORIGINAL_EXTRACTED_JD_PROFILE_UNAVAILABLE": 727,
+        "COMPLETE_FROZEN_CANDIDATE_EVIDENCE_UNAVAILABLE": 727,
+        "RAW_JD_UNAVAILABLE_IN_THIS_VIEW": 727
+      }
+    },
+    "saved_primary": {
+      "rows": 727,
+      "jobs": 30,
+      "source_completeness": {
+        "PARTIAL_SOURCE_CONTEXT": 727
+      },
+      "recognition_readiness": {
+        "PARTIAL_SOURCE_CONTEXT": 724,
+        "BLOCKED_REDACTED_EXPORT": 3
+      },
+      "knowledge_status": {
+        "UNRESOLVED": 536,
+        "CAPABILITY_RESOLVED": 191
+      },
+      "current_full_pipeline": {
+        "BLOCKED": 727
+      },
+      "blockers": {
+        "ORIGINAL_EXTRACTED_JD_PROFILE_UNAVAILABLE": 727,
+        "COMPLETE_FROZEN_CANDIDATE_EVIDENCE_UNAVAILABLE": 727
+      }
+    }
+  },
+  "stage2_cases": [
+    {
+      "job_id": 16,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_245eb63ef4b050305725c6d9",
+      "cohort": "saved_primary",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 1,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 479,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_4883e327eeaf078b7f674bc7",
+      "cohort": "saved_alternate",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/confirmed_taxonomy_coverage.json",
+          "fixture_sha256": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299",
+          "job_index": 22,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 479,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_5b831d105a2a45e37fd7e381",
+      "cohort": "saved_primary",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 22,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_6ba020bd109f9c1faad4c6cd",
+      "cohort": "raw_jd_only",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 26,
+          "row_container": "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"
+        }
+      ],
+      "text": "· Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_6ba020bd109f9c1faad4c6cd",
+      "cohort": "raw_jd_only",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 26,
+          "row_container": "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"
+        }
+      ],
+      "text": "· Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 479,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_89c5d212e4c0696961de3224",
+      "cohort": "raw_jd_only",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 22,
+          "row_container": "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 359,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_a5a1145a4dba91a185d1e807",
+      "cohort": "saved_alternate",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/confirmed_taxonomy_coverage.json",
+          "fixture_sha256": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299",
+          "job_index": 19,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_c09be364797d8d3412a004bc",
+      "cohort": "saved_primary",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 26,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "· Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_c09be364797d8d3412a004bc",
+      "cohort": "saved_primary",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 26,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "· Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 359,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_d0ce90f79ad421f11d670dfb",
+      "cohort": "saved_primary",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 19,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_d22ed3dd8da71f445d190592",
+      "cohort": "saved_alternate",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/confirmed_taxonomy_coverage.json",
+          "fixture_sha256": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299",
+          "job_index": 26,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "· Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 566,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_d22ed3dd8da71f445d190592",
+      "cohort": "saved_alternate",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/confirmed_taxonomy_coverage.json",
+          "fixture_sha256": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299",
+          "job_index": 26,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "· Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 16,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_e510c75edbd82377691cdfbc",
+      "cohort": "saved_alternate",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/confirmed_taxonomy_coverage.json",
+          "fixture_sha256": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299",
+          "job_index": 1,
+          "row_container": "baseline_stable_analysis.canonical_requirements"
+        }
+      ],
+      "text": "Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 359,
+      "requirement_id": "req_95479a28180a",
+      "view_id": "srcview_eb9b9a05581b4edc28beacb3",
+      "cohort": "raw_jd_only",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 19,
+          "row_container": "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"
+        }
+      ],
+      "text": "Design, develop",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    },
+    {
+      "job_id": 16,
+      "requirement_id": "req_fd6f5ea4f9bf",
+      "view_id": "srcview_f365511a579869f5bccd4907",
+      "cohort": "raw_jd_only",
+      "source_references": [
+        {
+          "fixture": "tests/fixtures/per_jd_scoring_audit.json",
+          "fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f",
+          "job_index": 1,
+          "row_container": "DERIVED: canonicalise_requirements({}, frozen_inputs.raw_jd_text).requirements"
+        }
+      ],
+      "text": "Design, build",
+      "action": "DIAGNOSE_ONLY_NO_REPAIR"
+    }
+  ],
+  "evidence_evaluations_run": 0,
+  "full_pipeline_replays_run": 0,
+  "historical_snapshots_modified": 0
+}
