@@ -1,0 +1,895 @@
+{
+  "digest_contract": "Canonical UTF-8 JSON sorted keys, compact separators, ensure_ascii=False; excludes only protection ledgers and oracle-storage identity fields. All native decisions, receipts, IDs, labels, weights and production identities remain covered. Filesystem artifact_sha256 metadata is separately checked against frozen production_source_lf_sha256, normalizing CRLF to LF. Version identities remain in the complete-result digest.",
+  "parents": [
+    {
+      "job_id": 16,
+      "original_raw_parent": "Design, build, and maintain scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds.",
+      "parent_occurrence_id": "srcgrp_e822a3bdbba5",
+      "scenarios": [
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "maintenance_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Developed scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "development_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "design_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed and developed scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "design_development_no_lifecycle"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "build",
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed, Built, Maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "all_requested_actions"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Worked on software projects."
+          ],
+          "id": "generic_software"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Used scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds as an end user without responsibility for their design, development or maintenance."
+          ],
+          "id": "technology_usage_no_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Consumed existing REST APIs using HTTP requests and JSON responses."
+          ],
+          "id": "api_consumption"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Integrated React with Supabase PostgREST for CRUD data access and authentication."
+          ],
+          "id": "postgrest_supabase_integration"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Implemented Java REST API endpoints and request handlers in an existing backend."
+          ],
+          "id": "java_rest_authorship"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed user interface mockups; implemented scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds without owning its design or maintenance."
+          ],
+          "id": "incomplete_design"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Never designed, developed, built, maintained or deployed scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "negated_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Configured ESP32 GPIO interrupts."
+          ],
+          "id": "zero_overlap_topic"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "lifecycle_action_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ],
+            [
+              "build"
+            ],
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds.",
+            "Built scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds.",
+            "Maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+          ],
+          "id": "three_actions_separate_rows"
+        }
+      ]
+    },
+    {
+      "job_id": 359,
+      "original_raw_parent": "Design, develop, and maintain embedded software modules supporting waveform processing systems.",
+      "parent_occurrence_id": "srcgrp_af665d2ba39b",
+      "scenarios": [
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained embedded software modules supporting waveform processing systems."
+          ],
+          "id": "maintenance_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Developed embedded software modules supporting waveform processing systems."
+          ],
+          "id": "development_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ]
+          ],
+          "evidence": [
+            "Designed embedded software modules supporting waveform processing systems."
+          ],
+          "id": "design_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed and developed embedded software modules supporting waveform processing systems."
+          ],
+          "id": "design_development_no_lifecycle"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed, Developed, Maintained embedded software modules supporting waveform processing systems."
+          ],
+          "id": "all_requested_actions"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Worked on software projects."
+          ],
+          "id": "generic_software"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Used embedded software modules supporting waveform processing systems as an end user without responsibility for their design, development or maintenance."
+          ],
+          "id": "technology_usage_no_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Consumed existing REST APIs using HTTP requests and JSON responses."
+          ],
+          "id": "api_consumption"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Integrated React with Supabase PostgREST for CRUD data access and authentication."
+          ],
+          "id": "postgrest_supabase_integration"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Implemented Java REST API endpoints and request handlers in an existing backend."
+          ],
+          "id": "java_rest_authorship"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed user interface mockups; implemented embedded software modules supporting waveform processing systems without owning its design or maintenance."
+          ],
+          "id": "incomplete_design"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Never designed, developed, built, maintained or deployed embedded software modules supporting waveform processing systems."
+          ],
+          "id": "negated_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Configured ESP32 GPIO interrupts."
+          ],
+          "id": "zero_overlap_topic"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained embedded software modules supporting waveform processing systems."
+          ],
+          "id": "lifecycle_action_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ],
+            [
+              "develop"
+            ],
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed embedded software modules supporting waveform processing systems.",
+            "Developed embedded software modules supporting waveform processing systems.",
+            "Maintained embedded software modules supporting waveform processing systems."
+          ],
+          "id": "three_actions_separate_rows"
+        }
+      ]
+    },
+    {
+      "job_id": 479,
+      "original_raw_parent": "Design, develop and maintain scalable full-stack applications using React, TypeScript and Python technologies.",
+      "parent_occurrence_id": "srcgrp_b729779d18ec",
+      "scenarios": [
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "maintenance_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Developed scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "development_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "design_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed and developed scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "design_development_no_lifecycle"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed, Developed, Maintained scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "all_requested_actions"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Worked on software projects."
+          ],
+          "id": "generic_software"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Used scalable full-stack applications using React, TypeScript and Python technologies as an end user without responsibility for their design, development or maintenance."
+          ],
+          "id": "technology_usage_no_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Consumed existing REST APIs using HTTP requests and JSON responses."
+          ],
+          "id": "api_consumption"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Integrated React with Supabase PostgREST for CRUD data access and authentication."
+          ],
+          "id": "postgrest_supabase_integration"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Implemented Java REST API endpoints and request handlers in an existing backend."
+          ],
+          "id": "java_rest_authorship"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed user interface mockups; implemented scalable full-stack applications using React, TypeScript and Python technologies without owning its design or maintenance."
+          ],
+          "id": "incomplete_design"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Never designed, developed, built, maintained or deployed scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "negated_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Configured ESP32 GPIO interrupts."
+          ],
+          "id": "zero_overlap_topic"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "lifecycle_action_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed, Developed, Maintained scalable full-stack applications using React, TypeScript and Python technologies. Owned the React frontend and Python backend."
+          ],
+          "id": "all_actions_explicit_layers"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ],
+            [
+              "develop"
+            ],
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable full-stack applications using React, TypeScript and Python technologies.",
+            "Developed scalable full-stack applications using React, TypeScript and Python technologies.",
+            "Maintained scalable full-stack applications using React, TypeScript and Python technologies."
+          ],
+          "id": "three_actions_separate_rows"
+        }
+      ]
+    },
+    {
+      "job_id": 566,
+      "original_raw_parent": "· Design, build and maintain scalable backend services and API.",
+      "parent_occurrence_id": "srcgrp_ff65d3ef26a4",
+      "scenarios": [
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable backend services and API."
+          ],
+          "id": "maintenance_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Developed scalable backend services and API."
+          ],
+          "id": "development_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable backend services and API."
+          ],
+          "id": "design_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed and developed scalable backend services and API."
+          ],
+          "id": "design_development_no_lifecycle"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "build",
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed, Built, Maintained scalable backend services and API."
+          ],
+          "id": "all_requested_actions"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Worked on software projects."
+          ],
+          "id": "generic_software"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Used scalable backend services and API as an end user without responsibility for their design, development or maintenance."
+          ],
+          "id": "technology_usage_no_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Consumed existing REST APIs using HTTP requests and JSON responses."
+          ],
+          "id": "api_consumption"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Integrated React with Supabase PostgREST for CRUD data access and authentication."
+          ],
+          "id": "postgrest_supabase_integration"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Implemented Java REST API endpoints and request handlers in an existing backend."
+          ],
+          "id": "java_rest_authorship"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed user interface mockups; implemented scalable backend services and API without owning its design or maintenance."
+          ],
+          "id": "incomplete_design"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Never designed, developed, built, maintained or deployed scalable backend services and API."
+          ],
+          "id": "negated_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Configured ESP32 GPIO interrupts."
+          ],
+          "id": "zero_overlap_topic"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained scalable backend services and API."
+          ],
+          "id": "lifecycle_action_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ],
+            [
+              "build"
+            ],
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Designed scalable backend services and API.",
+            "Built scalable backend services and API.",
+            "Maintained scalable backend services and API."
+          ],
+          "id": "three_actions_separate_rows"
+        }
+      ]
+    },
+    {
+      "job_id": 566,
+      "original_raw_parent": "· Design, develop and deploy cloud-based applications with large-scale data processing capabilities.",
+      "parent_occurrence_id": "srcgrp_8ac40e9b5dc4",
+      "scenarios": [
+        {
+          "declared_actions_by_evidence": [
+            [
+              "maintain"
+            ]
+          ],
+          "evidence": [
+            "Maintained cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "maintenance_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Developed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "development_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ]
+          ],
+          "evidence": [
+            "Designed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "design_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed and developed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "design_development_no_lifecycle"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design",
+              "develop",
+              "deploy"
+            ]
+          ],
+          "evidence": [
+            "Designed, Developed, Deployed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "all_requested_actions"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Worked on software projects."
+          ],
+          "id": "generic_software"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Used cloud-based applications with large-scale data processing capabilities as an end user without responsibility for their design, development or maintenance."
+          ],
+          "id": "technology_usage_no_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Consumed existing REST APIs using HTTP requests and JSON responses."
+          ],
+          "id": "api_consumption"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Integrated React with Supabase PostgREST for CRUD data access and authentication."
+          ],
+          "id": "postgrest_supabase_integration"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Implemented Java REST API endpoints and request handlers in an existing backend."
+          ],
+          "id": "java_rest_authorship"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "develop",
+              "build"
+            ]
+          ],
+          "evidence": [
+            "Designed user interface mockups; implemented cloud-based applications with large-scale data processing capabilities without owning its design or maintenance."
+          ],
+          "id": "incomplete_design"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Never designed, developed, built, maintained or deployed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "negated_ownership"
+        },
+        {
+          "declared_actions_by_evidence": [
+            []
+          ],
+          "evidence": [
+            "Configured ESP32 GPIO interrupts."
+          ],
+          "id": "zero_overlap_topic"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "deploy"
+            ]
+          ],
+          "evidence": [
+            "Deployed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "lifecycle_action_only"
+        },
+        {
+          "declared_actions_by_evidence": [
+            [
+              "design"
+            ],
+            [
+              "develop"
+            ],
+            [
+              "deploy"
+            ]
+          ],
+          "evidence": [
+            "Designed cloud-based applications with large-scale data processing capabilities.",
+            "Developed cloud-based applications with large-scale data processing capabilities.",
+            "Deployed cloud-based applications with large-scale data processing capabilities."
+          ],
+          "id": "three_actions_separate_rows"
+        }
+      ]
+    }
+  ],
+  "production_source_lf_sha256": {
+    "analysis_stability/stable_evidence_scoring.py": "582863e5e3fe5356d0c8adfdac53dd7ec27b382bb1c45d11caf6b8df192384bd",
+    "tailoring/capability_taxonomy.py": "cc1ab2d8b6500f58c76ace8a277e18d70fc9edf0a54bafd3e43705a90da22166",
+    "tailoring/phase6d6_structured_matching.py": "afb5e0ee13473cdae1ae155d9f625f23dd7ac65b33897afda340f360110c3eb1",
+    "tailoring/production_requirement_resolver.py": "89af9c5d78c94482219cfe0965ae45f9a2407912771e5f8e7752bd51062f37c4",
+    "tailoring/requirement_scope.py": "ae0d338c7c896ad722e14c5e74c3372db046379b5ba4eaef42e3fcf570bd7d9b",
+    "taxonomy/capability_taxonomy_v1.json": "a8c4600445ae9d444f41801e47fc4e6895b97b8f58114042dcaf27de55f6b2c8",
+    "taxonomy/technology_registry_v1.json": "6a9ab470807665c1100400707635d32f7ceed06355050eeb2eae2351b1b11466"
+  },
+  "purpose": "Reviewed synthetic action expectations frozen before checkpoint portability changes; never computed by the ownership detector.",
+  "reviewed_baseline_semantic_sha256": {
+    "2b": "52069681c83b8e6474d968c311b5e732baa5c74efc8b37f753cbd15adbd58574",
+    "2c": "62be52c5eaa806847528980b2b85fb75e393a720ed0b80b2d2c98e051e3472b8"
+  },
+  "schema_version": "coordinated-action-independent-oracle-v1",
+  "source_fixture": "tests/fixtures/per_jd_scoring_audit.json",
+  "source_fixture_sha256": "a994e4ad7dd7f71e42e2f2c1421a13f4cbd554d36bf2310cec4cd8f22d35e93f"
+}

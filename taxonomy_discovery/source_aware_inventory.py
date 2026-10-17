@@ -265,6 +265,8 @@ def validate_export(export):
     schema=json.loads(SCHEMA.read_text(encoding='utf-8'))
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(export)
+    from taxonomy_discovery.source_inventory_safety import validate_safe_payload
+    validate_safe_payload(export, JD_FIELDS, PARENT_FIELDS)
     if export['schema_fingerprint']!=file_sha(SCHEMA):
         raise ValueError('Schema fingerprint mismatch')
     if export['export_fingerprint']!=digest({k:v for k,v in export.items() if k!='export_fingerprint'}):

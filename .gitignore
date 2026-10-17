@@ -67,6 +67,11 @@ debug_exports/
 !/docs/governed_review_v1_2_2.md
 !/docs/post_publication_accounting_audit.md/bulk_unresolved_v1_inventory.json
 /bulk_unresolved_v1_preview.json
+
+# Local Stage 2-2C diagnostic exports; compact independent test oracle is tracked.
+/bulk_unresolved_stage2_preview.json
+/bulk_unresolved_stage2b_preview.json
+/bulk_unresolved_stage2c_preview.json
 /bulk_unresolved_v1_preview.json)
 /bulk_unresolved_v1_preview.json)
 /bulk_unresolved_v1_inventory.json 
