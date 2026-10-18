@@ -1,0 +1,63 @@
+{
+  "schema_version": "research-coordinated-partial-action-expectations-v1",
+  "authority": "Independent synthetic expectations specified for policy review before detector execution; not production approval.",
+  "recommended_variant": "P3",
+  "policy_meanings": {
+    "P1": "Any positively owned requested action, full technical scope, verified same source, no denial/ambiguity.",
+    "P2": "Creation plus upstream design or requested downstream lifecycle stewardship, with the common safeguards.",
+    "P3": "Design plus creation on the exact required artifact/scope; only the required lifecycle action may be absent, with no explicit denial.",
+    "P4": "No newly governed partial credit; review partial configurations."
+  },
+  "eligibility_table": [
+    {"actions": [], "expected": ["REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["design"], "expected": ["ELIGIBLE_PARTIAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["develop"], "expected": ["ELIGIBLE_PARTIAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["maintain"], "expected": ["ELIGIBLE_PARTIAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["design", "maintain"], "expected": ["ELIGIBLE_PARTIAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["develop", "maintain"], "expected": ["ELIGIBLE_PARTIAL", "ELIGIBLE_PARTIAL", "REVIEW_REQUIRED", "REVIEW_REQUIRED"]},
+    {"actions": ["design", "develop"], "expected": ["ELIGIBLE_PARTIAL", "ELIGIBLE_PARTIAL", "ELIGIBLE_PARTIAL", "REVIEW_REQUIRED"]},
+    {"actions": ["design", "develop", "maintain"], "expected": ["COMPLETE", "COMPLETE", "COMPLETE", "COMPLETE"]}
+  ],
+  "ceiling_table": [
+    {"native": "direct", "admission": "ELIGIBLE_PARTIAL", "expected": "weak"},
+    {"native": "transferable", "admission": "ELIGIBLE_PARTIAL", "expected": "weak"},
+    {"native": "weak", "admission": "ELIGIBLE_PARTIAL", "expected": "weak"},
+    {"native": "none", "admission": "ELIGIBLE_PARTIAL", "expected": "none"},
+    {"native": "direct", "admission": "COMPLETE", "expected": "direct"},
+    {"native": "transferable", "admission": "COMPLETE", "expected": "transferable"},
+    {"native": "weak", "admission": "COMPLETE", "expected": "weak"},
+    {"native": "none", "admission": "COMPLETE", "expected": "none"},
+    {"native": "direct", "admission": "REVIEW_REQUIRED", "expected": null}
+  ],
+  "scope_controls": [
+    {"id":"negative_jd", "requirement":"Do not design, develop and maintain embedded software modules.", "evidence":"Designed, developed and maintained embedded software modules.", "expected_extraction":"UNSUPPORTED", "expected_policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"mixed_boolean_jd", "requirement":"Design, develop or maintain embedded software modules.", "evidence":"Designed, developed and maintained embedded software modules.", "expected_extraction":"UNSUPPORTED", "expected_policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"optional_technology", "requirement":"Design, develop and maintain embedded software modules, preferably using C++.", "evidence":"Designed and developed embedded software modules.", "expected_extraction":"SUPPORTED", "expected_policies":["ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","REVIEW_REQUIRED"]},
+    {"id":"valid_alternative", "requirement":"Design or develop embedded software modules.", "evidence":"Developed embedded software modules.", "expected_extraction":"SUPPORTED", "expected_policies":["COMPLETE","COMPLETE","COMPLETE","COMPLETE"]}
+  ],
+  "cases": [
+    {"id":"A_maintenance", "text":"Maintained embedded software modules supporting waveform processing systems.", "owned":["maintain"], "technical":"FULL", "policies":["ELIGIBLE_PARTIAL","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"B_development_maintenance", "text":"Developed and maintained embedded software modules supporting waveform processing systems.", "owned":["develop","maintain"], "technical":"FULL", "policies":["ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"C_design_development", "text":"Designed and developed embedded software modules supporting waveform processing systems.", "owned":["design","develop"], "technical":"FULL", "policies":["ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","REVIEW_REQUIRED"]},
+    {"id":"D_complete", "text":"Designed, developed and maintained embedded software modules supporting waveform processing systems.", "owned":["design","develop","maintain"], "technical":"FULL", "policies":["COMPLETE","COMPLETE","COMPLETE","COMPLETE"]},
+    {"id":"E_usage", "text":"Used embedded software modules supporting waveform processing systems.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"F_topic", "text":"Configured ESP32 GPIO interrupts.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"G_denied_short", "text":"Developed embedded software but did not maintain it.", "owned":["develop"], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"H_team", "text":"Worked with a team that developed embedded software.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"I_wrong_objects", "text":"Designed firmware for sensors and maintained an unrelated application.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"passive_me", "text":"Embedded software modules supporting waveform processing systems were designed, developed and maintained by me.", "owned":["design","develop","maintain"], "technical":"FULL", "policies":["COMPLETE","COMPLETE","COMPLETE","COMPLETE"]},
+    {"id":"passive_vendor", "text":"Embedded software modules supporting waveform processing systems were designed, developed and maintained by the vendor.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"relative_me", "text":"Used embedded software modules supporting waveform processing systems which I designed, developed and maintained.", "owned":["design","develop","maintain"], "technical":"FULL", "policies":["COMPLETE","COMPLETE","COMPLETE","COMPLETE"]},
+    {"id":"relative_vendor", "text":"Used embedded software modules supporting waveform processing systems which the vendor designed, developed and maintained.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"short_scope", "text":"Designed, developed and maintained embedded software modules.", "owned":["design","develop","maintain"], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"denied_lifecycle", "text":"Designed and developed embedded software modules supporting waveform processing systems; did not maintain embedded software modules supporting waveform processing systems.", "owned":["design","develop"], "technical":"FULL", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"contradiction", "text":"Designed, developed and maintained embedded software modules supporting waveform processing systems; never designed embedded software modules supporting waveform processing systems.", "owned":["develop","maintain"], "technical":"FULL", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"future", "text":"I will design, develop and maintain embedded software modules supporting waveform processing systems.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"peripheral", "text":"Tested embedded software modules supporting waveform processing systems.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"passive_not_me", "text":"Embedded software modules supporting waveform processing systems were designed, developed and maintained by our team.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"relative_future", "text":"Used embedded software modules supporting waveform processing systems which I will design, develop and maintain.", "owned":[], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"cloud_two_dimensions", "family":"cloud", "text":"Designed and developed cloud applications.", "owned":["design","develop"], "technical":"UNPROVEN", "policies":["REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED","REVIEW_REQUIRED"]},
+    {"id":"fullstack_grounded_pair", "family":"fullstack", "text":"Designed and developed scalable full-stack applications using React, TypeScript and Python technologies. Owned the React frontend and Python backend.", "owned":["design","develop"], "technical":"FULL", "policies":["ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","REVIEW_REQUIRED"]},
+    {"id":"backend_grounded_pair", "family":"backend", "text":"Designed and built scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints.", "owned":["design","develop"], "technical":"FULL", "policies":["ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","ELIGIBLE_PARTIAL","REVIEW_REQUIRED"]}
+  ]
+}

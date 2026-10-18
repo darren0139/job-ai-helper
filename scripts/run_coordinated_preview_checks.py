@@ -13,6 +13,7 @@ import uuid
 from urllib.parse import unquote,urlparse
 
 FOCUSED_MODULES = (
+    'tests.test_partial_action_credit_preview',
     'tests.test_coordinated_ownership_preview',
     'tests.test_coordinated_evidence_preview',
     'tests.test_coordinated_action_preview',
@@ -29,6 +30,8 @@ FOCUSED_MODULES = (
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch-root',type=Path,default=Path(tempfile.gettempdir()))
+    parser.add_argument('--stage2d-preview',type=Path,help='Optional new local reports/ JSON; only written after tests pass')
+    parser.add_argument('--protected-baseline',type=Path,help='Optional Stage 2D protection ledger; never a test input')
     parser.add_argument('tests',nargs='*',default=list(FOCUSED_MODULES))
     args=parser.parse_args()
     root=Path(__file__).resolve().parents[1]
@@ -72,6 +75,11 @@ def main():
            and getattr(module,'__file__',None)
            and not Path(module.__file__).resolve().is_relative_to(root)]
     if leaks:raise RuntimeError('Project modules imported outside checkout: '+str(leaks))
+    if result.wasSuccessful() and args.stage2d_preview:
+        from scripts.preview_partial_action_credit_v1 import write_preview
+        preview=write_preview(args.stage2d_preview,args.protected_baseline)
+        print('Stage 2D preview written: '+str(args.stage2d_preview),flush=True)
+        print('Stage 2D action confusion: '+str(preview['action_confusion']['2d']),flush=True)
     return 0 if result.wasSuccessful() else 1
 
 
