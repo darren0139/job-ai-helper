@@ -7,6 +7,7 @@ os.environ.update(PYTHON_DOTENV_DISABLED='true', CAPABILITY_RAG_MODE='off',
 import streamlit as st
 from scripts.coordinated_acceptance import parents, scenarios, comparison, analyze
 from scripts import coordinated_batch_dashboard as dashboard
+from scripts import coordinated_conflict_acceptance as realistic_dashboard
 
 st.set_page_config(page_title='Coordinated-action acceptance', layout='wide')
 st.title('Coordinated-action acceptance')
@@ -16,6 +17,8 @@ dashboard.prepare_revision(revision)
 if st.session_state.get('acceptance_batch', {}).get('revision', revision) != revision:
     st.session_state.pop('acceptance_batch', None)
     st.warning('Inputs, source code or policy identity changed. Run the batch again.')
+if st.session_state.get('realistic_batch', {}).get('revision', revision) != revision:
+    st.session_state.pop('realistic_batch', None)
 
 
 def compact_rows(rows):
@@ -26,7 +29,7 @@ def compact_rows(rows):
             for i, row in enumerate(rows)]
 
 
-def show_details(result, checks):
+def show_details(result, checks, diagnostic_key='batch_full_json'):
     st.subheader('Selected acceptance scenario')
     st.caption(str(result['job_id'])+' · '+result['scenario'])
     st.write('Original JD requirement')
@@ -36,6 +39,8 @@ def show_details(result, checks):
         st.write(text)
     for heading, rows in (('Before — original rows', result['before_rows']),
                           ('After — corrected complete parent', result['after_rows'])):
+        if not rows:
+            continue  # realistic historical labels are observations, not fabricated rows
         st.write(heading)
         st.dataframe(compact_rows(rows), hide_index=True, width='stretch',
                      alt=heading+' with labels, allocation and contribution')
@@ -50,6 +55,25 @@ def show_details(result, checks):
             st.caption('Pending: '+row['text'])
     else:
         st.metric('Synthetic whole-JD alignment', str(score)+'%')
+    for affected in result['after']['canonical_requirements']:
+        conflict = (affected.get('coordinated_action_receipt') or {}).get('scoped_conflict')
+        if not conflict or not conflict['quarantine']:
+            continue
+        st.warning('Scoped conflict — contribution unavailable: '+affected['text'])
+        st.write({'Conflict status': conflict['status'], 'Conflict reason': conflict['reason'],
+                  'Selected positive source': conflict['selected_positive']['source']})
+        st.write('Selected positive original: '+conflict['selected_positive']['text'])
+        st.dataframe([{'Contradictory source': f['negative_original']['source'],
+                       'Original text': f['negative_original'].get('original_text', 'Unavailable original text'),
+                       'Project/source relationship': f.get('relationship', 'Uncertain source coverage'),
+                       'Finding': f['status'], 'Reason': f['reason']}
+                      for f in conflict['findings']], hide_index=True, width='stretch',
+                     alt='Original contradictory sources and their relationship to the selected positive')
+        with st.expander('Scoped conflict and original-occurrence receipts', expanded=False):
+            st.json(conflict)
+    if result['after'].get('original_source_occurrence_ledger'):
+        with st.expander('Original source occurrence coverage', expanded=False):
+            st.json(result['after']['original_source_occurrence_ledger'])
     for row in result['after_rows']:
         receipt = row['coordinated_action_receipt']
         st.write({'Native label': receipt['native_label'], 'Capped label': row['match_label'],
@@ -84,7 +108,7 @@ def show_details(result, checks):
         else:
             st.write('No exact independently reviewed expectation covers this input. No PASS is inferred.')
     with st.expander('Full source-selection, recovery and final-invariant JSON', expanded=False):
-        if st.checkbox('Load full selected diagnostic JSON', key='batch_full_json'):
+        if st.checkbox('Load full selected diagnostic JSON', key=diagnostic_key):
             st.json(result)
 
 
@@ -173,6 +197,44 @@ if batch:
 else:
     st.info('Run the batch to populate the overview. No batch analyses run on page load.')
 
+st.divider()
+st.subheader('Stage 2I — realistic multi-record profiles')
+st.caption('The original Stage 2H profiles are unchanged. Stage 2I expectations are a separate independent delta.')
+if st.button('Run all 38 realistic profiles', key='run_realistic_batch'):
+    with st.spinner('Evaluating synthetic originals and scoped conflicts'):
+        st.session_state['realistic_batch'] = realistic_dashboard.run_batch(revision)
+realistic_batch = st.session_state.get('realistic_batch')
+if realistic_batch:
+    st.write({'Realistic outcomes': realistic_batch['counts'], 'Whole-JD withheld': realistic_batch['withheld'],
+              'Exceptions': len(realistic_batch['errors']),
+              'Stage 2I expectation mismatches': realistic_batch['expectation_mismatches']})
+    if realistic_batch['errors']:
+        st.error('Realistic scenario exceptions remain separate from policy review.')
+        st.json(realistic_batch['errors'])
+    job_filter = st.multiselect('Realistic job filter', sorted({r['Job'] for r in realistic_batch['rows']}), key='realistic_jobs')
+    disposition_filter = st.multiselect('Realistic disposition filter', sorted({r['Disposition'] for r in realistic_batch['rows']}), key='realistic_dispositions')
+    realistic_rows = [r for r in realistic_batch['rows'] if (not job_filter or r['Job'] in job_filter)
+                      and (not disposition_filter or r['Disposition'] in disposition_filter)]
+    if realistic_rows:
+        import hashlib
+        real_grid = 'realistic_grid_'+hashlib.sha256((revision+str([r['Case'] for r in realistic_rows])).encode()).hexdigest()[:16]
+        event = st.dataframe([{**r, 'Alignment %': 'Unavailable' if r['Alignment %'] is None else str(r['Alignment %'])+'%'}
+                              for r in realistic_rows], hide_index=True, width='stretch',
+            key=real_grid, selection_mode='single-row', on_select='rerun',
+            column_config={'Case': st.column_config.TextColumn(width='small', pinned=True),
+                           'Scenario': st.column_config.TextColumn(width='large')},
+            alt='All realistic profiles with actual current outcomes and independent historical/current expectations')
+        keys = [r['Case'] for r in realistic_rows]
+        if st.session_state.get('realistic_inspect') not in keys:
+            st.session_state['realistic_inspect'] = keys[0]
+        click = (real_grid, tuple(event.selection.rows))
+        if event.selection.rows and click != st.session_state.get('realistic_last_click'):
+            st.session_state['realistic_inspect'] = keys[event.selection.rows[0]]
+        st.session_state['realistic_last_click'] = click
+        chosen = st.selectbox('Inspect realistic profile', keys, key='realistic_inspect')
+        show_details(realistic_batch['details'][chosen], [], diagnostic_key='realistic_full_json')
+    else:
+        st.info('No realistic profiles match these filters.')
 st.divider()
 st.subheader('Single-scenario comparison')
 available = parents()

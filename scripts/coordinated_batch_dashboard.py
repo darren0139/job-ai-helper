@@ -20,7 +20,11 @@ _prepared = None
 def revision_key():
     """Conservative source/input identity, independent of ignored diagnostics."""
     sources = {ROOT/'coordinated_actions_preview.py', Path(__file__),
-               ROOT/'scripts/coordinated_acceptance.py', REFERENCE, R1_EXPECTATIONS}
+               ROOT/'scripts/coordinated_acceptance.py', REFERENCE, R1_EXPECTATIONS,
+               ROOT/'scripts/coordinated_conflict_acceptance.py',
+               ROOT/'scripts/audit_coordinated_realistic_evidence.py',
+               ROOT/'tests/fixtures/coordinated_conflict_policy_v1.json',
+               ROOT/'tests/fixtures/coordinated_realistic_profiles_v1.json'}
     for folder in ('analysis_stability', 'tailoring', 'taxonomy_discovery', 'job_discovery'):
         sources.update((ROOT/folder).rglob('*.py'))
     sources.update((ROOT/'taxonomy').glob('*.json'))

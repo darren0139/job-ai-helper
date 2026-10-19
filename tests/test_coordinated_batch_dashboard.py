@@ -25,6 +25,9 @@ def app_test():
 class BatchDashboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Other AppTest modules may have warmed this page's default-OFF cache.
+        # Start this fixture cold so the initial gate-call assertions are observed.
+        st.cache_data.clear()
         cls.patches = [patch.object(n, 'build_stable_analysis', wraps=n.build_stable_analysis),
             patch.object(dashboard.acceptance, 'comparison', wraps=dashboard.acceptance.comparison),
             patch.object(job_match_manager, 'save_job_match_snapshot', side_effect=AssertionError('No persistence')),

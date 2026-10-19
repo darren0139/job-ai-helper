@@ -10,10 +10,11 @@ import re
 
 from . import coordinated_policy as policy
 from . import coordinated_r1 as r1
+from . import coordinated_conflicts as conflicts
 from .coordinated_runtime import CONTEXT, review_pending
 
 IDENTITIES = {
-    'scoring_version': 'stable-evidence-v1.19-phase6d23',
+    'scoring_version': 'stable-evidence-v1.20-phase6d24',
     'canonical_requirement_decomposition_version': 'jd-atomic-requirement-decomposition-v1.2',
     'coordinated_action_evidence_policy_version': 'coordinated-action-evidence-completeness-v1',
     'coordinated_partial_action_policy_version': 'coordinated-partial-action-credit-v1',
@@ -22,6 +23,8 @@ IDENTITIES = {
     'coordinated_language_version': policy.LANGUAGE_VERSION,
     'partial_action_variant': 'P3',
     'coordinated_review_disposition_policy_version': r1.VERSION,
+    'coordinated_conflict_policy_version': conflicts.POLICY_VERSION,
+    'coordinated_source_occurrence_version': conflicts.LEDGER_VERSION,
 }
 
 
@@ -130,7 +133,9 @@ def build_coordinated_analysis(**inputs):
     raw_resume = inputs.get('raw_resume_text', '')
     raw_jd = inputs.get('raw_jd_text', '')
     canonical = canonicalise_coordinated_requirements(inputs['jd_profile'], raw_jd)
+    occurrence_ledger = conflicts.build_ledger(profile, raw_resume)
     index = n.build_resume_evidence_index(profile, raw_resume)
+    occurrence_ledger = conflicts.attach_index_coverage(occurrence_ledger, index)
     # Rebuild keyword proposals for the corrected geometry using the native selector.
     inputs['keyword_match'] = n.build_deterministic_keyword_match(
         requirements=canonical['requirements'], acronym_map=canonical['acronym_map'],
@@ -168,6 +173,7 @@ def build_coordinated_analysis(**inputs):
         result = deepcopy(req)
         disposition = 'REVIEW_REQUIRED'
         exclusion = None
+        conflict = None
         if allowed:
             result, stages, events, keyword = _evaluate_row(req, proofs, allowed, native,
                                                           profile, raw_resume, canonical['acronym_map'])
@@ -191,6 +197,16 @@ def build_coordinated_analysis(**inputs):
                     'admission': disposition, 'source_verified': True,
                     'recovery': deepcopy(req.get('capability_none_recovery')),
                     'reselection': deepcopy(req.get('capability_evidence_reselection'))})
+        if result.get('evidence') and disposition in ('COMPLETE', 'ELIGIBLE_PARTIAL'):
+            conflict = conflicts.inspect_selected(obligation, result['evidence'][0], occurrence_ledger, index)
+            if conflict['quarantine']:
+                stages.append({'stage': 'terminal_scoped_conflict_quarantine',
+                    'native_label': result['match_label'], 'capped_label': None,
+                    'selected_evidence': deepcopy(result['evidence']), 'admission': 'REVIEW_REQUIRED',
+                    'source_verified': conflict['status'] != 'UNCERTAIN_SOURCE',
+                    'recovery': deepcopy(result.get('capability_none_recovery')),
+                    'reselection': deepcopy(result.get('capability_evidence_reselection'))})
+                disposition = 'REVIEW_REQUIRED'
         if disposition == 'REVIEW_REQUIRED':
             # No unchecked credit or numeric zero escapes the quarantine.
             result.update(match_label=None, match_value=None, evidence_strength=None, evidence=[])
@@ -202,12 +218,15 @@ def build_coordinated_analysis(**inputs):
             'selected_evidence': deepcopy(result.get('evidence', [])),
             'stages': stages, 'compatibility_events': events, 'keyword_proposals': keyword,
             'r1_exclusion': exclusion,
+            'scoped_conflict': conflict,
+            'source_occurrence_claims': conflicts.claims_for_parent(obligation, occurrence_ledger),
             'parent_allocation': result['group_weight_fraction'],
             'synthetic_parent_contribution': (None if result['match_value'] is None else
                                              result['match_value'] * result['group_weight_fraction']),
         }
         rows.append(result)
     out['canonical_requirements'] = rows
+    out['original_source_occurrence_ledger'] = deepcopy(occurrence_ledger)
     # Replace all aggregate fields together; do not retain unchecked percentages.
     for key in n.compute_deterministic_alignment([]):
         out.pop(key, None)
@@ -225,5 +244,6 @@ def build_coordinated_analysis(**inputs):
     out['input_fingerprint'] = hashlib.sha256(json.dumps({
         'native_fingerprint': unchecked['input_fingerprint'], 'identities': IDENTITIES,
         'evidence_index': index, 'canonical_rows': canonical['requirements'],
+        'original_source_occurrence_ledger': occurrence_ledger,
     }, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
     return out

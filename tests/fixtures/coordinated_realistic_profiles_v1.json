@@ -1,0 +1,1456 @@
+{
+  "authority": "Stage 2H independent expectations specified before each case first execution; original 35 unchanged when three boundary controls were added.",
+  "schema": "coordinated-realistic-profiles-v1",
+  "source_objects": {
+    "embedded": "embedded software modules supporting waveform processing systems",
+    "pipeline": "scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds",
+    "fullstack": "scalable full-stack applications using React, TypeScript and Python technologies",
+    "backend": "scalable backend services and API",
+    "cloud": "cloud-based applications with large-scale data processing capabilities"
+  },
+  "cases": [
+    {
+      "id": "E01",
+      "family": "embedded",
+      "theme": "Complete original amid multiple projects, bullets, experience and skills",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets.",
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+              "Added regression tests for packet parsing."
+            ]
+          },
+          {
+            "title": "Documentation portal",
+            "bullets": [
+              "Edited Markdown documentation and release checklists."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "All three exact-scope actions occur in projects[0].bullets[1]; other originals cannot supply or remove them.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E02",
+      "family": "embedded",
+      "theme": "P3 original amid unrelated records",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets.",
+              "Designed and developed embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "WEAK",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "WEAK",
+      "independent_reason": "Design and creation share one full-scope original; maintenance unproven. Existing P3 applies.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E03",
+      "family": "embedded",
+      "theme": "Same-project actions in three separate bullets",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Designed embedded software modules supporting waveform processing systems.",
+              "Developed embedded software modules supporting waveform processing systems.",
+              "Maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Do not union three independent records into one obligation or a P3 pair.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E04",
+      "family": "embedded",
+      "theme": "Same project: complete claim then explicit denial",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+              "Never maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "CONTRADICTORY",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Current admission is per record; independent safety judgment requires reconciliation of this same-project lifecycle conflict.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E05",
+      "family": "embedded",
+      "theme": "Same project: denial then complete claim",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Never maintained embedded software modules supporting waveform processing systems.",
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "CONTRADICTORY",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Order reversal must not be interpreted as resolving contradictory same-project originals.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E06",
+      "family": "embedded",
+      "theme": "Same original contains positive and denial",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Designed and developed embedded software modules supporting waveform processing systems. Never maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "CONTRADICTORY",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Existing record-level denial veto applies even though design+development are positive.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E07",
+      "family": "embedded",
+      "theme": "Required technical scope only in project title",
+      "profile": {
+        "projects": [
+          {
+            "title": "embedded software modules supporting waveform processing systems",
+            "bullets": [
+              "I designed, developed and maintained embedded software modules."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "MISSING_MODIFIERS",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "The title does not bind omitted waveform scope to each ownership action.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E08",
+      "family": "embedded",
+      "theme": "Required technical scope only in skills",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed and maintained embedded software modules."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ],
+          "domains": [
+            "waveform processing systems"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "MISSING_MODIFIERS",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Skills cannot be joined with the shortened responsibility bullet to manufacture full scope.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E09",
+      "family": "embedded",
+      "theme": "Complete original in experience",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Firmware engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2023-2025",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "One exact-scope experience bullet proves the obligation independently of the heading and projects.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E10",
+      "family": "embedded",
+      "theme": "Complete statement in unindexed summary field",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ],
+        "experience": [],
+        "education": [],
+        "skills": {},
+        "summary": "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "INCOMPLETE_PACKET",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "A positive supplied summary must not be called absent. Current evidence index omits summary; R1 rejects unknown fields.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E11",
+      "family": "embedded",
+      "theme": "Same complete text in structured and raw input",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "The original project record suffices; raw-text deduplication must not remove its attributable ownership.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E12",
+      "family": "embedded",
+      "theme": "Complete evidence available only in raw text",
+      "profile": {
+        "projects": [],
+        "experience": [],
+        "education": [],
+        "skills": {}
+      },
+      "raw_resume_text": "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "UNSUPPORTED_AMBIGUOUS",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Current ownership admission accepts project/experience originals, not raw text; raw ownership is not proven attributable by current contract.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E13",
+      "family": "embedded",
+      "theme": "Empty supplied profile",
+      "profile": {},
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "INCOMPLETE_PACKET",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "An empty packet proves no absence and cannot receive R1 NONE.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E14",
+      "family": "embedded",
+      "theme": "Missing sections but one complete original",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ]
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "A valid positive original does not require a complete negative-evidence inventory; missing sections prevent only R1 absence inference.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E15",
+      "family": "embedded",
+      "theme": "Missing sections and consumption only",
+      "profile": {
+        "projects": [
+          {
+            "title": "Demo project",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ]
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "INCOMPLETE_PACKET",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Missing required packet sections must keep R1 closed.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E16",
+      "family": "embedded",
+      "theme": "Two independently excluded bullets in a neutral project",
+      "profile": {
+        "projects": [
+          {
+            "title": "Demo project",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses.",
+              "Integrated Supabase PostgREST generated REST APIs for CRUD and authentication."
+            ]
+          }
+        ],
+        "experience": [],
+        "education": [],
+        "skills": {}
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "NONQUALIFYING",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Both activities are explicitly consumption/generated integration; no owned embedded duties. Current one-bullet R1 schema blocks numeric exclusion.",
+      "generalization_candidate": true
+    },
+    {
+      "id": "E17",
+      "family": "embedded",
+      "theme": "Ambiguous team ownership with realistic metadata",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "We designed, developed and maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "UNSUPPORTED_AMBIGUOUS",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Team wording does not attribute all duties to the candidate.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E18",
+      "family": "embedded",
+      "theme": "Complete individual original plus unrelated ambiguous team record",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          },
+          {
+            "title": "Unrelated service experiment",
+            "bullets": [
+              "We maintained an unrelated documentation website."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "An unrelated team record does not contradict the independently complete waveform original.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E19",
+      "family": "embedded",
+      "theme": "Identical complete claims under two projects",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          },
+          {
+            "title": "Another waveform experiment",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "One retained original can prove positive ownership, but index deduplication may drop the second source occurrence; do not claim both sources were preserved.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E20",
+      "family": "embedded",
+      "theme": "Related technology and partial implementation without full duties",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "Implemented a finite impulse response filter in C++.",
+              "Configured ESP32 GPIO interrupts."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Embedded activity is relevant, but no original proves full shared-object design/creation/lifecycle or the full-scope P3 pair.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E21",
+      "family": "embedded",
+      "theme": "Original narrow R1 control",
+      "profile": {
+        "projects": [
+          {
+            "title": "Synthetic acceptance project",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ],
+        "experience": [],
+        "education": [],
+        "skills": {}
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "NONE",
+      "independent_evidence_class": "NONQUALIFYING",
+      "independent_semantic_label": "NONE",
+      "independent_reason": "Complete narrow supplied packet affirmatively excludes the only activity, with native NONE.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E22",
+      "family": "embedded",
+      "theme": "Unknown expression alongside otherwise excluded activity",
+      "profile": {
+        "projects": [
+          {
+            "title": "Demo project",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses.",
+              "Contributed to system evolution."
+            ]
+          }
+        ],
+        "experience": [],
+        "education": [],
+        "skills": {}
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "UNSUPPORTED_AMBIGUOUS",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Unknown activity cannot be affirmatively excluded merely because known action verbs are absent.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "P01",
+      "family": "pipeline",
+      "theme": "Natural explicit role preface on a complete original",
+      "profile": {
+        "projects": [
+          {
+            "title": "Transport ingestion",
+            "bullets": [
+              "As lead engineer, I designed, developed and maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "Explicit individual complete ownership is linguistically present, but the approved finite subject grammar may reject the role preface.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "P02",
+      "family": "pipeline",
+      "theme": "Complete original with harmless purpose suffix",
+      "profile": {
+        "projects": [
+          {
+            "title": "Transport ingestion",
+            "bullets": [
+              "I designed, developed, maintained scalable data pipelines that ingest, transform, and serve structured and unstructured data from diverse transport data sources, including real-time streams and batch feeds for an internal prototype."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "The full required object is present followed by purpose context; literal object equality may reject a genuine complete claim.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "P03",
+      "family": "pipeline",
+      "theme": "Multiple neutral projects with exclusively known nonqualifying originals",
+      "profile": {
+        "projects": [
+          {
+            "title": "Demo project",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          },
+          {
+            "title": "Example project",
+            "bullets": [
+              "Integrated Supabase PostgREST generated REST APIs for CRUD and authentication."
+            ]
+          }
+        ],
+        "experience": [],
+        "education": [],
+        "skills": {}
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "NONQUALIFYING",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "A fully enumerated packet has only separately excluded activity records. Current R1 rejects multiple projects; universal exclusion is a policy proposal only.",
+      "generalization_candidate": true
+    },
+    {
+      "id": "P04",
+      "family": "pipeline",
+      "theme": "Generic data skill names without responsibility",
+      "profile": {
+        "projects": [
+          {
+            "title": "Reporting notebook",
+            "bullets": [
+              "Used Python for spreadsheet reports."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "NONQUALIFYING",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Generic data/technology use proves neither pipeline ownership nor DSA. Unknown exclusion language stays review, not zero.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "F01",
+      "family": "fullstack",
+      "theme": "Complete family claim under native full-stack NONE ceiling",
+      "profile": {
+        "projects": [
+          {
+            "title": "Internal portal",
+            "bullets": [
+              "I designed, developed, maintained scalable full-stack applications using React, TypeScript and Python technologies."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "NONE",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "Preserve the existing native NONE ceiling even when literal coordinated ownership is complete.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "F02",
+      "family": "fullstack",
+      "theme": "Complete claim plus concrete frontend/backend implementation in same original",
+      "profile": {
+        "projects": [
+          {
+            "title": "Internal portal",
+            "bullets": [
+              "I designed, developed, maintained scalable full-stack applications using React, TypeScript and Python technologies. Implemented React user interfaces and Python backend services using TypeScript."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "NONE",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "Richer same-original detail may affect native capability recognition; do not prescribe a credit upgrade. Expected native-ceiling baseline remains NONE pending actual observation.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "B01",
+      "family": "backend",
+      "theme": "API consumption plus genuine complete authorship original",
+      "profile": {
+        "projects": [
+          {
+            "title": "Service workspace",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses.",
+              "I designed, developed, maintained scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints in Java."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "One full-scope original owns all actions and explicitly designs REST interfaces and implements Java endpoints. Consumption is not the ownership source.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "B02",
+      "family": "backend",
+      "theme": "Family ownership and endpoint authorship in separate originals",
+      "profile": {
+        "projects": [
+          {
+            "title": "Service workspace",
+            "bullets": [
+              "I designed, developed, maintained scalable backend services and API.",
+              "Designed REST API interfaces and implemented REST API endpoints in Java.",
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Neither original independently proves both complete family responsibility and qualifying API authorship; no union permitted.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "B03",
+      "family": "backend",
+      "theme": "Authored Java endpoints without complete backend lifecycle",
+      "profile": {
+        "projects": [
+          {
+            "title": "Service workspace",
+            "bullets": [
+              "Designed REST API interfaces and implemented REST API endpoints in Java.",
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "REVIEW_REQUIRED",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Endpoint authorship is real but does not prove the full scalable backend design/build/maintain obligation.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "B04",
+      "family": "backend",
+      "theme": "P3 family pair and endpoint proof in same original",
+      "profile": {
+        "projects": [
+          {
+            "title": "Service workspace",
+            "bullets": [
+              "Consumed REST APIs using HTTP requests and JSON responses.",
+              "Designed and developed scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints in Java."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "WEAK",
+      "independent_evidence_class": "RELEVANT_INCOMPLETE",
+      "independent_semantic_label": "WEAK",
+      "independent_reason": "Same-original design+creation and API proof can receive P3 WEAK, never full DIRECT lifecycle credit.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "B05",
+      "family": "backend",
+      "theme": "Complete API authorship then explicit endpoint denial",
+      "profile": {
+        "projects": [
+          {
+            "title": "Service workspace",
+            "bullets": [
+              "I designed, developed, maintained scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints in Java.",
+              "Never implemented REST API endpoints."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "CONTRADICTORY",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Current guards are record-local. Same-project endpoint denial needs reconciliation rather than silent complete credit.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "C01",
+      "family": "cloud",
+      "theme": "Both Job 566 parents independently complete in separate originals",
+      "profile": {
+        "projects": [
+          {
+            "title": "Cloud service workspace",
+            "bullets": [
+              "I designed, developed, deployed cloud-based applications with large-scale data processing capabilities.",
+              "I designed, developed, maintained scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints in Java."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "Each parent has its own complete original. This is not unioning records within a parent; both should permit a governed whole-JD preview.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "C02",
+      "family": "cloud",
+      "theme": "Cloud parent complete while backend parent remains unresolved",
+      "profile": {
+        "projects": [
+          {
+            "title": "Cloud service workspace",
+            "bullets": [
+              "I designed, developed, deployed cloud-based applications with large-scale data processing capabilities.",
+              "Consumed REST APIs using HTTP requests and JSON responses."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "Cloud credit may be valid while the independent backend parent keeps the whole JD unavailable.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E23",
+      "family": "embedded",
+      "theme": "Complete project plus denial scoped to a different project",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          },
+          {
+            "title": "Separate legacy experiment",
+            "bullets": [
+              "Never maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "A denial in another explicitly separate project does not invalidate independently complete ownership in the first project.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "E24",
+      "family": "embedded",
+      "theme": "Duplicate complete claims with denial only in first project",
+      "profile": {
+        "projects": [
+          {
+            "title": "Waveform toolkit",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems.",
+              "Never maintained embedded software modules supporting waveform processing systems."
+            ]
+          },
+          {
+            "title": "Separate legacy experiment",
+            "bullets": [
+              "I designed, developed, maintained embedded software modules supporting waveform processing systems."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "MATCHING",
+      "independent_semantic_label": "DIRECT",
+      "independent_reason": "The second project independently has complete uncontradicted ownership. Index deduplication must not hide its occurrence when a future conflict rule quarantines the first project.",
+      "generalization_candidate": false
+    },
+    {
+      "id": "C03",
+      "family": "cloud",
+      "theme": "Both parents complete plus same-project API endpoint denial",
+      "profile": {
+        "projects": [
+          {
+            "title": "Cloud service workspace",
+            "bullets": [
+              "I designed, developed, deployed cloud-based applications with large-scale data processing capabilities.",
+              "I designed, developed, maintained scalable backend services and API. Designed REST API interfaces and implemented REST API endpoints in Java.",
+              "Never implemented REST API endpoints."
+            ]
+          }
+        ],
+        "experience": [
+          {
+            "title": "Support engineer",
+            "company": "Fictional Aster Devices",
+            "date": "2022-2023",
+            "bullets": [
+              "Documented release notes and triaged user-interface support tickets."
+            ]
+          }
+        ],
+        "education": [],
+        "skills": {
+          "languages": [
+            "Python",
+            "C++"
+          ],
+          "tools": [
+            "Git"
+          ]
+        }
+      },
+      "raw_resume_text": "",
+      "expected_current_label": "DIRECT",
+      "independent_evidence_class": "CONTRADICTORY",
+      "independent_semantic_label": "REVIEW_REQUIRED",
+      "independent_reason": "Cloud ownership is complete, but the same-project backend endpoint contradiction is unresolved; independent safety judgment requires review before a whole-JD score is available.",
+      "generalization_candidate": false
+    }
+  ]
+}
