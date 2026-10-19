@@ -106,8 +106,17 @@ class CoordinatedImplementationTests(unittest.TestCase):
 
     def test_topic_recovery_and_consumption_cannot_restore_credit(self):
         for scenario in ('Zero-overlap topic recovery', 'API consumption', 'PostgREST integration'):
-            self.assertIsNone(self.row(scenario)['match_label'])
-            self.assertIsNone(self.row(scenario, 'backend')['match_label'])
+            # Native-positive embedded topic recovery remains quarantined. Only
+            # independently excluded packets with native NONE now become zero.
+            embedded = self.row(scenario)
+            if scenario == 'Zero-overlap topic recovery':
+                self.assertIsNone(embedded['match_label'])
+            else:
+                self.assertEqual(embedded['match_label'], 'none')
+                self.assertEqual(embedded['match_value'], 0)
+            backend = self.row(scenario, 'backend')
+            self.assertEqual(backend['match_label'], 'none')
+            self.assertEqual(backend['coordinated_action_receipt']['disposition'], 'R1_EXCLUDED_NATIVE_NONE')
 
     def test_source_and_cap_invariants_across_five_acceptance_parents(self):
         for parent in acceptance.parents():

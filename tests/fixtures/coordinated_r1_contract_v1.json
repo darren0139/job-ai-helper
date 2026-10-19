@@ -1,0 +1,46 @@
+{
+  "authority": "Stage 2G independently authored finite-language contract controls; not generated detector output",
+  "positive": [
+    "Consumed REST APIs using HTTP requests and JSON responses.",
+    "I called an existing REST API via HTTP requests and JSON responses.",
+    "Consumed existing REST APIs via HTTP requests and JSON responses",
+    "Integrated Supabase PostgREST generated REST APIs for CRUD and authentication.",
+    "I integrated with Supabase PostgREST generated REST APIs for authentication and CRUD.",
+    "Configured ESP32 GPIO interrupts.",
+    "I configured STM32 GPIO pins."
+  ],
+  "negative": [
+    "Consumed REST APIs using HTTP requests and JSON responses and implemented Java REST endpoints.",
+    "Consumed REST APIs using HTTP requests and JSON responses. Designed embedded software modules.",
+    "Consumed REST APIs using HTTP requests and JSON responses; never maintained embedded software modules.",
+    "We consumed REST APIs using HTTP requests and JSON responses.",
+    "The vendor consumed REST APIs using HTTP requests and JSON responses.",
+    "Will consume REST APIs using HTTP requests and JSON responses.",
+    "Learned to consume REST APIs using HTTP requests and JSON responses.",
+    "Never consumed REST APIs using HTTP requests and JSON responses.",
+    "Consumed REST APIs using HTTP requests and JSON responses without designing anything.",
+    "Implemented REST API clients using HTTP requests and JSON responses.",
+    "Designed and implemented REST API endpoints in Java.",
+    "Integrated Supabase PostgREST generated REST APIs for CRUD and authentication; deployed cloud applications.",
+    "Integrated custom REST APIs for CRUD and authentication.",
+    "Integrated Supabase PostgREST generated REST APIs for CRUD and authentication designed by me.",
+    "Configured ESP32 GPIO interrupts supporting waveform processing systems.",
+    "Configured ESP32 GPIO interrupts and developed firmware.",
+    "Configured ESP32 GPIO interrupts. Never deployed cloud applications.",
+    "Maintained cloud-based applications with large-scale data processing capabilities.",
+    "I designed, developed, maintained embedded software modules.",
+    "Used APIs.",
+    "No relevant experience.",
+    "",
+    "Consumed gRPC APIs using HTTP requests and JSON responses."
+  ],
+  "resolved_selected_cases": {
+    "pipeline": ["API consumption", "PostgREST integration", "Zero-overlap topic recovery"],
+    "embedded": ["API consumption", "PostgREST integration"],
+    "fullstack": ["API consumption", "PostgREST integration", "Zero-overlap topic recovery"],
+    "backend": ["API consumption", "PostgREST integration", "Zero-overlap topic recovery"],
+    "cloud": ["API consumption", "PostgREST integration", "Zero-overlap topic recovery"]
+  },
+  "expected_counts": {"total": 60, "DIRECT": 12, "WEAK": 3, "NONE": 19, "REVIEW_REQUIRED": 26, "withheld": 31, "exceptions": 0},
+  "resolved_canonical_rows": 20
+}

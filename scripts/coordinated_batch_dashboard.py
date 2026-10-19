@@ -12,6 +12,7 @@ from analysis_stability.coordinated_integration import IDENTITIES
 
 ROOT = acceptance.ROOT
 REFERENCE = ROOT/'tests/fixtures/coordinated_stage2e_batch_reference_v1.json'
+R1_EXPECTATIONS = ROOT/'tests/fixtures/coordinated_r1_contract_v1.json'
 _lock = RLock()
 _prepared = None
 
@@ -19,7 +20,7 @@ _prepared = None
 def revision_key():
     """Conservative source/input identity, independent of ignored diagnostics."""
     sources = {ROOT/'coordinated_actions_preview.py', Path(__file__),
-               ROOT/'scripts/coordinated_acceptance.py', REFERENCE}
+               ROOT/'scripts/coordinated_acceptance.py', REFERENCE, R1_EXPECTATIONS}
     for folder in ('analysis_stability', 'tailoring', 'taxonomy_discovery', 'job_discovery'):
         sources.update((ROOT/folder).rglob('*.py'))
     sources.update((ROOT/'taxonomy').glob('*.json'))
@@ -60,6 +61,18 @@ def reference_expectation(family, scenario):
     else:
         raise ValueError('Scenario has no historical reference: '+scenario)
     return {'label': label, 'withheld': family_ref['withhold_all'] or label == 'REVIEW_REQUIRED'}
+
+
+def current_expectation(family, scenario):
+    """Independent Stage 2G delta over the immutable historical Stage 2E oracle.
+
+    Scenario names are expectation lookup keys only, never scorer inputs.
+    """
+    historical = reference_expectation(family, scenario)
+    expected = json.loads(R1_EXPECTATIONS.read_text(encoding='utf-8'))
+    if scenario in expected['resolved_selected_cases'][family]:
+        return {'label': 'NONE', 'withheld': False}
+    return historical
 
 
 def independent_checks(result, family):
@@ -118,6 +131,7 @@ def summarize(result, family):
     effective = row['match_label'].upper() if row['match_label'] is not None else 'REVIEW_REQUIRED'
     score = result['after']['deterministic_alignment_score']
     expected = reference_expectation(family, result['scenario'])
+    current = current_expectation(family, result['scenario'])
     checks = independent_checks(result, family)
     summary = {
         'Case': case_key(result['parent_occurrence_id'], result['scenario']),
@@ -132,6 +146,8 @@ def summarize(result, family):
         'Technical scope': proof.get('technical_scope', 'UNPROVEN'),
         'Withheld': 'Yes' if score is None else 'No',
         'Stage 2E reference': ('Matches' if expected == {'label': effective, 'withheld': score is None} else 'MISMATCH'),
+        'Stage 2G expectation': ('Matches' if current == {'label': effective, 'withheld': score is None} else 'MISMATCH'),
+        'R1 reason': (receipt.get('r1_exclusion') or {}).get('reason', 'Not applicable: admitted ownership'),
         'Independent checks': ('Not covered' if not checks else
                                f"{sum(c['agrees'] for c in checks)}/{len(checks)} agree"),
     }
@@ -157,7 +173,8 @@ def run_batch(revision, progress=None):
             row = {'Case': key, 'Job': str(parent['job_id'])+' / '+family,
                    'Scenario': scenario, 'P3': 'EXCEPTION', 'Disposition': 'EXCEPTION',
                    'Alignment %': None, 'Withheld': 'Unknown (exception)',
-                   'Stage 2E reference': 'Not compared', 'Independent checks': 'Not checked'}
+                   'Stage 2E reference': 'Not compared', 'Stage 2G expectation': 'Not compared',
+                   'Independent checks': 'Not checked'}
         rows.append(row)
         if progress:
             progress(number, len(plan), str(parent['job_id'])+' / '+family+' — '+scenario)
@@ -173,6 +190,11 @@ def totals(batch):
             'withheld': sum(r['Withheld'] == 'Yes' for r in batch['rows']),
             'exceptions': len(batch['errors']),
             'reference_mismatches': sum(r['Stage 2E reference'] == 'MISMATCH' for r in batch['rows']),
+            'current_mismatches': sum(r.get('Stage 2G expectation') == 'MISMATCH' for r in batch['rows']),
+            'unexpected_historical_changes': sum(
+                r['Stage 2E reference'] == 'MISMATCH' and
+                reference_expectation(r['Job'].split(' / ')[1], r['Scenario']) ==
+                current_expectation(r['Job'].split(' / ')[1], r['Scenario']) for r in batch['rows']),
             'independent_checks': len(checks), 'independent_agreements': sum(c['agrees'] for c in checks),
             'independent_covered_cases': sum(bool(c) for c in batch['expectations'].values())}
 

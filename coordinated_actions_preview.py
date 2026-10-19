@@ -65,11 +65,17 @@ def show_details(result, checks):
                        'Selected': key in {r['evidence_id'] for r in row.get('evidence', [])}}
                       for key, p in receipt['proofs'].items()], hide_index=True, width='stretch')
         st.write('Required technical scope: '+receipt['obligation'].get('object', 'Unsupported'))
+        exclusion = receipt.get('r1_exclusion')
+        if exclusion:
+            st.write({'R1 disposition policy': exclusion['policy_version'],
+                      'R1 eligible': exclusion['eligible'], 'R1 reason': exclusion['reason']})
+            with st.expander('R1 exact original source receipts', expanded=False):
+                st.json(exclusion)
         if receipt['stages']:
             st.dataframe([{'Stage': s['stage'], 'Native': s['native_label'], 'Capped': s['capped_label'],
                            'Verified source': s['source_verified']} for s in receipt['stages']],
                          hide_index=True, width='stretch')
-        else:
+        elif not (exclusion or {}).get('eligible'):
             st.info('No admissible source: the filtered scoring stages were not entered. '
                     'Original source and admission receipts remain available below.')
     with st.expander('Independent expectation checks (only exact covered inputs)', expanded=False):
@@ -103,14 +109,17 @@ if batch:
     st.markdown(f"Whole-JD scores withheld: **{stats['withheld']}** · "
                 f"Exceptions: **{stats['exceptions']}** · "
                 f"Stage 2E reference mismatches: **{stats['reference_mismatches']}**")
-    st.caption(f"Historical Stage 2E reference: {stats['reference_mismatches']} mismatches. "
-               'Reference agreement is not independent scoring validation.')
+    st.caption(f"Historical Stage 2E reference: {stats['reference_mismatches']} differences; "
+               'the 14 R1 changes are expected and the historical reference is preserved.')
+    st.caption(f"Current Stage 2G expectations: {stats['current_mismatches']} mismatches. "
+               'Historical agreement and current expectation agreement are shown separately.')
     st.caption(f"Independent receipt expectations: {stats['independent_agreements']}/{stats['independent_checks']} "
                f"checks agree across {stats['independent_covered_cases']} scenarios. "
                'Uncovered scenarios are not automatically marked PASS.')
+    if stats['current_mismatches'] or stats['unexpected_historical_changes']:
+        st.error('Unexpected acceptance difference — expectations have not been updated.')
     if stats['reference_mismatches']:
-        st.error('Stage 2E reference mismatch — expectations have not been updated.')
-        with st.expander('Reference mismatches', expanded=False):
+        with st.expander('Historical Stage 2E differences (including expected R1 changes)', expanded=False):
             st.dataframe([{**r, 'Expected': dashboard.reference_expectation(r['Job'].split(' / ')[1], r['Scenario'])}
                           for r in batch['rows'] if r['Stage 2E reference'] == 'MISMATCH'])
     if stats['independent_agreements'] != stats['independent_checks']:

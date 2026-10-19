@@ -31,7 +31,8 @@ def review_pending(rows):
 def assert_analysis_publishable(analysis):
     """Reject development payloads before opening a DB or publishing a score."""
     if (analysis.get('development_preview_only')
-            or analysis.get('scoring_version') == 'stable-evidence-v1.18-phase6d22'
+            or analysis.get('scoring_version') in (
+                'stable-evidence-v1.18-phase6d22', 'stable-evidence-v1.19-phase6d23')
             or analysis.get('score_publication_status') == 'WITHHELD_PENDING_POLICY_REVIEW'
             or review_pending(analysis.get('canonical_requirements', []))):
         raise ValueError('Coordinated-action development preview cannot be persisted or published')

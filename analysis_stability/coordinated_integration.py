@@ -9,10 +9,11 @@ import json
 import re
 
 from . import coordinated_policy as policy
+from . import coordinated_r1 as r1
 from .coordinated_runtime import CONTEXT, review_pending
 
 IDENTITIES = {
-    'scoring_version': 'stable-evidence-v1.18-phase6d22',
+    'scoring_version': 'stable-evidence-v1.19-phase6d23',
     'canonical_requirement_decomposition_version': 'jd-atomic-requirement-decomposition-v1.2',
     'coordinated_action_evidence_policy_version': 'coordinated-action-evidence-completeness-v1',
     'coordinated_partial_action_policy_version': 'coordinated-partial-action-credit-v1',
@@ -20,6 +21,7 @@ IDENTITIES = {
     'capability_evidence_reselection_policy_version': 'capability-single-row-reselection-v1.1',
     'coordinated_language_version': policy.LANGUAGE_VERSION,
     'partial_action_variant': 'P3',
+    'coordinated_review_disposition_policy_version': r1.VERSION,
 }
 
 
@@ -165,6 +167,7 @@ def build_coordinated_analysis(**inputs):
         keyword = {}
         result = deepcopy(req)
         disposition = 'REVIEW_REQUIRED'
+        exclusion = None
         if allowed:
             result, stages, events, keyword = _evaluate_row(req, proofs, allowed, native,
                                                           profile, raw_resume, canonical['acronym_map'])
@@ -173,6 +176,21 @@ def build_coordinated_analysis(**inputs):
                 disposition = proofs.get(selected[0].get('evidence_id'), {}).get('admission', 'REVIEW_REQUIRED')
             elif result['match_label'] == 'none':
                 disposition = 'COMPLETE_NATIVE_NONE' if complete else 'ELIGIBLE_PARTIAL_NATIVE_NONE'
+        if disposition == 'REVIEW_REQUIRED' and not allowed:
+            # req is the final native row AFTER native recovery and reselection.
+            # R1 is terminal: no matching/source-selection stage follows it.
+            exclusion = r1.exclusion_packet(requirement=req, obligation=obligation,
+                profile=profile, raw_resume=raw_resume, evidence_index=index, proofs=proofs,
+                native_final_label=native, raw_jd=raw_jd)
+            if exclusion['eligible']:
+                disposition = 'R1_EXCLUDED_NATIVE_NONE'
+                result.update(match_label='none', match_value=n.MATCH_VALUES['none'],
+                              evidence_strength=0, evidence=[])
+                stages.append({'stage': 'r1_terminal_post_native_recovery_and_reselection',
+                    'native_label': native, 'capped_label': 'none', 'selected_evidence': [],
+                    'admission': disposition, 'source_verified': True,
+                    'recovery': deepcopy(req.get('capability_none_recovery')),
+                    'reselection': deepcopy(req.get('capability_evidence_reselection'))})
         if disposition == 'REVIEW_REQUIRED':
             # No unchecked credit or numeric zero escapes the quarantine.
             result.update(match_label=None, match_value=None, evidence_strength=None, evidence=[])
@@ -183,6 +201,7 @@ def build_coordinated_analysis(**inputs):
             'native_selected_evidence': deepcopy(req.get('evidence', [])),
             'selected_evidence': deepcopy(result.get('evidence', [])),
             'stages': stages, 'compatibility_events': events, 'keyword_proposals': keyword,
+            'r1_exclusion': exclusion,
             'parent_allocation': result['group_weight_fraction'],
             'synthetic_parent_contribution': (None if result['match_value'] is None else
                                              result['match_value'] * result['group_weight_fraction']),

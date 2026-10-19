@@ -53,7 +53,8 @@ class BatchDashboardTests(unittest.TestCase):
 
     def table(self):
         return next(frame.value for frame in self.app.dataframe
-                    if {'Scenario', 'P3', 'Before rows'} <= set(frame.value.columns))
+                    if {'Scenario', 'P3', 'Before rows'} <= set(frame.value.columns)
+                    and 'Expected' not in frame.value.columns)  # historical delta grid is separate
 
     def key(self, family, scenario):
         return next(r['Case'] for r in self.batch['rows']
@@ -65,10 +66,11 @@ class BatchDashboardTests(unittest.TestCase):
         self.assertEqual(len({r['Case'] for r in self.batch['rows']}), 60)
         self.assertEqual(len(self.table()), 60)
         stats = dashboard.totals(self.batch)
-        reference = json.loads(dashboard.REFERENCE.read_text(encoding='utf-8'))
+        reference = json.loads(dashboard.R1_EXPECTATIONS.read_text(encoding='utf-8'))
         self.assertEqual({k: stats[k] for k in reference['expected_counts']}, reference['expected_counts'])
-        self.assertEqual(stats['withheld'], reference['expected_withheld'])
-        self.assertEqual(stats['reference_mismatches'], 0)
+        self.assertEqual(stats['reference_mismatches'], 14)
+        self.assertEqual(stats['current_mismatches'], 0)
+        self.assertEqual(stats['unexpected_historical_changes'], 0)
         self.assertEqual(stats['exceptions'], 0)
         self.assertGreater(stats['independent_checks'], 0)
         self.assertEqual(stats['independent_checks'], stats['independent_agreements'])
@@ -151,11 +153,27 @@ class BatchDashboardTests(unittest.TestCase):
     def test_withheld_percentages_are_unavailable_and_diagnostics_collapsed(self):
         table = self.table()
         withheld = table[table['Withheld'] == 'Yes']
-        self.assertEqual(len(withheld), 45)
+        self.assertEqual(len(withheld), 31)
         self.assertEqual(set(withheld['Alignment %']), {'Unavailable'})
         self.assertFalse(self.app.checkbox(key='batch_full_json').value)
         full_panel = next(e for e in self.app.expander if 'Full source-selection' in e.label)
         self.assertFalse(full_panel.proto.expanded)
+
+    def test_r1_receipts_and_two_expectation_generations_without_recomputation(self):
+        builders, comparisons = self.builder.call_count, self.comparison.call_count
+        self.app.selectbox(key='batch_inspect').select(self.key('embedded', 'API consumption')).run()
+        self.assertFalse(self.app.exception)
+        self.assertTrue(any('Current Stage 2G expectations: 0 mismatches' in c.value for c in self.app.caption))
+        self.assertTrue(any('Historical Stage 2E reference: 14 differences' in c.value for c in self.app.caption))
+        self.assertFalse(self.app.error)
+        panel = next(p for p in self.app.expander if p.label == 'R1 exact original source receipts')
+        self.assertFalse(panel.proto.expanded)
+        receipts = [json.loads(j.value) for j in self.app.json if 'complete_supplied_index_verified' in j.value]
+        self.assertTrue(receipts)
+        self.assertTrue(receipts[0]['eligible'])
+        self.assertTrue(all(r['source_verified'] for r in receipts[0]['records']))
+        self.assertEqual(self.builder.call_count, builders)
+        self.assertEqual(self.comparison.call_count, comparisons)
 
     def test_exception_and_reference_mismatch_are_visible_separately(self):
         native = {(r['parent_occurrence_id'], r['scenario']): r for r in self.batch['details'].values()}
@@ -167,7 +185,7 @@ class BatchDashboardTests(unittest.TestCase):
             failed = dashboard.run_batch(self.batch['revision'])
         self.assertEqual(len(failed['rows']), 60)
         self.assertEqual(len(failed['errors']), 1)
-        self.assertEqual(dashboard.totals(failed)['REVIEW_REQUIRED'], 39)
+        self.assertEqual(dashboard.totals(failed)['REVIEW_REQUIRED'], 25)
         failed['rows'][0]['Stage 2E reference'] = 'MISMATCH'
         app = app_test().run()
         with patch.object(dashboard, 'run_batch', return_value=failed):
@@ -214,7 +232,9 @@ class BatchDashboardUnitTests(unittest.TestCase):
         baseline = dashboard.revision_key()
         original = Path.read_bytes
         for target in (dashboard.ROOT/'scripts/coordinated_acceptance.py',
-                       dashboard.ROOT/'tests/fixtures/per_jd_scoring_audit.json'):
+                       dashboard.ROOT/'tests/fixtures/per_jd_scoring_audit.json',
+                       dashboard.ROOT/'analysis_stability/coordinated_r1.py',
+                       dashboard.R1_EXPECTATIONS):
             def changed(path):
                 data = original(path)
                 return data+b'cache revision probe' if path == target else data
