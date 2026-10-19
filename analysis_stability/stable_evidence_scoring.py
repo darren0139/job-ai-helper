@@ -1484,6 +1484,11 @@ def _split_non_preference_clause(
     """Split clear compound clauses into stable, atomic requirements."""
     group_id = _stable_id("grp", _normalise_basic(parent_text))
 
+    from .coordinated_runtime import preserves_parent
+    if preserves_parent(value):
+        return [_clause_record(text=value, importance=importance, parent_text=parent_text,
+                               focus_text=value, atomic_group_id=group_id, is_atomic=False)]
+
     if _preserves_coherent_parent(value):
         return [
             _clause_record(
@@ -3258,6 +3263,9 @@ def _evidence_source_is_requirement_compatible(
     practical design/implementation experience. Explicit course rows remain
     eligible for subject-matter requirements.
     """
+    from .coordinated_runtime import source_allowed
+    if not source_allowed(requirement, row):
+        return False
     section = _clean_text(row.get("section"))
     focus = _normalise_basic(
         requirement.get("atomic_focus")
@@ -4195,6 +4203,9 @@ def _weighted_coverage(
     rows: list[dict[str, Any]],
     accepted_importance: set[str],
 ) -> tuple[float, float, float]:
+    from .coordinated_runtime import review_pending
+    if review_pending(rows):
+        raise ValueError('Score withheld pending policy review')
     numerator = 0.0
     denominator = 0.0
 
@@ -4250,6 +4261,13 @@ def compute_deterministic_alignment(
     structure_score: int | float = 0,
 ) -> dict[str, Any]:
     """Compute role alignment without mixing in document-quality scores."""
+    from .coordinated_runtime import review_pending
+    if review_pending(linked_requirements):
+        return {"deterministic_alignment_score": None,
+                "required_core_coverage_score": None, "preferred_coverage_score": None,
+                "evidence_strength_score": None, "alignment_band": None,
+                "score_publication_status": "WITHHELD_PENDING_POLICY_REVIEW",
+                "score_interpretation": "Score withheld pending policy review"}
     scoring_rows = [
         row for row in linked_requirements if requirement_is_score_eligible(row)
     ]
@@ -4370,8 +4388,16 @@ def build_stable_analysis(
     bullet_quality_score: int | float = 0,
     structure_score: int | float = 0,
     retrieval_mode_override: str | None = None,
+    coordinated_actions_enabled: bool = False,
 ) -> dict[str, Any]:
     """Build the complete Phase 6A.1C stable-analysis payload."""
+    if coordinated_actions_enabled:
+        from .coordinated_integration import build_coordinated_analysis
+        return build_coordinated_analysis(
+            jd_profile=jd_profile, keyword_match=keyword_match, raw_jd_text=raw_jd_text,
+            raw_resume_text=raw_resume_text, resume_profile=resume_profile,
+            bullet_quality_score=bullet_quality_score, structure_score=structure_score,
+            retrieval_mode_override=retrieval_mode_override)
     canonical = canonicalise_requirements(
         jd_profile=jd_profile,
         raw_jd_text=raw_jd_text,

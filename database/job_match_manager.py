@@ -300,6 +300,8 @@ def save_job_match_snapshot(
     summary: dict[str, Any],
     db_path=None,
 ) -> dict[str, Any]:
+    from analysis_stability.coordinated_runtime import assert_analysis_publishable
+    assert_analysis_publishable(stable_analysis)
     init_job_match_schema(db_path)
     connection = _connect(db_path)
     try:

@@ -1,0 +1,18 @@
+{
+  "version": "stage2e-batch-reference-v1",
+  "authority": "Historical regression reference transcribed from the reviewed Stage 2E report; not independent scoring truth. Never regenerated from a dashboard run.",
+  "reference_report": "bulk_unresolved_stage2e_implementation.md",
+  "expected_total": 60,
+  "expected_withheld": 45,
+  "expected_counts": {"DIRECT": 12, "WEAK": 3, "NONE": 5, "REVIEW_REQUIRED": 40},
+  "families": {
+    "pipeline": {"job_id": 16, "positive_complete": "DIRECT", "design_development": "WEAK", "withhold_all": false},
+    "embedded": {"job_id": 359, "positive_complete": "DIRECT", "design_development": "WEAK", "withhold_all": false},
+    "fullstack": {"job_id": 479, "positive_complete": "NONE", "design_development": "NONE", "withhold_all": false},
+    "backend": {"job_id": 566, "positive_complete": "REVIEW_REQUIRED", "design_development": "REVIEW_REQUIRED", "withhold_all": true},
+    "cloud": {"job_id": 566, "positive_complete": "DIRECT", "design_development": "WEAK", "withhold_all": true}
+  },
+  "complete_scenarios": ["All mandatory actions", "Passive first-person ownership", "Relative-clause ownership", "Complete alternative second bullet"],
+  "partial_scenario": "Design and development",
+  "review_scenarios": ["Maintenance only", "Shortened object", "API consumption", "PostgREST integration", "Zero-overlap topic recovery", "Separate partial records", "Denied lifecycle"]
+}

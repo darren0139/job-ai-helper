@@ -256,6 +256,8 @@ def persist_explicit_application_analysis(
     if not input_fingerprint or not raw_jd_text or report.get("raw_jd_text") != raw_jd_text:
         raise ValueError("Analysis/application JD identity mismatch")
     stable = report.get("stable_analysis") or {}
+    from analysis_stability.coordinated_runtime import assert_analysis_publishable
+    assert_analysis_publishable(stable)
     rows = stable.get("canonical_requirements") or []
     if not rows or len({r.get("requirement_id") for r in rows}) != len(rows) or any(not r.get("requirement_id") for r in rows):
         raise ValueError("Canonical requirement identity unavailable or ambiguous")
@@ -359,6 +361,8 @@ def save_analysis_snapshot(
     analysis_id: str | None = None,
     pipeline_contract_version: str = ANALYSIS_PIPELINE_CONTRACT_VERSION,
 ) -> dict[str, Any]:
+    from analysis_stability.coordinated_runtime import assert_analysis_publishable
+    assert_analysis_publishable((report or {}).get('stable_analysis') or {})
     if int(application_id) <= 0:
         raise ValueError("application_id must be positive.")
     fingerprint = str(input_fingerprint or "").strip()
