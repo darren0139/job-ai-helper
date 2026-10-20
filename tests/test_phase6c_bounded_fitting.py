@@ -163,6 +163,10 @@ class BoundedPhase6CFittingTests(unittest.TestCase):
 
             patches = (
                 patch(
+                    "resume_builder.docx_projects_skills_replacer.PREVIEW_DIR",
+                    root / "previews",
+                ),
+                patch(
                     "resume_builder.docx_projects_skills_replacer."
                     "source_docx_signature",
                     return_value="source-signature",
@@ -419,6 +423,10 @@ class BoundedPhase6CFittingTests(unittest.TestCase):
             source = Path(temporary) / "source.docx"
             source.write_bytes(b"source")
             with (
+                patch(
+                    "resume_builder.docx_projects_skills_replacer.PREVIEW_DIR",
+                    Path(temporary) / "previews",
+                ),
                 patch(
                     "resume_builder.docx_projects_skills_replacer."
                     "_find_libreoffice_executable",

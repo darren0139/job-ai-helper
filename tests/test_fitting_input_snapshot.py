@@ -290,6 +290,9 @@ class FittingInputSnapshotTests(unittest.TestCase):
             pdf = root / "candidate.pdf"
             pdf.write_bytes(b"pdf")
             with patch(
+                "resume_builder.docx_projects_skills_replacer.PREVIEW_DIR",
+                root / "previews",
+            ), patch(
                 "resume_builder.docx_projects_skills_replacer."
                 "generate_tailored_resume_copy",
                 return_value=output,

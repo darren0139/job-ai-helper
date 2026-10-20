@@ -3,9 +3,11 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import os
 import unittest
 from unittest.mock import patch
 
+from resume_builder import docx_projects_skills_replacer as replacer
 from resume_builder.docx_projects_skills_replacer import (
     generate_tailored_resume_copy_fit_one_page,
     resolve_effective_fitting_bullet_ceiling,
@@ -200,6 +202,7 @@ class AllCanonicalFitHandoffTests(unittest.TestCase):
                 return 2 if overflow_full_payload and count == 16 else 1
 
             with (
+                patch.object(replacer, "PREVIEW_DIR", root / "previews"),
                 patch(
                     "resume_builder.docx_projects_skills_replacer."
                     "source_docx_signature",
@@ -241,6 +244,12 @@ class AllCanonicalFitHandoffTests(unittest.TestCase):
                     page_density_mode="none",
                     generation_id="sequence-regression",
                 )
+                if overflow_full_payload:
+                    snapshot = Path(result["before_fitting_pdf_path"])
+                    self.assertTrue(snapshot.resolve().is_relative_to(root.resolve()))
+                    self.assertEqual(snapshot.read_bytes(), b"pdf")
+
+        self.assertFalse(root.exists())
 
         return result, observed_counts
 
@@ -309,6 +318,70 @@ class AllCanonicalFitHandoffTests(unittest.TestCase):
                 for attempt in result["attempts"][1:]
             )
         )
+
+
+class PreviewOutputIsolationTests(unittest.TestCase):
+    def test_real_snapshots_are_unique_contained_and_cleaned_after_success(self) -> None:
+        original = replacer.PREVIEW_DIR
+        snapshots = []
+        roots = []
+        for _ in range(2):
+            with TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                roots.append(root)
+                source = root / "synthetic.pdf"
+                source.write_bytes(b"synthetic overflow PDF")
+                with patch.object(replacer, "PREVIEW_DIR", root / "previews"):
+                    for _ in range(2):
+                        snapshot = replacer._snapshot_before_fitting_pdf(
+                            source, application_id=None, generation_id="repeat"
+                        )
+                        self.assertIsNotNone(snapshot)
+                        self.assertEqual(snapshot.parent, root / "previews")
+                        self.assertTrue(snapshot.resolve().is_relative_to(root.resolve()))
+                        self.assertEqual(snapshot.read_bytes(), source.read_bytes())
+                        snapshots.append(snapshot)
+                self.assertIs(replacer.PREVIEW_DIR, original)
+            self.assertFalse(root.exists())
+        self.assertEqual(len(set(snapshots)), 4)
+        self.assertEqual(len(set(roots)), 2)
+        self.assertTrue(all(not path.exists() for path in snapshots))
+
+    def test_preview_configuration_and_files_restore_after_exception(self) -> None:
+        original = replacer.PREVIEW_DIR
+        with self.assertRaisesRegex(ValueError, "synthetic fixture failure"):
+            with TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "synthetic.pdf"
+                source.write_bytes(b"synthetic overflow PDF")
+                with patch.object(replacer, "PREVIEW_DIR", root / "previews"):
+                    snapshot = replacer._snapshot_before_fitting_pdf(
+                        source, application_id=None, generation_id="exception"
+                    )
+                    self.assertTrue(snapshot.is_file())
+                    raise ValueError("synthetic fixture failure")
+        self.assertIs(replacer.PREVIEW_DIR, original)
+        self.assertFalse(root.exists())
+        self.assertFalse(snapshot.exists())
+
+    @unittest.skipUnless(
+        os.environ.get("JOB_MATCH_TEST_GUARD_DIR"),
+        "Requires the existing offline release containment launcher",
+    )
+    def test_guard_rejects_unexpected_write_without_redirecting_it(self) -> None:
+        # A unique, nonexistent target; no production artifact is read or opened.
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            outside = Path(os.environ["JOB_MATCH_TEST_ROOT"]) / (
+                root.name + "-unauthorized-preview-probe.txt"
+            )
+            with patch.object(replacer, "PREVIEW_DIR", root / "previews"):
+                with self.assertRaisesRegex(
+                    RuntimeError, "Offline checks prohibit writes outside disposable scratch"
+                ):
+                    outside.write_bytes(b"must never be written")
+                self.assertFalse(outside.exists())
+                self.assertFalse((root / "previews").exists())
 
 
 class GenerationSequenceIdentityTests(unittest.TestCase):
