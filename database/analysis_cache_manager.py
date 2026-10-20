@@ -470,6 +470,8 @@ def insert_analysis_snapshot_with_connection(
     """Insert one initial analysis without committing the caller's transaction."""
     if not str(input_fingerprint or "").strip() or not isinstance(report, dict):
         raise ValueError("A complete analysis snapshot is required.")
+    from analysis_stability.coordinated_runtime import assert_analysis_publishable
+    assert_analysis_publishable(report.get('stable_analysis') or {})
     connection.execute(
         """
         INSERT INTO application_analysis_versions (

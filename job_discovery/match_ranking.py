@@ -136,6 +136,10 @@ def best_match_sort_key(
     discovered_job_id: int = 0,
 ) -> tuple[Any, ...]:
     """Build a deterministic descending Best Match sort key."""
+    from analysis_stability.coordinated_runtime import is_development_preview
+    if isinstance(snapshot, dict) and any(is_development_preview(value) for value in (
+            snapshot, snapshot.get('summary') or {}, snapshot.get('stable_analysis') or {})):
+        raise ValueError('Developer comparisons are never eligible for saved Job Match ranking')
     summary = (
         snapshot.get("summary")
         if isinstance(snapshot, dict)

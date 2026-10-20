@@ -63,6 +63,11 @@ class InitialAnalysisFormatterTests(unittest.TestCase):
         fixture=Path(__file__).resolve().parent/'fixtures'/'per_jd_scoring_audit.json'
         bundle=json.loads(fixture.read_text(encoding='utf-8'))
         job=next(j for j in bundle['snapshot']['audit']['corpus']['jobs'] if j['job_id']==163)
+        # This is a formatter test in the frozen scorer generation, not a claim
+        # that the historical receipt is current under today's production scorer.
+        versions={**current_match_versions(), 'scoring_version':job['baseline_stable_analysis']['scoring_version']}
+        self.enterContext(patch('job_discovery.matching.current_match_versions',return_value=versions))
+        self.enterContext(patch.object(explainer,'current_match_versions',return_value=versions))
         view=explainer.build_analysis_receipt(job['baseline_stable_analysis'],raw_jd_text=job['frozen_inputs']['raw_jd_text'],
             provenance='JOB_FINDER_INITIAL_MATCH',identity={'discovered_job_id':163})
         app=AppTest.from_string('''
@@ -80,6 +85,16 @@ render_analysis_receipt(st,st.session_state['receipt'])
         self.assertEqual(len(gaps),2)
         self.assertTrue(all(gaps['Evidence']=='direct'))
         self.assertFalse(any('Global' in m.label for m in app.metric))
+
+    def test_frozen_scorer_is_still_stale_under_published_currentness(self):
+        from taxonomy_discovery.coverage_presentation import jd_coverage
+        fixture=Path(__file__).resolve().parent/'fixtures'/'per_jd_scoring_audit.json'
+        bundle=json.loads(fixture.read_text(encoding='utf-8'))
+        job=next(j for j in bundle['snapshot']['audit']['corpus']['jobs'] if j['job_id']==163)
+        self.assertNotEqual(job['baseline_stable_analysis']['scoring_version'],current_match_versions()['scoring_version'])
+        with self.assertRaisesRegex(ValueError,'Stale/incompatible analysis: scoring_version'):
+            jd_coverage(bundle['snapshot'],bundle['plan'],raw_jd_text=job['frozen_inputs']['raw_jd_text'],
+                        stable_analysis=job['baseline_stable_analysis'],job_id=163)
 
     def test_all_frozen_34_and_18_controls_preserve_native_semantics(self):
         fixtures=Path(__file__).resolve().parent/'fixtures'

@@ -28,12 +28,17 @@ def review_pending(rows):
                for row in rows)
 
 
-def assert_analysis_publishable(analysis):
-    """Reject development payloads before opening a DB or publishing a score."""
-    if (analysis.get('development_preview_only')
+def is_development_preview(analysis):
+    return bool(analysis.get('development_preview_only')
             or analysis.get('scoring_version') in (
                 'stable-evidence-v1.18-phase6d22', 'stable-evidence-v1.19-phase6d23',
-                'stable-evidence-v1.20-phase6d24')
+                'stable-evidence-v1.20-phase6d24', 'stable-evidence-v1.21-phase6d25')
+            or analysis.get('preview_namespace')
             or analysis.get('score_publication_status') == 'WITHHELD_PENDING_POLICY_REVIEW'
-            or review_pending(analysis.get('canonical_requirements', []))):
+            or review_pending(analysis.get('canonical_requirements', [])))
+
+
+def assert_analysis_publishable(analysis):
+    """Reject development payloads before opening a DB or publishing a score."""
+    if is_development_preview(analysis):
         raise ValueError('Coordinated-action development preview cannot be persisted or published')

@@ -251,6 +251,10 @@ def _default_stable_builder(
 def summarize_stable_match(
     stable_analysis: dict[str, Any],
 ) -> dict[str, Any]:
+    # This remains the published numeric-only contract. Developer comparisons
+    # have their own nullable model and must never be coerced here.
+    from analysis_stability.coordinated_runtime import assert_analysis_publishable
+    assert_analysis_publishable(stable_analysis)
     from analysis_stability.stable_evidence_scoring import (
         requirement_is_score_eligible,
     )

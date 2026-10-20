@@ -132,7 +132,7 @@ def claims_for_parent(obligation, ledger):
             for r in ledger['occurrences']]
 
 
-def inspect_selected(obligation, selected, ledger, index):
+def inspect_selected(obligation, selected, ledger, index, *, verified_projection=False):
     """Assess ONE existing selected original; never select a fallback or union."""
     result = {'policy_version': POLICY_VERSION, 'ledger_version': LEDGER_VERSION,
               'status': 'NO_APPLICABLE_CONFLICT', 'quarantine': False,
@@ -156,6 +156,11 @@ def inspect_selected(obligation, selected, ledger, index):
             result['findings'].append({'kind': 'SOURCE_COVERAGE', 'status': 'UNCERTAIN', 'negative_original': issue,
                                       'reason': 'unavailable_original_scope_cannot_be_declared_clean'})
     for other in ledger['occurrences']:
+        if verified_projection and other.get('raw_alias_status') == 'VERIFIED_SCOPED_ORIGINALS':
+            # The replay-verified adapter linked EVERY raw emission to originals
+            # that this loop examines independently. Retain the alias receipt;
+            # do not reclassify it as a new unscoped claim or scoring candidate.
+            continue
         if other['container'] and other['container'] != original['container']:
             continue
         for clause in re.finditer(r'[^.;!?\n]+', other['text']):

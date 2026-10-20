@@ -1,0 +1,14 @@
+{
+  "authority": "Independent application-adapter expectations; original Stage 2H/2I fixtures remain unchanged",
+  "selected_labels": {
+    "E01": "DIRECT", "E02": "WEAK", "E03": "REVIEW_REQUIRED",
+    "E04": "REVIEW_REQUIRED", "E05": "REVIEW_REQUIRED", "E23": "DIRECT",
+    "E24": "REVIEW_REQUIRED", "B01": "DIRECT", "B02": "REVIEW_REQUIRED",
+    "B05": "REVIEW_REQUIRED", "C01": "DIRECT", "C03": "DIRECT", "F01": "NONE"
+  },
+  "conflicted_cases": ["E04", "E05", "E24", "B05", "C03"],
+  "same_project_denial": "Never maintained embedded software modules supporting waveform processing systems.",
+  "duplicate_field_expectation": "All original field occurrences survive even if the normal projection/index deduplicates their text",
+  "raw_only_expectation": "Explicit raw-only text cannot acquire project scope merely by matching text",
+  "unindexed_expectation": "Unindexed originals stay unindexed and cannot supply admitted positive ownership"
+}

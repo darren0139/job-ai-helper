@@ -123,7 +123,7 @@ def _evaluate_row(req, proofs, allowed, native_label, profile, raw_resume, acron
         CONTEXT.reset(token)
 
 
-def build_coordinated_analysis(**inputs):
+def build_coordinated_analysis(*, source_projection=None, **inputs):
     from . import stable_evidence_scoring as n
     if inputs.get('retrieval_mode_override') not in (None, 'off', 'lexical'):
         raise ValueError('Coordinated development evaluation supports offline matching only')
@@ -132,8 +132,18 @@ def build_coordinated_analysis(**inputs):
     profile = inputs.get('resume_profile') or {}
     raw_resume = inputs.get('raw_resume_text', '')
     raw_jd = inputs.get('raw_jd_text', '')
+    identities = deepcopy(IDENTITIES)
     canonical = canonicalise_coordinated_requirements(inputs['jd_profile'], raw_jd)
-    occurrence_ledger = conflicts.build_ledger(profile, raw_resume)
+    if source_projection is None:
+        occurrence_ledger = conflicts.build_ledger(profile, raw_resume)
+    else:
+        from job_discovery.coordinated_sources import (
+            verified_projection_ledger, PROJECTED_SCORER_VERSION, PROJECTION_VERSION, ALIAS_POLICY_VERSION,
+        )
+        occurrence_ledger = verified_projection_ledger(source_projection, profile, raw_resume)
+        identities.update(scoring_version=PROJECTED_SCORER_VERSION,
+            coordinated_source_projection_version=PROJECTION_VERSION,
+            coordinated_raw_alias_policy_version=ALIAS_POLICY_VERSION)
     index = n.build_resume_evidence_index(profile, raw_resume)
     occurrence_ledger = conflicts.attach_index_coverage(occurrence_ledger, index)
     # Rebuild keyword proposals for the corrected geometry using the native selector.
@@ -198,7 +208,8 @@ def build_coordinated_analysis(**inputs):
                     'recovery': deepcopy(req.get('capability_none_recovery')),
                     'reselection': deepcopy(req.get('capability_evidence_reselection'))})
         if result.get('evidence') and disposition in ('COMPLETE', 'ELIGIBLE_PARTIAL'):
-            conflict = conflicts.inspect_selected(obligation, result['evidence'][0], occurrence_ledger, index)
+            conflict = conflicts.inspect_selected(obligation, result['evidence'][0], occurrence_ledger, index,
+                                                  verified_projection=source_projection is not None)
             if conflict['quarantine']:
                 stages.append({'stage': 'terminal_scoped_conflict_quarantine',
                     'native_label': result['match_label'], 'capped_label': None,
@@ -211,7 +222,7 @@ def build_coordinated_analysis(**inputs):
             # No unchecked credit or numeric zero escapes the quarantine.
             result.update(match_label=None, match_value=None, evidence_strength=None, evidence=[])
         result['coordinated_action_receipt'] = {
-            'policy_identities': deepcopy(IDENTITIES), 'obligation': obligation,
+            'policy_identities': deepcopy(identities), 'obligation': obligation,
             'proofs': proofs, 'disposition': disposition,
             'native_label': native, 'capped_label': result['match_label'],
             'native_selected_evidence': deepcopy(req.get('evidence', [])),
@@ -233,16 +244,16 @@ def build_coordinated_analysis(**inputs):
     out.update(n.compute_deterministic_alignment(rows,
         bullet_quality_score=inputs.get('bullet_quality_score', 0),
         structure_score=inputs.get('structure_score', 0)))
-    out.update(IDENTITIES, development_preview_only=True,
+    out.update(identities, development_preview_only=True,
                score_publication_status=('WITHHELD_PENDING_POLICY_REVIEW' if review_pending(rows)
                                          else 'DEVELOPMENT_PREVIEW_GOVERNED'))
-    out['canonicalisation_debug']['canonical_requirement_decomposition_version'] = IDENTITIES['canonical_requirement_decomposition_version']
+    out['canonicalisation_debug']['canonical_requirement_decomposition_version'] = identities['canonical_requirement_decomposition_version']
     for field, identity in (('capability_none_recovery', 'capability_none_recovery_policy_version'),
                             ('capability_evidence_reselection', 'capability_evidence_reselection_policy_version')):
         out[field]['native_policy_version'] = out[field]['policy_version']
-        out[field]['policy_version'] = IDENTITIES[identity]
+        out[field]['policy_version'] = identities[identity]
     out['input_fingerprint'] = hashlib.sha256(json.dumps({
-        'native_fingerprint': unchecked['input_fingerprint'], 'identities': IDENTITIES,
+        'native_fingerprint': unchecked['input_fingerprint'], 'identities': identities,
         'evidence_index': index, 'canonical_rows': canonical['requirements'],
         'original_source_occurrence_ledger': occurrence_ledger,
     }, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()

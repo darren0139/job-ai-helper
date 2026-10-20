@@ -846,6 +846,9 @@ def refresh_application_session_analysis_report(
     historical database payload remains unchanged.
     """
     source = deepcopy(report or {})
+    from analysis_stability.coordinated_runtime import is_development_preview
+    if is_development_preview(source) or is_development_preview(source.get('stable_analysis') or {}):
+        raise ValueError('Developer preview requires its isolated comparison state; application refresh is prohibited')
     if (source.get('meta') or {}).get('document_analysis'):
         from tailoring.document_grounded_analysis import validate_document_report
         from tailoring.job_match_ab_analysis import current_ab_identity
