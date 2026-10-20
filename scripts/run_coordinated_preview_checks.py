@@ -60,6 +60,9 @@ def main():
                 'bulk_unresolved_stage2b_preview.json','bulk_unresolved_stage2c_preview.json'):
                 raise RuntimeError('Focused checks prohibit local secrets/diagnostic exports')
         if event in ('socket.connect','socket.getaddrinfo'):
+            from scripts.offline_loopback import loopback_socket_allowed
+            if loopback_socket_allowed(event, values):
+                return
             # Windows asyncio implements its internal socketpair with a local
             # connect. Admit only that stdlib frame and its own listener address;
             # model, HTTP, DNS and arbitrary loopback connections remain blocked.

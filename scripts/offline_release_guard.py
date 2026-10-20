@@ -7,6 +7,7 @@ import sys
 import tempfile
 import uuid
 from urllib.parse import unquote, urlparse
+from scripts.offline_loopback import loopback_socket_allowed
 
 
 def install():
@@ -39,7 +40,10 @@ def install():
             for value in paths:
                 if isinstance(value, (str, bytes, os.PathLike)) and not Path(os.fsdecode(value)).resolve().is_relative_to(scratch):
                     raise RuntimeError('Offline checks prohibit filesystem mutation outside disposable scratch: '+str(value))
-        if event in ('socket.connect', 'socket.getaddrinfo', 'socket.bind', 'socket.sendto', 'socket.sendmsg'):
+        if event in ('socket.connect', 'socket.getaddrinfo', 'socket.bind', 'socket.sendto', 'socket.sendmsg',
+                     'socket.gethostbyname', 'socket.gethostbyaddr', 'socket.getnameinfo'):
+            if loopback_socket_allowed(event, args):
+                return
             frame = sys._getframe(1)
             internal = frame.f_globals.get('__name__') == 'socket' and frame.f_code.co_name == '_fallback_socketpair'
             listener = frame.f_locals.get('lsock')
