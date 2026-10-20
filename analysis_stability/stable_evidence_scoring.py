@@ -1986,6 +1986,15 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
 
     for line_offset, raw_line in enumerate(raw_lines):
         line_index = line_offset + 1
+        # Explicit request-local experiment only; published admission is intact.
+        from .jd_metadata_policy import line_decision
+        admission = line_decision(raw_jd_text, line_index)
+        if admission and not admission['admitted'] and admission['classification'] != 'STRUCTURAL_HEADING':
+            flush_pending()
+            block_index += 1
+            if admission['reset_section']:
+                active_section = active_section_heading = active_section_detection = active_section_reason = ''
+            continue
         original = _clean_text(raw_line).strip("-•* \t")
         value = _normalise_requirement_surface(original)
         if not value:
@@ -2078,6 +2087,12 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             "is_bullet": is_bullet,
             "block_index": block_index,
         }
+        if admission and admission['admitted'] and admission['explicit_eligibility_admission'] and active_section in ('', 'stop'):
+            # Explicit candidate obligations survive even under an administrative
+            # boundary. This is a classification receipt, not an invented heading.
+            pending.update(section='requirements', section_heading='',
+                section_detection='experimental_independent_candidate_obligation',
+                section_reason=admission['reason'])
 
     flush_pending()
     return _coalesce_one_or_more_alternative_lists(spans)
@@ -2587,6 +2602,7 @@ def _requirement_sources(
     jd_profile: dict[str, Any],
     raw_jd_text: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    from .jd_metadata_policy import ACTIVE as metadata_admission
     rows: list[dict[str, Any]] = []
     raw_rows, raw_spans, unheaded_raw_exclusions = _raw_jd_requirement_rows(
         raw_jd_text
@@ -2611,6 +2627,12 @@ def _requirement_sources(
         ):
             value = _clean_text(raw_value)
             if not value:
+                continue
+            if metadata_admission.get() is not None:
+                ungrounded_profile_rows.append({
+                    'text': value, 'source': f'jd_profile.{field_name}',
+                    'reason': 'experimental_raw_authority_profile_is_not_a_new_obligation',
+                })
                 continue
             if _raw_section_for_heading(value):
                 continue

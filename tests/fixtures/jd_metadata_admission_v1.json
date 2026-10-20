@@ -1,0 +1,19 @@
+{
+  "provenance": "Independently specified synthetic JD admission expectations. No candidate data or model output.",
+  "core": "Job Responsibilities:\n- Design and maintain backend services.\n- Develop REST APIs.\nJob Requirements:\n- Experience developing REST APIs.\n- Proficiency in Python.\n",
+  "metadata": "Job Information:\nPeriod: Permanent\nLocation: Jurong East\nWorking Hours: Mon\u2013Fri 8am\u20135:30pm\n",
+  "cases": [
+    {"id": "before", "layout": "metadata_then_core", "admin": [1, 2, 3, 4], "ambiguous": []},
+    {"id": "after", "layout": "core_then_metadata", "admin": [7, 8, 9, 10], "ambiguous": []},
+    {"id": "vertical", "raw": "Job Requirements:\n- Proficiency in Python.\nPeriod\nPermanent\nLocation\nJurong East (Shuttle service provided)\nMon\u2013Fri 8am\u20135:30pm", "admin": [3, 4, 5, 6, 7], "ambiguous": []},
+    {"id": "eligibility", "raw": "Job Information:\nLocation: Jurong East\n- A candidate must be willing to work on-site in Jurong East.\n- Must be available for rotating shifts.", "admin": [1, 2], "admit": [3, 4], "ambiguous": []},
+    {"id": "technical_boundaries", "raw": "Job Requirements:\n- Experience developing location-based applications.\n- Experience with permanent data storage.\n- Experience with periodic system maintenance.", "admin": [], "admit": [2, 3, 4], "ambiguous": []},
+    {"id": "no_responsibilities", "raw": "Employment details:\nPeriod: Permanent\nJob Requirements:\n- Proficiency in Python.", "admin": [1, 2], "admit": [4], "ambiguous": []},
+    {"id": "unfamiliar", "raw": "Job Requirements:\n- Proficiency in Python.\nAssignment particulars:\nLocation: Jurong East\nSome operational arrangement", "admin": [4], "admit": [2], "ambiguous": [5]},
+    {"id": "unheaded", "raw": "Location: Jurong East\nExperience developing REST APIs.\nMust be available for rotating shifts.\nPermanent data storage", "admin": [1], "admit": [2, 3], "ambiguous": [4]},
+    {"id": "metadata_only", "raw": "Job Information:\nPeriod: Permanent\nLocation: Jurong East", "admin": [1, 2, 3], "ambiguous": []},
+    {"id": "duplicate_sections", "raw": "Job Requirements:\n- Proficiency in Python.\nJob Information:\nLocation: Jurong East\nJob Requirements:\n- Proficiency in Python.\nPreferred Qualifications:\n- Experience with Docker.", "admin": [3, 4], "admit": [2, 6, 8], "ambiguous": []},
+    {"id": "unknown_bare_skill", "raw": "Unusual requirements:\nPython", "admin": [], "ambiguous": [2]},
+    {"id": "field_with_obligation", "raw": "Job Requirements:\nLocation: Candidate must be willing to work on-site.\nWorking Hours: Must be available for rotating shifts.", "admin": [], "admit": [2, 3], "ambiguous": []}
+  ]
+}
