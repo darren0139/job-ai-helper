@@ -1,0 +1,586 @@
+{
+  "authority": "Analyst assessment of 83 original spans, authored before evaluating v1.23. Human category is not automatic detector authorization; unsupported cases may remain review-required.",
+  "cases": [
+    {
+      "job_id": 16,
+      "line": 1,
+      "original_text": "[LTA-TRO] Senior/ Executive/ Data Engineer - Transport AI Programme, LTA Singapore",
+      "human_category": "TITLE",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 35,
+      "line": 1,
+      "original_text": "As a Governance Risk and Compliance Specialist & Application Security Engineer, this role is crucial in developing and maintaining a robust culture of technology and cybersecurity risk governance across our organization.",
+      "human_category": "ROLE_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 35,
+      "line": 43,
+      "original_text": "Strong analytical, reasoning and problem-solving skills.",
+      "human_category": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 35,
+      "line": 44,
+      "original_text": "Meticulous with an eye for detail.",
+      "human_category": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 35,
+      "line": 45,
+      "original_text": "Good oral and written communication skills",
+      "human_category": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 35,
+      "line": 47,
+      "original_text": "Team player who is proactive and collaborative",
+      "human_category": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 35,
+      "line": 50,
+      "original_text": "This is a 2-Year Contract. All applicants will be notified on whether they are shortlisted or not within 4 weeks of the closing date of this job posting.",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 45,
+      "line": 1,
+      "original_text": "MINDEF is developing a suite of GenAI solutions to transform how procurement work is carried out across MINDEF/the Singapore Armed Forces (SAF). These include solutions that support users in drafting requirement specifications, evaluating quotations and tenders, and assessing price reasonableness.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 48,
+      "line": 6,
+      "original_text": "Support analysis of learning and leaner profile data to help lecturers and stakeholders gain insights into students\u2019 learning behavior during term time",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 48,
+      "line": 7,
+      "original_text": "Provide training and consultancy to lecturers on how to use the dashboards",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 48,
+      "line": 8,
+      "original_text": "Conduct knowledge transfer on data analytics and modelling to staff",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 50,
+      "line": 1,
+      "original_text": "Science Centre Singapore is dedicated to the promotion of interest, learning and creativity in science & technology through imaginative and enjoyable experiences, and to contribute to the nation's development of its human resource.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 1,
+      "original_text": "HTX is Singapore's Science and Technology agency that brings together diverse scientific and engineering capabilities to develop transformative, operationally ready solutions for public safety. As a statutory board under the Ministry of Home Affairs, HTX works at the forefront of science and technology to empower the Home Team with cutting-edge capabilities. Guided by our mission to amplify, augment and accelerate the Home Team's advantage, we are committed to keeping Singapore the safest place on planet Earth.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 2,
+      "original_text": "xCloud is dedicated to elevating the enterprise experience through cutting-edge cloud capabilities, including:",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 3,
+      "original_text": "\u2022 Sustainable enterprise data centres",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 4,
+      "original_text": "\u2022 Hybrid cloud platforms",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 5,
+      "original_text": "\u2022 Advanced cloud security measures",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 6,
+      "original_text": "\u2022 Integrated Development, Security, and Operations (DevSecOps)",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 7,
+      "original_text": "\u2022 Innovative enterprise Software-as-a-Service (SaaS) solutions",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 72,
+      "line": 8,
+      "original_text": "\u2022 AI-powered enterprise applications",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 81,
+      "line": 1,
+      "original_text": "This is a 2-year contract position with the Digital Services & Technology Office.",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 81,
+      "line": 2,
+      "original_text": "The AI Engineer will be instrumental in implementing NP's AI transformation strategy by developing production-ready AI applications and systems that leverage AI tools and Cloud AI services. This role focuses on building robust, scalable AI solutions using GenAI models, deep learning, neural networks, and other AI technologies to improve NP operations through intelligent automation and advanced analytics. Working in close collaboration with the AI Product Manager, data scientists, and cross-functional teams, the AI Engineer will transition AI models from research to production and embed AI capabilities into NP's administrative and academic support workflows.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 146,
+      "line": 1,
+      "original_text": "The Singapore Global Network (SGN) is a division in the Economic Development Board tasked to re-energise Singapore\u2019s efforts in building a strong and extensive ecosystem of overseas Family, Friends, Fans (3F) for Singapore. SGN leads the Whole-Of-Government effort to coordinate across agencies and strengthen our collective networks whose skills, affinity and influence could help build linkages to global business and talent communities, and enhance the international mindshare of Singapore as a leading globally-connected city.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 163,
+      "line": 1,
+      "original_text": "ISD confronts and addresses threats to Singapore\u2019s internal security and stability. For over 70 years, ISD and its predecessor organisations have played a central role in countering threats such as those posed by foreign subversive elements, spies, racial and religious extremists, and terrorists. A fulfilling and rewarding career awaits those who want to join in ISD\u2019s critical mission of keeping Singapore safe, secure and sovereign for all Singaporeans.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 163,
+      "line": 2,
+      "original_text": "We are working on a Digital Transformation Programme to transform how endpoint support is provided to officers through re-engineering work processes and automation. If you are a person passionate about technology, providing excellent customer service support and looking for opportunities to work with a team of IT professionals, we welcome you to join us.",
+      "human_category": "MIXED_PROJECT_AND_RECRUITING_PROSE",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 1,
+      "original_text": "The Government Technology Agency (GovTech) is the lead agency driving Singapore\u2019s Smart Nation initiatives and public sector digital transformation. As the Centre of Excellence for Infocomm Technology and Smart Systems (ICT & SS), GovTech develops the Singapore Government\u2019s capabilities in Data Science & Artificial Intelligence, Application Development, Smart City Technology, Digital Infrastructure, and Cybersecurity.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 2,
+      "original_text": "At GovTech, we offer you a purposeful career to make lives better. We empower our people to master their craft through continuous and robust learning and development opportunities all year round. Our GovTechies embody our Agile, Bold and Collaborative values to deliver impactful solutions.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 3,
+      "original_text": "GovTech aims to transform the delivery of Government digital services by taking an \"outside-in\" view, putting citizens and businesses at the heart of everything we do.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 4,
+      "original_text": "Play a part in Singapore\u2019s vision to build a Smart Nation and embark on your meaningful journey to build tech for public good. Join us to advance our mission and shape your future with us today!",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 5,
+      "original_text": "Learn more about GovTech at tech.gov.sg.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 7,
+      "original_text": "At Singpass, we aim to provide reliable digital identity for Singapore that streamlines transactions, enables businesses, and protects against fraud. This involves improving the online transaction experience with Singpass and Corppass while keeping it secure. It includes everything from building better frontend applications for residents and keeping an eye on fraudulent transactions to improving internal operations and working with our partners.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 9,
+      "original_text": "As an Lead Cybersecurity Engineer, your job will be to:",
+      "human_category": "STRUCTURAL_RESPONSIBILITY_INTRODUCER",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 10,
+      "original_text": "Determine what assurance gaps exist across our product portfolio and decide what assessment approaches best surface real risk and drive meaningful remediation",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 11,
+      "original_text": "Shape the strategic direction of our cybersecurity assurance programme and prioritise activities based on the threat landscape, product criticality, and organisational risk appetite",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 12,
+      "original_text": "Work with people from engineering, product, policy, and operations to ensure security assurance is embedded as a rigorous and trusted function across our digital services",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 13,
+      "original_text": "Measure and track the effectiveness of our assurance activities, from assessment coverage and finding severity trends to remediation rates and compliance posture",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 14,
+      "original_text": "Wear multiple hats to keep our systems honest. You may be leading a penetration test, conducting a secure architecture review, facilitating a threat modelling exercise, or advising on a governance/risk/compliance matter",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 15,
+      "original_text": "Build a culture of accountability and continuous improvement with the people you work with",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 240,
+      "line": 46,
+      "original_text": "GovTech is an equal opportunity employer committed to fostering an inclusive workplace that values diverse voices and perspectives, as we believe that diversity is the foundation to innovation.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 47,
+      "original_text": "Our employee benefits are based on a total rewards approach, offering a holistic and market-competitive suite of perks. These include leave benefits to meet your work-life needs and employee wellness programs.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 49,
+      "original_text": "Learn more about life inside GovTech at go.gov.sg/GovTechCareers.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 240,
+      "line": 50,
+      "original_text": "Stay connected with us on social media at go.gov.sg/ConnectWithGovTech",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 1,
+      "original_text": "GovTech is the lead agency driving Singapore\u2019s Smart Nation initiatives and public sector digital transformation. As the Centre of Excellence for Infocomm Technology and Smart Systems (ICT & SS), GovTech develops the Singapore Government\u2019s capabilities in Data Science & Artificial Intelligence, Application Development, Smart City Technology, Digital Infrastructure, and Cybersecurity.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 2,
+      "original_text": "At GovTech, we offer you a purposeful career to make lives better where we empower our people to master their craft through robust learning and development opportunities all year round.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 4,
+      "original_text": "Singpass enables high assurance authentication, digital signatures, and secure data sharing (Myinfo) for millions of users. Working here means building infrastructure where security, reliability, and trust are the foundation of everything we do. We don\u2019t just write code; we solve complex problems to ensure that national digital services are seamless, secure, and resilient for every citizen.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 7,
+      "original_text": "Solve End-to-End Problems: Participate in the full software development lifecycle, from brainstorming solutions with product managers and fellow engineers, to deploying and monitoring code in production.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 8,
+      "original_text": "Build & Prototype: Develop and iterate on features for Singpass, ensuring they meet our high standards for security and usability.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 10,
+      "original_text": "Build Modern UI/UX: Develop intuitive, responsive interfaces using native Android UI frameworks and modern Android layout components, ensuring smooth user experiences across diverse devices.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 11,
+      "original_text": "Optimize Performance & Architecture: Design and maintain robust, scalable Android app architectures (e.g., MVVM/MVI) and optimize application performance, focusing on memory management, battery efficiency, and network responsiveness.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 12,
+      "original_text": "Learn Cloud Native Engineering: Understand how mobile clients interact with cloud deployments, focusing on system integrity and operational safety.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 13,
+      "original_text": "Collaborate Across Disciplines: Work closely with UX designers, cybersecurity specialists, and fellow engineers to understand user needs and technical constraints.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 319,
+      "line": 27,
+      "original_text": "GovTech is an equal opportunity employer committed to fostering an inclusive workplace that values diverse voices and perspectives, as we believe that diversity is the foundation to innovation.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 28,
+      "original_text": "Our employee benefits are based on a total rewards approach, offering a holistic and market-competitive suite of perks. These include leave benefits to meet your work-life needs and employee wellness programs.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 30,
+      "original_text": "Learn more about life inside GovTech at go.gov.sg/GovTechCareers.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 319,
+      "line": 31,
+      "original_text": "Stay connected with us on social media at go.gov.sg/ConnectWithGovTech",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 359,
+      "line": 1,
+      "original_text": "- Permanent",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 359,
+      "line": 2,
+      "original_text": "- Up to $7,000 + PB",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 359,
+      "line": 4,
+      "original_text": "- Jurong East (Shuttle service provided at selected MRT station)",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 361,
+      "line": 2,
+      "original_text": "Senior Embedded Graphics Software Engineer",
+      "human_category": "TITLE",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 370,
+      "line": 1,
+      "original_text": "ALTEN Group is a world leader in Engineering and Technology consulting services providing outsourced Engineering, R&D, and IT Services for different industries such as Transportation, Defence, Energy and Security with 55,000 engineers in nearly 35 countries. ANOTECH is the subsidiary of the Group delivering ALTEN's Engineering Services in Singapore.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 479,
+      "line": 2,
+      "original_text": "We are looking for a software engineer with strong programming fundamentals, excellent problem-solving skills, and the ability to deliver high-quality solutions throughout the software development lifecycle.",
+      "human_category": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 493,
+      "line": 1,
+      "original_text": "About ST Engineering",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 493,
+      "line": 2,
+      "original_text": "ST Engineering is a global technology, defence, and engineering group with offices across Asia, Europe, the Middle East, and the U.S., serving customers in more than 100 countries. The Group uses technology and innovation to solve real-world problems and improve lives through its diverse portfolio of businesses across the aerospace, smart city, defence, and public security segments. Headquartered in Singapore, ST Engineering ranks among the largest companies listed on the Singapore Exchange.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 493,
+      "line": 3,
+      "original_text": "Our history spans more than 50 years, and our strategy is underpinned by our core values \u2013 Integrity, Value Creation, Courage, Commitment and Compassion. These 5 core values guide every aspect of our business and are embedded in our ST Engineering culture \u2013 from the people we hire, to working with each other, to our partners and customers.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 493,
+      "line": 4,
+      "original_text": "About our Line of Business \u2013 Mission Software & Services",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 493,
+      "line": 5,
+      "original_text": "Our Mission Software & Services business provides leading-edge mission critical command, control, and communications (C3) systems with secured IT infrastructure and managed services. We support our client\u2019s innovation journey through design thinking, analytics, and AI-enabled decision support with our full suite of cloud computing solutions. We provide intelligent, actionable insights and sustainable solutions to our valued partners in diverse industries including defence, government, and commercial sectors.",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 493,
+      "line": 6,
+      "original_text": "Together, We Can Make A Significant Impact",
+      "human_category": "ORGANISATION_CONTEXT",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 551,
+      "line": 1,
+      "original_text": "Software Engineer",
+      "human_category": "TITLE",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 1,
+      "original_text": "Position: Software Engineer, Backend (.NET)",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 2,
+      "original_text": "Working Location: Bras Basah Road",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 5,
+      "original_text": "Salary Range: $3500 - $4000",
+      "human_category": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 6,
+      "original_text": "Job Introduction",
+      "human_category": "STRUCTURAL_ROLE_INTRODUCER",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 8,
+      "original_text": "KEY ROLE(S), RESPONSIBILITIES AND DUTIES",
+      "human_category": "STRUCTURAL_RESPONSIBILITY_INTRODUCER",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    },
+    {
+      "job_id": 556,
+      "line": 9,
+      "original_text": "Attending and contributing to meetings.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 10,
+      "original_text": "Learning the codebase and finding ways to improve it.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 11,
+      "original_text": "Writing and maintaining code.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 12,
+      "original_text": "Working on bug fixes.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 13,
+      "original_text": "Monitoring the technical performance of internal systems.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 14,
+      "original_text": "Responding to requests from the development team.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 15,
+      "original_text": "Gathering information from users about program functionality.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 16,
+      "original_text": "Writing reports, documentation and guides.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 556,
+      "line": 17,
+      "original_text": "Conducting development tests.",
+      "human_category": "RESPONSIBILITY",
+      "independent_justification": "Named actor/action or personal trait in explicit candidate/duty context."
+    },
+    {
+      "job_id": 644,
+      "line": 1,
+      "original_text": "As an engineer on the team, you\u2019ll architect and solve complex problems that will directly influence the direction of the digital asset space. There\u2019s a wide range of problems to solve at Gemini \u2013 from properly securing millions of dollars worth of customer funds, to developing innovative new blockchain products, to shaving microseconds off our API response times. We have a strong culture of code reviews, and a focus on security, with the end goal of writing and shipping high-quality code by getting things right the first time. We want to continue building the best product we can as we scale and grow our business. If you get excited about solving technical challenges that directly impact our customers, clients, and the rest of the Gemini team, we\u2019d love to hear from you.",
+      "human_category": "MIXED_ROLE_AND_RECRUITING_PROSE",
+      "independent_justification": "Original subject/section context establishes posting information, organisation narrative, title or structural wording; mixed role/recruiting prose remains unresolved as a unit."
+    }
+  ]
+}

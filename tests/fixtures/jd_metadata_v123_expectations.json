@@ -1,0 +1,117 @@
+{
+  "authority": "Independently specified analyst expectations from original JD context; not classifier output and not a historical scoring oracle.",
+  "cases": [
+    {
+      "job_id": 35,
+      "line": 42,
+      "original_text": "Skillset:",
+      "expected": "STRUCTURAL_HEADING",
+      "independent_justification": "Skillset names candidate competencies; four adjacent qualification statements corroborate it."
+    },
+    {
+      "job_id": 35,
+      "line": 43,
+      "original_text": "Strong analytical, reasoning and problem-solving skills.",
+      "expected": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Analytical reasoning skills explicitly listed under Requirements and Skillset."
+    },
+    {
+      "job_id": 35,
+      "line": 44,
+      "original_text": "Meticulous with an eye for detail.",
+      "expected": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Attention to detail is a candidate trait in the same qualification list."
+    },
+    {
+      "job_id": 35,
+      "line": 45,
+      "original_text": "Good oral and written communication skills",
+      "expected": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Communication is an explicit applicant skill, not employer metadata."
+    },
+    {
+      "job_id": 35,
+      "line": 47,
+      "original_text": "Team player who is proactive and collaborative",
+      "expected": "CANDIDATE_QUALIFICATION",
+      "independent_justification": "Teamwork is an explicit applicant trait in the qualification list."
+    },
+    {
+      "job_id": 35,
+      "line": 50,
+      "original_text": "This is a 2-Year Contract. All applicants will be notified on whether they are shortlisted or not within 4 weeks of the closing date of this job posting.",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Contract term and shortlisting notification describe employment and process, not a candidate capability."
+    },
+    {
+      "job_id": 48,
+      "line": 5,
+      "original_text": "Other responsibilities include:",
+      "expected": "STRUCTURAL_HEADING",
+      "independent_justification": "Other responsibilities include explicitly introduces three concrete job duties."
+    },
+    {
+      "job_id": 48,
+      "line": 6,
+      "original_text": "Support analysis of learning and leaner profile data to help lecturers and stakeholders gain insights into students\u2019 learning behavior during term time",
+      "expected": "RESPONSIBILITY",
+      "independent_justification": "Imperative Support analysis is a duty with data, stakeholder and learning context."
+    },
+    {
+      "job_id": 48,
+      "line": 7,
+      "original_text": "Provide training and consultancy to lecturers on how to use the dashboards",
+      "expected": "RESPONSIBILITY",
+      "independent_justification": "Provide training and consultancy assigns a concrete dashboard-related duty."
+    },
+    {
+      "job_id": 48,
+      "line": 8,
+      "original_text": "Conduct knowledge transfer on data analytics and modelling to staff",
+      "expected": "RESPONSIBILITY",
+      "independent_justification": "Conduct knowledge transfer assigns a concrete data analytics/modelling duty."
+    },
+    {
+      "job_id": 359,
+      "line": 16,
+      "original_text": "Period:",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Field/value or literal weekday schedule in an employment detail block; no candidate obligation."
+    },
+    {
+      "job_id": 359,
+      "line": 17,
+      "original_text": "Permanent",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Field/value or literal weekday schedule in an employment detail block; no candidate obligation."
+    },
+    {
+      "job_id": 359,
+      "line": 18,
+      "original_text": "Location:",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Field/value or literal weekday schedule in an employment detail block; no candidate obligation."
+    },
+    {
+      "job_id": 359,
+      "line": 19,
+      "original_text": "Jurong East (Shuttle service provided at selected MRT station)",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Field/value or literal weekday schedule in an employment detail block; no candidate obligation."
+    },
+    {
+      "job_id": 359,
+      "line": 21,
+      "original_text": "Mon\u2013Fri 8am\u20135:30pm",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Field/value or literal weekday schedule in an employment detail block; no candidate obligation."
+    },
+    {
+      "job_id": 45,
+      "line": 22,
+      "original_text": "Period: December 2026/January 2027, extendable and open for discussion.",
+      "expected": "ADMINISTRATIVE_METADATA",
+      "independent_justification": "Explicit administrative contract period, not technical periodic maintenance."
+    }
+  ]
+}

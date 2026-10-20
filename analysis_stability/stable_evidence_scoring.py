@@ -1989,6 +1989,14 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
         # Explicit request-local experiment only; published admission is intact.
         from .jd_metadata_policy import line_decision
         admission = line_decision(raw_jd_text, line_index)
+        if admission and admission.get('section_override'):
+            flush_pending()
+            block_index += 1
+            active_section = admission['section_override']
+            active_section_heading = admission.get('allocation_heading', raw_line)
+            active_section_detection = 'experimental_corroborated_candidate_list'
+            active_section_reason = admission['reason']
+            continue
         if admission and not admission['admitted'] and admission['classification'] != 'STRUCTURAL_HEADING':
             flush_pending()
             block_index += 1

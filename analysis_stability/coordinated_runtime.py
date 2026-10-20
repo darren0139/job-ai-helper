@@ -33,7 +33,7 @@ def is_development_preview(analysis):
             or analysis.get('scoring_version') in (
                 'stable-evidence-v1.18-phase6d22', 'stable-evidence-v1.19-phase6d23',
                 'stable-evidence-v1.20-phase6d24', 'stable-evidence-v1.21-phase6d25',
-                'stable-evidence-v1.22-phase6d26')
+                'stable-evidence-v1.22-phase6d26', 'stable-evidence-v1.23-phase6d27')
             or analysis.get('preview_namespace')
             or analysis.get('score_publication_status') == 'WITHHELD_PENDING_POLICY_REVIEW'
             or review_pending(analysis.get('canonical_requirements', [])))
