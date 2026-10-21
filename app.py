@@ -2374,6 +2374,10 @@ CATEGORY_OPTIONS = [
 with st.sidebar:
     st.header("Navigation")
 
+    if (os.environ.get("JOB_AI_DEVELOPER_COMPARISON", "") != "1"
+            and st.session_state.get("navigation_page") == "Developer Diagnostics"):
+        st.session_state["navigation_page"] = "Tailor Resume"
+
     if st.session_state.get("navigation_page") == "Global Blueprints":
         st.session_state["navigation_page"] = "Blueprint Library"
 
@@ -2399,6 +2403,7 @@ with st.sidebar:
             "Capability Discovery",
             "Job Market Insights",
             "Taxonomy Maintenance",
+            *(["Developer Diagnostics"] if os.environ.get("JOB_AI_DEVELOPER_COMPARISON", "") == "1" else []),
         ],
         key="navigation_page",
         label_visibility="collapsed",
@@ -8661,6 +8666,13 @@ elif page == "Application Sessions":
 
 elif page == "Job Finder":
     render_job_finder()
+
+elif page == "Developer Diagnostics":
+    try:
+        from job_discovery.developer_comparison_ui import render_developer_comparison
+        render_developer_comparison()
+    except Exception:
+        st.error("Developer diagnostics unavailable. Existing application pages remain available.")
 
 elif page == "Capability Discovery":
     render_capability_discovery_review()
