@@ -137,7 +137,7 @@ class AutomaticStatusTests(unittest.TestCase):
 
     def test_changed_draft_receipt_invalidates_approval_readiness(self):
         self.authorize();self.click('Approve validated draft')
-        key=next(k for k in self.app.session_state.filtered_state if k.endswith('_packet'))
+        key=next(k for k in self.app.session_state.keys() if k.endswith('_packet'))
         packet=deepcopy(self.app.session_state[key])
         packet['governed_regression']['draft_fingerprint']='different-draft'
         self.app.session_state[key]=packet;self.app.run()

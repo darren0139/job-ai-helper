@@ -70,7 +70,7 @@ class RecoveryTests(unittest.TestCase):
         importlib.reload(ui)
         reopened=self.app();reopened.run();self.assertFalse(reopened.exception)
         self.assertTrue(any('Already approved' in x.value for x in reopened.success))
-        packet=next(v for k,v in reopened.session_state.filtered_state.items() if k.endswith('_packet'))
+        packet=next(v for k,v in reopened.session_state.items() if k.endswith('_packet'))
         self.assertEqual(packet['readiness']['draft_fingerprint'],self.regression['draft_fingerprint'])
         self.assertEqual(packet['readiness']['regression_fingerprint'],self.regression['regression_fingerprint'])
         self.assertEqual(packet['readiness']['blockers'],[])
@@ -88,6 +88,25 @@ class RecoveryTests(unittest.TestCase):
         with patch('sqlite3.connect',side_effect=readonly):
             found=recovery.recover(self.row,self.identity,db_path=self.db)
         self.assertEqual(found['status'],'ready');self.assertTrue(found['readiness']['ready'])
+
+    def test_public_packet_inspection_is_read_only_and_reruns_do_not_approve(self):
+        before=self.db.read_bytes();knowledge=self.path.read_bytes();self.assert_no_mutations()
+        app=self.app();app.run();self.assertFalse(app.exception)
+        state=deepcopy(app.session_state.to_dict())
+        packets=[(key,value) for key,value in app.session_state.items() if key.endswith('_packet')]
+        self.assertEqual(len(packets),1)
+        key,packet=packets[0]
+        self.assertIn(key,app.session_state.keys())
+        self.assertIs(app.session_state[key],packet)
+        self.assertEqual(packet['recovery']['status'],'ready')
+        self.assertTrue(packet['readiness']['ready'])
+        self.assertIn('recovery_key',packet)
+        self.assertEqual(packet['approval']['draft_fingerprint'],self.regression['draft_fingerprint'])
+        self.assertEqual(app.session_state.to_dict(),state)
+        approval=deepcopy(packet['approval'])
+        app.run();app.run();self.assertFalse(app.exception)
+        self.assertEqual(app.session_state[key]['approval'],approval)
+        self.assertEqual(self.db.read_bytes(),before);self.assertEqual(self.path.read_bytes(),knowledge)
 
     def test_missing_approval_and_missing_store_fail_closed(self):
         with closing(sqlite3.connect(self.db)) as conn:
@@ -164,7 +183,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_legacy_session_approval_without_recovery_key_is_not_trusted(self):
         app=self.app();app.run()
-        key=next(k for k in app.session_state.filtered_state if k.endswith('_packet'))
+        key=next(k for k in app.session_state.keys() if k.endswith('_packet'))
         packet=deepcopy(app.session_state[key]);packet.pop('recovery_key')
         app.session_state[key]=packet
         store.save_governed_research_review(self.saved['result']['research_result_id'],
