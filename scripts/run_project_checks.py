@@ -137,6 +137,7 @@ QUICK_TEST_MODULES = (
 )
 
 SAFE_SMOKE_MODULES = (
+    "scripts.check_ollama_test_lanes",
     "scripts.check_capability_taxonomy_v1_4",
     "scripts.check_tqd3_unresolved_requirement_classification",
     "scripts.check_tqd3_classification_ui_contract",
@@ -275,6 +276,8 @@ def run_smoke_checks() -> None:
     for module_name in SAFE_SMOKE_MODULES:
         path = module_file(module_name)
         if not path.exists():
+            if module_name == "scripts.check_ollama_test_lanes":
+                raise RuntimeError("Required Ollama test-lane registration check is missing")
             print(f"[SKIP] {module_name} (file not present)")
             continue
 

@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import smoke_ollama_unresolved_adjudication_v1 as smoke
+from tests.ollama_current_fixtures import comparison_artifacts
 
 
 def proposal(case, route='UNKNOWN'):
@@ -23,20 +24,19 @@ class LocalSmokeTests(unittest.TestCase):
         return {'model':smoke.MODEL,'done':True,'response':json.dumps(proposal(smoke.CASES[0]))}
 
     def setUp(self):
+        self.enterContext(comparison_artifacts())
         self.calls=[]
         # Transport/schema tests do not repeatedly rebuild the 40-case review.
         patcher=patch.object(smoke,'readiness',return_value={'formal_benchmark_executed':False})
         self.mock_readiness=patcher.start();self.addCleanup(patcher.stop)
 
-    def test_actual_readiness_validator_no_new_labels(self):
-        self.mock_readiness.side_effect=None
-        with patch.object(smoke,'readiness',wraps=REAL_READINESS):
-            r=smoke.readiness()
-        self.assertEqual(r['existing_validator_summary']['confirmed'],2)
-        self.assertFalse(r['existing_validator_summary']['labeling_prerequisite_satisfied'])
-        self.assertEqual(r['v4_blank_decisions'],18)
-        self.assertEqual(r['additional_independent_actionable_needed'],18)
-        self.assertFalse(r['formal_benchmark_executed'])
+    def test_unit_preflight_is_not_historical_gold_readiness(self):
+        # Actual old readiness assertions remain registered in the archive.
+        # This unit metadata boundary cannot certify a historical experiment.
+        r=smoke.run(http=self.http)
+        self.assertFalse(r['gold_readiness']['formal_benchmark_executed'])
+        self.assertNotIn('existing_validator_summary',r['gold_readiness'])
+        self.assertEqual(r['inference_requests'],0)
 
     def test_preflight_no_inference_and_import_is_passive(self):
         r=smoke.run(http=self.http)
@@ -112,11 +112,9 @@ class LocalSmokeTests(unittest.TestCase):
             self.assertIsInstance(opener.call_args.args[1],smoke._NoRedirect)
 
 
-REAL_READINESS=smoke.readiness
-
-
 class RuntimeRecoveryTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(comparison_artifacts())
         self.calls=[]
         for name,value in [('readiness',{'gate':'TEST_ONLY','formal_benchmark_executed':False}),
                            ('runtime_state',{'generation_activity':'IDLE_OBSERVED'}),

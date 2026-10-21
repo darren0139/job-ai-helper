@@ -4,6 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 from scripts import compare_ollama_unresolved_prompts_v1_3 as study
+from tests.ollama_current_fixtures import comparison_artifacts
 
 
 def proposal(case,route=None):
@@ -17,6 +18,7 @@ def proposal(case,route=None):
 
 class SourceFirstTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(comparison_artifacts())
         self.plan=study.freeze_plan();self.calls=[]
         for name,val in [('runtime_state',{'generation_activity':'IDLE_OBSERVED'}),('readiness',{'gate':'MOCK_ONLY'})]:
             p=patch.object(study.legacy,name,return_value=val);p.start();self.addCleanup(p.stop)

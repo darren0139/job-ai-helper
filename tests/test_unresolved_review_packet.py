@@ -7,11 +7,13 @@ from scripts.adjudicate_unresolved_requirements import prepare
 from taxonomy_discovery import unresolved_review_packet as review
 from taxonomy_discovery import unresolved_adjudication as a
 from taxonomy_discovery import unresolved_gold_review as gold
+from tests.ollama_current_fixtures import adjudication_artifacts
 
 
 class V4ReviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.enterClassContext(adjudication_artifacts())
         cls.parent=gold.original();cls.inputs,_=prepare(cls.parent)
         by_key={tuple(e['key']):(e,c) for e,c in zip(cls.parent['expectations'],cls.inputs)}
         rows=[]

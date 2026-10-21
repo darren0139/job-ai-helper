@@ -8,11 +8,13 @@ from scripts import adjudicate_unresolved_requirements as cli
 from scripts import prepare_unresolved_gold_review as preparation
 from taxonomy_discovery import unresolved_adjudication as a
 from taxonomy_discovery import unresolved_gold_review as review
+from tests.ollama_current_fixtures import adjudication_artifacts
 
 
 class HumanReviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.enterClassContext(adjudication_artifacts())
         cls.original_bytes = review.ORIGINAL.read_bytes()
         cls.parent = review.original()
         cls.cases, cls.skipped = cli.prepare(cls.parent)
@@ -38,7 +40,7 @@ class HumanReviewTests(unittest.TestCase):
         self.assertEqual([e['key'] for e in m['expectations'] if e['acceptable_routes']],
                          [list(k) for k in sorted(a.NAC)])
 
-    def test_committed_pending_manifest_and_native_prepare(self):
+    def test_test_owned_pending_manifest_and_native_prepare(self):
         m = json.loads((review.ROOT / 'tests/fixtures/unresolved_adjudication_benchmark_v2.json').read_text())
         cases, skipped = cli.prepare(m)
         self.assertEqual(cases, self.cases)

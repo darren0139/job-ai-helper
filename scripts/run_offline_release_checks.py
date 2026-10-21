@@ -14,9 +14,17 @@ import uuid
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch-root', type=Path, required=True)
-    parser.add_argument('--full-project', action='store_true')
+    lanes = parser.add_mutually_exclusive_group()
+    lanes.add_argument('--full-project', action='store_true')
+    lanes.add_argument('--historical-ollama', action='store_true',
+                       help='Historical prerequisite lane; BLOCKED returns exit 2, never a current-source test PASS')
+    parser.add_argument('--list-historical', action='store_true', help='With --historical-ollama: list retained assertions only')
     parser.add_argument('tests', nargs='*')
     args = parser.parse_args()
+    if args.list_historical and not args.historical_ollama:
+        parser.error('--list-historical requires --historical-ollama')
+    if args.tests and (args.full_project or args.historical_ollama):
+        parser.error('Select either explicit modules, full project or historical lane')
     root = Path(__file__).resolve().parents[1]
     scratch = (args.scratch_root/('offline-release-'+uuid.uuid4().hex)).resolve()
     if not scratch.is_relative_to(root/'reports'):
@@ -33,7 +41,11 @@ def main():
         TAXONOMY_DISCOVERY_REVIEW_DB=str(scratch/'review.sqlite3'),
         TECHNOLOGY_REGISTRY_PROPOSAL_DB=str(scratch/'proposals.sqlite3'), TAVILY_USAGE_DB=str(scratch/'usage.sqlite3'),
         PHASE9F_BLUEPRINT_ARTIFACT_ROOT=str(scratch/'blueprint_artifacts'))
-    if args.full_project:
+    if args.historical_ollama:
+        command = [sys.executable, '-B', '-m', 'scripts.run_ollama_historical_checks']
+        if args.list_historical:
+            command.append('--list')
+    elif args.full_project:
         if args.tests:
             parser.error('Full project checks do not take a focused test list')
         command = [sys.executable, '-B', str(root/'scripts/run_project_checks.py'), '--mode', 'full']

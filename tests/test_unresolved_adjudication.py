@@ -12,6 +12,7 @@ from taxonomy_discovery import unresolved_adjudication as a
 from taxonomy_discovery import unresolved_adjudication_providers as providers
 from scripts import adjudicate_unresolved_requirements as cli
 from tests.network_guard_support import block_external_network_allow_loopback
+from tests.ollama_current_fixtures import adjudication_artifacts
 
 
 def case(rid='req_fixture', text='Network Access Control'):
@@ -80,6 +81,15 @@ class SchemaTests(unittest.TestCase):
 
 
 class NativeInputTests(unittest.TestCase):
+    def setUp(self):
+        if self._testMethodName in {
+            'test_frozen_manifest_labels_not_bucket_conversion', 'test_frozen_input_change_rejected',
+            'test_cli_default_no_transport_init_or_network', 'test_no_auto_all_corpus_expansion',
+            'test_cloud_preflight_with_key_zero_calls', 'test_paid_execution_requires_prior_qwen_and_confirmation',
+            'test_whole_paid_plan_over_budget_never_initializes_transport',
+        }:
+            self.enterContext(adjudication_artifacts())
+
     def test_native_resolution_precedes_model_and_resolved_rows_skip(self):
         occurrence={'job_id':1,'requirement':{'requirement_id':'req_a','text':'SQL','source_provenance':[{'native':True}]}}
         with patch.object(a,'resolve_requirement_with_production_knowledge',return_value={'status':'resolved'}) as native:

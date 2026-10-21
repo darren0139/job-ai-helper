@@ -6,10 +6,12 @@ from unittest.mock import patch
 
 from scripts import compare_ollama_unresolved_prompts_v1_2 as study
 from tests.test_ollama_unresolved_smoke import proposal
+from tests.ollama_current_fixtures import comparison_artifacts
 
 
 class PromptComparisonTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(comparison_artifacts())
         self.calls=[]
         self.plan=study.freeze_plan()
         for name,value in [('runtime_state',{'generation_activity':'IDLE_OBSERVED'}),('readiness',{'gate':'TEST_ONLY'})]:

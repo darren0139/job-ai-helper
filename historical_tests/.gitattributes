@@ -1,0 +1,3 @@
+# Preserve archived Git-blob bytes on Windows and Unix. Never normalize a
+# historical byte contract to make a changed artifact appear valid.
+ollama/*.py -text

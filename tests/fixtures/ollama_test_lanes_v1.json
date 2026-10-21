@@ -1,0 +1,960 @@
+{
+  "schema_version": "ollama-test-lanes-v1",
+  "retained_test_source_revision": "41b024d790013ec7120045744f1fb2b662ff1b81",
+  "historical_experiment_identity": {
+    "scoring_version": "stable-evidence-v1.16-phase6d20",
+    "taxonomy_version": "phase6d-capability-taxonomy-v1.5",
+    "plan_frozen_at_utc": "2026-10-13T04:37:37.162754+00:00",
+    "runtime_recipe": "NOT_AVAILABLE_NOT_APPROVED"
+  },
+  "current_modules": [
+    "tests.test_ollama_prompt_comparison",
+    "tests.test_ollama_prompt_comparison_v1_3",
+    "tests.test_ollama_unresolved_smoke",
+    "tests.test_unresolved_adjudication",
+    "tests.test_unresolved_gold_review",
+    "tests.test_unresolved_review_packet",
+    "tests.test_unresolved_independent_review_v5",
+    "tests.test_ollama_diagnostic_prerequisites",
+    "tests.test_ollama_test_lanes"
+  ],
+  "archives": [
+    {
+      "path": "historical_tests/ollama/test_ollama_prompt_comparison.py",
+      "original_module": "tests.test_ollama_prompt_comparison",
+      "sha256": "78121b290773b066dd6889c098fb4e6a5dbbdb34d3ae816d9610798309499537",
+      "test_ids": [
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_separate_version_and_unmodified_legacy_prompt_schema",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_holdout_frozen_and_expectations_not_in_prompts",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_preflight_is_metadata_only",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_twenty_calls_no_original_eight_legacy_reruns",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_model_digest_change_stops_before_inference",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_timeout_stops_with_reserved_attempt_no_retry",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_stale_plan_or_changed_expected_routes_rejected",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_grounding_diagnostics_preserve_legacy_fail_closed",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_unsafe_or_thinking_values_not_retained",
+        "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_fixed_loopback_transport_disables_proxy_redirect_and_arbitrary_prompt"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_ollama_prompt_comparison_v1_3.py",
+      "original_module": "tests.test_ollama_prompt_comparison_v1_3",
+      "sha256": "a42920d1b93dd04fc593b560437afef84885a8c45b813d17425d0f31795cef48",
+      "test_ids": [
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_same_schema_versions_and_no_hidden_expectations",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_freeze_exact_twenty_and_semantic_contrast",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_metadata_only_and_twenty_serial_requests",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_missing_activity_and_source_denial_reject_only_new_contract",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_identity_route_plus_preserved_activity_is_flag_not_rejection",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_technology_absence_and_omission",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_exposure_professional_route_review",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_negative_unqualified_activity_not_positive_obligation",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_alternative_presence_does_not_prove_structure_error",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_injection_influence_is_reviewed_not_claimed_causal",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_unsupported_capability_gap_and_ids_fail_closed",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_grounding_rejection_cannot_be_rehabilitated",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_tampered_plan_and_result_provenance",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_timeout_no_retry_and_outstanding_work_no_generation",
+        "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_digest_change_and_finite_loopback_request"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_ollama_unresolved_smoke.py",
+      "original_module": "tests.test_ollama_unresolved_smoke",
+      "sha256": "113af675a62dfb0c53cbfbf3644387ea886d29606032cbdffafe8110d5d7e081",
+      "test_ids": [
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_actual_readiness_validator_no_new_labels",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_preflight_no_inference_and_import_is_passive",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_explicit_only_selected_synthetic_case_and_strict_payload",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_missing_or_remote_model_no_inference",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_bounds_and_no_retry_after_failure",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_strict_types_extra_fields_duplicates_and_thinking_rejected",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_ungrounded_identity_and_span_rejected",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_unknown_abstention_valid_and_no_source_mutation",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_prompt_no_expected_labels_or_protected_inputs",
+        "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_http_proxy_disabled_and_no_redirects",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_one_basic_eight_classifications_two_repeats_no_duplicate_stage3",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_failure_stops_without_retry",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_schema_or_truncation_failure_in_stage3_stops",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_outstanding_generation_blocks_all_requests",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_finite_time_and_output_bounds",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_original_cases_schema_and_prompt_unchanged",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_http_allowlist_does_not_relax_classification_schema",
+        "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_mode_only_one_request"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_unresolved_adjudication.py",
+      "original_module": "tests.test_unresolved_adjudication",
+      "sha256": "25fbe1b2d9ae8ef868c3dc204f985cae4e6e6f771d006ab44cf5f8b7b64a66a3",
+      "test_ids": [
+        "tests.test_unresolved_adjudication.SchemaTests.test_valid_strict_json",
+        "tests.test_unresolved_adjudication.SchemaTests.test_invalid_json_unknown",
+        "tests.test_unresolved_adjudication.SchemaTests.test_extra_fields_rejected",
+        "tests.test_unresolved_adjudication.SchemaTests.test_wrong_requirement_id",
+        "tests.test_unresolved_adjudication.SchemaTests.test_duplicate_json_keys",
+        "tests.test_unresolved_adjudication.SchemaTests.test_parseable_array_not_schema_valid",
+        "tests.test_unresolved_adjudication.SchemaTests.test_capability_id_outside_candidates",
+        "tests.test_unresolved_adjudication.SchemaTests.test_technology_id_outside_candidates",
+        "tests.test_unresolved_adjudication.SchemaTests.test_fabricated_span",
+        "tests.test_unresolved_adjudication.SchemaTests.test_confidence_bounds_and_types",
+        "tests.test_unresolved_adjudication.SchemaTests.test_invalid_scope_route_and_component",
+        "tests.test_unresolved_adjudication.SchemaTests.test_action_needs_grounded_span",
+        "tests.test_unresolved_adjudication.SchemaTests.test_true_gap_technology_and_structural_boundary",
+        "tests.test_unresolved_adjudication.SchemaTests.test_sql_does_not_imply_querying",
+        "tests.test_unresolved_adjudication.SchemaTests.test_aws_does_not_imply_architecture",
+        "tests.test_unresolved_adjudication.SchemaTests.test_node_does_not_imply_api",
+        "tests.test_unresolved_adjudication.SchemaTests.test_csharp_does_not_imply_backend",
+        "tests.test_unresolved_adjudication.SchemaTests.test_javascript_does_not_imply_frontend",
+        "tests.test_unresolved_adjudication.SchemaTests.test_mongo_does_not_imply_database_design",
+        "tests.test_unresolved_adjudication.SchemaTests.test_nac_candidate_is_not_publication",
+        "tests.test_unresolved_adjudication.SchemaTests.test_structural_and_non_addressable_routes",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_native_resolution_precedes_model_and_resolved_rows_skip",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_real_source_reused_and_exact_ids",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_input_contains_no_candidate_evidence",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_sensitive_jd_fails_closed",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_manifest_labels_not_bucket_conversion",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_input_change_rejected",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_dry_runner_zero_provider_calls_with_key_present",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_model_unavailable_no_fallback_and_partial_report",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_untrusted_provider_metadata_cannot_leak_credential",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_report_versions_fingerprints_and_no_writes",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_cli_default_no_transport_init_or_network",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_no_auto_all_corpus_expansion",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_cloud_preflight_with_key_zero_calls",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_paid_execution_requires_prior_qwen_and_confirmation",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_whole_paid_plan_over_budget_never_initializes_transport",
+        "tests.test_unresolved_adjudication.NativeInputTests.test_production_output_path_rejected",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_pass_recommends_stop_no_cloud",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_all_unknown_cannot_game_actionable_denominator",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_unknown_alternatives_and_broad_sets_cannot_inflate_gate",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_invalid_json_in_denominator",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_false_positive_true_gap_fails_safety",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_unsafe_mapping_claim_fails_even_if_schema_normalizes_unknown",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_missing_rows_and_inadequate_labels_inconclusive",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_nac_unknown_is_inconclusive_mongodb_is_not_gap",
+        "tests.test_unresolved_adjudication.QualityGateTests.test_provider_independent_disagreement_table",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_missing_authorization_key_or_consent_blocks",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_unverified_inconsistent_alias_or_stale_pricing_blocks",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_ceiling_above_fifty_cents_blocks",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_non_loopback_redirect_and_unbounded_prompt_blocked",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_real_client_invalid_key_and_wrong_confirmation_blocked",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_unexpected_response_model_or_tier_halts_ledger",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_over_budget_before_transport",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_resumption_and_second_model_share_reservations",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_ledger_identity_and_tampering_cannot_reset",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_timeouts_missing_usage_and_reasoning_inconsistency_retain_budget",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_output_bound_and_no_credentials_in_ledger",
+        "tests.test_unresolved_adjudication.CloudBudgetTests.test_changed_prompt_and_hidden_retry_block"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_unresolved_gold_review.py",
+      "original_module": "tests.test_unresolved_gold_review",
+      "sha256": "4f34a5a4df19763cd2e223cd97fbd0797a7468eb9f4e0e8476b480e19f90bcf9",
+      "test_ids": [
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_pending_version_preserves_original_and_only_two_labels",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_committed_pending_manifest_and_native_prepare",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_explicit_receipt_roundtrip_is_grounded_and_does_not_edit_parent",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_deferral_stays_non_actionable",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_missing_or_model_provenance_rejected",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_stale_input_source_invalid_route_and_fabricated_spans_rejected",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_duplicate_and_unknown_receipts_rejected",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_resealed_tampering_and_fake_inherited_label_rejected",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_benchmark_loader_rejects_fabricated_receipt_even_when_resealed",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_worksheet_exact_text_and_no_proposed_gold",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_review_does_not_invoke_model_execution",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_preparation_refuses_overwrite_of_frozen_outputs",
+        "tests.test_unresolved_gold_review.HumanReviewTests.test_blank_template_is_not_a_human_decision"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_unresolved_review_packet.py",
+      "original_module": "tests.test_unresolved_review_packet",
+      "sha256": "681abc6004fb42f4e6682dabaaf9b9a0d829f29d988e066df87041b89ed8f6c2",
+      "test_ids": [
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_exact20_unique_and_18_blank_templates_two_inherited",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_blank_template_is_not_approval",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_ai_assisted_confirmation_never_inflates_gold",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_independent_receipt_uses_existing_validator_without_writes",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_exposed_reviewer_cannot_claim_independent_confirmation",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_context_aware_independent_record_not_frozen_gold",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_dependent_confirmation_of_frozen_input_rejected",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_explicit_deferral_is_non_actionable",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_duplicates_nac_replacement_and_stale_fingerprints_rejected",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_quotes_grounded_and_context_attested",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_packet_integrity_and_actual_fields_required",
+        "tests.test_unresolved_review_packet.V4ReviewTests.test_evidence_decisions_precede_ai_appendix"
+      ]
+    },
+    {
+      "path": "historical_tests/ollama/test_unresolved_independent_review_v5.py",
+      "original_module": "tests.test_unresolved_independent_review_v5",
+      "sha256": "9af6f418f49bf34d9a8801dda449fb11c4eac9e102a79f9ff2bc0a7af9cb26e3",
+      "test_ids": [
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_38_pending_all_critical_and_no_inherited_answers",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exact_frozen_inputs_and_allocation_no_text_expansion",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_blinded_allowlist_no_prior_labels_questions_parent_or_predictions",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_no_prefilled_human_fields_or_fake_receipts",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_packet_validator_detects_resealed_leaks_and_allocation_drift",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_actual_existing_validators_reused_and_v5_provenance_preserved",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_empty_receipts_add_zero_gold",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exposure_assisted_review_and_false_independence",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_parent_consultation_cannot_enter_frozen_gold_even_when_claimed_sufficient",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_extended_predicate_or_source_evidence_is_not_frozen_gold",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_existing_deferred_child_remains_protected",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_root_cause_requires_exact_native_support_and_access",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_source_access_cannot_be_replaced_by_diagnostic_access",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_duplicates_nac_replacement_fingerprints_fabricated_spans_rejected",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_deferral_not_used_to_fill_numeric_or_critical_gate",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_reviewer_markdown_is_blinded_and_has_blank_decisions",
+        "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_protected_hashes_unchanged_and_prior_packets_preserved"
+      ]
+    }
+  ],
+  "coverage_mapping": {
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_separate_version_and_unmodified_legacy_prompt_schema": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_separate_version_and_unmodified_legacy_prompt_schema",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_holdout_frozen_and_expectations_not_in_prompts": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_holdout_frozen_and_expectations_not_in_prompts",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_preflight_is_metadata_only": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_preflight_is_metadata_only",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_twenty_calls_no_original_eight_legacy_reruns": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_twenty_calls_no_original_eight_legacy_reruns",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_model_digest_change_stops_before_inference": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_model_digest_change_stops_before_inference",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_timeout_stops_with_reserved_attempt_no_retry": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_timeout_stops_with_reserved_attempt_no_retry",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_stale_plan_or_changed_expected_routes_rejected": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_stale_plan_or_changed_expected_routes_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_grounding_diagnostics_preserve_legacy_fail_closed": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_grounding_diagnostics_preserve_legacy_fail_closed",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_unsafe_or_thinking_values_not_retained": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_unsafe_or_thinking_values_not_retained",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_fixed_loopback_transport_disables_proxy_redirect_and_arbitrary_prompt": {
+      "current_test": "tests.test_ollama_prompt_comparison.PromptComparisonTests.test_fixed_loopback_transport_disables_proxy_redirect_and_arbitrary_prompt",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_same_schema_versions_and_no_hidden_expectations": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_same_schema_versions_and_no_hidden_expectations",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_freeze_exact_twenty_and_semantic_contrast": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_freeze_exact_twenty_and_semantic_contrast",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_metadata_only_and_twenty_serial_requests": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_metadata_only_and_twenty_serial_requests",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_missing_activity_and_source_denial_reject_only_new_contract": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_missing_activity_and_source_denial_reject_only_new_contract",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_identity_route_plus_preserved_activity_is_flag_not_rejection": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_identity_route_plus_preserved_activity_is_flag_not_rejection",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_technology_absence_and_omission": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_technology_absence_and_omission",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_exposure_professional_route_review": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_exposure_professional_route_review",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_negative_unqualified_activity_not_positive_obligation": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_negative_unqualified_activity_not_positive_obligation",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_alternative_presence_does_not_prove_structure_error": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_alternative_presence_does_not_prove_structure_error",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_injection_influence_is_reviewed_not_claimed_causal": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_injection_influence_is_reviewed_not_claimed_causal",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_unsupported_capability_gap_and_ids_fail_closed": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_unsupported_capability_gap_and_ids_fail_closed",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_grounding_rejection_cannot_be_rehabilitated": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_grounding_rejection_cannot_be_rehabilitated",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_tampered_plan_and_result_provenance": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_tampered_plan_and_result_provenance",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_timeout_no_retry_and_outstanding_work_no_generation": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_timeout_no_retry_and_outstanding_work_no_generation",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_digest_change_and_finite_loopback_request": {
+      "current_test": "tests.test_ollama_prompt_comparison_v1_3.SourceFirstTests.test_digest_change_and_finite_loopback_request",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_actual_readiness_validator_no_new_labels": {
+      "current_test": null,
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": "Original 40-case readiness and ignored historical packets require pinned historical knowledge/runtime."
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_preflight_no_inference_and_import_is_passive": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_preflight_no_inference_and_import_is_passive",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_explicit_only_selected_synthetic_case_and_strict_payload": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_explicit_only_selected_synthetic_case_and_strict_payload",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_missing_or_remote_model_no_inference": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_missing_or_remote_model_no_inference",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_bounds_and_no_retry_after_failure": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_bounds_and_no_retry_after_failure",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_strict_types_extra_fields_duplicates_and_thinking_rejected": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_strict_types_extra_fields_duplicates_and_thinking_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_ungrounded_identity_and_span_rejected": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_ungrounded_identity_and_span_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_unknown_abstention_valid_and_no_source_mutation": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_unknown_abstention_valid_and_no_source_mutation",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_prompt_no_expected_labels_or_protected_inputs": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_prompt_no_expected_labels_or_protected_inputs",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_http_proxy_disabled_and_no_redirects": {
+      "current_test": "tests.test_ollama_unresolved_smoke.LocalSmokeTests.test_http_proxy_disabled_and_no_redirects",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_one_basic_eight_classifications_two_repeats_no_duplicate_stage3": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_one_basic_eight_classifications_two_repeats_no_duplicate_stage3",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_failure_stops_without_retry": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_failure_stops_without_retry",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_schema_or_truncation_failure_in_stage3_stops": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_schema_or_truncation_failure_in_stage3_stops",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_outstanding_generation_blocks_all_requests": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_outstanding_generation_blocks_all_requests",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_finite_time_and_output_bounds": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_finite_time_and_output_bounds",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_original_cases_schema_and_prompt_unchanged": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_original_cases_schema_and_prompt_unchanged",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_http_allowlist_does_not_relax_classification_schema": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_http_allowlist_does_not_relax_classification_schema",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_mode_only_one_request": {
+      "current_test": "tests.test_ollama_unresolved_smoke.RuntimeRecoveryTests.test_basic_mode_only_one_request",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_valid_strict_json": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_valid_strict_json",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_invalid_json_unknown": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_invalid_json_unknown",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_extra_fields_rejected": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_extra_fields_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_wrong_requirement_id": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_wrong_requirement_id",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_duplicate_json_keys": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_duplicate_json_keys",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_parseable_array_not_schema_valid": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_parseable_array_not_schema_valid",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_capability_id_outside_candidates": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_capability_id_outside_candidates",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_technology_id_outside_candidates": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_technology_id_outside_candidates",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_fabricated_span": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_fabricated_span",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_confidence_bounds_and_types": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_confidence_bounds_and_types",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_invalid_scope_route_and_component": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_invalid_scope_route_and_component",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_action_needs_grounded_span": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_action_needs_grounded_span",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_true_gap_technology_and_structural_boundary": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_true_gap_technology_and_structural_boundary",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_sql_does_not_imply_querying": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_sql_does_not_imply_querying",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_aws_does_not_imply_architecture": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_aws_does_not_imply_architecture",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_node_does_not_imply_api": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_node_does_not_imply_api",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_csharp_does_not_imply_backend": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_csharp_does_not_imply_backend",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_javascript_does_not_imply_frontend": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_javascript_does_not_imply_frontend",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_mongo_does_not_imply_database_design": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_mongo_does_not_imply_database_design",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_nac_candidate_is_not_publication": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_nac_candidate_is_not_publication",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.SchemaTests.test_structural_and_non_addressable_routes": {
+      "current_test": "tests.test_unresolved_adjudication.SchemaTests.test_structural_and_non_addressable_routes",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_native_resolution_precedes_model_and_resolved_rows_skip": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_native_resolution_precedes_model_and_resolved_rows_skip",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_real_source_reused_and_exact_ids": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_real_source_reused_and_exact_ids",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_input_contains_no_candidate_evidence": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_input_contains_no_candidate_evidence",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_sensitive_jd_fails_closed": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_sensitive_jd_fails_closed",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_manifest_labels_not_bucket_conversion": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_manifest_labels_not_bucket_conversion",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_input_change_rejected": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_frozen_input_change_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_dry_runner_zero_provider_calls_with_key_present": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_dry_runner_zero_provider_calls_with_key_present",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_model_unavailable_no_fallback_and_partial_report": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_model_unavailable_no_fallback_and_partial_report",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_untrusted_provider_metadata_cannot_leak_credential": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_untrusted_provider_metadata_cannot_leak_credential",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_report_versions_fingerprints_and_no_writes": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_report_versions_fingerprints_and_no_writes",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_cli_default_no_transport_init_or_network": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_cli_default_no_transport_init_or_network",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_no_auto_all_corpus_expansion": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_no_auto_all_corpus_expansion",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_cloud_preflight_with_key_zero_calls": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_cloud_preflight_with_key_zero_calls",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_paid_execution_requires_prior_qwen_and_confirmation": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_paid_execution_requires_prior_qwen_and_confirmation",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_whole_paid_plan_over_budget_never_initializes_transport": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_whole_paid_plan_over_budget_never_initializes_transport",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.NativeInputTests.test_production_output_path_rejected": {
+      "current_test": "tests.test_unresolved_adjudication.NativeInputTests.test_production_output_path_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_pass_recommends_stop_no_cloud": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_pass_recommends_stop_no_cloud",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_all_unknown_cannot_game_actionable_denominator": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_all_unknown_cannot_game_actionable_denominator",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_unknown_alternatives_and_broad_sets_cannot_inflate_gate": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_unknown_alternatives_and_broad_sets_cannot_inflate_gate",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_invalid_json_in_denominator": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_invalid_json_in_denominator",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_false_positive_true_gap_fails_safety": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_false_positive_true_gap_fails_safety",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_unsafe_mapping_claim_fails_even_if_schema_normalizes_unknown": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_unsafe_mapping_claim_fails_even_if_schema_normalizes_unknown",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_missing_rows_and_inadequate_labels_inconclusive": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_missing_rows_and_inadequate_labels_inconclusive",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_nac_unknown_is_inconclusive_mongodb_is_not_gap": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_nac_unknown_is_inconclusive_mongodb_is_not_gap",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.QualityGateTests.test_provider_independent_disagreement_table": {
+      "current_test": "tests.test_unresolved_adjudication.QualityGateTests.test_provider_independent_disagreement_table",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_missing_authorization_key_or_consent_blocks": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_missing_authorization_key_or_consent_blocks",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_unverified_inconsistent_alias_or_stale_pricing_blocks": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_unverified_inconsistent_alias_or_stale_pricing_blocks",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_ceiling_above_fifty_cents_blocks": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_ceiling_above_fifty_cents_blocks",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_non_loopback_redirect_and_unbounded_prompt_blocked": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_non_loopback_redirect_and_unbounded_prompt_blocked",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_real_client_invalid_key_and_wrong_confirmation_blocked": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_real_client_invalid_key_and_wrong_confirmation_blocked",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_unexpected_response_model_or_tier_halts_ledger": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_unexpected_response_model_or_tier_halts_ledger",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_over_budget_before_transport": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_over_budget_before_transport",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_resumption_and_second_model_share_reservations": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_resumption_and_second_model_share_reservations",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_ledger_identity_and_tampering_cannot_reset": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_ledger_identity_and_tampering_cannot_reset",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_timeouts_missing_usage_and_reasoning_inconsistency_retain_budget": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_timeouts_missing_usage_and_reasoning_inconsistency_retain_budget",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_output_bound_and_no_credentials_in_ledger": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_output_bound_and_no_credentials_in_ledger",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_adjudication.CloudBudgetTests.test_changed_prompt_and_hidden_retry_block": {
+      "current_test": "tests.test_unresolved_adjudication.CloudBudgetTests.test_changed_prompt_and_hidden_retry_block",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_pending_version_preserves_original_and_only_two_labels": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_pending_version_preserves_original_and_only_two_labels",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_committed_pending_manifest_and_native_prepare": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_test_owned_pending_manifest_and_native_prepare",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_explicit_receipt_roundtrip_is_grounded_and_does_not_edit_parent": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_explicit_receipt_roundtrip_is_grounded_and_does_not_edit_parent",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_deferral_stays_non_actionable": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_deferral_stays_non_actionable",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_missing_or_model_provenance_rejected": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_missing_or_model_provenance_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_stale_input_source_invalid_route_and_fabricated_spans_rejected": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_stale_input_source_invalid_route_and_fabricated_spans_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_duplicate_and_unknown_receipts_rejected": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_duplicate_and_unknown_receipts_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_resealed_tampering_and_fake_inherited_label_rejected": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_resealed_tampering_and_fake_inherited_label_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_benchmark_loader_rejects_fabricated_receipt_even_when_resealed": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_benchmark_loader_rejects_fabricated_receipt_even_when_resealed",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_worksheet_exact_text_and_no_proposed_gold": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_worksheet_exact_text_and_no_proposed_gold",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_review_does_not_invoke_model_execution": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_review_does_not_invoke_model_execution",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_preparation_refuses_overwrite_of_frozen_outputs": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_preparation_refuses_overwrite_of_frozen_outputs",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_gold_review.HumanReviewTests.test_blank_template_is_not_a_human_decision": {
+      "current_test": "tests.test_unresolved_gold_review.HumanReviewTests.test_blank_template_is_not_a_human_decision",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_exact20_unique_and_18_blank_templates_two_inherited": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_exact20_unique_and_18_blank_templates_two_inherited",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_blank_template_is_not_approval": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_blank_template_is_not_approval",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_ai_assisted_confirmation_never_inflates_gold": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_ai_assisted_confirmation_never_inflates_gold",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_independent_receipt_uses_existing_validator_without_writes": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_independent_receipt_uses_existing_validator_without_writes",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_exposed_reviewer_cannot_claim_independent_confirmation": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_exposed_reviewer_cannot_claim_independent_confirmation",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_context_aware_independent_record_not_frozen_gold": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_context_aware_independent_record_not_frozen_gold",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_dependent_confirmation_of_frozen_input_rejected": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_dependent_confirmation_of_frozen_input_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_explicit_deferral_is_non_actionable": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_explicit_deferral_is_non_actionable",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_duplicates_nac_replacement_and_stale_fingerprints_rejected": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_duplicates_nac_replacement_and_stale_fingerprints_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_quotes_grounded_and_context_attested": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_parent_quotes_grounded_and_context_attested",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_packet_integrity_and_actual_fields_required": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_packet_integrity_and_actual_fields_required",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_review_packet.V4ReviewTests.test_evidence_decisions_precede_ai_appendix": {
+      "current_test": "tests.test_unresolved_review_packet.V4ReviewTests.test_evidence_decisions_precede_ai_appendix",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_38_pending_all_critical_and_no_inherited_answers": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_38_pending_all_critical_and_no_inherited_answers",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exact_frozen_inputs_and_allocation_no_text_expansion": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exact_frozen_inputs_and_allocation_no_text_expansion",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_blinded_allowlist_no_prior_labels_questions_parent_or_predictions": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_blinded_allowlist_no_prior_labels_questions_parent_or_predictions",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_no_prefilled_human_fields_or_fake_receipts": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_no_prefilled_human_fields_or_fake_receipts",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_packet_validator_detects_resealed_leaks_and_allocation_drift": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_packet_validator_detects_resealed_leaks_and_allocation_drift",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_actual_existing_validators_reused_and_v5_provenance_preserved": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_actual_existing_validators_reused_and_v5_provenance_preserved",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_empty_receipts_add_zero_gold": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_empty_receipts_add_zero_gold",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exposure_assisted_review_and_false_independence": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_exposure_assisted_review_and_false_independence",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_parent_consultation_cannot_enter_frozen_gold_even_when_claimed_sufficient": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_parent_consultation_cannot_enter_frozen_gold_even_when_claimed_sufficient",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_extended_predicate_or_source_evidence_is_not_frozen_gold": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_extended_predicate_or_source_evidence_is_not_frozen_gold",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_existing_deferred_child_remains_protected": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_existing_deferred_child_remains_protected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_root_cause_requires_exact_native_support_and_access": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_root_cause_requires_exact_native_support_and_access",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_source_access_cannot_be_replaced_by_diagnostic_access": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_source_access_cannot_be_replaced_by_diagnostic_access",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_duplicates_nac_replacement_fingerprints_fabricated_spans_rejected": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_duplicates_nac_replacement_fingerprints_fabricated_spans_rejected",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_deferral_not_used_to_fill_numeric_or_critical_gate": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_deferral_not_used_to_fill_numeric_or_critical_gate",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_reviewer_markdown_is_blinded_and_has_blank_decisions": {
+      "current_test": "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_reviewer_markdown_is_blinded_and_has_blank_decisions",
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": null
+    },
+    "tests.test_unresolved_independent_review_v5.IndependentReviewV5Tests.test_protected_hashes_unchanged_and_prior_packets_preserved": {
+      "current_test": null,
+      "boundary": "Current counterpart checks authored test-owned inputs only; original frozen source/result claim stays historical.",
+      "historical_only_reason": "139 preserved artifacts and original 34/4 source-recovery observations are historical facts, not current synthetic expectations."
+    }
+  },
+  "preservation_maps": [
+    "reports/unresolved_evidence_explainability_review_v1_1.json",
+    "reports/ollama_unresolved_adjudication_smoke_v1.json",
+    "reports/ollama_unresolved_adjudication_smoke_v1_1.json",
+    "reports/ollama_unresolved_prompt_comparison_v1_2_plan.json",
+    "reports/ollama_unresolved_prompt_comparison_v1_3_plan.json"
+  ],
+  "historical_artifacts": {
+    "reports/unresolved_evidence_explainability_review_v1_1.json": "f646a19c59c2eb11ecc63ff318b02e966f147a049f65d18a703834debbc07f4f",
+    "reports/ollama_unresolved_adjudication_smoke_v1.json": "f553bff0b46422f67eb22ac40af475ceeff3147d5532daa2f2fd2f361be51c44",
+    "reports/ollama_unresolved_adjudication_smoke_v1_1.json": "0b7718948d1e5d6a1df6e8ca819638268a6bde81fd1d1e3e0f20856791ff2ce1",
+    "reports/ollama_unresolved_prompt_comparison_v1_2_plan.json": "b96384402b7126e314b0b979ede0c3d814a69694e24b46c4e84e660b9a0d16f6",
+    "reports/ollama_unresolved_prompt_comparison_v1_3_plan.json": "59dde3ecbf6e9b899d3a25a8036d796b3829179cf28e71cb910f685c35f07997",
+    "docs/unresolved_semantic_layer1_evidence_relevance_v1.md": "11048e1766740fbf1f7e809feccd7de2d371bd78e6973ea8d694ca1c54caaabe",
+    "docs/unresolved_adjudication_v1.md": "3fec86b0f535b6d9c5d8a2ca4b7af407fa7fdebc09dd29b7b2ad92354bd34a93",
+    "docs/unresolved_evidence_explainability_review_v1_1.md": "91ee9ab704be6bd810b5d153a969a0814d7b83323218a72756a4f4b86405faf0",
+    "docs/unresolved_gold_decision_review_v3.md": "d3d855cfb6b365d0e2523a103a1c9235e1a2ec70da7e41443c11bba36f7c4525",
+    "docs/unresolved_gold_review_packet_v4.md": "ebf959f254a949644301e72cb4ddb0a019711acffa81405d126f22bce9fdcb80",
+    "docs/unresolved_gold_review_v2.md": "72516c792895652ff876cfe4dae6739e810295eaf19c1ba73283a37ac4cd70c4",
+    "docs/unresolved_gold_review_workflow.md": "f015b86658011ea707f514590fe69c820476c2d64d8e844e36d051cacc4d7fc9",
+    "docs/unresolved_multidimensional_route_audit_v1.md": "2d2455bf226d102fa8747a4cc31b90fca611b0280a677a8f470a59191fedcd88",
+    "docs/unresolved_multidimensional_triage_v1.md": "3ac2cec6faf74b13068d052631e58a21c01f982e99d8d95a11f603da2088b6ef",
+    "docs/ollama_unresolved_adjudication_smoke_v1.md": "d9ece928ea96cc9673ec6c0f6ea5d17766672becb5dcbb64ac8677ca0308ba74",
+    "docs/ollama_unresolved_adjudication_smoke_v1_1.md": "31308b9d751d17cfa2a827d4d01cdd37784680559780d48ea0754e397786d8a6",
+    "tests/fixtures/unresolved_adjudication_benchmark_v1.json": "898f494b553bca3283e311ecbbdb89de097fb274beab8c39401dccf346b95b0e",
+    "tests/fixtures/unresolved_adjudication_benchmark_v2.json": "502f48b2501d786047adae31a32ba3240478fe4b15084b5433e029609c699d7d",
+    "tests/fixtures/confirmed_taxonomy_coverage.json": "6b5edb4287cceaae6b6c49a13fb4b149666a2514aaada34deb89e29ec2b7c299"
+  }
+}

@@ -9,25 +9,17 @@ from unittest.mock import patch
 from scripts.adjudicate_unresolved_requirements import prepare
 from taxonomy_discovery import unresolved_independent_review as v
 from taxonomy_discovery import unresolved_gold_review as gold
+from tests.ollama_current_fixtures import adjudication_artifacts
 
 
 class IndependentReviewV5Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.enterClassContext(adjudication_artifacts())
         with patch.object(socket,'create_connection',side_effect=AssertionError('No network')),patch.object(sqlite3,'connect',side_effect=AssertionError('No DB access')):
             cls.packet=v.build_packet();cls.audit=v.readiness(cls.packet)
         cls.template=v.template(cls.packet)
         cls.parent=gold.original();cls.inputs,_=prepare(cls.parent)
-
-    def setUp(self):
-        # Check the canonical builder once above. Receipt-focused tests exercise
-        # actual existing V4/gold validators without repeatedly replaying 40 rows.
-        validator=patch.object(v,'validate_packet',return_value=True)
-        validator.start();self.addCleanup(validator.stop)
-        # Frozen inputs were independently rebuilt in setUpClass. Reuse those
-        # same sealed inputs for repeated provenance checks, not new inference.
-        for module in (v,v.v4):
-            p=patch.object(module,'prepare',return_value=(self.inputs,[]));p.start();self.addCleanup(p.stop)
 
     def receipt(self,key=None,independent=True):
         t=next(r for r in self.template['decisions'] if key is None or tuple(r['key'])==key)
@@ -209,12 +201,14 @@ class IndependentReviewV5Tests(unittest.TestCase):
         self.assertNotIn('NAC',text)
         self.assertIn('Decision ___',text)
 
-    def test_protected_hashes_unchanged_and_prior_packets_preserved(self):
-        self.assertEqual(len(self.audit['protected_hashes']),139)
+    def test_unit_source_hashes_preserved_without_claiming_original_recovery(self):
+        # The original 139/34/4 historical claims remain in the archive. This
+        # independent current fixture has six guarded files and no recovered JD.
+        self.assertEqual(len(self.audit['protected_hashes']),6)
         for path,digest in self.audit['protected_hashes'].items():self.assertEqual(v.sha(v.ROOT/path),digest)
         self.assertFalse(self.audit['v4_genuinely_blinded'])
-        self.assertEqual(len(self.audit['source_recovery_verified_pending']),34)
-        self.assertEqual(len(self.audit['source_recovery_partial_pending']),4)
+        self.assertEqual(len(self.audit['source_recovery_verified_pending']),0)
+        self.assertEqual(len(self.audit['source_recovery_partial_pending']),38)
 
 
 # Save the real validator for integrity tests while receipt tests mock rebuilds.
