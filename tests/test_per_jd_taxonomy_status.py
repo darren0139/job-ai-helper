@@ -1,7 +1,5 @@
-"""Native 30-job frozen receipts; no provider/research/lifecycle changes."""
+"""Historical 30-job accounting replay plus separate current synthetic inputs."""
 from copy import deepcopy
-import json
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 from tests.network_guard_support import block_external_network_allow_loopback
@@ -9,17 +7,28 @@ from streamlit.testing.v1 import AppTest
 from taxonomy_discovery import coverage_presentation as coverage
 from scripts import audit_jd_scoring_eligibility as audit
 from tests.governed_review_fixtures import isolated_taxonomy
-
-FIXTURE = Path(__file__).with_name("fixtures") / "per_jd_scoring_audit.json"
-
+from tests.per_jd_accounting_fixtures import (
+    load_historical_bundle, historical_accounting_context, current_live_analysis,
+)
 
 class PerJDTaxonomyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.native = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        cls.native = load_historical_bundle()
 
     def setUp(self):
-        self.enterContext(isolated_taxonomy())
+        current_tests = {
+            'test_live_without_review_is_available_and_occurrences_exclude_unknowns',
+            'test_all_dependency_noise_and_deferred_classes_stay_outside_denominator',
+            'test_zero_denominator_is_not_fabricated_100',
+            'test_live_identity_corruption_and_stale_analysis_fail_closed',
+            'test_live_aggregate_without_review_sums_occurrences_and_additional_items',
+            'test_live_ui_without_review_is_passive_and_zero_denominator_is_explained',
+        }
+        # Historical read-only receipts and current source inputs have different
+        # contracts. Never bless an old receipt with today's scoring identity.
+        self.enterContext(isolated_taxonomy(published=True) if self._testMethodName in current_tests
+                          else historical_accounting_context(self.native))
         self.receipt = deepcopy(self.native)
         self.current = patch.object(coverage.maintenance, "currentness", return_value={"current": True,"blockers":[]})
         self.current.start(); self.addCleanup(self.current.stop)
@@ -39,23 +48,7 @@ class PerJDTaxonomyTests(unittest.TestCase):
         self.assertAlmostEqual(v["weighted"]["required_core"]["percentage"],99.29447630210572)
 
     def live_analysis(self, resolved, other, identities=0):
-        from tailoring.job_match_ab_analysis import current_ab_identity
-        from tailoring.phase9f_starting_source_ranking import canonical_requirement_scope_fingerprint
-        stable=deepcopy(self.job(566)['baseline_stable_analysis'])
-        positive=next(r for r in stable['canonical_requirements'] if r.get('knowledge_status')=='CAPABILITY_RESOLVED')
-        unknown=next(r for r in stable['canonical_requirements'] if r.get('knowledge_status')=='UNRESOLVED')
-        rows=[]
-        for i in range(resolved+other+identities):
-            r=deepcopy(positive if i<resolved else unknown)
-            r['requirement_id']=f'live_{i}'
-            if i>=resolved+other:
-                r['knowledge_status']='TECHNOLOGY_IDENTITY_RESOLVED'
-            rows.append(r)
-        stable['canonical_requirements']=rows
-        raw='\n'.join(r['text'] for r in rows)
-        stable['jd_fingerprint']=current_ab_identity(raw)['jd_fingerprint']
-        stable['canonical_requirement_fingerprint']=canonical_requirement_scope_fingerprint(rows)
-        return raw,stable
+        return current_live_analysis(resolved,other,identities)
 
     def test_live_without_review_is_available_and_occurrences_exclude_unknowns(self):
         for resolved,other,identities in ((8,12,0),(11,11,0),(7,14,0),(5,20,1)):
@@ -235,12 +228,13 @@ render_jd_taxonomy_status(st,raw_jd_text=j["frozen_inputs"]["raw_jd_text"],stabl
 
 
 class ScoringEligibilityAuditTests(unittest.TestCase):
+    """Frozen arithmetic/evaluability replay, not current publication eligibility."""
     @classmethod
     def setUpClass(cls):
-        cls.native = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        cls.native = load_historical_bundle()
 
     def setUp(self):
-        self.enterContext(isolated_taxonomy())
+        self.enterContext(historical_accounting_context(self.native))
         self.receipt=deepcopy(self.native)
         current=patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]})
         current.start();self.addCleanup(current.stop)

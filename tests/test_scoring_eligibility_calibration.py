@@ -1,7 +1,5 @@
 """Native receipts and local UI only; no production eligibility changes."""
 from copy import deepcopy
-import json
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 from tests.network_guard_support import block_external_network_allow_loopback
@@ -9,16 +7,16 @@ from tests.network_guard_support import block_external_network_allow_loopback
 from streamlit.testing.v1 import AppTest
 from scripts import calibrate_jd_scoring_eligibility as calibration
 from taxonomy_discovery import coverage_presentation as coverage
-
-FIXTURE = Path(__file__).with_name("fixtures") / "per_jd_scoring_audit.json"
-
+from tests.per_jd_accounting_fixtures import load_historical_bundle, historical_accounting_context
 
 class AnalyzedJobsSummaryTests(unittest.TestCase):
+    """Historical receipt accounting, not certification of current analyses."""
     @classmethod
     def setUpClass(cls):
-        cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
+        cls.bundle=load_historical_bundle()
 
     def setUp(self):
+        self.enterContext(historical_accounting_context(self.bundle))
         self.current=patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]})
         self.current.start();self.addCleanup(self.current.stop)
 
@@ -120,9 +118,13 @@ render_analyzed_jobs_summary(st,st.session_state["analyses"])
 class CalibrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}):
+        cls.bundle=load_historical_bundle()
+        with historical_accounting_context(cls.bundle), \
+                patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}):
             cls.result=calibration.build_calibration(cls.bundle["snapshot"],cls.bundle["plan"])
+
+    def setUp(self):
+        self.enterContext(historical_accounting_context(self.bundle))
 
     def test_all_34_receipts_are_retained_with_six_condition_review(self):
         r=self.result
@@ -180,10 +182,17 @@ class CalibrationTests(unittest.TestCase):
 class FinalAdjudicationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
+        cls.bundle=load_historical_bundle()
+        with historical_accounting_context(cls.bundle), \
+            patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
             patch.object(calibration.audit,"counterfactual",side_effect=AssertionError("No speculative preview")):
             cls.result=calibration.build_adjudication(cls.bundle["snapshot"],cls.bundle["plan"])
+
+    def setUp(self):
+        # Native replay observations below use their actual current scorer;
+        # only the historical report rebuild needs the old consumer context.
+        if self._testMethodName == 'test_read_only_final_build_never_runs_unproven_preview':
+            self.enterContext(historical_accounting_context(self.bundle))
 
     def test_34_native_receipts_preserved_and_policy_frozen(self):
         self.assertEqual(len(self.result["reviews"]),34)
