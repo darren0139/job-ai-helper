@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.network_guard_support import block_external_network_allow_loopback
+from scripts.offline_loopback import loopback_http_scope
 
 
 class NetworkGuardTests(unittest.TestCase):
@@ -60,24 +61,31 @@ class NetworkGuardTests(unittest.TestCase):
         self.allowed('local-ipc-path', socket.AF_UNIX)
 
     def test_real_ipv4_connect_is_allowed_without_external_attempt(self):
-        with socket.socket() as server:
+        with loopback_http_scope(), socket.socket() as server:
             server.bind(('127.0.0.1', 0)); server.listen(1)
             with block_external_network_allow_loopback() as external, socket.socket() as client:
                 client.settimeout(5); client.connect(server.getsockname())
                 peer, _ = server.accept(); peer.close()
                 external.assert_not_called()
+        self.assertEqual(server.fileno(), -1);self.assertEqual(client.fileno(), -1)
 
     def test_real_ipv6_connect_if_supported(self):
         try:
-            server = socket.socket(socket.AF_INET6)
-            self.addCleanup(server.close)
-            server.bind(('::1', 0)); server.listen(1)
+            with block_external_network_allow_loopback() as external:
+                left, right = socket._fallback_socketpair(socket.AF_INET6, socket.SOCK_STREAM, 0)
         except OSError as exc:
             self.skipTest('IPv6 loopback unavailable: ' + str(exc))
-        with block_external_network_allow_loopback() as external, socket.socket(socket.AF_INET6) as client:
-            client.settimeout(5); client.connect(server.getsockname())
-            peer, _ = server.accept(); peer.close()
+        try:
+            self.assertEqual(left.family, socket.AF_INET6)
+            self.assertEqual(right.family, socket.AF_INET6)
+            self.assertEqual(left.getsockname()[0], '::1')
+            self.assertGreater(left.getsockname()[1], 0)
+            left.settimeout(5); right.settimeout(5)
+            left.sendall(b'IPv6 IPC'); self.assertEqual(right.recv(8), b'IPv6 IPC')
             external.assert_not_called()
+        finally:
+            left.close(); right.close()
+        self.assertEqual(left.fileno(), -1);self.assertEqual(right.fileno(), -1)
 
     def test_asyncio_native_event_loop_runs_and_closes(self):
         with block_external_network_allow_loopback() as external:

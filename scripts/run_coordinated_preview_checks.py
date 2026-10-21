@@ -63,18 +63,9 @@ def main():
             from scripts.offline_loopback import loopback_socket_allowed
             if loopback_socket_allowed(event, values):
                 return
-            # Windows asyncio implements its internal socketpair with a local
-            # connect. Admit only that stdlib frame and its own listener address;
-            # model, HTTP, DNS and arbitrary loopback connections remain blocked.
-            if event=='socket.connect':
-                frame=sys._getframe(1)
-                listener=frame.f_locals.get('lsock')
-                if (frame.f_globals.get('__name__')=='socket'
-                        and frame.f_code.co_name=='_fallback_socketpair'
-                        and listener is not None
-                        and values[1]==listener.getsockname()[:2]
-                        and values[1][0] in ('127.0.0.1','::1')):
-                    return
+            from scripts.offline_socketpair import stdlib_socketpair_allowed
+            if stdlib_socketpair_allowed(event, values):
+                return
             raise RuntimeError('Focused coordinated checks prohibit all network access')
         if event=='sqlite3.connect':
             name=str(values[0])

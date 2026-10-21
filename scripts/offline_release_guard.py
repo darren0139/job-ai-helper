@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from urllib.parse import unquote, urlparse
 from scripts.offline_loopback import loopback_socket_allowed
+from scripts.offline_socketpair import stdlib_socketpair_allowed
 
 
 def install():
@@ -44,13 +45,7 @@ def install():
                      'socket.gethostbyname', 'socket.gethostbyaddr', 'socket.getnameinfo'):
             if loopback_socket_allowed(event, args):
                 return
-            frame = sys._getframe(1)
-            internal = frame.f_globals.get('__name__') == 'socket' and frame.f_code.co_name == '_fallback_socketpair'
-            listener = frame.f_locals.get('lsock')
-            if event == 'socket.bind' and internal and args[1][0] in ('127.0.0.1', '::1'):
-                return
-            if (event == 'socket.connect' and internal and listener is not None
-                    and args[1] == listener.getsockname()[:2] and args[1][0] in ('127.0.0.1', '::1')):
+            if stdlib_socketpair_allowed(event, args):
                 return
             raise RuntimeError('Offline checks prohibit network access')
         if event == 'sqlite3.connect':
