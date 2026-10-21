@@ -1,0 +1,27 @@
+{
+  "schema_version": "predicate-v2-original-snapshot-v1",
+  "anchor_kind": "PREEXISTING_CODEX_GIT_TREE_CHECKPOINT_NOT_A_COMMIT",
+  "tree": "0a406ec1799434ed1c66f360191f8bd10c5c3b27",
+  "ref": "refs/codex/turn-diffs/checkpoints/eeb316f9cf0a0cd30c53b231388bc77b/214fc88caf939ea78895abc8333dfaf4/1791999727843/cdafcb1e-3e33-4b8f-bc97-f54b165494d3",
+  "ref_timestamp_utc": "2026-10-14T17:42:07.843+00:00",
+  "timestamp_limit": "Timestamp encoded in existing ref name; not an independently signed timestamp",
+  "files": {
+    "report.json": {
+      "original_path": "reports/unresolved_existing_predicate_investigation_v2.json",
+      "git_blob": "edfc2b3d9356cb44628fecfd75e3f9c36af9c3ac",
+      "sha256": "3f98ef19bc1d6ec32cf71985ec515354cd09c669aae2a7b098282088ed25ca5e",
+      "bytes": 243066
+    },
+    "manifest.json": {
+      "original_path": "reports/unresolved_existing_predicate_investigation_v2_manifest.json",
+      "git_blob": "a183cd3001530fb52498e575c59c6631d7b0ab12",
+      "sha256": "3b0c6891a98ca85ea09068568ee8652eddd5682e66dd460c4328202e56fdaf06",
+      "bytes": 124310
+    }
+  },
+  "companion_document": {
+    "path": "docs/unresolved_existing_predicate_investigation_v2.md",
+    "git_blob": "6eff2c037f768773a45276758adec142f6b5d0f2",
+    "contains_original_manifest_seal": "161024a5780a23693b61e4bea21e139ccb60abcc3760d1147adac153d920d04d"
+  }
+}

@@ -2,7 +2,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-import subprocess
+from scripts.historical_source_fixtures import read_source, V122, SCORER_PATH, POLICY_PATH
 import types
 import unittest
 from unittest.mock import Mock,patch
@@ -163,12 +163,12 @@ class MetadataV123Tests(unittest.TestCase):
 
     def test_v22_checkpoint_isolation_and_module_bytes(self):
         import analysis_stability
-        source=subprocess.check_output(['git','show','0791248:analysis_stability/stable_evidence_scoring.py'],cwd=ROOT)
+        source=read_source(V122, SCORER_PATH)
         historical=types.ModuleType('analysis_stability.checkpoint_native')
         historical.__package__='analysis_stability'
         historical.__file__=str(ROOT/'analysis_stability/stable_evidence_scoring.py')
         exec(compile(source,historical.__file__,'exec'),historical.__dict__)
-        old_policy=subprocess.check_output(['git','show','0791248:analysis_stability/jd_metadata_policy.py'],cwd=ROOT)
+        old_policy=read_source(V122, POLICY_PATH)
         self.assertEqual(old_policy.replace(b'\r\n',b'\n'),(ROOT/'analysis_stability/jd_metadata_policy.py').read_bytes().replace(b'\r\n',b'\n'))
         for jid in (35,48,359):
             kwargs=dict(jd_profile={},keyword_match={},raw_jd_text=jobs()[jid],resume_profile={},retrieval_mode_override='off')

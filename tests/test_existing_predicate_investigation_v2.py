@@ -5,9 +5,15 @@ import unittest
 from unittest.mock import patch
 
 from scripts import investigate_existing_predicate_backlog_v2 as v
+from tests.predicate_historical_fixtures import verified_paths
 
 
 class InvestigationTests(unittest.TestCase):
+    def setUp(self):
+        report,manifest=verified_paths()
+        self.enterContext(patch.object(v,'REPORT',report))
+        self.enterContext(patch.object(v,'MANIFEST',manifest))
+
     def test_seal_tampering_fails_closed(self):
         body=v.seal({'cases':[]})
         with patch.object(v.Path,'read_text',return_value=json.dumps(body)):

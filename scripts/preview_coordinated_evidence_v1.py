@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 import re
-import subprocess
+from scripts.historical_source_fixtures import read_source, STAGE2D
 
 from scripts import preview_coordinated_actions_v1 as stage2
 from taxonomy_discovery.offline_execution import offline_execution
@@ -34,8 +34,7 @@ def load_independent_oracle():
             # frozen semantic digests (plus 30-job OFF equivalence tests) binding.
             if path != 'analysis_stability/stable_evidence_scoring.py':
                 raise ValueError('Reviewed production source changed: '+path)
-            historical=subprocess.check_output(['git','show',
-                '3e6ff34501b4d68cbe3e66b55ec8af5b0e288026:'+path],cwd=ROOT)
+            historical=read_source(STAGE2D, path)
             if hashlib.sha256(historical.replace(b'\r\n',b'\n')).hexdigest()!=expected:
                 raise ValueError('Historical reviewed production source changed: '+path)
     return fixture

@@ -4,7 +4,7 @@ from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
-import subprocess
+from scripts.historical_source_fixtures import read_source, STAGE2D, SCORER_PATH
 import tempfile
 import types
 import unittest
@@ -239,7 +239,7 @@ class CoordinatedImplementationTests(unittest.TestCase):
         # Keep the original oracle and its source pins immutable. Execute the
         # independently hash-verified committed baseline, not a regenerated oracle.
         fixture = json.loads((acceptance.ROOT/'tests/fixtures/coordinated_action_ownership_oracle_v1.json').read_text(encoding='utf-8'))
-        source = subprocess.check_output(['git', 'show', '3e6ff34501b4d68cbe3e66b55ec8af5b0e288026:analysis_stability/stable_evidence_scoring.py'], cwd=acceptance.ROOT)
+        source = read_source(STAGE2D, SCORER_PATH)
         self.assertEqual(hashlib.sha256(source.replace(b'\r\n', b'\n')).hexdigest(),
                          fixture['production_source_lf_sha256']['analysis_stability/stable_evidence_scoring.py'])
         historical = types.ModuleType('analysis_stability.historical_stage2d')

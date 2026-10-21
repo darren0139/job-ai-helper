@@ -1,0 +1,2 @@
+# These are exact original Git blob bytes; do not convert LF on Windows.
+*.py.txt -text
