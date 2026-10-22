@@ -3,8 +3,39 @@ from copy import deepcopy
 from tailoring.capability_taxonomy import CapabilityTaxonomy, get_default_taxonomy, normalise, _contains
 from taxonomy_discovery.corpus_expansion import fingerprint
 
-RESOLVER_DRAFT_VERSION = "tqd3-resolver-improvement-h1.2-v1"
+RESOLVER_DRAFT_VERSION = "tqd3-resolver-improvement-h1.2-v2"
 PRODUCT_CONTEXT_GUARD = "exclude_recognized_multiword_technology_spans"
+
+
+def additive_phrase_overlay(capability_id, phrases, *, identity):
+    """Native temporary artifact only; preserve every published matcher guard.
+
+    New resolver artifacts use v2: old sealed replacement artifacts must be
+    recreated/revalidated, never silently given different publication semantics.
+    """
+    from tailoring.capability_taxonomy import _validate_capability, PRODUCT_CONTEXT_GUARD_VERSION
+    from taxonomy_discovery.candidate_refinement import product_context_names
+    base = get_default_taxonomy()
+    entries = deepcopy(list(base.capabilities))
+    entry = next(e for e in entries if e['capability_id'] == capability_id)
+    native = {normalise(q)+'s' for q in entry['requirement'].get('any_terms', [])
+              if len(normalise(q).split()) >= 2 and not normalise(q).endswith('s')}
+    if not phrases or any(p not in native for p in phrases):
+        raise ValueError('Only approved multiword phrase inflections may be previewed')
+    variants = entry['requirement'].setdefault('contextual_phrase_variants', [])
+    existing = {normalise(v['phrase']):v for v in variants}
+    for phrase in sorted(set(phrases)):
+        if phrase in existing:
+            if existing[phrase]['product_context_guard'] != PRODUCT_CONTEXT_GUARD:
+                raise ValueError('Conflicting existing phrase guard')
+            continue  # Preserve even more specific existing frozen exclusions.
+        variants.append({'phrase':phrase, 'product_context_guard':PRODUCT_CONTEXT_GUARD,
+                         'guard_contract_version':PRODUCT_CONTEXT_GUARD_VERSION,
+                         'excluded_product_names':deepcopy(product_context_names())})
+    seen = set()
+    for item in entries:
+        _validate_capability(item, seen)
+    return CapabilityTaxonomy(identity, tuple(entries))
 
 
 def resolver_draft(result):
@@ -85,9 +116,8 @@ def resolver_overlay(draft):
         raise ValueError("Safe product-context and whole-phrase guards required")
     if not phrases or any(p not in {normalise(q)+"s" for q in draft["requirement_phrase_evidence"]} for p in phrases):
         raise ValueError("Unsupported resolver phrase change")
-    entry["requirement"]["contextual_phrase_variants"] = [
-        {"phrase":p,"product_context_guard":PRODUCT_CONTEXT_GUARD} for p in phrases]
-    return CapabilityTaxonomy("tqd3-temporary-resolver-"+draft["draft_fingerprint"][:24],tuple(entries))
+    return additive_phrase_overlay(draft['target_capability_id'], phrases,
+        identity="tqd3-temporary-resolver-"+draft["draft_fingerprint"][:24])
 
 
 def validate_bounded_regression_controls(draft, regression):

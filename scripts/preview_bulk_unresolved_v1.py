@@ -276,8 +276,28 @@ def benchmark(rows):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--protected-baseline',type=Path,required=True)
+    parser.add_argument('--protected-baseline',type=Path)
+    parser.add_argument('--final-review-dir',type=Path,
+                        help='New local output directory; native corpus audit and exposed-context V5 companion only')
     args=parser.parse_args()
+    if args.final_review_dir:
+        destination=args.final_review_dir.resolve()
+        if destination.exists() or not destination.is_relative_to(ROOT/'reports'):
+            parser.error('Use a new local directory under this worktree reports/')
+        # Never overwrite the historical inventory, V5 packet or gold receipts.
+        corpus=final_corpus_review()
+        packet,source=verified_review_sources()
+        companion=review_companion(packet,source)
+        destination.mkdir(parents=True)
+        for name,value in [('corpus.json',corpus),('review_companion.json',companion)]:
+            exported=safe(value)
+            exported['fingerprint']=fingerprint({k:v for k,v in exported.items() if k!='fingerprint'})
+            (destination/name).write_text(json.dumps(exported,sort_keys=True,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+        (destination/'review_companion.md').write_text(companion_markdown(companion),encoding='utf-8')
+        print(json.dumps({k:corpus[k] for k in ('saved_before','saved_after','raw_before','raw_after','compound_counts','changed_raw_jobs')},sort_keys=True))
+        return
+    if not args.protected_baseline:
+        parser.error('--protected-baseline is required unless --final-review-dir is selected')
     ledger=json.loads(args.protected_baseline.read_text())
     assert all(sha(ROOT/p)==h for p,h in ledger.items()), 'Baseline already changed'
     jobs, manifests=load_jobs(); inv=build_inventory(jobs)
@@ -300,6 +320,196 @@ def main():
     print(json.dumps(dict(jobs=len(jobs),saved=inv['saved_projection_counts'],raw_only=inv['raw_jd_only_counts'],
         exact_clusters=len(inv['exact_clusters']),descriptive_clusters=len(inv['descriptive_clusters']),
         corpus_proposal_applications=sum(r['proposal_applied'] for r in proposed), protected=len(ledger))))
+
+
+def compound_observation(row):
+    """Review cues only; reuse native scope diagnostics, never create children."""
+    import re
+    from tailoring.phase6d6_structured_matching import technology_requirement_structure
+    text=row['original_requirement']
+    # These are deliberately lexical review strata, not an AND/OR parser or
+    # a claim that a whole source scope has been proved from a connector.
+    if re.search(r'\b(?:one or more|any of|either)\b',text,re.I): kind='EXPLICIT_ALTERNATIVE_CUE'
+    elif scoring._preserves_coherent_parent(text): kind='EXAMPLE_OR_COHERENT_PARENT_CUE'
+    elif '/' in text: kind='SLASH_OR_MIXED_SCOPE_REVIEW'
+    else:
+        and_cue=bool(re.search(r'\band\b',text,re.I));or_cue=bool(re.search(r'\bor\b',text,re.I))
+        kind='MIXED_AND_OR_CUES' if and_cue and or_cue else 'EXPLICIT_OR_CUE' if or_cue else 'EXPLICIT_AND_CUE' if and_cue else 'UNCLEAR_SCOPE'
+    return {'job_id':row['job_id'],'requirement_id':row['requirement_id'],
+        'original_requirement':text,'input_fingerprint':row['input_fingerprint'],
+        'review_stratum':kind,'native_structure':technology_requirement_structure(row['input']),
+        'source_provenance_available':bool(row['input'].get('source_provenance')),
+        'parent_text_located_in_raw_jd':row['parent_source_available'],
+        'interpretation_approved':False,'scoring_children_created':False}
+
+
+def _recognition_metrics(rows):
+    unresolved=[r for r in rows if r['current']['knowledge_status']=='UNRESOLVED']
+    return {'rows':len(rows),'knowledge':dict(sorted(Counter(r['current']['knowledge_status'] for r in rows).items())),
+        'distinct_unresolved_ids':len({r['requirement_id'] for r in unresolved}),
+        'distinct_unresolved_wordings':len({backlog.normal(r['original_requirement']) for r in unresolved})}
+
+
+def _source_allocations(rows):
+    totals=defaultdict(float)
+    for row in rows:
+        for p in row['input'].get('source_provenance',[]):
+            if p.get('contributes_scoring_allocation',True):
+                key=(p.get('grounding',{}).get('line_index'),fingerprint(p.get('raw_parent_text')))
+                totals[key]+=p.get('source_group_fraction',0)
+    return [{'line_index':k[0],'raw_parent_fingerprint':k[1],'allocation_sum':round(v,6)}
+            for k,v in sorted(totals.items(),key=lambda item:str(item[0]))]
+
+
+def final_corpus_review(jobs=None):
+    """Same frozen views before/after native alias preservation; no evidence replay."""
+    from analysis_stability.coordinated_runtime import approved_alias_surface_preview, APPROVED_ALIAS_POLICY
+    from taxonomy_discovery.offline_execution import offline_execution
+    jobs=jobs if jobs is not None else load_jobs()[0]
+    with offline_execution('Phase 3A corpus review is offline'):
+        before=build_inventory(jobs)
+        saved=[];fresh=[]
+        with approved_alias_surface_preview():
+            for view in jobs:
+                job=view['job'];raw=job['frozen_inputs']['raw_jd_text'];jid=job['job_id']
+                saved.extend(inventory_row(r,jid,view['source_files'],raw,{},'saved_projection')
+                    for r in job['baseline_stable_analysis']['canonical_requirements'])
+                fresh.extend(inventory_row(r,jid,view['source_files'],raw,current_match_versions(),'raw_jd_only_replay')
+                    for r in scoring.canonicalise_requirements({},raw_jd_text=raw)['requirements'])
+        changed=[]
+        for view in jobs:
+            jid=view['job']['job_id'];old=[r for r in before['raw_jd_only_rows'] if r['job_id']==jid];new=[r for r in fresh if r['job_id']==jid]
+            if [r['input'] for r in old]!=[r['input'] for r in new]:
+                changed.append({'job_id':jid,'raw_jd_fingerprint':fingerprint(view['job']['frozen_inputs']['raw_jd_text']),
+                    'before':[{k:r[k] for k in ('requirement_id','original_requirement','input_fingerprint','current')} for r in old],
+                    'after':[{k:r[k] for k in ('requirement_id','original_requirement','input_fingerprint','current')} for r in new],
+                    'allocation_before':_source_allocations(old),'allocation_after':_source_allocations(new),
+                    'same_raw_source':True,'historical_candidate_scores_compared':False})
+        compounds=[compound_observation(r) for r in before['saved_rows'] if r['category']=='unresolved_possible_compound_review']
+        predicate_candidates=[{'job_id':r['job_id'],'requirement_id':r['requirement_id'],
+            'original_requirement':r['original_requirement'],'input_fingerprint':r['input_fingerprint'],
+            'existing_predicate_observations':r['predicate_observations'],
+            'approval':'REQUIRED_NOT_APPROVED','review_destination':'existing resolver/maintenance fix-layer review',
+            'evidence_credit_proposed':False}
+            for r in before['raw_jd_only_rows'] if r['current']['knowledge_status']=='UNRESOLVED' and r['predicate_observations']]
+    body={'review_version':'phase3a-final-corpus-review-v1','policy':APPROVED_ALIAS_POLICY,
+        'historical_candidate_replay':False,'human_gold_created':False,
+        'source_files':{name:sha(ROOT/name) for name in SOURCES},
+        'implementation_sha256':{name:sha(ROOT/name) for name in (
+            'analysis_stability/stable_evidence_scoring.py','analysis_stability/coordinated_runtime.py',
+            'tailoring/production_requirement_resolver.py','scripts/preview_bulk_unresolved_v1.py')},
+        'published_versions':current_match_versions(),'saved_before':_recognition_metrics(before['saved_rows']),
+        'saved_after':_recognition_metrics(saved),'raw_before':_recognition_metrics(before['raw_jd_only_rows']),
+        'raw_after':_recognition_metrics(fresh),'saved_input_geometry_unchanged':
+            [r['input'] for r in before['saved_rows']]==[r['input'] for r in saved],
+        'changed_raw_jobs':changed,'compound_counts':dict(sorted(Counter(r['review_stratum'] for r in compounds).items())),
+        'compound_cases':compounds,'predicate_candidates_pending_approval':predicate_candidates}
+    return {**body,'fingerprint':fingerprint(body)}
+
+
+def verified_review_sources():
+    """Authenticate existing local review sources through the tracked original manifest."""
+    from tests.predicate_historical_fixtures import verified_paths
+    _,manifest_path=verified_paths()
+    manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+    names=['reports/unresolved_independent_review_packet_v5.json','reports/unresolved_gold_decision_review_v3.json']
+    values=[]
+    for name in names:
+        path=ROOT/name
+        if not path.is_file() or sha(path)!=manifest['protected_hashes'][name]:
+            raise ValueError('Missing or unauthenticated original review source: '+name)
+        values.append(json.loads(path.read_text(encoding='utf-8')))
+    return tuple(values)
+
+
+def review_companion(packet,source):
+    """Exposed context companion; never modify/import the blinded V5 decisions."""
+    from taxonomy_discovery.unresolved_review_packet import QUESTIONS
+    if packet.get('source_fingerprint')!=source.get('source_fingerprint'):
+        raise ValueError('Review source identity differs')
+    if packet.get('packet_fingerprint')!=fingerprint({k:v for k,v in packet.items() if k!='packet_fingerprint'}):
+        raise ValueError('Original V5 packet seal differs')
+    cases=packet['cases']
+    if len(cases)!=38 or len({tuple(c['key']) for c in cases})!=38:
+        raise ValueError('Exactly 38 distinct pending original cases required')
+    taxonomy_snapshot=taxonomy.get_default_taxonomy()
+    contracts=taxonomy_snapshot.by_id()
+    recovered={tuple(c['key']):c for c in source['cases']};rows=[]
+    for case in cases:
+        original=recovered[tuple(case['key'])];frozen=case['frozen_input'];context=original['source_context']
+        if original['exact_requirement']!=frozen['requirement_text'] or original['input_fingerprint']!=case['input_fingerprint']:
+            raise ValueError('Frozen wording/input identity differs')
+        jd=source['sources'].get(str(case['key'][0]));parents=[]
+        if jd:
+            raw=jd['raw_jd_text']
+            actual=hashlib.sha256(raw.encode('utf-8')).hexdigest()
+            if actual!=jd['raw_jd_sha256'] or actual!=case['source_provenance']['original_jd_sha256']:
+                raise ValueError('Original JD hash differs')
+            for p in context.get('parent_provenance',[]):
+                if p.get('raw_parent_verified_in_jd'):
+                    if p['raw_parent_text'] not in raw:
+                        raise ValueError('Claimed original parent is not grounded')
+                    parents.append({k:deepcopy(p.get(k)) for k in ('parent_text','raw_parent_text','parent_occurrence_id','grounding')})
+        child={'text':frozen['requirement_text'],'importance':frozen['importance']}
+        native=summary(resolve(child))
+        question=QUESTIONS.get(original['number'],
+            'Does the exact frozen wording satisfy a complete existing capability predicate, a pure approved technology identity, or neither? Identify the exact source span and any missing scope; defer rather than infer ownership or credit.')
+        rows.append({'review_case_number':case['review_case_number'],'key':deepcopy(case['key']),
+            'input_fingerprint':case['input_fingerprint'],'original_requirement':frozen['requirement_text'],
+            'original_frozen_native_result':deepcopy(frozen['resolver']),
+            'current_child_only_recognition':native,
+            'original_source_provenance':deepcopy(case['source_provenance']),
+            'additional_verified_scope_NOT_PART_OF_V5':parents,
+            'proposed_candidates_NOT_APPROVED':deepcopy(frozen['taxonomy_candidates']),
+            'current_contracts_NOT_HISTORICAL':[{
+                'capability_id':c['capability_id'],'taxonomy_version':taxonomy_snapshot.version,
+                'label':contracts[c['capability_id']].get('label'),
+                'requirement':deepcopy(contracts[c['capability_id']]['requirement']),
+                'does_not_prove':deepcopy(contracts[c['capability_id']].get('does_not_prove',[]))}
+                for c in frozen['taxonomy_candidates'] if c.get('capability_id') in contracts],
+            'question_requiring_human_judgment':question,
+            'reviewer_judgment':{'decision':'','source_spans':[],'uncertainty':'','reviewer':'','reviewed_at':''},
+            'review_state':'PENDING','evidence_credit_decided':False})
+    body={'companion_version':'phase3a-exposed-context-review-companion-v1',
+        'original_packet_fingerprint':packet['packet_fingerprint'],'source_fingerprint':packet['source_fingerprint'],
+        'current_taxonomy_version':taxonomy_snapshot.version,
+        'current_taxonomy_bytes_sha256':sha(ROOT/'taxonomy/capability_taxonomy_v1.json'),
+        'is_independent_blind_review':False,'eligible_for_gold_import':False,
+        'instructions':['Original V5 packet/blank receipts remain unchanged. This exposed-context companion is not blind review or gold.',
+            'Additional source scope is separately authenticated and must not silently enter a child-only V5 judgment.',
+            'Candidates and questions are review proposals, never approved identities, publication or applicant evidence.',
+            'Record a separate context-aware policy decision; use existing governance for any later definition or credit change.'],
+        'cases':rows}
+    return {**body,'fingerprint':fingerprint(body)}
+
+
+def companion_markdown(companion):
+    lines=['# Phase 3A — 38 pending cases: context-aware review companion','',
+        '**Exposed-context review; not independent blind gold. All 38 judgments remain PENDING.**','',
+        'Original packet: `'+companion['original_packet_fingerprint']+'`. No candidate evidence is included.','']
+    for c in companion['cases']:
+        lines+=['## '+str(c['review_case_number'])+' — Job '+str(c['key'][0])+' / `'+c['key'][1]+'`','',
+            '**Original frozen wording:** '+safe(c['original_requirement'],'original_requirement'),'',
+            '**Current child-only recognition:** '+str(c['current_child_only_recognition']['knowledge_status'])+
+            '; capability `'+str(c['current_child_only_recognition']['capability_id'])+'`. Missing source scope was not borrowed.','',
+            '**Specific decision:** '+c['question_requiring_human_judgment'],'',
+            '**Existing candidates (not approved):** '+', '.join(str(r.get('capability_id')) for r in c['proposed_candidates_NOT_APPROVED'])+'.','',
+            '**Separately verified original scope (outside V5):**','']
+        for p in c['additional_verified_scope_NOT_PART_OF_V5']:
+            lines+=['> '+safe(p.get('raw_parent_text') or '', 'raw_parent_text').replace('\n',' '),'']
+        if not c['additional_verified_scope_NOT_PART_OF_V5']:lines+=['Unavailable; do not infer a parent.','']
+        lines+=['**Judgment:** PENDING. Reviewer / exact spans / uncertainty / time: blank.','']
+    catalog={r['capability_id']:r for c in companion['cases'] for r in c['current_contracts_NOT_HISTORICAL']}
+    lines+=['## Current contract catalog — not historical','',
+        'Current taxonomy bytes: `'+companion['current_taxonomy_bytes_sha256']+'`. '+
+        'These definitions support context-aware review; they do not reinterpret the archived taxonomy or approve a match.','']
+    for cid,contract in sorted(catalog.items()):
+        matcher=contract['requirement']
+        lines+=['### `'+cid+'` — '+str(contract['label']),'',
+            'Version: '+contract['taxonomy_version']+'. Native requirement terms: '+', '.join(matcher.get('any_terms',[]))+'.','',
+            'Additional groups/guards: `'+json.dumps({k:v for k,v in matcher.items() if k!='any_terms'},sort_keys=True)+'`.','',
+            'Does not prove: '+'; '.join(contract['does_not_prove'])+'.','']
+    return '\n'.join(lines)+'\n'
 
 
 if __name__=='__main__':

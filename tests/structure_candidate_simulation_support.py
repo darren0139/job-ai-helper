@@ -139,6 +139,10 @@ def structural_remediation_simulation(rule):
     functions=['_normalise_requirement_surface']
     if rule.startswith('dotnet'):functions+=['_split_requirement_sentences','_split_top_level_commas','_clause_record']
     with ExitStack() as stack:
+        # Native trim seams now share a helper. Keep this old test-only
+        # hypothesis equivalent without changing any expected result/oracle.
+        if rule.startswith('dotnet') and hasattr(scorer, '_trim_requirement_surface'):
+            stack.enter_context(patch.object(scorer, '_trim_requirement_surface', _dotted_net_trim))
         for name in functions:
             source=inspect.getsource(getattr(scorer,name))
             if name=='_normalise_requirement_surface':

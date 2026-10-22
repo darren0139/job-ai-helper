@@ -257,4 +257,5 @@ def build_coordinated_analysis(*, source_projection=None, **inputs):
         'evidence_index': index, 'canonical_rows': canonical['requirements'],
         'original_source_occurrence_ledger': occurrence_ledger,
     }, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
-    return out
+    from .coordinated_runtime import stamp_eligible_weak_preview
+    return stamp_eligible_weak_preview(out)

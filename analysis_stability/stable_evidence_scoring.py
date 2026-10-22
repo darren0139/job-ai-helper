@@ -252,6 +252,53 @@ def _is_raw_resume_structural_heading(value: Any) -> bool:
         in _RAW_RESUME_STRUCTURAL_HEADINGS
     )
 
+def _trim_requirement_surface(value: str, chars: str) -> str:
+    """Keep a leading dot owned by an exact approved alias in the v1.26 preview."""
+    from .coordinated_runtime import APPROVED_ALIAS_SURFACE
+    state = APPROVED_ALIAS_SURFACE.get()
+    if state is not None and '.' in chars:
+        leading = value.lstrip(chars.replace('.', ''))
+        if state['pattern'].match(leading):
+            return leading.rstrip(chars)
+    return value.strip(chars)
+
+
+def _require_admissible_alias_preview(canonical, jd_profile, raw_jd_text):
+    """Changed compound scopes are review inputs, never invented numeric scores.
+
+    Compare the same source with only alias preservation disabled. Existing
+    complete-identity admission is sufficient for pure alias/list corrections;
+    it must not be bypassed by the generic matcher after repairing a lost tail.
+    """
+    from .coordinated_runtime import APPROVED_ALIAS_SURFACE
+    if APPROVED_ALIAS_SURFACE.get() is None:
+        return
+    token = APPROVED_ALIAS_SURFACE.set(None)
+    try:
+        before = canonicalise_requirements(jd_profile, raw_jd_text=raw_jd_text)
+    finally:
+        APPROVED_ALIAS_SURFACE.reset(token)
+
+    def groups(rows):
+        output = {}
+        for row in rows:
+            parents = row.get('source_provenance') or [{'source':'UNVERIFIED','raw_parent_text':row['text']}]
+            for parent in parents:
+                if not parent.get('contributes_scoring_allocation', True):
+                    continue
+                key = (parent.get('source'), parent.get('grounding',{}).get('line_index'), parent.get('raw_parent_text'))
+                output.setdefault(key, []).append((row, parent))
+        return output
+    old = groups(before['requirements']); new = groups(canonical['requirements'])
+    signature = lambda entries: sorted([(r['text'],r.get('atomic_focus'),r.get('importance'),
+        p.get('parent_text'),p.get('source_group_fraction')) for r,p in entries], key=str)
+    from tailoring.requirement_scope import technology_identity_scope
+    for key in old.keys() | new.keys():
+        if signature(old.get(key,[])) != signature(new.get(key,[])):
+            if not new.get(key) or any(not technology_identity_scope(r)['identity_resolved'] for r,_ in new[key]):
+                raise ValueError('Experimental alias surface changed an unadmitted compound/activity scope; recognition-only review required.')
+
+
 def _normalise_requirement_surface(value: Any) -> str:
     """Repair unambiguous presentation joins before deterministic tokenisation.
 
@@ -266,7 +313,11 @@ def _normalise_requirement_surface(value: Any) -> str:
 
     # A missing space after ordinary terminal punctuation is layout damage, not
     # a semantic variation (for example: "use cases.You will...").
-    text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+    from .coordinated_runtime import APPROVED_ALIAS_SURFACE
+    state = APPROVED_ALIAS_SURFACE.get()
+    protected = {i for match in state['pattern'].finditer(text)
+                 for i in range(match.start()+1, match.end())} if state is not None else set()
+    text = re.sub(r"(?<=[.!?])(?=[A-Z])", lambda m: '' if m.start() in protected else ' ', text)
 
     # Repair the exact discourse-preamble join observed in the dConstruct PDF
     # extraction. This is intentionally narrow: it restores a missing layout
@@ -760,7 +811,7 @@ def _raw_jd_section_heading_rows(
 
 def classify_credential_requirement(value: Any) -> str:
     """Return the explicit credential evidence policy for one requirement."""
-    surface = _normalise_requirement_surface(value).strip(" ,;:.-")
+    surface = _trim_requirement_surface(_normalise_requirement_surface(value), " ,;:.-")
     text = _normalise_basic(surface)
     if not text:
         return ""
@@ -820,7 +871,7 @@ def classify_jd_statement_semantics(
     and future-training statements are excluded. Ordinary qualifications and
     demonstrable responsibilities remain evidence-bearing.
     """
-    surface = _normalise_requirement_surface(value).strip(" ,;:.-")
+    surface = _trim_requirement_surface(_normalise_requirement_surface(value), " ,;:.-")
     normalised = _normalise_basic(surface)
     source_value = _clean_text(source).casefold()
 
@@ -1208,7 +1259,7 @@ def _split_top_level_commas(value: str) -> list[str]:
             depth -= 1
 
         if character == "," and depth == 0:
-            part = "".join(current).strip(" ,;.-")
+            part = _trim_requirement_surface("".join(current), " ,;.-")
             if part:
                 parts.append(part)
             current = []
@@ -1216,7 +1267,7 @@ def _split_top_level_commas(value: str) -> list[str]:
 
         current.append(character)
 
-    final = "".join(current).strip(" ,;.-")
+    final = _trim_requirement_surface("".join(current), " ,;.-")
     if final:
         parts.append(final)
 
@@ -1235,7 +1286,7 @@ def _split_top_level_commas(value: str) -> list[str]:
             len(final_parts) == 2
             and all(len(_tokenise(part)) >= 1 for part in final_parts)
         ):
-            parts[-1:] = [part.strip(" ,;.-") for part in final_parts]
+            parts[-1:] = [_trim_requirement_surface(part, " ,;.-") for part in final_parts]
 
     return parts
 
@@ -1273,7 +1324,7 @@ def _preserves_coherent_parent(value: str) -> bool:
         # Its later example parent remains coherent, but the whole compound
         # requirement must still be decomposed at the independently scored
         # list boundary.
-        prefix = value[: match.start()].strip(" ,;:.-")
+        prefix = _trim_requirement_surface(value[: match.start()], " ,;:.-")
         if len(_split_top_level_commas(prefix)) > 1:
             continue
         return True
@@ -1282,7 +1333,7 @@ def _preserves_coherent_parent(value: str) -> bool:
 
 def _context_label_from_head(head: str) -> str:
     """Return a short generic subject context for enumerated child clauses."""
-    cleaned = _clean_text(head).strip(" ,;:.-")
+    cleaned = _trim_requirement_surface(_clean_text(head), " ,;:.-")
     preposition_parts = re.split(
         r"\b(?:of|for)\b",
         cleaned,
@@ -1290,7 +1341,7 @@ def _context_label_from_head(head: str) -> str:
     )
 
     if len(preposition_parts) > 1:
-        candidate = preposition_parts[-1].strip(" ,;:.-")
+        candidate = _trim_requirement_surface(preposition_parts[-1], " ,;:.-")
         candidate = re.sub(
             r"^(?:the|a|an)\s+",
             "",
@@ -1312,8 +1363,8 @@ def _clause_record(
     atomic_group_id: str = "",
     is_atomic: bool = False,
 ) -> dict[str, Any]:
-    cleaned = _clean_text(text).strip(" ,;:.-")
-    focus = _clean_text(focus_text or cleaned).strip(" ,;:.-")
+    cleaned = _trim_requirement_surface(_clean_text(text), " ,;:.-")
+    focus = _trim_requirement_surface(_clean_text(focus_text or cleaned), " ,;:.-")
     group_id = atomic_group_id or _stable_id(
         "grp",
         _normalise_basic(parent_text or cleaned),
@@ -1360,8 +1411,8 @@ def _split_safe_independent_and_pair(value: str) -> list[str]:
     if len(parts) != 2:
         return []
 
-    first = parts[0].strip(" ,;.-")
-    second = parts[1].strip(" ,;.-")
+    first = _trim_requirement_surface(parts[0], " ,;.-")
+    second = _trim_requirement_surface(parts[1], " ,;.-")
     second_normalised = _normalise_basic(second)
 
     if not any(
@@ -1424,7 +1475,7 @@ def _split_shared_head_and_list(value: str) -> list[str]:
 
 
 def _is_bounded_named_term(value: str) -> bool:
-    cleaned = _clean_text(value).strip(" ,;:.-")
+    cleaned = _trim_requirement_surface(_clean_text(value), " ,;:.-")
     tokens = cleaned.split()
     if not 1 <= len(tokens) <= 4:
         return False
@@ -1460,7 +1511,7 @@ def _split_bounded_named_terms(value: str) -> list[str]:
             shared.group("tail"),
             flags=re.IGNORECASE,
         )
-        parts = [part.strip(" ,;:.-") for part in re.split(r"\s+and\s+", tail, flags=re.I)]
+        parts = [_trim_requirement_surface(part, " ,;:.-") for part in re.split(r"\s+and\s+", tail, flags=re.I)]
         if (
             "," not in tail
             and len(parts) == 2
@@ -1551,7 +1602,7 @@ def _split_non_preference_clause(
                 maxsplit=1,
                 flags=re.IGNORECASE,
             )
-            cleaned = [part.strip(" ,;.-") for part in parts]
+            cleaned = [_trim_requirement_surface(part, " ,;.-") for part in parts]
             if all(len(_tokenise(part)) >= 3 for part in cleaned):
                 return [
                     _clause_record(
@@ -1574,8 +1625,8 @@ def _split_non_preference_clause(
     )
     if knowledge_match:
         parts = [
-            knowledge_match.group("first").strip(" ,;.-"),
-            knowledge_match.group("second").strip(" ,;.-"),
+            _trim_requirement_surface(knowledge_match.group("first"), " ,;.-"),
+            _trim_requirement_surface(knowledge_match.group("second"), " ,;.-"),
         ]
         if all(len(_tokenise(part)) >= 2 for part in parts):
             return [
@@ -1596,8 +1647,8 @@ def _split_non_preference_clause(
         flags=re.IGNORECASE,
     )
     if enumeration:
-        head = enumeration.group("head").strip(" ,;:.-")
-        tail = enumeration.group("tail").strip(" ,;:.-")
+        head = _trim_requirement_surface(enumeration.group("head"), " ,;:.-")
+        tail = _trim_requirement_surface(enumeration.group("tail"), " ,;:.-")
         items = _split_top_level_commas(tail)
 
         if len(items) >= 3:
@@ -1622,8 +1673,8 @@ def _split_non_preference_clause(
                     flags=re.IGNORECASE,
                 )
                 if nested_match:
-                    main = nested_match.group("main").strip(" ,;.-")
-                    nested = nested_match.group("nested").strip(" ,;.-")
+                    main = _trim_requirement_surface(nested_match.group("main"), " ,;.-")
+                    nested = _trim_requirement_surface(nested_match.group("nested"), " ,;.-")
 
                 display = f"{context} {main}".strip() if context else main
                 records.append(
@@ -1698,8 +1749,8 @@ def _split_single_requirement_clause(
     )
 
     if preference_match:
-        before = value[: preference_match.start()].strip(" ,;.-")
-        after = value[preference_match.end() :].strip(" ,;.-")
+        before = _trim_requirement_surface(value[: preference_match.start()], " ,;.-")
+        after = _trim_requirement_surface(value[preference_match.end() :], " ,;.-")
         after_normalised = _normalise_basic(after)
         context_only = after_normalised.startswith(
             ("within ", "in ", "at ", "from ", "for ", "with ")
@@ -1765,7 +1816,7 @@ def _split_requirement_sentences(value: str) -> list[str]:
         return []
 
     parts = [
-        part.strip(" ,;:.-")
+        _trim_requirement_surface(part, " ,;:.-")
         # ``e.g.`` and ``i.e.`` are inline introducers, not sentence endings.
         # Keeping them intact also lets the coherent-example guard preserve the
         # full competency instead of treating the examples as a second row.
@@ -1773,7 +1824,7 @@ def _split_requirement_sentences(value: str) -> list[str]:
             r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])",
             text,
         )
-        if part.strip(" ,;:.-")
+        if _trim_requirement_surface(part, " ,;:.-")
     ]
     return parts or [text]
 
@@ -1826,7 +1877,7 @@ def _introductory_list_kind(value: str) -> str:
 
 def _looks_like_introductory_list_item(value: str) -> bool:
     """Conservatively recognise a short item under an explicit list introducer."""
-    text = _normalise_requirement_surface(value).strip(" ,;:.-")
+    text = _trim_requirement_surface(_normalise_requirement_surface(value), " ,;:.-")
     tokens = _tokenise(text)
     if not tokens or len(tokens) > 9:
         return False
@@ -2289,7 +2340,7 @@ def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
 
 def _unheaded_obligation_content(sentence: str) -> str:
     """Remove only an explicit applicant-obligation wrapper from one sentence."""
-    value = _normalise_requirement_surface(sentence).strip(" ,;:.-")
+    value = _trim_requirement_surface(_normalise_requirement_surface(sentence), " ,;:.-")
     if not value:
         return ""
 
@@ -2311,7 +2362,7 @@ def _unheaded_obligation_content(sentence: str) -> str:
     for pattern in patterns:
         match = re.match(pattern, value, flags=re.IGNORECASE)
         if match:
-            return _clean_text(match.group("content")).strip(" ,;:.-")
+            return _trim_requirement_surface(_clean_text(match.group("content")), " ,;:.-")
 
     if re.match(
         r"^(?:(?:strong|good|solid|working)\s+)?"
@@ -3712,6 +3763,33 @@ def _fallback_weak_evidence(
     evidence_index: list[dict[str, str]],
     acronym_map: dict[str, str],
 ) -> dict[str, str] | None:
+    from .coordinated_runtime import ELIGIBLE_WEAK_FALLBACK
+    from tailoring.production_requirement_resolver import resolve_requirement_with_production_knowledge
+    eligible_mode = False
+    if ELIGIBLE_WEAK_FALLBACK.get():
+        from .coordinated_integration import targeted
+        eligible_mode = (not targeted(requirement) and not
+            resolve_requirement_with_production_knowledge(requirement)['decision'].get('capability_id'))
+    if eligible_mode:
+        # Rank only independently admissible original records. A high
+        # containment score on one word must not hide a different record
+        # satisfying the unchanged weak-evidence minima. Native source
+        # eligibility (including the coordinated scope filter) still runs.
+        eligible = []
+        for record in evidence_index:
+            candidate, score, coverage, overlap = _best_resume_evidence(
+                requirement, "", [record], acronym_map,
+            )
+            if candidate is not None and _deterministic_weak_evidence_is_sufficient(
+                score=score, focus_coverage=coverage, overlap_count=overlap,
+            ):
+                eligible.append((candidate, score))
+        if not eligible:
+            return None
+        best, score = max(eligible, key=lambda item: item[1])
+        return {**best,
+                "reason": "One original record independently meets the existing deterministic weak-evidence thresholds.",
+                "evidence_similarity": f"{score:.3f}"}
     best, score, focus_coverage, overlap_count = _best_resume_evidence(
         requirement,
         "",
@@ -4433,6 +4511,8 @@ def build_stable_analysis(
         raw_jd_text=raw_jd_text,
     )
 
+    _require_admissible_alias_preview(canonical, jd_profile, raw_jd_text)
+
     linked, link_warnings = link_requirement_matches(
         requirements=canonical["requirements"],
         keyword_match=keyword_match,
@@ -4506,7 +4586,7 @@ def build_stable_analysis(
         )
     )
 
-    return {
+    result = {
         "scoring_version": SCORING_VERSION,
         "capability_taxonomy_version": taxonomy_version,
         "technology_registry_version": registry_version,
@@ -4576,3 +4656,5 @@ def build_stable_analysis(
         ),
         **score,
     }
+    from .coordinated_runtime import stamp_eligible_weak_preview
+    return stamp_eligible_weak_preview(result)

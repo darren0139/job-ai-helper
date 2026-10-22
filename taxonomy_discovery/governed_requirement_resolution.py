@@ -25,6 +25,83 @@ ACTIVATION_BLOCKERS=(
     'A full native scoring-regression receipt, provisional rule controls and explicit reviewer approval are required.',
     'Live publication has not been authorized; preview is not approval.',
 )
+
+API_PLURAL_REVIEW_VERSION = 'source-bound-api-plural-review-v1'
+
+
+def api_plural_review(row, raw_jd_text, *, explicit_execution=False):
+    """A1: native recognition candidate only, never an analysis/draft approval.
+
+    No taxonomy context escapes this call. Complete parent admission for numeric
+    credit is intentionally not inferred from this concept-recognition receipt.
+    """
+    if explicit_execution is not True:
+        raise ValueError('Explicit recognition review required')
+    inp = requirement_input(row)
+    before = resolve_requirement_with_production_knowledge(inp)
+    body = dict(review_version=API_PLURAL_REVIEW_VERSION, input=inp,
+        input_fingerprint=fingerprint(inp), raw_jd_fingerprint=fingerprint(raw_jd_text),
+        current_versions=current_match_versions(), knowledge_fingerprint=knowledge_fingerprint(),
+        native=summarize(before), candidate_capability_id=None, recognition_changed=False,
+        evidence_credit=None, parent_contribution=None, whole_jd_score=None,
+        disposition='REVIEW_REQUIRED', requires_human_approval=True, activation_ready=False,
+        development_preview_only=True, preview_namespace='governed-api-plural-review',
+        reason='outside_source_bound_development_plural_review')
+    # Preserve taxonomy, registry and pure identity resolutions before considering
+    # this candidate. Do not let a high-priority new phrase steal an existing ID.
+    if before['knowledge_status'] != 'UNRESOLVED':
+        body.update(reason='existing_native_identity_preserved', disposition='UNCHANGED')
+    elif _api_plural_source_admitted(inp, raw_jd_text):
+        from taxonomy_discovery.resolver_improvement import additive_phrase_overlay
+        overlay = additive_phrase_overlay('backend.api_development', ['restful apis'],
+                                         identity='review-only-'+API_PLURAL_REVIEW_VERSION)
+        with temporary_taxonomy_scope(overlay):
+            candidate = resolve_requirement_with_production_knowledge(inp)
+        if candidate['decision']['capability_id'] == 'backend.api_development':
+            body.update(candidate_capability_id='backend.api_development', recognition_changed=True,
+                        reason='development_concept_recognized_complete_credit_scope_unapproved',
+                        native_candidate=summarize(candidate))
+    return {**body, 'review_fingerprint':fingerprint(body)}
+
+
+def _api_plural_source_admitted(row, raw_jd):
+    """Finite experimental admission, not a new published matching policy."""
+    clean = lambda s:' '.join(str(s or '').split()).rstrip('. ')
+    text = clean(row.get('text'))
+    if not text or clean(row.get('atomic_focus', text)) != text or not raw_jd:
+        return False
+    parents = row.get('source_provenance')
+    if not isinstance(parents, list) or len(parents) != 1:
+        return False  # No cross-occurrence ownership reconstruction.
+    parent = parents[0]
+    if not isinstance(parent, dict):
+        return False
+    grounding = parent.get('grounding') or {}
+    raw_parent = parent.get('raw_parent_text')
+    if not (parent.get('source') in ('raw_jd.requirements', 'raw_jd.responsibilities')
+            and parent.get('parent_occurrence_id') and raw_parent and raw_parent in raw_jd
+            and clean(parent.get('parent_text')) == text
+            and clean(row.get('parent_text', text)) == text
+            and grounding.get('kind') == 'explicit_raw_section' and grounding.get('span_id')
+            and type(grounding.get('sentence_index')) is int and grounding['sentence_index'] >= 1
+            and clean(grounding.get('sentence_text')) == text and clean(raw_parent) == text
+            and parent.get('contributes_scoring_allocation', True)
+            and isinstance(parent.get('source_group_fraction'), (int, float))
+            and 0 < parent['source_group_fraction'] <= 1):
+        return False
+    # Framework examples retain their OR list; alternatives in the main duty do
+    # not become a mandatory API-development obligation.
+    duty = re.split(r'\bframeworks\s+such\s+as\b', text, flags=re.I)[0]
+    if re.search(r'\b(?:no|not|never|without|optional|optionally|preferably|preferred|or)\b|and/or', duty, re.I):
+        return False
+    if row.get('importance') != 'core' or row.get('score_eligible') is False:
+        return False
+    # Bind the development verb to the actual plural API object; never borrow
+    # an unrelated build verb from another object/sentence.
+    return bool(re.search(
+        r'\b(?:build(?:ing)?|develop(?:ing)?|implement(?:ing)?|creat(?:e|ing))'
+        r'(?:\s+and\s+(?:integrat(?:e|ing)|consum(?:e|ing)))?\s+'
+        r'(?:(?:efficient|secure)\s*,?\s+)*restful\s+apis\b', duty, re.I))
 CONTROLS=(
     ('Design and develop RESTful APIs',True,'one API-development obligation'),
     ('Experience building RESTful APIs',True,'experience explicitly building APIs'),
