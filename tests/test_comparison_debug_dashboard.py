@@ -47,7 +47,8 @@ class DebugDashboardTests(unittest.TestCase):
         report=debug.build_report(loaded,result); js,zipped=debug.bundle(report)
         self.assertEqual((js,zipped),debug.bundle(report))
         expected={'manifest.json','comparison_summary.json','requirements.csv','requirement_diagnostics.json',
-            'source_identity.json','metadata_v122.csv','metadata_v123.csv','diagnostic_notes.md'}
+            'source_identity.json','metadata_v122.csv','metadata_v123.csv','diagnostic_notes.md',
+            'evidence_decision_matrix.csv','evidence_decision_trace.json','trace_coverage.json'}
         with zipfile.ZipFile(BytesIO(zipped)) as archive:
             self.assertEqual(set(archive.namelist()),expected)
             manifest=json.loads(archive.read('manifest.json'))

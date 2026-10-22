@@ -193,12 +193,19 @@ def build_report(loaded, result):
     if identities['current_application_report_differs']: warnings.append('CURRENT_REPORT_EXCLUDED')
     if stats['geometry_mismatches']: warnings.append('INCOMPATIBLE_REQUIREMENT_GEOMETRY')
     if stats['withheld_scores']: warnings.append('SCORE_OR_COMPARISON_WITHHELD')
+    from job_discovery.evidence_decision_trace import build as build_trace,TraceBounded
+    try:
+        trace=build_trace(loaded['request'],c)
+    except TraceBounded:
+        trace={'schema_version':'evidence-decision-trace-v1','input_identity':c.identity,
+            'source_text_included':False,'matrix':[],'requirements':[],
+            'coverage':{'status':'UNAVAILABLE','reason':'DIAGNOSTIC_PAIR_BOUND_EXCEEDED'}}
     return {'schema_version':SCHEMA,'development_preview_only':True,'persistence_eligible':False,
         'source_text_included':False,'source_identity':identities,'comparison_summary':stats,
         'requirements':safe_rows,'requirement_diagnostics':diagnostics,'metadata':metadata,
         'metadata_changes':changes,'metadata_role':'CLASSIFICATION_ONLY_NO_GO',
         'published_arithmetic':_arithmetic(c.published_analysis,c.published),
-        'warnings':warnings,'exceptions':[], 'historical_numeric_delta':None}
+        'warnings':warnings,'exceptions':[], 'historical_numeric_delta':None,'evidence_decision_trace':trace}
 
 
 def concise_summary(report):
@@ -238,6 +245,10 @@ def bundle(report):
         'diagnostic_notes.md':concise_summary(report)+'\n\nShare-safe: no raw source wording. Metadata is classification-only NO-GO.\n'
             'Standalone credits are not comparable across geometry mismatches. NONE does not prove absence of experience.\n'
             'Private selected excerpts require separate opt-in and review. No raw exception payloads are exported.\n'}
+    trace=report.get('evidence_decision_trace')
+    if trace is not None:
+        files.update({'evidence_decision_matrix.csv':_csv(trace['matrix'],['requirement_id','side','library_item_id']),
+            'evidence_decision_trace.json':_json(trace),'trace_coverage.json':_json(trace['coverage'])})
     files['manifest.json']=_json({'schema_version':SCHEMA,'source_text_included':False,'development_preview_only':True,
         'application_id':report['source_identity']['application_id'],
         'input_fingerprint':report['source_identity']['input_fingerprint'],

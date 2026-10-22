@@ -12,6 +12,7 @@ def render_developer_comparison():
         st.session_state.pop('developer_real_applications_v1', None)
         from job_discovery.developer_review_ui import clear_exports
         clear_exports()
+        st.session_state.pop('developer_evidence_trace_v1_synthetic',None)
         st.info('Developer comparison OFF. Set JOB_AI_DEVELOPER_COMPARISON=1 before launch.')
         return
     st.warning('Experimental · Developer diagnostics · Never saved or used for ranking')
@@ -53,6 +54,7 @@ def render_synthetic_comparison(consent):
             st.error('Comparison unavailable: evaluation or validation failed. No result was published. '
                      'Diagnostic status: EVALUATION_FAILED. Check the local developer test run.')
     if not result:
+        st.session_state.pop('developer_evidence_trace_v1_synthetic',None)
         st.info('No comparison available. Enable this session and explicitly run a synthetic example.')
         return
     comparison = result['comparison']
@@ -108,6 +110,9 @@ def render_synthetic_comparison(consent):
                 st.json({'source_provenance': raw.get('source_provenance'), 'receipt': row.receipt,
                          'conflict': row.conflict, 'capability_id': raw.get('capability_id'),
                          'score_eligible': raw.get('score_eligible')})
+    from job_discovery.evidence_trace_ui import render as render_trace
+    from scripts.coordinated_job_match_preview_inputs import preview_inputs
+    render_trace(adapter.preview.prepare_comparison(**preview_inputs(case_id)),comparison,[selected] if visible else [],synthetic=True)
     st.subheader('JD metadata diagnostics · NO-GO')
     st.caption('Classification only, using the same original JD. v1.22/v1.23 scores are not evaluated here. '
                'Ambiguous content remains unresolved; these exclusions never affect the published result.')

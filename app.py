@@ -49,6 +49,8 @@ elif os.environ.get('JOB_AI_DEVELOPER_COMPARISON', '') != '1':
     st.session_state.pop('developer_real_applications_v1', None)
     st.session_state.pop('developer_real_debug_exports_v1', None)
     st.session_state.pop('developer_real_review_selected', None)
+    st.session_state.pop('developer_evidence_trace_v1', None)
+    st.session_state.pop('developer_evidence_trace_v1_synthetic', None)
 
 from dotenv import load_dotenv
 

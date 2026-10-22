@@ -11,6 +11,7 @@ SELECTION='developer_real_review_selected'
 def clear_exports():
     st.session_state.pop(EXPORT_STATE,None)
     st.session_state.pop(SELECTION,None)
+    st.session_state.pop('developer_evidence_trace_v1',None)
 
 
 def render_scope(loaded):
@@ -134,6 +135,8 @@ def render_results(loaded,result):
                         with st.expander(side+' original source and evaluation receipts',expanded=False):
                             st.json({'evidence':r.evidence,'conflict':r.conflict,'receipt':r.receipt,
                                      'source_provenance':raw.get('source_provenance')})
+    from job_discovery.evidence_trace_ui import render as render_trace
+    render_trace(loaded['request'],result['comparison'],sorted(selected))
     with st.expander('Metadata diagnostics · classification only · NO-GO',expanded=False,on_change='rerun') as metadata:
         if metadata.open:
             for version,receipt in result['metadata'].items():
