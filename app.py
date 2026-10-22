@@ -17,6 +17,39 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import streamlit as st
+
+# Dispatch developer diagnostics before .env/secrets, production imports,
+# schema initialization, tracking repair or sidebar document loading.
+# Widget state is delivered before a rerun; the URL is an explicit cold entry.
+if os.environ.get('JOB_AI_DEVELOPER_COMPARISON', '') == '1' and (
+    st.session_state.get('navigation_page') == 'Developer Diagnostics'
+    or st.query_params.get('developer_comparison') == '1'
+):
+    st.set_page_config(page_title='Job AI Helper · Developer diagnostics', layout='wide')
+    if st.query_params.get('developer_comparison') == '1':
+        st.session_state['navigation_page'] = 'Developer Diagnostics'
+        del st.query_params['developer_comparison']
+    st.session_state.setdefault('navigation_page', 'Developer Diagnostics')
+    with st.sidebar:
+        selected_page = st.radio('Go to', [
+            'Tailor Resume', 'Application Sessions', 'Application Tracker', 'Blueprint Library',
+            'Tag Library', 'Profile & Evidence', 'Job Finder', 'Capability Discovery',
+            'Job Market Insights', 'Taxonomy Maintenance', 'Developer Diagnostics',
+        ], key='navigation_page', label_visibility='collapsed')
+    if selected_page != 'Developer Diagnostics':
+        if 'developer_comparison' in st.query_params:
+            del st.query_params['developer_comparison']
+        st.rerun()
+    from job_discovery.developer_comparison_ui import render_developer_comparison
+    render_developer_comparison()
+    st.stop()
+elif os.environ.get('JOB_AI_DEVELOPER_COMPARISON', '') != '1':
+    st.session_state.pop('developer_real_comparison_v1', None)
+    st.session_state.pop('developer_real_applications_v1', None)
+    st.session_state.pop('developer_real_debug_exports_v1', None)
+    st.session_state.pop('developer_real_review_selected', None)
+
 from dotenv import load_dotenv
 
 # Load local .env before project modules read configuration.

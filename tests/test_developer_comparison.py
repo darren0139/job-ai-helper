@@ -199,7 +199,7 @@ class UITests(unittest.TestCase):
             app = page_test().run()
             app.toggle[0].set_value(True).run()
             with patch.object(a, 'evaluate', side_effect=ValueError('SECRET_INTERNAL_PATH')):
-                app.button[0].click().run()
+                app.button(key='developer_job_match_ui_v1_run').click().run()
             self.assertFalse(app.exception)
             self.assertIn('EVALUATION_FAILED', app.error[0].value)
             self.assertNotIn('SECRET_INTERNAL_PATH', app.error[0].value)
