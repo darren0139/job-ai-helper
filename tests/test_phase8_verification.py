@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import unittest
 from unittest.mock import patch
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from analysis_stability.requirement_context_policy import current_scoring_version, release_enabled
 from tailoring.capability_taxonomy import get_default_taxonomy
 from taxonomy_discovery.technology_registry import get_default_registry
 
@@ -18,7 +18,7 @@ from tailoring.phase8_verification import (
 
 def stable(score: int, rows: list[dict]):
     return {
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "deterministic_alignment_score": score,
         "alignment_band": "partial alignment",
         "required_core_coverage_score": score,
@@ -287,10 +287,16 @@ class Phase8VerificationTests(unittest.TestCase):
             "structure": {"structure_score": 100},
         }
 
+        if release_enabled():
+            with self.assertRaisesRegex(ValueError, 'Explicit original-input'):
+                build_phase8_verification(baseline_report=baseline,
+                    generation_state=GENERATION, raw_jd_text="Python is required for this role.")
+            mocked_build.assert_not_called()
         result = build_phase8_verification(
             baseline_report=baseline,
             generation_state=GENERATION,
             raw_jd_text="Python is required for this role.",
+            recompute_requirement_context=release_enabled(),
         )
 
         self.assertEqual(mocked_build.call_count, 2)
@@ -321,11 +327,11 @@ class Phase8VerificationTests(unittest.TestCase):
         )
         self.assertEqual(
             result["baseline_resolution"]["resolved_scoring_version"],
-            SCORING_VERSION,
+            current_scoring_version(),
         )
         self.assertEqual(
             result["before_stable_analysis"]["scoring_version"],
-            SCORING_VERSION,
+            current_scoring_version(),
         )
         self.assertEqual(
             mocked_build.call_args_list[0].kwargs["keyword_match"],
@@ -400,6 +406,7 @@ class Phase8VerificationTests(unittest.TestCase):
             baseline_report=baseline,
             generation_state=generation,
             raw_jd_text="Python is required for this role.",
+            recompute_requirement_context=release_enabled(),
         )
 
         initial_call, tailored_call = mocked_build.call_args_list

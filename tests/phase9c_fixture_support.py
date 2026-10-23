@@ -9,11 +9,11 @@ from typing import Any
 
 from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
-    SCORING_VERSION,
     canonicalise_requirements,
     compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import get_default_taxonomy
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "ci_fixtures" / (
@@ -115,7 +115,7 @@ def _refresh_current_source_seed(fixture: dict[str, Any]) -> None:
     candidate["canonical_requirement_ids"] = current_ids
     metadata["source_jd_requirement_summary"] = refreshed_summary
     metadata["source_jd_requirement_count"] = len(refreshed_summary)
-    metadata["source_scoring_version"] = SCORING_VERSION
+    metadata["source_scoring_version"] = current_scoring_version()
     metadata["capability_taxonomy_version"] = get_default_taxonomy().version
     candidate.setdefault("score_summary", {})["approved_tailored_score"] = (
         current_score

@@ -15,7 +15,7 @@ from job_discovery.matching import (
     _default_stable_builder,
 )
 from tailoring.candidate_context import build_candidate_context
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 
 class JobMatchSnapshotTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class JobMatchSnapshotTests(unittest.TestCase):
         }
         self.versions = {
             "match_version": MATCH_VERSION,
-            "scoring_version": "test-scoring-v1",
+            "scoring_version": current_scoring_version(),
             "taxonomy_version": "test-taxonomy-v1",
         }
 
@@ -131,7 +131,7 @@ class JobMatchSnapshotTests(unittest.TestCase):
             jd_profile={"required_skills": ["Experience building REST APIs", "Docker experience"]},
             context=build_profile_evidence_context(self.items),
         )
-        self.assertEqual(analysis["scoring_version"], SCORING_VERSION)
+        self.assertEqual(analysis["scoring_version"], current_scoring_version())
         self.assertGreater(len(analysis["canonical_requirements"]), 0)
         self.assertTrue(all("score_eligible" in row for row in analysis["canonical_requirements"]))
 

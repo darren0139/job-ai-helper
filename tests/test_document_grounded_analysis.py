@@ -15,7 +15,8 @@ from tailoring.phase9e_blueprint_selection import (
     build_original_resume_starting_snapshot, evaluate_starting_snapshot,
     fingerprint_value, Phase9EDecisionError, _build_phase9e_starting_analysis,
 )
-from analysis_stability.stable_evidence_scoring import canonicalise_requirements, SCORING_VERSION
+from analysis_stability.stable_evidence_scoring import canonicalise_requirements
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 ROOT = Path(__file__).resolve().parents[1]
 JD = 'Experience in API development using FastAPI'
@@ -55,6 +56,7 @@ class DocumentInputTests(unittest.TestCase):
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(ROOT / 'app.py'), 'exec'), namespace)
         current = namespace['run_resume_analysis'](EMPTY_TEXT, JD, 'Computing')
         document.validate_document_report(current)
+        self.assertEqual(current['stable_analysis']['scoring_version'], current_scoring_version())
         self.assertEqual(current['stable_analysis']['canonical_requirements'][0]['match_label'], 'none')
         self.assertEqual(current['keyword_match']['keyword_match_score'], 100)
         self.assertEqual(current['overall_score'], 100)  # Existing legacy quality arithmetic only.
@@ -64,7 +66,7 @@ class DocumentInputTests(unittest.TestCase):
         self.assertEqual(current['stable_analysis']['canonical_requirements'][0]['match_label'], 'none')
         self.assertEqual(current['resume_profile']['projects'], [])
         self.assertEqual(current['raw_resume_text'], EMPTY_TEXT)
-        self.assertEqual(current['stable_analysis']['scoring_version'], SCORING_VERSION)
+        self.assertEqual(current['stable_analysis']['scoring_version'], current_scoring_version())
 
     def test_opportunity_is_native_grounded_and_does_not_change_score(self):
         current = report()

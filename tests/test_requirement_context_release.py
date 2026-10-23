@@ -23,7 +23,10 @@ def build(jd=CONTEXT_JD):
                                            context=matching.build_profile_evidence_context(ITEMS))
 
 
+@patch.object(policy, 'PRODUCTION_ENABLED', False)
 class RequirementContextReleaseTests(unittest.TestCase):
+    # These are explicitly OFF -> release transition controls. Activated steady
+    # state is exercised independently in test_requirement_context_activation.
     def test_disabled_production_switch_and_disposable_activation_simulation(self):
         self.assertFalse(policy.PRODUCTION_ENABLED)
         baseline = build()
@@ -256,6 +259,7 @@ You will develop a traffic-control platform''')['requirements']
             'Preferred qualification', 'Core role relevance / future responsibility'})
 
 
+@patch.object(policy, 'PRODUCTION_ENABLED', False)
 class RequirementContextPersistenceTests(unittest.TestCase):
     def test_context_only_document_persists_as_null_without_rebinding_archived_initial(self):
         from database import db_manager, analysis_cache_manager as cache

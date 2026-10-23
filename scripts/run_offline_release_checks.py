@@ -14,6 +14,8 @@ import uuid
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch-root', type=Path, required=True)
+    parser.add_argument('--requirement-context-mode', choices=('off', 'on'),
+                        help='Disposable child-process policy mode; never edits the production switch')
     lanes = parser.add_mutually_exclusive_group()
     lanes.add_argument('--full-project', action='store_true')
     lanes.add_argument('--historical-ollama', action='store_true',
@@ -32,7 +34,11 @@ def main():
     scratch.mkdir(parents=True)
     guard = scratch/'guard'
     guard.mkdir()
-    (guard/'sitecustomize.py').write_text('from scripts.offline_release_guard import install\ninstall()\n', encoding='utf-8')
+    bootstrap = 'from scripts.offline_release_guard import install\ninstall()\n'
+    if args.requirement_context_mode:
+        bootstrap += ('from analysis_stability import requirement_context_policy as _context_policy\n'
+                      f'_context_policy.PRODUCTION_ENABLED = {args.requirement_context_mode == "on"!r}\n')
+    (guard/'sitecustomize.py').write_text(bootstrap, encoding='utf-8')
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHON_DOTENV_DISABLED='true',
         PYTHONPYCACHEPREFIX=str(scratch/'bytecode'), CAPABILITY_RAG_MODE='off',
         LITELLM_LOCAL_MODEL_COST_MAP='True', STREAMLIT_BROWSER_GATHER_USAGE_STATS='false',
@@ -55,6 +61,8 @@ def main():
         command = [sys.executable, '-B', str(root/'scripts/run_coordinated_preview_checks.py'),
                    '--scratch-root', str(scratch), *args.tests]
     print('Offline disposable root: '+str(scratch), flush=True)
+    if args.requirement_context_mode:
+        print('Disposable requirement-context mode: '+args.requirement_context_mode.upper(), flush=True)
     return subprocess.call(command, cwd=root, env=env)
 
 

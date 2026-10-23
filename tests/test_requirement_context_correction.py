@@ -3,15 +3,18 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from analysis_stability import stable_evidence_scoring as native
+from analysis_stability import requirement_context_policy as policy
 from analysis_stability.requirement_context_policy import (
     requirement_context_correction, SCORING_IDENTITY, POLICY_VERSION,
 )
 
 
+@patch.object(policy, 'PRODUCTION_ENABLED', False)
 class RequirementContextCorrectionTests(unittest.TestCase):
+    # Compare the historical OFF baseline with the separate developer preview.
     def canonical(self, text, section='Requirements'):
         return native.canonicalise_requirements({}, raw_jd_text=f'{section}:\n- {text}')
 
