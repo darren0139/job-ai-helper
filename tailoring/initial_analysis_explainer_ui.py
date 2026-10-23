@@ -20,12 +20,14 @@ def _evidence(row):
 
 
 def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
+    from analysis_stability.requirement_presentation import score_text, assessment_label, render_requirement_context
     native = view["stable_analysis"]
     st.caption(view["currentness"] + " · The saved result is shown without recomputation.")
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Job Match", "Required/core", "Preferred", "Evidence strength"),
                                ("deterministic_alignment_score", "required_core_coverage_score", "preferred_coverage_score", "evidence_strength_score")):
-        col.metric(label, native.get(key, "Unavailable"))
+        col.metric(label, score_text(native.get(key)))
+    render_requirement_context(st, native)
     if show_taxonomy:
         taxonomy = render_jd_taxonomy_status(st, raw_jd_text=view["raw_jd_text"], stable_analysis=native,
                                             job_id=view["identity"].get("discovered_job_id"))
@@ -43,6 +45,7 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
         display.append({
             "Requirement": n.get("text"), "Requirement ID": row["requirement_id"],
             "Importance": n.get("importance"), "Weight": contribution.get("effective_weight"),
+            "Assessment basis": assessment_label(n),
             "Score eligible": n.get("score_eligible"),
             "Allocation": contribution.get("group_weight_fraction"),
             "Knowledge": semantics["knowledge_state"], "Evidence": n.get("match_label"),

@@ -15,6 +15,7 @@ from analysis_stability.stable_evidence_scoring import (
     requirement_is_score_eligible,
 )
 from job_discovery.matching import MATCH_VERSION, current_match_versions
+from analysis_stability.requirement_presentation import score_delta
 from tailoring.capability_taxonomy import TAXONOMY_PATH
 from tailoring.phase8_score_explainability import build_score_breakdown
 from taxonomy_discovery.corpus_expansion import fingerprint
@@ -264,9 +265,7 @@ def build_job_match_snapshot(
         "generation_snapshot_fingerprint": _clean(
             generation_snapshot_fingerprint
         ),
-        "score": int(
-            stable_analysis.get("deterministic_alignment_score", 0) or 0
-        ),
+        "score": stable_analysis.get("deterministic_alignment_score", 0),
         "match_counts": {
             label: sum(
                 1 for row in requirements if row["final_match"] == label
@@ -363,10 +362,9 @@ def build_job_match_ab_analysis(
         )
 
     summary = {
-        "initial_score": int(initial.get("score", 0) or 0),
-        "tailored_score": int(tailored.get("score", 0) or 0),
-        "score_delta": int(tailored.get("score", 0) or 0)
-        - int(initial.get("score", 0) or 0),
+        "initial_score": initial.get('score', 0),
+        "tailored_score": tailored.get('score', 0),
+        "score_delta": score_delta(tailored.get('score', 0), initial.get('score', 0)),
         "requirements_improved": counts["IMPROVED"],
         "requirements_preserved": counts["PRESERVED"],
         "requirements_lost": counts["LOST"],

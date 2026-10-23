@@ -92,7 +92,9 @@ def review_pending(rows):
 
 
 def is_development_preview(analysis):
+    from .requirement_context_policy import SCORING_IDENTITY as context_identity
     return bool(analysis.get('development_preview_only')
+            or analysis.get('scoring_version') == context_identity
             or analysis.get('scoring_version') in (
                 'stable-evidence-v1.18-phase6d22', 'stable-evidence-v1.19-phase6d23',
                 'stable-evidence-v1.20-phase6d24', 'stable-evidence-v1.21-phase6d25',
@@ -108,3 +110,13 @@ def assert_analysis_publishable(analysis):
     """Reject development payloads before opening a DB or publishing a score."""
     if is_development_preview(analysis):
         raise ValueError('Coordinated-action development preview cannot be persisted or published')
+    from .requirement_context_policy import RELEASE_SCORING_VERSION, POLICY_VERSION, is_context_only_release
+    if analysis.get('scoring_version') == RELEASE_SCORING_VERSION:
+        from .stable_evidence_scoring import SCORING_VERSION
+        if (analysis.get('requirement_context_policy_version') != POLICY_VERSION
+                or analysis.get('base_scoring_version') != SCORING_VERSION
+                or (analysis.get('canonicalisation_debug') or {}).get('semantic_eligibility_version') != POLICY_VERSION
+                or len(str(analysis.get('input_fingerprint') or '')) != 64):
+            raise ValueError('Incompatible requirement-context release receipt')
+        if not analysis.get('canonical_requirements') and not is_context_only_release(analysis):
+            raise ValueError('Empty release analysis lacks non-scoring source receipts')

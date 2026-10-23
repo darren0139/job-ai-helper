@@ -130,6 +130,43 @@ def validate_document_report(report):
     return deepcopy(authority)
 
 
+def recompute_original_document_report(report):
+    """Explicit policy upgrade in memory; retain the original stored receipt.
+
+    Reuses only each verified document's own exact JD/text/profile. A frozen
+    initial and a selected document are re-evaluated separately, never merged.
+    """
+    from analysis_stability.requirement_context_policy import release_enabled, POLICY_VERSION
+    if not release_enabled():
+        raise ValueError('Requirement-context release is not selected')
+    authority = validate_document_report(report)
+    output = deepcopy(report)
+    prior = (report.get('meta') or {}).get('jd_user_inputs') or {}
+    fresh = analyze_actual_resume_against_jd(resume_text=report['raw_resume_text'],
+        jd_text=report['raw_jd_text'], jd_profile=report.get('jd_profile') or {},
+        resume_profile=report.get('resume_profile') or {})
+    new_authority = fresh.pop('document_analysis')
+    output.update(fresh)
+    output.setdefault('meta', {})['document_analysis'] = new_authority
+    if prior.get('preferred_requirement_overrides'):
+        from tailoring.jd_user_input_overrides import apply_application_session_jd_user_inputs
+        output = apply_application_session_jd_user_inputs(output,
+            raw_jd_text=output['raw_jd_text'], raw_resume_text=output['raw_resume_text'],
+            preferred_requirements=prior['preferred_requirement_overrides'],
+            company=prior.get('company', ''), job_title=prior.get('job_title', ''),
+            location=prior.get('location', ''), source_url=prior.get('source_url', ''))
+        output = refresh_document_authority(output)
+    frozen = report.get('frozen_initial_resume_report')
+    if frozen:
+        if frozen.get('raw_jd_text') != report['raw_jd_text'] or frozen.get('frozen_initial_resume_report'):
+            raise ValueError('Frozen document JD/source chain cannot be reconciled')
+        output['frozen_initial_resume_report'] = recompute_original_document_report(frozen)
+    output['meta']['requirement_context_recomputation'] = {
+        'policy': POLICY_VERSION, 'prior_document_authority': authority,
+        'historical_scores_reproduced': False, 'persistence_performed': False}
+    return output
+
+
 def seal_document_report(report):
     """Seal the effective application-local scope after existing override handling."""
     authority = report.setdefault('meta', {}).get('document_analysis') or {}

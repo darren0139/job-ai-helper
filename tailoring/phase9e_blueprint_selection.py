@@ -1,6 +1,7 @@
 """Phase 9E deterministic application-to-blueprint selection semantics."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -8,7 +9,6 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from analysis_stability.stable_evidence_scoring import (
-    SCORING_VERSION,
     build_deterministic_keyword_match,
     build_resume_evidence_index,
     build_stable_analysis,
@@ -246,7 +246,7 @@ def validate_active_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
         )
 
     evaluation_identity = semantic.get("evaluation") or {}
-    if _clean(evaluation_identity.get("scoring_version")) != SCORING_VERSION:
+    if _clean(evaluation_identity.get("scoring_version")) != current_scoring_version():
         raise Phase9EDecisionError(
             "The blueprint scorer provenance is not current."
         )
@@ -1567,7 +1567,7 @@ def evaluate_starting_snapshot(
         "important_gaps": important_gaps,
     }
     result = {
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_selection_policy_version": (
             PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION
@@ -2038,7 +2038,7 @@ def build_phase9e_decision(
         }
     else:
         semantic_identity["scoring"] = {
-            "scoring_version": SCORING_VERSION,
+            "scoring_version": current_scoring_version(),
             "capability_taxonomy_version": get_default_taxonomy().version,
             "evidence_selection_policy_version": (
                 PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION

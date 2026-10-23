@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from analysis_stability.requirement_context_policy import current_scoring_version
 from tailoring.capability_taxonomy import get_default_taxonomy
 from taxonomy_discovery.technology_registry import get_default_registry
 
@@ -20,7 +21,7 @@ APP = ROOT / "app.py"
 # optional dependencies. UI wiring/cache argument checks remain below.
 _identity_node = next(node for node in ast.parse(PHASE9E_UI.read_text(encoding="utf-8")).body
                       if isinstance(node, ast.FunctionDef) and node.name == "_tailoring_base_resolution_identity")
-_identity_globals = {"SCORING_VERSION": SCORING_VERSION, "get_default_taxonomy": get_default_taxonomy,
+_identity_globals = {"current_scoring_version": current_scoring_version, "get_default_taxonomy": get_default_taxonomy,
                      "get_default_registry": get_default_registry}
 exec(compile(ast.Module(body=[_identity_node], type_ignores=[]), str(PHASE9E_UI), "exec"), _identity_globals)
 _tailoring_base_resolution_identity = _identity_globals["_tailoring_base_resolution_identity"]
@@ -51,7 +52,7 @@ class Phase9ERegistryCurrentnessCacheTests(unittest.TestCase):
         before = _tailoring_base_resolution_identity()
         with patch.dict(_identity_globals, get_default_taxonomy=lambda: SimpleNamespace(version="changed")):
             self.assertNotEqual(before, _tailoring_base_resolution_identity())
-        with patch.dict(_identity_globals, SCORING_VERSION="changed"):
+        with patch.dict(_identity_globals, current_scoring_version=lambda: "changed"):
             self.assertNotEqual(before, _tailoring_base_resolution_identity())
 
     def test_cached_recommendation_receives_resolution_identity(self):

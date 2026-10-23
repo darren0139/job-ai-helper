@@ -146,6 +146,11 @@ def _coverage_component(
 
 def build_score_breakdown(analysis: dict[str, Any] | None) -> dict[str, Any]:
     analysis = analysis if isinstance(analysis, dict) else {}
+    if 'deterministic_alignment_score' in analysis and analysis['deterministic_alignment_score'] is None:
+        return {'explainability_version': PHASE8_SCORE_EXPLAINABILITY_VERSION,
+                'scorer_score': None, 'reconstructed_score': None, 'score_parity': None,
+                'score_available': False, 'unrounded_total': None, 'components': [],
+                'requirements': [], 'unavailable_reason': analysis.get('score_interpretation') or 'Alignment unavailable'}
     rows = _rows(analysis)
     required = _coverage_component(
         rows,

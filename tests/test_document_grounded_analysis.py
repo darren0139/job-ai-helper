@@ -228,6 +228,9 @@ class DocumentReceiptTests(unittest.TestCase):
 
     def test_passive_ui_has_no_writes_models_or_projection(self):
         from streamlit.testing.v1 import AppTest
+        # Resolve the existing optional review UI dependencies outside the
+        # script-run deadline; all rendering and no-write assertions stay active.
+        from tailoring import initial_analysis_explainer_ui, unresolved_requirement_review_ui
         self.persist(report())
         before = self.path.read_bytes()
         app = AppTest.from_string(f'''import streamlit as st

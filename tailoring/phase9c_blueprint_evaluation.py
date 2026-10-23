@@ -1,6 +1,7 @@
 """Phase 9C deterministic cross-JD evaluation of one frozen blueprint."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -11,7 +12,6 @@ from typing import Any, Iterable
 
 from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
-    SCORING_VERSION,
     build_deterministic_keyword_match,
     build_resume_evidence_index,
     build_stable_analysis,
@@ -175,7 +175,7 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         )
 
     metadata = candidate.get("evaluation_metadata") or {}
-    if _clean(metadata.get("source_scoring_version")) != SCORING_VERSION:
+    if _clean(metadata.get("source_scoring_version")) != current_scoring_version():
         raise Phase9CEvaluationError(
             "Candidate source scoring version does not match production."
         )
@@ -344,7 +344,7 @@ def resolve_source_jd(
             "canonical_requirement_ids": actual_ids == expected_ids,
             "scorer_version": (
                 _clean((candidate.get("evaluation_metadata") or {}).get("source_scoring_version"))
-                == SCORING_VERSION
+                == current_scoring_version()
             ),
             "taxonomy_version": (
                 _clean((candidate.get("evaluation_metadata") or {}).get("capability_taxonomy_version"))
@@ -422,7 +422,7 @@ def _scope_row(
         "aggregate_included": decision == "evaluated",
         "canonical_requirement_fingerprint": _canonical_requirement_fingerprint(canonical),
         "stable_input_fingerprint": _stable_input_fingerprint(candidate, jd),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
     }
     return row, canonical
@@ -457,7 +457,7 @@ def _source_parity_scope_row(
         "stable_input_fingerprint": _stable_input_fingerprint(
             candidate, source_jd
         ),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
     }
 
@@ -534,7 +534,7 @@ def _stable_input_fingerprint(candidate: dict[str, Any], jd: dict[str, Any]) -> 
             ),
             "raw_jd_sha256": _text_sha256(jd.get("raw_text")),
             "jd_profile": jd.get("jd_profile"),
-            "scoring_version": SCORING_VERSION,
+            "scoring_version": current_scoring_version(),
             "capability_taxonomy_version": get_default_taxonomy().version,
             "retrieval_mode": "lexical",
         }
@@ -672,7 +672,7 @@ def _source_analysis(
         )
 
     return {
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "input_fingerprint": _stable_input_fingerprint(candidate, source_jd),
         "canonical_requirements": hydrated,
@@ -946,7 +946,7 @@ def evaluate_blueprint_candidate(
             "source_requirement_summary_fingerprint"
         ],
         "source_application_id": int(candidate.get("source_application_id")),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": validated["taxonomy_version"],
     }
     policy = {

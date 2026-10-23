@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import streamlit as st
+from analysis_stability.requirement_presentation import score_text, render_requirement_context
 
 from database.tailoring_generation_control import (
     get_application_generation_control,
@@ -80,9 +81,9 @@ def _render_document_comparison(analysis, label):
         return
     summary = analysis['summary']
     cols = st.columns(3)
-    cols[0].metric(label.split(' vs ')[0], summary['initial_score'])
-    cols[1].metric('Final', summary['tailored_score'])
-    cols[2].metric('Job Match Δ', summary['score_delta'])
+    cols[0].metric(label.split(' vs ')[0], score_text(summary['initial_score']))
+    cols[1].metric('Final', score_text(summary['tailored_score']))
+    cols[2].metric('Job Match Δ', score_text(summary['score_delta']))
     st.dataframe([{
         'Requirement ID': row['requirement_id'], 'Requirement': row.get('requirement_text'),
         'Importance': row.get('importance'), 'Match transition': row.get('match_transition'),
@@ -104,7 +105,8 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         native = result.get('after_stable_analysis') or {}
         for col, label, key in zip(cols, ('Job Match', 'Required/Core', 'Preferred', 'Evidence strength'),
                 ('deterministic_alignment_score', 'required_core_coverage_score', 'preferred_coverage_score', 'evidence_strength_score')):
-            col.metric(label, native.get(key, 'Unavailable'))
+            col.metric(label, score_text(native.get(key)))
+        render_requirement_context(st, native)
         st.dataframe(_snapshot_rows(final), hide_index=True, width='stretch')
         # Initial explainability already appears in Step 1. Reuse the existing
         # native arithmetic formatter for Final alone, without a duplicate
@@ -260,6 +262,9 @@ def _phase9f_execution_uses_legacy_private_stages(
 
 
 def _render_result(result: dict[str, Any]) -> None:
+    if result.get('requirement_context_recomputation'):
+        st.caption('Original frozen document inputs were re-evaluated using the current requirement-context policy. '
+                   'The archived Initial Analysis score remains unchanged; this comparison uses a fresh baseline.')
     comparison = result.get("comparison", {}) or {}
     lineage = result.get("claim_lineage", {}) or {}
 
@@ -278,11 +283,11 @@ def _render_result(result: dict[str, Any]) -> None:
     metric1, metric2, metric3, metric4 = st.columns(4)
     metric1.metric(
         "Initial Job Match" if result.get('document_analysis') else "Before score",
-        comparison.get("before_score", 0),
+        score_text(comparison.get("before_score")),
     )
     metric2.metric(
         "Final Job Match" if result.get('document_analysis') else "After score",
-        comparison.get("after_score", 0),
+        score_text(comparison.get("after_score")),
         delta=(
             comparison.get("score_delta", 0)
             if comparison_valid
@@ -292,7 +297,7 @@ def _render_result(result: dict[str, Any]) -> None:
     metric3.metric(
         "Initial → Final Required/Core Δ" if result.get('document_analysis') else "Required/Core Δ",
         (
-            comparison.get("required_core_coverage_delta", 0)
+            score_text(comparison.get("required_core_coverage_delta"))
             if comparison_valid
             else "Invalid"
         ),
@@ -305,6 +310,7 @@ def _render_result(result: dict[str, Any]) -> None:
     _render_job_match_ab(result)
     if not result.get('document_analysis'):
         render_phase8_score_explainability(result)
+        render_requirement_context(st, result.get('after_stable_analysis') or {})
 
     reconciliation = (
         result.get("requirement_reconciliation", {}) or {}
@@ -557,7 +563,7 @@ def render_phase8_verification(
         "$0.000000",
     )
 
-    def _execute_selected_verification() -> dict[str, Any]:
+    def _execute_selected_verification(*, recompute_requirement_context=False) -> dict[str, Any]:
         if phase9f_generation_id and phase9f_legacy_private:
             from database.phase9f_tailoring_execution_manager import (
                 run_or_reuse_phase9f_tailoring_phase8,
@@ -581,6 +587,7 @@ def render_phase8_verification(
             baseline_report=baseline_report,
             generation_state=selected,
             raw_jd_text=raw_jd_text,
+            recompute_requirement_context=recompute_requirement_context,
         )
         return save_tailoring_verification(
             application_id=application_id,
@@ -598,7 +605,12 @@ def render_phase8_verification(
         return f"{prefix}: saved a new zero-cost verification for the exact fitted snapshot."
 
     latest = get_latest_tailoring_verification(application_id, selected_id)
-    if not phase8_verification_is_current(latest, selected):
+    from analysis_stability.requirement_context_policy import release_enabled, current_scoring_version
+    policy_refresh_required = (release_enabled()
+        and (baseline_report.get('stable_analysis') or {}).get('scoring_version') != current_scoring_version())
+    if policy_refresh_required:
+        st.info('The saved baseline uses a historical policy. Re-run Phase 8 explicitly to evaluate the same original inputs under the new policy. Archived scores remain unchanged.')
+    if not phase8_verification_is_current(latest, selected) and not policy_refresh_required:
         refresh_reason = phase8_verification_refresh_reason(latest, selected)
         st.caption(
             "Automatically verifying the exact fitted résumé because the "
@@ -641,7 +653,7 @@ def render_phase8_verification(
     ):
         try:
             with st.spinner("Re-running deterministic Phase 8 verification..."):
-                manual_saved = _execute_selected_verification()
+                manual_saved = _execute_selected_verification(recompute_requirement_context=release_enabled())
             st.session_state[f"phase8_flash_{application_id}"] = _cache_message(
                 manual_saved,
                 automatic=False,

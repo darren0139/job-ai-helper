@@ -146,6 +146,9 @@ _SUPPORTING_PATTERNS = (
 
 
 def _looks_supporting_requirement(normalised: str) -> bool:
+    from .requirement_context_policy import supporting_trait
+    if supporting_trait(normalised):
+        return True
     return any(
         re.search(pattern, normalised)
         for pattern in _SUPPORTING_PATTERNS
@@ -275,7 +278,9 @@ def _require_admissible_alias_preview(canonical, jd_profile, raw_jd_text):
         return
     token = APPROVED_ALIAS_SURFACE.set(None)
     try:
-        before = canonicalise_requirements(jd_profile, raw_jd_text=raw_jd_text)
+        from .requirement_context_policy import suspend_for_baseline_comparison
+        with suspend_for_baseline_comparison():
+            before = canonicalise_requirements(jd_profile, raw_jd_text=raw_jd_text)
     finally:
         APPROVED_ALIAS_SURFACE.reset(token)
 
@@ -864,6 +869,7 @@ def classify_jd_statement_semantics(
     *,
     source: str = "",
     importance: str = "",
+    parent_text: str = "",
 ) -> dict[str, Any]:
     """Classify whether one JD statement is evidence-bearing for the candidate.
 
@@ -885,6 +891,14 @@ def classify_jd_statement_semantics(
     }
     if not normalised:
         return metadata
+
+    from .requirement_context_policy import enabled, POLICY_VERSION, semantic_correction
+    if enabled():
+        metadata['semantic_eligibility_version'] = POLICY_VERSION
+        correction = semantic_correction(surface, importance=importance, parent_text=parent_text)
+        if correction:
+            semantic_type, rule = correction
+            return _ineligible_semantic_metadata(metadata, semantic_type=semantic_type, rule=rule)
 
     administrative_rules = (
         (
@@ -1076,6 +1090,14 @@ def classify_jd_statement_semantics(
                 "eligibility_rule": "eligible_role_responsibility",
             }
         )
+    if enabled():
+        metadata['assessment_basis'] = (
+            'role_relevance_not_prior_experience_prerequisite'
+            if metadata['semantic_type'] == 'role_responsibility'
+            and importance not in ('required', 'deal_breaker')
+            and not re.search(r'\b(?:must|required|essential|mandatory|minimum)\b', surface, re.I)
+            else 'applicant_qualification_or_attribute'
+        )
     return metadata
 
 
@@ -1157,14 +1179,14 @@ def requirement_is_tailoring_eligible(requirement: dict[str, Any]) -> bool:
     return bool(metadata["tailoring_eligible"])
 
 
-def _classify_non_requirement_row(value: Any) -> str:
+def _classify_non_requirement_row(value: Any, *, source: str = '', importance: str = '', parent_text: str = '') -> str:
     """Return a deterministic exclusion reason for non-evidence-bearing JD text."""
     surface = _clean_text(value)
     text = _normalise_basic(value)
     if not text:
         return ""
 
-    semantic = classify_jd_statement_semantics(surface)
+    semantic = classify_jd_statement_semantics(surface, source=source, importance=importance, parent_text=parent_text)
     if not semantic["score_eligible"]:
         return _clean_text(semantic.get("eligibility_rule"))
 
@@ -2807,6 +2829,7 @@ def canonicalise_requirements(
     )
     filtered_section_headings = _raw_jd_section_heading_rows(raw_jd_text)
     filtered_non_requirement_rows: list[dict[str, str]] = []
+    from .requirement_context_policy import enabled as context_correction, POLICY_VERSION as context_policy_version
 
     clean_source_rows: list[dict[str, Any]] = []
     seen_filtered = {
@@ -2837,7 +2860,10 @@ def canonicalise_requirements(
             continue
 
         exclusion_reason = _classify_non_requirement_row(
-            source_row.get("text", "")
+            source_row.get("text", ""),
+            source=_clean_text(source_row.get('source', '')) if context_correction() else '',
+            importance=_clean_text(source_row.get('importance', '')) if context_correction() else '',
+            parent_text=_clean_text(source_row.get('parent_text', '')) if context_correction() else '',
         )
         if exclusion_reason:
             semantic = _semantic_metadata_for_exclusion(
@@ -2851,6 +2877,7 @@ def canonicalise_requirements(
                     "text": _clean_text(source_row.get("text", "")),
                     "reason": exclusion_reason,
                     "source": _clean_text(source_row.get("source", "")),
+                    **({'source_provenance': [dict(source_row)]} if context_correction() else {}),
                     **semantic,
                 }
             )
@@ -3062,6 +3089,7 @@ def canonicalise_requirements(
             row.get("atomic_focus") or row.get("text"),
             source=" ".join(row.get("sources", []) or []),
             importance=_clean_text(row.get("importance")),
+            parent_text=_clean_text(row.get('parent_text', '')) if context_correction() else '',
         )
         semantic["credential_policy"] = classify_credential_requirement(
             row.get("atomic_focus") or row.get("text")
@@ -3082,7 +3110,10 @@ def canonicalise_requirements(
         "filtered_non_requirement_rows": filtered_non_requirement_rows,
         "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "non_requirement_filter_version": NON_REQUIREMENT_FILTER_VERSION,
-        "semantic_eligibility_version": JD_SEMANTIC_ELIGIBILITY_VERSION,
+        "semantic_eligibility_version": (
+            context_policy_version
+            if context_correction() else JD_SEMANTIC_ELIGIBILITY_VERSION
+        ),
         "canonical_requirement_decomposition_version": (
             CANONICAL_REQUIREMENT_DECOMPOSITION_VERSION
         ),
@@ -4423,7 +4454,7 @@ def compute_deterministic_alignment(
         for row in scoring_rows
     }
 
-    return {
+    result = {
         "deterministic_alignment_score": overall,
         "alignment_band": _alignment_band(overall),
         "required_core_coverage_score": round(required_score),
@@ -4484,6 +4515,8 @@ def compute_deterministic_alignment(
             "reported separately and is not part of this score."
         ),
     }
+    from .requirement_context_policy import preserve_unavailable_score
+    return preserve_unavailable_score(result, linked_requirements)
 
 
 def build_stable_analysis(
@@ -4657,4 +4690,5 @@ def build_stable_analysis(
         **score,
     }
     from .coordinated_runtime import stamp_eligible_weak_preview
-    return stamp_eligible_weak_preview(result)
+    from .requirement_context_policy import stamp_analysis
+    return stamp_analysis(stamp_eligible_weak_preview(result))

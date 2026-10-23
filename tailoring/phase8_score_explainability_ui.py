@@ -499,6 +499,10 @@ def _render_score_receipt(
 
 
 def _render_breakdown(label: str, breakdown: dict[str, Any]) -> None:
+    if breakdown.get('score_available') is False:
+        st.markdown(f'**{label}: Unavailable**')
+        st.caption(breakdown.get('unavailable_reason') or 'Alignment unavailable')
+        return
     scorer_score = int(breakdown.get("scorer_score", 0) or 0)
     reconstructed = int(breakdown.get("reconstructed_score", 0) or 0)
     st.markdown(f"**{label}: {scorer_score}/100**")

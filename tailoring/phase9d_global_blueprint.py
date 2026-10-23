@@ -1,6 +1,7 @@
 """Phase 9D immutable global-blueprint approval semantics."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -8,7 +9,6 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.phase9b_blueprint_candidate import PHASE9B_VERSION
 from tailoring.phase9c_blueprint_evaluation import (
@@ -233,7 +233,7 @@ def _validate_persisted_evaluation(
             source_requirement_summary_fingerprint(candidate)
         ),
         "source_application_id": int(candidate.get("source_application_id")),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
     }
     mismatches = [

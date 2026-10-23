@@ -302,6 +302,10 @@ def save_job_match_snapshot(
 ) -> dict[str, Any]:
     from analysis_stability.coordinated_runtime import assert_analysis_publishable
     assert_analysis_publishable(stable_analysis)
+    from analysis_stability.requirement_context_policy import RELEASE_SCORING_VERSION
+    if (stable_analysis.get('scoring_version') == RELEASE_SCORING_VERSION
+            and scoring_version != RELEASE_SCORING_VERSION):
+        raise ValueError('Snapshot cache identity differs from requirement-context scorer')
     init_job_match_schema(db_path)
     connection = _connect(db_path)
     try:

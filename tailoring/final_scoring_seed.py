@@ -1,6 +1,7 @@
 """Canonical frozen Phase 8 scoring seed shared with Phase 9C."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -9,7 +10,6 @@ from typing import Any, Iterable
 
 from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
-    SCORING_VERSION,
     compute_deterministic_alignment,
     requirement_is_score_eligible,
 )
@@ -119,7 +119,7 @@ def build_final_scoring_seed(
     return {
         "seed_version": FINAL_SCORING_SEED_VERSION,
         "scoring_version": (
-            _clean(analysis.get("scoring_version")) or SCORING_VERSION
+            _clean(analysis.get("scoring_version")) or current_scoring_version()
         ),
         "capability_taxonomy_version": _clean(
             analysis.get("capability_taxonomy_version")

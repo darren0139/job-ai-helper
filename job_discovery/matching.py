@@ -194,14 +194,14 @@ def current_evidence_context() -> dict[str, Any]:
 
 
 def current_match_versions() -> dict[str, str]:
-    from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+    from analysis_stability.requirement_context_policy import current_scoring_version
     from tailoring.capability_taxonomy import get_default_taxonomy
 
     registry_version = str(get_default_registry().version)
     return {
         "match_version": _match_identity_version(MATCH_VERSION, registry_version),
         "match_contract_version": MATCH_VERSION,
-        "scoring_version": str(SCORING_VERSION),
+        "scoring_version": current_scoring_version(),
         "taxonomy_version": str(get_default_taxonomy().version),
         "technology_registry_version": registry_version,
     }
@@ -251,8 +251,8 @@ def _default_stable_builder(
 def summarize_stable_match(
     stable_analysis: dict[str, Any],
 ) -> dict[str, Any]:
-    # This remains the published numeric-only contract. Developer comparisons
-    # have their own nullable model and must never be coerced here.
+    # Developer comparisons remain rejected; publishable unavailable results
+    # retain null rather than being reinterpreted as zero alignment.
     from analysis_stability.coordinated_runtime import assert_analysis_publishable
     assert_analysis_publishable(stable_analysis)
     from analysis_stability.stable_evidence_scoring import (
@@ -307,6 +307,8 @@ def summarize_stable_match(
                 else "taxonomy_gap"
             ),
         }
+        from analysis_stability.requirement_presentation import assessment_label
+        gap['assessment_basis'] = assessment_label(row)
         all_gaps.append(gap)
 
         important = gap["importance"].lower() in IMPORTANT_IMPORTANCE
@@ -332,6 +334,10 @@ def summarize_stable_match(
     }
 
     ranking_quality = build_ranking_quality(taxonomy_resolution)
+    if stable_analysis.get('deterministic_alignment_score') is None:
+        ranking_quality = {**ranking_quality, 'ranking_eligible': False,
+                           'ranking_status': 'unavailable',
+                           'ranking_ineligible_reasons': ['Alignment unavailable: no scoring requirements']}
 
     return {
         "taxonomy_resolution": taxonomy_resolution,
@@ -352,19 +358,11 @@ def summarize_stable_match(
         "important_taxonomy_gap_count": ranking_quality[
             "important_taxonomy_gap_count"
         ],
-        "deterministic_alignment_score": int(
-            stable_analysis.get("deterministic_alignment_score", 0) or 0
-        ),
+        "deterministic_alignment_score": stable_analysis.get("deterministic_alignment_score"),
         "alignment_band": _clean(stable_analysis.get("alignment_band")),
-        "required_core_coverage_score": int(
-            stable_analysis.get("required_core_coverage_score", 0) or 0
-        ),
-        "preferred_coverage_score": int(
-            stable_analysis.get("preferred_coverage_score", 0) or 0
-        ),
-        "evidence_strength_score": int(
-            stable_analysis.get("evidence_strength_score", 0) or 0
-        ),
+        "required_core_coverage_score": stable_analysis.get("required_core_coverage_score"),
+        "preferred_coverage_score": stable_analysis.get("preferred_coverage_score"),
+        "evidence_strength_score": stable_analysis.get("evidence_strength_score"),
         "requirement_count": len(rows),
         "direct_requirement_count": counts["direct"],
         "transferable_requirement_count": counts["transferable"],
@@ -382,6 +380,9 @@ def summarize_stable_match(
         "score_interpretation": _clean(
             stable_analysis.get("score_interpretation")
         ),
+        **({'requirement_context_policy_version': stable_analysis['requirement_context_policy_version'],
+            'score_publication_status': stable_analysis.get('score_publication_status', 'AVAILABLE')}
+           if stable_analysis.get('requirement_context_policy_version') else {}),
     }
 
 def _identity(
@@ -389,6 +390,9 @@ def _identity(
     context: dict[str, Any],
     versions: dict[str, str],
 ) -> dict[str, Any]:
+    from analysis_stability.requirement_context_policy import release_enabled, current_scoring_version
+    if release_enabled() and versions.get('scoring_version') != current_scoring_version():
+        raise ValueError('Requested cache identity is incompatible with the requirement-context release')
     return {
         "discovered_job_id": int(job.get("id", 0) or 0),
         "job_content_hash": _clean(job.get("content_hash")),

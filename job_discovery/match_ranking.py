@@ -147,7 +147,7 @@ def best_match_sort_key(
         else {}
     )
     analyzed = bool(summary)
-    eligible = bool(summary.get("ranking_eligible"))
+    eligible = bool(summary.get("ranking_eligible")) and summary.get('deterministic_alignment_score') is not None
 
     if eligible:
         bucket = 2

@@ -135,8 +135,8 @@ class Phase8MultilineJDTests(unittest.TestCase):
             MULTILINE_JD_LF,
         )
         with patch(
-            "tailoring.phase8_verification.SCORING_VERSION",
-            "stable-evidence-v1.3-future-test",
+            "tailoring.phase8_verification.current_scoring_version",
+            return_value="stable-evidence-v1.3-future-test",
         ):
             future = _verification_fingerprint(
                 baseline_report(),

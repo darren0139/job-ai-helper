@@ -10,7 +10,8 @@ from copy import deepcopy
 from typing import Any
 
 from analysis_stability import build_stable_analysis
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from analysis_stability.requirement_context_policy import current_scoring_version
+from analysis_stability.requirement_presentation import score_delta as nullable_delta
 from tailoring.phase8_requirement_reconciliation import (
     reconcile_final_requirement_matches,
 )
@@ -405,34 +406,18 @@ def compare_stable_analyses(
         if row.get("importance") in IMPORTANT_REQUIREMENTS
     ]
 
-    before_score = int(
-        before.get("deterministic_alignment_score", 0) or 0
-    )
-    after_score = int(
-        after.get("deterministic_alignment_score", 0) or 0
-    )
+    before_score = before.get("deterministic_alignment_score", 0)
+    after_score = after.get("deterministic_alignment_score", 0)
 
     return {
         "before_score": before_score,
         "after_score": after_score,
-        "score_delta": after_score - before_score,
+        "score_delta": nullable_delta(after_score, before_score),
         "before_band": before.get("alignment_band", ""),
         "after_band": after.get("alignment_band", ""),
-        "required_core_coverage_delta": int(
-            after.get("required_core_coverage_score", 0) or 0
-        ) - int(
-            before.get("required_core_coverage_score", 0) or 0
-        ),
-        "preferred_coverage_delta": int(
-            after.get("preferred_coverage_score", 0) or 0
-        ) - int(
-            before.get("preferred_coverage_score", 0) or 0
-        ),
-        "evidence_strength_delta": int(
-            after.get("evidence_strength_score", 0) or 0
-        ) - int(
-            before.get("evidence_strength_score", 0) or 0
-        ),
+        "required_core_coverage_delta": nullable_delta(after.get('required_core_coverage_score', 0), before.get('required_core_coverage_score', 0)),
+        "preferred_coverage_delta": nullable_delta(after.get('preferred_coverage_score', 0), before.get('preferred_coverage_score', 0)),
+        "evidence_strength_delta": nullable_delta(after.get('evidence_strength_score', 0), before.get('evidence_strength_score', 0)),
         "improved_requirements": improved,
         "regressed_requirements": regressed,
         "important_regressions": important_regressions,
@@ -508,7 +493,7 @@ def resolve_phase8_baseline_analysis(
     current_registry_version = _clean(get_default_registry().version)
     can_reuse = bool(
         stored_version
-        and stored_version == SCORING_VERSION
+        and stored_version == current_scoring_version()
         and stored_taxonomy_version == current_taxonomy_version
         and stored_registry_version == current_registry_version
     )
@@ -539,7 +524,7 @@ def resolve_phase8_baseline_analysis(
         "mode": mode,
         "rebuilt": rebuilt,
         "stored_scoring_version": stored_version,
-        "current_scoring_version": SCORING_VERSION,
+        "current_scoring_version": current_scoring_version(),
         "stored_taxonomy_version": stored_taxonomy_version,
         "current_taxonomy_version": current_taxonomy_version,
         "stored_registry_version": stored_registry_version,
@@ -604,10 +589,12 @@ def _verification_fingerprint(
     )
     payload = {
         "phase8_version": PHASE8_VERIFICATION_VERSION,
+        **({'requirement_context_recomputation': deepcopy(baseline_report['meta']['requirement_context_recomputation'])}
+           if (baseline_report.get('meta') or {}).get('requirement_context_recomputation') else {}),
         "baseline_resolution_version": (
             PHASE8_BASELINE_RESOLUTION_VERSION
         ),
-        "current_stable_scoring_version": SCORING_VERSION,
+        "current_stable_scoring_version": current_scoring_version(),
         "baseline_stable_fingerprint": (
             baseline_report.get("stable_analysis", {}) or {}
         ).get("input_fingerprint", ""),
@@ -680,9 +667,7 @@ def refresh_phase8_readiness(
     claim_risks = int(
         lineage.get("claim_review_required_count", 0) or 0
     )
-    score_delta = int(
-        comparison.get("score_delta", 0) or 0
-    )
+    score_delta = comparison.get("score_delta")
     fit_one_page = fit_result.get("fit_one_page") is True
     approved = status == "approved"
 
@@ -693,7 +678,7 @@ def refresh_phase8_readiness(
             comparison_valid and not important_regressions
         ),
         "no_claim_review_risks": claim_risks == 0,
-        "score_not_lower": score_delta >= 0,
+        "score_not_lower": score_delta is not None and score_delta >= 0,
     }
     approval_ready = all(
         bool(value) for value in approval_reasons.values()
@@ -732,8 +717,18 @@ def build_phase8_verification(
     baseline_report: dict[str, Any],
     generation_state: dict[str, Any],
     raw_jd_text: str,
+    recompute_requirement_context: bool = False,
 ) -> dict[str, Any]:
     """Verify one fitted generation without making any model/API call."""
+    from analysis_stability.requirement_context_policy import release_enabled
+    if (release_enabled() and (baseline_report.get('stable_analysis') or {}).get('scoring_version') != current_scoring_version()):
+        if not recompute_requirement_context:
+            raise ValueError('Explicit original-input recomputation is required for the new requirement-context policy')
+        if (baseline_report.get('meta') or {}).get('document_analysis'):
+            from tailoring.document_grounded_analysis import recompute_original_document_report
+            baseline_report = recompute_original_document_report(baseline_report)
+        elif not baseline_report.get('resume_profile'):
+            raise ValueError('Original resume-profile evidence is unavailable; policy recomputation is blocked')
     stored_before = baseline_report.get("stable_analysis")
     if not isinstance(stored_before, dict):
         raise ValueError(
@@ -887,7 +882,7 @@ def build_phase8_verification(
     claim_risks = int(
         lineage.get("claim_review_required_count", 0) or 0
     )
-    score_delta = int(comparison.get("score_delta", 0) or 0)
+    score_delta = comparison.get("score_delta")
     fit_one_page = fit_result.get("fit_one_page") is True
     approved = (
         _clean(generation_state.get("status")).lower()
@@ -912,6 +907,9 @@ def build_phase8_verification(
             "Verification stopped: the Initial and Tailored Job Match analyses "
             "do not have complete, matching identity and evidence provenance."
         )
+    elif score_delta is None:
+        verdict = 'score_unavailable'
+        verdict_message = 'Alignment unavailable: no scoring requirements. Numeric improvement and approval cannot be inferred.'
     elif important_regressions:
         verdict = "regression_detected"
         verdict_message = (
@@ -944,7 +942,7 @@ def build_phase8_verification(
             comparison_valid and not important_regressions
         ),
         "no_claim_review_risks": claim_risks == 0,
-        "score_not_lower": score_delta >= 0,
+        "score_not_lower": score_delta is not None and score_delta >= 0,
     }
     approval_ready = all(
         bool(value) for value in approval_readiness_reasons.values()

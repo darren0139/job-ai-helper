@@ -6,6 +6,7 @@ model, embedding, or Chroma APIs.
 """
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -13,7 +14,6 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from analysis_stability.stable_evidence_scoring import (
-    SCORING_VERSION,
     build_deterministic_keyword_match,
     build_stable_analysis,
     canonicalise_requirements,
@@ -1055,7 +1055,7 @@ def prepare_ranking_context(
 
     scoring_identity = {
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "retrieval_mode": "lexical",
@@ -1180,7 +1180,7 @@ def score_normalized_source(
     scoring_identity = {
         "exact_jd": deepcopy(exact_jd["semantic_identity"]),
         "source": deepcopy(source["semantic_identity"]),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
@@ -1284,7 +1284,7 @@ def score_normalized_source(
         "candidate_analysis_snapshot_fingerprint": (
             candidate_analysis_snapshot_fingerprint
         ),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "exact_verified_reuse_eligible": bool(

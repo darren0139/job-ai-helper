@@ -6,6 +6,7 @@ Run locally:
 """
 
 from __future__ import annotations
+from analysis_stability.requirement_presentation import score_text, render_requirement_context
 
 import json
 import sqlite3
@@ -903,19 +904,14 @@ def render_application_analysis_details(
     stable_analysis = report.get("stable_analysis", {}) or {}
 
     if stable_analysis:
-        stable_score = int(
-            stable_analysis.get(
-                "deterministic_alignment_score",
-                0,
-            )
-        )
+        stable_score = stable_analysis.get('deterministic_alignment_score')
         stable_band = stable_analysis.get(
             "alignment_band",
             "not classified",
         )
         st.info(
-            f"Role alignment: {stable_score}/100 "
-            f"— {stable_band.title()}"
+            f"Role alignment: {score_text(stable_score, '/100')} "
+            f"— {str(stable_band or 'unavailable').title()}"
         )
         st.caption(
             "This evidence-linked score uses fixed Python weights and "
@@ -961,12 +957,12 @@ def render_application_analysis_details(
 
         stable_col1, stable_col2, stable_col3, stable_col4 = st.columns(4)
         stable_col1.metric(
-            "Required/Core Coverage",
-            f"{stable_analysis.get('required_core_coverage_score', 0)}%",
+            "Qualification / Core Alignment",
+            score_text(stable_analysis.get('required_core_coverage_score'), '%'),
         )
         stable_col2.metric(
             "Preferred Coverage",
-            f"{stable_analysis.get('preferred_coverage_score', 0)}%",
+            score_text(stable_analysis.get('preferred_coverage_score'), '%'),
         )
         stable_col3.metric(
             "Credited Requirements",
@@ -977,8 +973,9 @@ def render_application_analysis_details(
         )
         stable_col4.metric(
             "Strength of Credited Evidence",
-            f"{stable_analysis.get('evidence_strength_score', 0)}%",
+            score_text(stable_analysis.get('evidence_strength_score'), '%'),
         )
+        render_requirement_context(st, stable_analysis)
 
         with st.expander(
             "Evidence-linked requirement breakdown",
@@ -1699,8 +1696,8 @@ def build_stable_alignment_summary(report: dict[str, Any]) -> str:
 
     lines = [
         (
-            f"- **Role alignment:** {stable.get('deterministic_alignment_score', 0)}/100 "
-            f"— {str(stable.get('alignment_band', 'not classified')).title()}."
+            f"- **Role alignment:** {score_text(stable.get('deterministic_alignment_score'), '/100')} "
+            f"— {str(stable.get('alignment_band') or 'unavailable').title()}."
         )
     ]
 
@@ -1760,8 +1757,8 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
                 "",
                 (
                     f"**Deterministic score:** "
-                    f"{stable.get('deterministic_alignment_score', 0)}/100 "
-                    f"— {str(stable.get('alignment_band', '')).title()}"
+                    f"{score_text(stable.get('deterministic_alignment_score'), '/100')} "
+                    f"— {str(stable.get('alignment_band') or 'unavailable').title()}"
                 ),
                 "",
                 (
@@ -1769,15 +1766,15 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
                     "not an ATS acceptance probability."
                 ),
                 "",
-                f"- Required/Core coverage: **{stable.get('required_core_coverage_score', 0)}%**",
-                f"- Preferred coverage: **{stable.get('preferred_coverage_score', 0)}%**",
+                f"- Qualification / Core alignment: **{score_text(stable.get('required_core_coverage_score'), '%')}**",
+                f"- Preferred coverage: **{score_text(stable.get('preferred_coverage_score'), '%')}**",
                 (
                     f"- Credited requirements: **{stable.get('credited_requirement_count', 0)}"
                     f" of {stable.get('requirement_count', 0)}**"
                 ),
                 (
                     f"- Strength of credited evidence: "
-                    f"**{stable.get('evidence_strength_score', 0)}%**"
+                    f"**{score_text(stable.get('evidence_strength_score'), '%')}**"
                 ),
                 "",
                 "## Role Alignment Summary",

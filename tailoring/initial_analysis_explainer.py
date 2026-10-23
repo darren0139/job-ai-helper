@@ -39,6 +39,8 @@ def explain_requirement(row, *, knowledge_status=None):
     if knowledge == "TECHNOLOGY_IDENTITY_RESOLVED" and label == "none":
         message = "The technology is recognized, but no accepted resume evidence was selected. " + PENDING
     negative = row.get("negative_evidence_status")
+    if row.get('assessment_basis') == 'role_relevance_not_prior_experience_prerequisite':
+        message += ' This future responsibility contributes to role relevance; it is not a mandatory prior-experience qualification.'
     diagnostic = None
     if negative == "CANDIDATE_REJECTED":
         diagnostic = "A potentially related resume item was evaluated but did not satisfy the current matching threshold. The current contract cannot confidently classify this as a confirmed resume evidence gap."
@@ -52,7 +54,9 @@ def explain_requirement(row, *, knowledge_status=None):
 
 def build_analysis_receipt(stable_analysis, *, raw_jd_text, provenance, identity=None, knowledge=None):
     """Format the actual saved result using the existing Phase 8 arithmetic view."""
-    if not isinstance(stable_analysis, dict) or not stable_analysis.get("canonical_requirements") or not raw_jd_text:
+    if (not isinstance(stable_analysis, dict) or not raw_jd_text
+            or (not stable_analysis.get('canonical_requirements')
+                and stable_analysis.get('score_publication_status') != 'UNAVAILABLE_NO_SCORING_REQUIREMENTS')):
         raise ValueError("Saved analysis/JD unavailable; no recomputation was attempted.")
     stable = deepcopy(stable_analysis)
     versions = current_match_versions()

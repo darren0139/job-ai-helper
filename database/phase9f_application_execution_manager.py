@@ -1,6 +1,7 @@
 """Durable Phase 9F-E Reuse orchestration and immutable-result persistence."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import hashlib
 import json
@@ -15,7 +16,6 @@ from typing import Any
 
 from pypdf import PdfReader
 
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from database import db_manager
 from database import tailoring_version_manager as base_manager
 from database.application_blueprint_manager import (
@@ -1350,7 +1350,7 @@ def _strict_inherited_phase8(
         != PHASE8_VERIFICATION_VERSION
         or _clean(verification.get("generation_id"))
         != _clean(generation.get("generation_id"))
-        or _clean(after.get("scoring_version")) != SCORING_VERSION
+        or _clean(after.get("scoring_version")) != current_scoring_version()
         or _clean(after.get("capability_taxonomy_version"))
         != _clean(decision_scoring.get("capability_taxonomy_version"))
         or sorted(after_ids)

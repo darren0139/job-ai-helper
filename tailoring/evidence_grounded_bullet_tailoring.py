@@ -1,5 +1,6 @@
 """One requirement / one bullet adapter over relevance, rephrase and Phase 8."""
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 from copy import deepcopy
 
@@ -9,7 +10,7 @@ from ai_providers import (
     create_rewrite_provider,
 )
 from analysis_stability.stable_evidence_scoring import (
-    SCORING_VERSION, build_deterministic_keyword_match,
+    build_deterministic_keyword_match,
 )
 from llm import ask_json
 from tailoring.candidate_context import build_generation_candidate_context, context_fingerprint
@@ -243,7 +244,7 @@ def prepare_bullet_target(*, generation: dict, report: dict, project_index: int,
     if generation.get("status") != "draft":
         raise ValueError("Create an editable draft before tailoring a bullet.")
     analysis = report.get("stable_analysis") or {}
-    if (analysis.get("scoring_version") != SCORING_VERSION or
+    if (analysis.get("scoring_version") != current_scoring_version() or
             analysis.get("capability_taxonomy_version") != get_default_taxonomy().version):
         raise ValueError("Current scoring/taxonomy analysis is required.")
     requirements = analysis.get("canonical_requirements") or []
@@ -296,7 +297,7 @@ def prepare_bullet_target(*, generation: dict, report: dict, project_index: int,
     identity = {
         "policy_version": BULLET_TAILORING_VERSION,
         "relevance_metadata_version": PROJECT_RELEVANCE_METADATA_VERSION,
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": current_scoring_version(),
         "taxonomy_version": get_default_taxonomy().version,
         "generation_fingerprint": context_fingerprint(generation),
         "report_fingerprint": context_fingerprint(_report_authority_identity(report)),
@@ -348,7 +349,7 @@ def list_grounded_bullet_opportunities(*, generation: dict, report: dict) -> dic
     if generation.get("status") != "draft":
         raise ValueError("Create an editable draft before tailoring a bullet.")
     analysis = report.get("stable_analysis") or {}
-    if (analysis.get("scoring_version") != SCORING_VERSION or
+    if (analysis.get("scoring_version") != current_scoring_version() or
             analysis.get("capability_taxonomy_version") != get_default_taxonomy().version):
         raise ValueError("Current scoring/taxonomy analysis is required.")
     requirements = analysis.get("canonical_requirements") or []

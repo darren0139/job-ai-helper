@@ -66,6 +66,10 @@ def build_analysis_input_fingerprint(
         "model_id": str(model_id or "").strip(),
         "retrieval_config": retrieval_config or {},
     }
+    from analysis_stability.requirement_context_policy import release_enabled, POLICY_VERSION, current_scoring_version
+    if release_enabled():
+        payload['requirement_context_identity'] = {
+            'scorer': current_scoring_version(), 'parser_policy': POLICY_VERSION}
     canonical = json.dumps(
         payload,
         sort_keys=True,
@@ -259,7 +263,9 @@ def persist_explicit_application_analysis(
     from analysis_stability.coordinated_runtime import assert_analysis_publishable
     assert_analysis_publishable(stable)
     rows = stable.get("canonical_requirements") or []
-    if not rows or len({r.get("requirement_id") for r in rows}) != len(rows) or any(not r.get("requirement_id") for r in rows):
+    from analysis_stability.requirement_context_policy import is_context_only_release
+    if ((not rows and not is_context_only_release(stable))
+            or len({r.get("requirement_id") for r in rows}) != len(rows) or any(not r.get("requirement_id") for r in rows)):
         raise ValueError("Canonical requirement identity unavailable or ambiguous")
     scope = canonical_requirement_scope_fingerprint(rows)
     identity = current_ab_identity(raw_jd_text)

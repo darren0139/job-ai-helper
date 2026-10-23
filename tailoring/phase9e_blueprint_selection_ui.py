@@ -1,6 +1,7 @@
 """Application Sessions UI for Phase 9E blueprint selection and binding."""
 
 from __future__ import annotations
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 import json
 from copy import deepcopy
@@ -8,7 +9,6 @@ from typing import Any
 
 import streamlit as st
 
-from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.capability_taxonomy import get_default_taxonomy
 from taxonomy_discovery.technology_registry import get_default_registry
 
@@ -374,7 +374,7 @@ def _ranking_report_snapshot(
 def _tailoring_base_resolution_identity() -> dict[str, str]:
     """Return current deterministic resolver identities used to salt UI caches."""
     return {
-        "scoring_version": str(SCORING_VERSION),
+        "scoring_version": str(current_scoring_version()),
         "capability_taxonomy_version": str(
             get_default_taxonomy().version
         ),

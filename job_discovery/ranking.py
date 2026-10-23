@@ -11,7 +11,8 @@ def rank_current_job_matches(jobs, *, context):
         state = inspect_job_match(job, context=context)
         if state["status"] != "current":
             return -1
-        return (state["snapshot"].get("summary") or {}).get("deterministic_alignment_score", 0)
+        value = (state["snapshot"].get("summary") or {}).get("deterministic_alignment_score")
+        return -1 if value is None else value
     return sorted(jobs, key=score, reverse=True)
 
 

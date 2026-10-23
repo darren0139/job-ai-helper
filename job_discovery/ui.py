@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import streamlit as st
+from analysis_stability.requirement_presentation import score_text, render_alignment_metrics
 
 from database.phase9f_application_confirmation_manager import create_job_finder_application_session
 from database.job_match_manager import (
@@ -1779,28 +1780,9 @@ def render_job_finder() -> None:
         ranking_eligible = bool(
             match_summary.get("ranking_eligible")
         )
-        raw_alignment = int(
-            match_summary.get(
-                "deterministic_alignment_score",
-                0,
-            )
-            or 0
-        )
+        raw_alignment = match_summary.get('deterministic_alignment_score')
 
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        metric_col1.metric("Job Match", f"{raw_alignment}/100")
-        metric_col2.metric(
-            "Required/core",
-            f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
-        )
-        metric_col3.metric(
-            "Preferred",
-            f"{int(match_summary.get('preferred_coverage_score', 0) or 0)}%",
-        )
-        metric_col4.metric(
-            "Evidence strength",
-            f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
-        )
+        render_alignment_metrics(st, match_summary)
         with st.expander("How this match was analyzed"):
             from tailoring.initial_analysis_explainer_ui import render_job_finder_explainer
             full = snapshot
@@ -1847,7 +1829,7 @@ def render_job_finder() -> None:
                 "Eligible" if ranking_eligible else "Provisional",
             )
 
-            if not ranking_eligible:
+            if not ranking_eligible and raw_alignment is not None:
                 ranking_quality = (
                     match_summary.get("ranking_quality")
                     if isinstance(match_summary.get("ranking_quality"), dict)
@@ -1874,7 +1856,7 @@ def render_job_finder() -> None:
                     * 100
                 )
                 st.warning(
-                    f"Provisional alignment: {raw_alignment}/100. "
+                    f"Provisional alignment: {score_text(raw_alignment, '/100')}. "
                     "It stays visible but does not drive the trusted Best Match "
                     f"tier until capability resolution reaches ≥{min_important}% "
                     f"important and ≥{min_overall}% overall."
@@ -1890,6 +1872,7 @@ def render_job_finder() -> None:
                 [
                     {
                         "Importance": gap.get("importance"),
+                        "Assessment basis": gap.get('assessment_basis'),
                         "Requirement": gap.get("text"),
                         "Capability": gap.get("capability_id"),
                         "Analysis status": "Review pending",

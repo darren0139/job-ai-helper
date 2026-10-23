@@ -18,13 +18,13 @@ from typing import Any
 
 from analysis_stability import build_stable_analysis
 from analysis_stability.stable_evidence_scoring import (
-    SCORING_VERSION,
     build_deterministic_keyword_match,
     canonicalise_requirements,
     compute_deterministic_alignment,
 )
 from tailoring.capability_taxonomy import get_default_taxonomy
 from taxonomy_discovery.technology_registry import get_default_registry
+from analysis_stability.requirement_context_policy import current_scoring_version
 
 
 JD_USER_OVERRIDE_POLICY_VERSION = "application-session-jd-user-overrides-v2"
@@ -122,7 +122,7 @@ def _stable_analysis_is_current(stable_analysis: dict[str, Any] | None) -> bool:
     stable = stable_analysis or {}
     return bool(
         isinstance(stable, dict)
-        and _clean(stable.get("scoring_version")) == SCORING_VERSION
+        and _clean(stable.get("scoring_version")) == current_scoring_version()
         and _clean(stable.get("capability_taxonomy_version"))
         == _clean(get_default_taxonomy().version)
         and _clean(stable.get("technology_registry_version"))
@@ -837,6 +837,7 @@ def apply_application_session_jd_user_inputs(
 
 def refresh_application_session_analysis_report(
     report: dict[str, Any] | None,
+    *, recompute_requirement_context: bool = False,
 ) -> dict[str, Any]:
     """Return a current-facing report without mutating the persisted report.
 
@@ -854,6 +855,13 @@ def refresh_application_session_analysis_report(
         from tailoring.job_match_ab_analysis import current_ab_identity
         authority = validate_document_report(source)
         current = authority['identity'] == current_ab_identity(source.get('raw_jd_text') or '')
+        if not current and recompute_requirement_context:
+            from tailoring.document_grounded_analysis import recompute_original_document_report
+            source = recompute_original_document_report(source)
+            source.setdefault('meta', {})['stable_analysis_currentness'] = {
+                'mode': 'explicit_original_document_recomputation', 'rebuilt': True,
+                'stale_requires_refresh': False, 'resume_text_source': 'verified_original_document'}
+            return source
         source.setdefault('meta', {})['stable_analysis_currentness'] = {
             'mode': 'reused_current_document_receipt' if current else 'stale_currentness_required',
             'rebuilt': False, 'stale_requires_refresh': not current,
@@ -861,6 +869,17 @@ def refresh_application_session_analysis_report(
         return source
     stored = source.get("stable_analysis")
     stored_stable = stored if isinstance(stored, dict) else {}
+    from analysis_stability.requirement_context_policy import release_enabled
+    if (release_enabled() and not _stable_analysis_is_current(stored_stable)
+            and not recompute_requirement_context):
+        source.setdefault('meta', {})['stable_analysis_currentness'] = {
+            'mode': 'stale_currentness_required', 'rebuilt': False,
+            'stale_requires_refresh': True,
+            'stored_scoring_version': stored_stable.get('scoring_version'),
+            'current_scoring_version': current_scoring_version(),
+            'resume_text_source': 'not_recomputed',
+        }
+        return source
 
     stored_scoring_version = _clean(
         stored_stable.get("scoring_version")
@@ -939,7 +958,7 @@ def refresh_application_session_analysis_report(
         "mode": mode,
         "rebuilt": rebuilt,
         "stored_scoring_version": stored_scoring_version,
-        "current_scoring_version": SCORING_VERSION,
+        "current_scoring_version": current_scoring_version(),
         "resolved_scoring_version": _clean(
             resolved_stable.get("scoring_version")
         ),
