@@ -140,7 +140,7 @@ def build_profile_evidence_context(
                     "bullets": bullets,
                 }
             )
-        elif category.casefold() == "internship":
+        elif category.casefold() in {"internship", "work experience"}:
             resume_profile["experience"].append(
                 {
                     "title": title,

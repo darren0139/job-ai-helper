@@ -64,6 +64,9 @@ from job_discovery.view_performance import (
     match_state_cache_key,
 )
 from job_discovery.text_utils import matches_query
+from tailoring.session_table_ui_v2 import (
+    render_cross_page_table, render_cross_page_table_controls,
+)
 
 
 SOURCE_LABELS = {
@@ -1127,7 +1130,8 @@ def render_job_finder() -> None:
 
     if "job_finder_sort_v1" not in st.session_state:
         st.session_state["job_finder_sort_v1"] = "Search relevance"
-    if "job_finder_page_size_v15" not in st.session_state:
+    if st.session_state.get("job_finder_page_size_v15") not in (5, 10, 20, 40, 50, 100, "All"):
+        # Older sessions may still hold the previous 30-result option.
         st.session_state["job_finder_page_size_v15"] = 20
 
     def _reset_view_page_v16() -> None:
@@ -1156,12 +1160,17 @@ def render_job_finder() -> None:
                 ),
             )
         with view_col2:
-            page_size = int(
-                st.selectbox(
-                    "Results per page",
-                    options=[10, 20, 30, 50],
-                    key="job_finder_page_size_v15",
-                )
+            page_size_choice = st.selectbox(
+                "Results per page",
+                options=[5, 10, 20, 40, 50, 100, "All"],
+                key="job_finder_page_size_v15",
+            )
+            # Pagination happens after filtering. All must never create a
+            # zero-size page when there are no matching jobs.
+            page_size = (
+                max(1, len(filtered_jobs))
+                if page_size_choice == "All"
+                else int(page_size_choice)
             )
 
         st.form_submit_button(
@@ -1552,6 +1561,7 @@ def render_job_finder() -> None:
         )
 
     st.write("### Page results")
+    render_cross_page_table_controls(st)
 
     result_rows: list[dict[str, Any]] = []
     page_job_by_id: dict[int, dict[str, Any]] = {}
@@ -1596,444 +1606,564 @@ def render_job_finder() -> None:
             }
         )
 
-    st.dataframe(
-        result_rows,
-        width="stretch",
-        hide_index=True,
-    )
+    render_cross_page_table(st, result_rows, key="job_finder_page_results",
+                            width="stretch", hide_index=True)
 
     page_job_ids = [
         int(job.get("id", 0) or 0)
         for job in page_jobs
         if int(job.get("id", 0) or 0) > 0
     ]
-    selected_job_key = "job_finder_selected_job_v16"
-    if st.session_state.get(selected_job_key) not in page_job_ids:
-        st.session_state[selected_job_key] = page_job_ids[0]
-
-    def _selected_job_label_v16(job_id: int) -> str:
-        option_job = page_job_by_id.get(int(job_id), {})
-        option_offset = page_job_ids.index(int(job_id)) + 1
-        return (
-            f"#{page_start_index + option_offset} · "
-            f"{option_job.get('title') or 'Untitled'} — "
-            f"{option_job.get('company') or 'Unknown Company'}"
-        )
-
-    selected_job_id = int(
-        st.selectbox(
-            "Open job details",
-            options=page_job_ids,
-            format_func=_selected_job_label_v16,
-            key=selected_job_key,
-            help=(
-                "Only this selected job renders the full description, match "
-                "metrics, diagnostics and actions."
-            ),
-        )
+    # Per-job placeholders keep each open analysis directly inside its card.
+    # Collapsed cards never load the full requirement-level receipt.
+    inline_match_detail_slots: list[tuple[int, Any]] = []
+    open_on_page = sum(
+        bool(st.session_state.get(f"job_finder_inline_full_match_v1_{job_id}", False))
+        for job_id in page_job_ids
     )
-    job = page_job_by_id[selected_job_id]
-    page_offset = page_job_ids.index(selected_job_id) + 1
-    display_rank = page_start_index + page_offset
+    if open_on_page:
+        st.caption(f"{open_on_page} Full Match Analysis panel(s) expanded on this page.")
+        if st.button(
+            "Collapse all Full Match Analysis panels",
+            key="job_finder_collapse_all_full_match_v11",
+        ):
+            for job_id in page_job_ids:
+                st.session_state[f"job_finder_inline_full_match_v1_{job_id}"] = False
+            st.rerun()
 
-    st.divider()
-    st.subheader(
-        f"#{display_rank} · "
-        f"{job.get('title') or 'Untitled'} — "
-        f"{job.get('company') or 'Unknown Company'}"
+    st.caption(
+        "Every job on this page is listed below. Expand any number of Full Match "
+        "Analysis panels to compare saved evidence. Collapsed cards stay lightweight; "
+        "opening a panel never runs AI analysis."
     )
-
-    score = lexical_relevance(job, active_query)
-    state_label = _job_event_label(job)
-    hidden_reasons = list(job.get("_hide_reasons") or [])
-    source_label = SOURCE_LABELS.get(
-        str(job.get("source") or ""),
-        str(job.get("source") or ""),
-    )
-
-    if hidden_reasons:
-        st.warning("Hidden because: " + " · ".join(hidden_reasons))
-
-    st.markdown(
-        f"**Source:** {source_label} · **State:** {state_label}"
-    )
-    meta = [
-        display_job_location(job),
-        str(job.get("employment_type") or ""),
-    ]
-    if any(meta):
-        st.caption(" · ".join(part for part in meta if part))
-
-    scope = str(job.get("source_scope") or "").strip()
-    if scope and ":" in scope:
-        st.caption(f"Source scope: {scope}")
-
-    lifecycle_bits = [
-        f"first seen {job.get('first_seen_at')}" if job.get("first_seen_at") else "",
-        f"last seen {job.get('last_seen_at')}" if job.get("last_seen_at") else "",
-        f"last changed {job.get('last_changed_at')}" if job.get("last_changed_at") else "",
-        f"removed {job.get('removed_at')}" if job.get("removed_at") else "",
-    ]
-    st.caption(" · ".join(bit for bit in lifecycle_bits if bit))
-    st.caption(f"Deterministic search relevance: {score:.1f}")
-
-    st.markdown("#### Candidate evidence match")
-    match_state = page_match_states.get(
-        selected_job_id,
-        {
-            "status": "none",
-            "snapshot": None,
-            "stale_reasons": [],
-        },
-    )
-
-    analyze_label = (
-        "Refresh Match"
-        if match_state.get("status") == "stale"
-        else "Analyze Match"
-    )
-    analyze_clicked = st.button(
-        analyze_label,
-        key=f"job_finder_analyze_match_v16_{selected_job_id}",
-        disabled=(
-            evidence_count <= 0
-            or len(str(job.get("description") or "").strip()) < 100
-        ),
-    )
-
-    if analyze_clicked:
-        match_busy_slot = st.empty()
-        with match_busy_slot.container():
-            render_busy_overlay(
-                st,
-                "Analyzing the selected job...",
-            )
-        try:
-            with st.status(
-                "Analyzing requirements against Profile & Evidence...",
-                expanded=True,
-            ) as match_status:
-                match_result = analyze_job_match(
-                    job,
-                    context=match_context,
-                )
-                st.session_state.pop(
-                    "_job_finder_match_state_cache_v15",
-                    None,
-                )
-                match_status.update(
-                    label="Candidate evidence match ready.",
-                    state="complete",
-                )
-            match_state = {
-                "status": "current",
-                "snapshot": match_result.get("snapshot"),
-                "stale_reasons": [],
-            }
-        except (ValueError, RuntimeError) as exc:
-            st.warning(str(exc))
-        except Exception as exc:
-            st.error(f"Unexpected job-match error: {exc}")
-        finally:
-            match_busy_slot.empty()
-
-    if match_state.get("status") == "stale":
-        st.warning(
-            "Saved match is stale: "
-            + ", ".join(
-                match_state.get("stale_reasons")
-                or ["cache identity changed"]
-            )
-            + ". Refresh Match to recompute it."
+    for card_offset, card_job in enumerate(page_jobs, start=1):
+        card_id = int(card_job.get("id", 0) or 0)
+        if card_id <= 0:
+            continue
+        card_state = page_match_states.get(card_id, {})
+        card_snapshot = (
+            card_state.get("snapshot")
+            if card_state.get("status") == "current"
+            else None
         )
-    elif match_state.get("status") == "none":
-        st.caption(
-            "Not analyzed yet. Search relevance is not candidate fit; "
-            "Analyze Match uses your full Profile & Evidence library."
+        card_summary = (
+            card_snapshot.get("summary")
+            if isinstance(card_snapshot, dict)
+            and isinstance(card_snapshot.get("summary"), dict)
+            else {}
         )
-
-    snapshot = (
-        match_state.get("snapshot")
-        if match_state.get("status") == "current"
-        else None
-    )
-
-    from taxonomy_discovery.coverage_presentation import render_jd_taxonomy_status
-    taxonomy_analysis = (snapshot or {}).get("stable_analysis")
-    if snapshot and not taxonomy_analysis:
-        # Page/ranking queries intentionally retain summary-only snapshots.
-        # Read only this selected analyzed job's canonical receipt,
-        # independently of review availability; never re-analyze.
-        taxonomy_state = inspect_job_match(job, context=match_context, versions=match_versions)
-        if taxonomy_state.get("status") == "current":
-            taxonomy_analysis = (taxonomy_state.get("snapshot") or {}).get("stable_analysis")
-    taxonomy_view = render_jd_taxonomy_status(
-        st, raw_jd_text=str(job.get("description") or ""),
-        stable_analysis=taxonomy_analysis, job_id=selected_job_id,
-        analyzed=match_state.get("status") != "none",
-        current=match_state.get("status") == "current",
-    )
-
-    if isinstance(snapshot, dict):
-        match_summary = snapshot.get("summary") or {}
-        ranking_eligible = bool(
-            match_summary.get("ranking_eligible")
-        )
-        raw_alignment = int(
-            match_summary.get(
-                "deterministic_alignment_score",
-                0,
+        card_title = str(card_job.get("title") or "Untitled")
+        card_company = str(card_job.get("company") or "Unknown Company")
+        with st.container(border=True):
+            st.markdown(
+                f"**#{page_start_index + card_offset} · "
+                f"{card_title} — {card_company}**"
             )
-            or 0
-        )
+            st.caption(
+                f"{display_job_location(card_job)} · "
+                f"{SOURCE_LABELS.get(str(card_job.get('source') or ''), str(card_job.get('source') or ''))} · "
+                f"{match_display_label(card_job, card_state)}"
+            )
+            if card_summary:
+                summary_cols = st.columns(4)
+                for col, caption, field in zip(
+                    summary_cols,
+                    ("Job Match", "Required/core", "Preferred", "Evidence strength"),
+                    ("deterministic_alignment_score", "required_core_coverage_score", "preferred_coverage_score", "evidence_strength_score"),
+                ):
+                    value = card_summary.get(field)
+                    col.metric(caption, f"{value}{'/100' if field == 'deterministic_alignment_score' else '%'}" if value is not None else "—")
+            # Full job text is independent from the match-analysis panel.
+            with st.expander(f"Full job description · #{page_start_index + card_offset}"):
+                st.text(str(card_job.get("description") or "No job description saved."))
 
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        metric_col1.metric("Job Match", f"{raw_alignment}/100")
-        metric_col2.metric(
-            "Required/core",
-            f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
-        )
-        metric_col3.metric(
-            "Preferred",
-            f"{int(match_summary.get('preferred_coverage_score', 0) or 0)}%",
-        )
-        metric_col4.metric(
-            "Evidence strength",
-            f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
-        )
-        with st.expander("How this match was analyzed"):
-            from tailoring.initial_analysis_explainer_ui import render_job_finder_explainer
-            full = snapshot
-            if not full.get("stable_analysis"):
-                # Read the exact displayed receipt, not a newly evaluated match.
-                from database.job_match_manager import _connect_read_only, _decode_row
-                from contextlib import closing
-                with closing(_connect_read_only()) as conn:
-                    full = _decode_row(conn.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?", (snapshot["id"], selected_job_id)).fetchone())
-            if full:
-                render_job_finder_explainer(st, full, str(job.get("description") or ""), taxonomy=taxonomy_view)
+            open_key = f"job_finder_inline_full_match_v1_{card_id}"
+            is_open = bool(st.session_state.get(open_key, False))
+            if st.button(
+                "Inspect / analyze this job" if not is_open else "Full analysis expanded",
+                key=f"job_finder_select_card_v17_{card_id}",
+                disabled=is_open,
+            ):
+                # Opening one card never closes other expanded job cards.
+                st.session_state[open_key] = True
+                st.rerun()
 
-        with st.expander("Advanced diagnostics — selected job resolution and ranking"):
-            quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
-            quality_col1.metric(
-                "Required/core capability-resolved share",
-                f"{int(match_summary.get('important_taxonomy_coverage_pct', 0) or 0)}%",
-            )
-            quality_col2.metric(
-                "Overall capability-resolved share",
-                f"{int(match_summary.get('overall_taxonomy_coverage_pct', 0) or 0)}%",
-            )
-            quality_col3.metric(
-                "Unresolved capability requirements",
-                int(match_summary.get("taxonomy_gap_count", 0) or 0),
-            )
-            quality_col4.metric(
-                "Ranking status",
-                "Eligible" if ranking_eligible else "Provisional",
-            )
-
-            if not ranking_eligible:
-                ranking_quality = (
-                    match_summary.get("ranking_quality")
-                    if isinstance(match_summary.get("ranking_quality"), dict)
-                    else {}
-                )
-                min_important = round(
-                    float(
-                        ranking_quality.get(
-                            "minimum_important_taxonomy_coverage",
-                            0.75,
-                        )
-                        or 0.75
-                    )
-                    * 100
-                )
-                min_overall = round(
-                    float(
-                        ranking_quality.get(
-                            "minimum_overall_taxonomy_coverage",
-                            0.65,
-                        )
-                        or 0.65
-                    )
-                    * 100
-                )
-                st.warning(
-                    f"Provisional alignment: {raw_alignment}/100. "
-                    "It stays visible but does not drive the trusted Best Match "
-                    f"tier until capability resolution reaches ≥{min_important}% "
-                    f"important and ≥{min_overall}% overall."
-                )
-
-        important_evidence_gaps = (
-            match_summary.get("important_evidence_gaps")
-            or []
-        )
-        if important_evidence_gaps:
-            st.write("**Important requirements — evidence review pending**")
-            st.dataframe(
-                [
-                    {
-                        "Importance": gap.get("importance"),
-                        "Requirement": gap.get("text"),
-                        "Capability": gap.get("capability_id"),
-                        "Analysis status": "Review pending",
-                    }
-                    for gap in important_evidence_gaps
-                ],
-                width="stretch",
-                hide_index=True,
-            )
-
-        with st.expander("Advanced diagnostics — requirements needing review"):
-            important_taxonomy_gaps = (
-                match_summary.get("important_taxonomy_gaps")
-                or []
-            )
-            if important_taxonomy_gaps:
-                st.write("**Important unresolved capability requirements**")
+            if st.checkbox(
+                f"Full Match Analysis · #{page_start_index + card_offset}",
+                key=open_key,
+                help=(
+                    "Load this job's full saved score, requirement evidence and "
+                    "actions here. Multiple cards can remain open. No AI call."
+                ),
+            ):
+                inline_match_detail_slots.append((card_id, st.empty()))
+            elif card_state.get("status") == "stale":
                 st.caption(
-                    "Unresolved capability requirements need review; they are not "
-                    "proven capability gaps. Technology identity, relationships, "
-                    "structure, and scope may still need review."
-                )
-                st.dataframe(
-                    [
-                        {
-                            "Importance": gap.get("importance"),
-                            "Requirement": gap.get("text"),
-                            "Capability": gap.get("capability_id"),
-                        }
-                        for gap in important_taxonomy_gaps
-                    ],
-                    width="stretch",
-                    hide_index=True,
+                    "Historical match exists. Open Full Match Analysis to see "
+                    "the old score and why it is no longer current."
                 )
 
-        load_full_diagnostics = st.checkbox(
-            "Load full match diagnostics",
-            value=False,
-            key=f"job_finder_full_match_diag_v16_{selected_job_id}",
-            help=(
-                "Loads the full saved snapshot only for this selected job."
-            ),
-        )
-        if load_full_diagnostics:
-            full_state = inspect_job_match(
-                job,
-                context=match_context,
-                versions=match_versions,
-            )
-            full_snapshot = (
-                full_state.get("snapshot")
-                if full_state.get("status") == "current"
-                else None
-            )
-            if isinstance(full_snapshot, dict):
-                st.json(
-                    {
-                        "snapshot_id": full_snapshot.get("id"),
-                        "job_content_hash": full_snapshot.get("job_content_hash"),
-                        "evidence_fingerprint": full_snapshot.get("evidence_fingerprint"),
-                        "match_version": full_snapshot.get("match_version"),
-                        "scoring_version": full_snapshot.get("scoring_version"),
-                        "taxonomy_version": full_snapshot.get("taxonomy_version"),
-                        "summary": full_snapshot.get("summary") or {},
-                        "canonical_requirements": (
-                            (full_snapshot.get("stable_analysis") or {}).get(
-                                "canonical_requirements",
-                                [],
-                            )
-                        ),
-                        "validation_warnings": (
-                            (full_snapshot.get("stable_analysis") or {}).get(
-                                "validation_warnings",
-                                [],
-                            )
-                        ),
-                    }
-                )
+    # Render only user-expanded cards, into their own placeholders above.
+    # Other jobs remain lightweight; multiple analyses may stay open together.
+    for selected_job_id, inline_match_detail_slot in inline_match_detail_slots:
+        with inline_match_detail_slot.container():
+            selected_job_id = int(selected_job_id)
+            job = page_job_by_id[selected_job_id]
+            page_offset = page_job_ids.index(selected_job_id) + 1
+            display_rank = page_start_index + page_offset
 
-    salary = _salary_label(job)
-    if salary:
-        st.write(f"**Salary:** {salary}")
-    if job.get("seniority"):
-        st.write(
-            f"**Seniority / experience:** {job.get('seniority')}"
-        )
+            st.markdown("#### Full Match Analysis")
+            st.caption("Saved match details and actions · no recomputation on display")
 
-    st.text_area(
-        "Normalized job description",
-        value=str(job.get("description") or ""),
-        height=220,
-        disabled=True,
-        key=f"job_description_preview_v16_{selected_job_id}",
-    )
-
-    action_col1, action_col2, action_col3, action_col4 = st.columns(
-        [1.45, 1.10, 0.75, 0.85]
-    )
-    with action_col1:
-        if st.button(
-            "Use in new Application Session",
-            key=f"job_finder_use_v16_{selected_job_id}",
-            width="stretch",
-            disabled=not bool(snapshot) or len(str(job.get("description") or "").strip()) < 100,
-        ):
-            try:
-                _handoff_to_new_application(job, snapshot_id=snapshot.get("id"))
-            except ValueError as exc:
-                st.error(str(exc))
-
-    with action_col2:
-        source_url = str(
-            job.get("source_url") or job.get("apply_url") or ""
-        ).strip()
-        if source_url:
-            st.link_button(
-                "Open original posting",
-                source_url,
-                width="stretch",
-            )
-        else:
-            st.button(
-                "No source URL",
-                key=f"job_finder_no_url_v16_{selected_job_id}",
-                disabled=True,
-                width="stretch",
+            score = lexical_relevance(job, active_query)
+            state_label = _job_event_label(job)
+            hidden_reasons = list(job.get("_hide_reasons") or [])
+            source_label = SOURCE_LABELS.get(
+                str(job.get("source") or ""),
+                str(job.get("source") or ""),
             )
 
-    with action_col3:
-        if st.button(
-            "Hide job",
-            key=f"job_finder_hide_job_v16_{selected_job_id}",
-            width="stretch",
-            disabled=bool(hidden_reasons),
-        ):
-            upsert_hide_rule(
-                rule_type="job",
-                value=job_identity(job),
-                label=(
-                    f"{job.get('title') or 'Untitled'} — "
-                    f"{job.get('company') or 'Unknown Company'}"
+            if hidden_reasons:
+                st.warning("Hidden because: " + " · ".join(hidden_reasons))
+
+            st.markdown(
+                f"**Source:** {source_label} · **State:** {state_label}"
+            )
+            meta = [
+                display_job_location(job),
+                str(job.get("employment_type") or ""),
+            ]
+            if any(meta):
+                st.caption(" · ".join(part for part in meta if part))
+
+            scope = str(job.get("source_scope") or "").strip()
+            if scope and ":" in scope:
+                st.caption(f"Source scope: {scope}")
+
+            lifecycle_bits = [
+                f"first seen {job.get('first_seen_at')}" if job.get("first_seen_at") else "",
+                f"last seen {job.get('last_seen_at')}" if job.get("last_seen_at") else "",
+                f"last changed {job.get('last_changed_at')}" if job.get("last_changed_at") else "",
+                f"removed {job.get('removed_at')}" if job.get("removed_at") else "",
+            ]
+            st.caption(" · ".join(bit for bit in lifecycle_bits if bit))
+            st.caption(f"Deterministic search relevance: {score:.1f}")
+
+            st.markdown("#### Candidate evidence match")
+            match_state = page_match_states.get(
+                selected_job_id,
+                {
+                    "status": "none",
+                    "snapshot": None,
+                    "stale_reasons": [],
+                },
+            )
+
+            analyze_label = (
+                "Refresh Match"
+                if match_state.get("status") == "stale"
+                else "Analyze Match"
+            )
+            analyze_clicked = st.button(
+                analyze_label,
+                key=f"job_finder_analyze_match_v16_{selected_job_id}",
+                disabled=(
+                    evidence_count <= 0
+                    or len(str(job.get("description") or "").strip()) < 100
                 ),
             )
-            st.rerun()
 
-    with action_col4:
-        company_name = str(job.get("company") or "").strip()
-        if st.button(
-            "Hide company",
-            key=f"job_finder_hide_company_v16_{selected_job_id}",
-            width="stretch",
-            disabled=not company_name or bool(hidden_reasons),
-        ):
-            upsert_hide_rule(
-                rule_type="company",
-                value=company_name,
-                label=company_name,
+            if analyze_clicked:
+                match_busy_slot = st.empty()
+                with match_busy_slot.container():
+                    render_busy_overlay(
+                        st,
+                        "Analyzing the selected job...",
+                    )
+                try:
+                    with st.status(
+                        "Analyzing requirements against Profile & Evidence...",
+                        expanded=True,
+                    ) as match_status:
+                        match_result = analyze_job_match(
+                            job,
+                            context=match_context,
+                        )
+                        st.session_state.pop(
+                            "_job_finder_match_state_cache_v15",
+                            None,
+                        )
+                        match_status.update(
+                            label="Candidate evidence match ready.",
+                            state="complete",
+                        )
+                    match_state = {
+                        "status": "current",
+                        "snapshot": match_result.get("snapshot"),
+                        "stale_reasons": [],
+                    }
+                except (ValueError, RuntimeError) as exc:
+                    st.warning(str(exc))
+                except Exception as exc:
+                    st.error(f"Unexpected job-match error: {exc}")
+                finally:
+                    match_busy_slot.empty()
+
+            if match_state.get("status") == "stale":
+                st.warning(
+                    "Saved match is stale: "
+                    + ", ".join(
+                        match_state.get("stale_reasons")
+                        or ["cache identity changed"]
+                    )
+                    + ". Refresh Match to recompute it."
+                )
+            elif match_state.get("status") == "none":
+                st.caption(
+                    "Not analyzed yet. Search relevance is not candidate fit; "
+                    "Analyze Match uses your full Profile & Evidence library."
+                )
+
+            snapshot = (
+                match_state.get("snapshot")
+                if match_state.get("status") == "current"
+                else None
             )
-            st.rerun()
+
+            # Stale snapshots are deliberately NEVER passed into the current-score
+            # branch. Historical values are display-only and visibly distinguished.
+            if match_state.get("status") == "stale":
+                historic = match_state.get("snapshot")
+                historic_summary = (
+                    historic.get("summary")
+                    if isinstance(historic, dict)
+                    and isinstance(historic.get("summary"), dict)
+                    else {}
+                )
+                if historic_summary:
+                    st.warning("HISTORICAL MATCH — NOT CURRENT. These are saved old results; they are not candidate fit for the current scoring/evidence identity.")
+                    saved_score = historic_summary.get("deterministic_alignment_score")
+                    hist_cols = st.columns(4)
+                    hist_cols[0].metric(
+                        "Historical Job Match",
+                        f"{saved_score}/100" if saved_score is not None else "Unavailable",
+                    )
+                    for hist_col, hist_label, hist_key in zip(
+                        hist_cols[1:],
+                        ("Historical required/core", "Historical preferred", "Historical evidence"),
+                        ("required_core_coverage_score", "preferred_coverage_score", "evidence_strength_score"),
+                    ):
+                        hist_value = historic_summary.get(hist_key)
+                        hist_col.metric(
+                            hist_label,
+                            f"{hist_value}%" if hist_value is not None else "Unavailable",
+                        )
+                    st.caption(
+                        f"Saved snapshot #{historic.get('id', 'unknown')} · "
+                        f"created {historic.get('created_at') or 'unknown'} · "
+                        "Refresh Match is an explicit new analysis action."
+                    )
+                    with st.expander("Historical saved-score metadata (read-only)", expanded=False):
+                        st.json(
+                            {
+                                "historical_only": True,
+                                "snapshot_id": historic.get("id"),
+                                "saved_at": historic.get("created_at"),
+                                "match_version": historic.get("match_version"),
+                                "scoring_version": historic.get("scoring_version"),
+                                "taxonomy_version": historic.get("taxonomy_version"),
+                                "summary": historic_summary,
+                            }
+                        )
+                else:
+                    st.caption("No historical score summary is available for this saved snapshot.")
+
+            from taxonomy_discovery.coverage_presentation import render_jd_taxonomy_status
+            taxonomy_analysis = (snapshot or {}).get("stable_analysis")
+            if snapshot and not taxonomy_analysis:
+                # Page/ranking queries intentionally retain summary-only snapshots.
+                # Read only this selected analyzed job's canonical receipt,
+                # independently of review availability; never re-analyze.
+                taxonomy_state = inspect_job_match(job, context=match_context, versions=match_versions)
+                if taxonomy_state.get("status") == "current":
+                    taxonomy_analysis = (taxonomy_state.get("snapshot") or {}).get("stable_analysis")
+            taxonomy_view = render_jd_taxonomy_status(
+                st, raw_jd_text=str(job.get("description") or ""),
+                stable_analysis=taxonomy_analysis, job_id=selected_job_id,
+                analyzed=match_state.get("status") != "none",
+                current=match_state.get("status") == "current",
+            )
+
+            if isinstance(snapshot, dict):
+                match_summary = snapshot.get("summary") or {}
+                ranking_eligible = bool(
+                    match_summary.get("ranking_eligible")
+                )
+                raw_alignment = int(
+                    match_summary.get(
+                        "deterministic_alignment_score",
+                        0,
+                    )
+                    or 0
+                )
+
+                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                metric_col1.metric("Job Match", f"{raw_alignment}/100")
+                metric_col2.metric(
+                    "Required/core",
+                    f"{int(match_summary.get('required_core_coverage_score', 0) or 0)}%",
+                )
+                metric_col3.metric(
+                    "Preferred",
+                    f"{int(match_summary.get('preferred_coverage_score', 0) or 0)}%",
+                )
+                metric_col4.metric(
+                    "Evidence strength",
+                    f"{int(match_summary.get('evidence_strength_score', 0) or 0)}%",
+                )
+                from tailoring.score_component_tables_ui import summary_card_csv
+                st.download_button(
+                    "Export saved card summary (CSV)",
+                    data=summary_card_csv(match_summary),
+                    file_name=f"job_finder_{selected_job_id}_saved_summary.csv",
+                    mime="text/csv",
+                    key=f"job_finder_{selected_job_id}_saved_summary_export",
+                    on_click="ignore",
+                )
+
+                with st.expander("How this match was analyzed"):
+                    from tailoring.initial_analysis_explainer_ui import render_job_finder_explainer
+                    full = snapshot
+                    if not full.get("stable_analysis"):
+                        # Read the exact displayed receipt, not a newly evaluated match.
+                        from database.job_match_manager import _connect_read_only, _decode_row
+                        from contextlib import closing
+                        with closing(_connect_read_only()) as conn:
+                            full = _decode_row(conn.execute("SELECT * FROM job_match_snapshots WHERE id=? AND discovered_job_id=?", (snapshot["id"], selected_job_id)).fetchone())
+                    if full:
+                        render_job_finder_explainer(st, full, str(job.get("description") or ""), taxonomy=taxonomy_view)
+
+                with st.expander("Advanced diagnostics — selected job resolution and ranking"):
+                    quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+                    quality_col1.metric(
+                        "Required/core capability-resolved share",
+                        f"{int(match_summary.get('important_taxonomy_coverage_pct', 0) or 0)}%",
+                    )
+                    quality_col2.metric(
+                        "Overall capability-resolved share",
+                        f"{int(match_summary.get('overall_taxonomy_coverage_pct', 0) or 0)}%",
+                    )
+                    quality_col3.metric(
+                        "Unresolved capability requirements",
+                        int(match_summary.get("taxonomy_gap_count", 0) or 0),
+                    )
+                    quality_col4.metric(
+                        "Ranking status",
+                        "Eligible" if ranking_eligible else "Provisional",
+                    )
+
+                    if not ranking_eligible:
+                        ranking_quality = (
+                            match_summary.get("ranking_quality")
+                            if isinstance(match_summary.get("ranking_quality"), dict)
+                            else {}
+                        )
+                        min_important = round(
+                            float(
+                                ranking_quality.get(
+                                    "minimum_important_taxonomy_coverage",
+                                    0.75,
+                                )
+                                or 0.75
+                            )
+                            * 100
+                        )
+                        min_overall = round(
+                            float(
+                                ranking_quality.get(
+                                    "minimum_overall_taxonomy_coverage",
+                                    0.65,
+                                )
+                                or 0.65
+                            )
+                            * 100
+                        )
+                        st.warning(
+                            f"Provisional alignment: {raw_alignment}/100. "
+                            "It stays visible but does not drive the trusted Best Match "
+                            f"tier until capability resolution reaches ≥{min_important}% "
+                            f"important and ≥{min_overall}% overall."
+                        )
+
+                important_evidence_gaps = (
+                    match_summary.get("important_evidence_gaps")
+                    or []
+                )
+                if important_evidence_gaps:
+                    st.write("**Important requirements — evidence review pending**")
+                    st.dataframe(
+                        [
+                            {
+                                "Importance": gap.get("importance"),
+                                "Requirement": gap.get("text"),
+                                "Capability": gap.get("capability_id"),
+                                "Analysis status": "Review pending",
+                            }
+                            for gap in important_evidence_gaps
+                        ],
+                        width="stretch",
+                        hide_index=True,
+                    )
+
+                with st.expander("Advanced diagnostics — requirements needing review"):
+                    important_taxonomy_gaps = (
+                        match_summary.get("important_taxonomy_gaps")
+                        or []
+                    )
+                    if important_taxonomy_gaps:
+                        st.write("**Important unresolved capability requirements**")
+                        st.caption(
+                            "Unresolved capability requirements need review; they are not "
+                            "proven capability gaps. Technology identity, relationships, "
+                            "structure, and scope may still need review."
+                        )
+                        st.dataframe(
+                            [
+                                {
+                                    "Importance": gap.get("importance"),
+                                    "Requirement": gap.get("text"),
+                                    "Capability": gap.get("capability_id"),
+                                }
+                                for gap in important_taxonomy_gaps
+                            ],
+                            width="stretch",
+                            hide_index=True,
+                        )
+
+                load_full_diagnostics = st.checkbox(
+                    "Load full match diagnostics",
+                    value=False,
+                    key=f"job_finder_full_match_diag_v16_{selected_job_id}",
+                    help=(
+                        "Loads the full saved snapshot only for this selected job."
+                    ),
+                )
+                if load_full_diagnostics:
+                    full_state = inspect_job_match(
+                        job,
+                        context=match_context,
+                        versions=match_versions,
+                    )
+                    full_snapshot = (
+                        full_state.get("snapshot")
+                        if full_state.get("status") == "current"
+                        else None
+                    )
+                    if isinstance(full_snapshot, dict):
+                        st.json(
+                            {
+                                "snapshot_id": full_snapshot.get("id"),
+                                "job_content_hash": full_snapshot.get("job_content_hash"),
+                                "evidence_fingerprint": full_snapshot.get("evidence_fingerprint"),
+                                "match_version": full_snapshot.get("match_version"),
+                                "scoring_version": full_snapshot.get("scoring_version"),
+                                "taxonomy_version": full_snapshot.get("taxonomy_version"),
+                                "summary": full_snapshot.get("summary") or {},
+                                "canonical_requirements": (
+                                    (full_snapshot.get("stable_analysis") or {}).get(
+                                        "canonical_requirements",
+                                        [],
+                                    )
+                                ),
+                                "validation_warnings": (
+                                    (full_snapshot.get("stable_analysis") or {}).get(
+                                        "validation_warnings",
+                                        [],
+                                    )
+                                ),
+                            }
+                        )
+
+            salary = _salary_label(job)
+            if salary:
+                st.write(f"**Salary:** {salary}")
+            if job.get("seniority"):
+                st.write(
+                    f"**Seniority / experience:** {job.get('seniority')}"
+                )
+
+            st.text_area(
+                "Normalized job description",
+                value=str(job.get("description") or ""),
+                height=220,
+                disabled=True,
+                key=f"job_description_preview_v16_{selected_job_id}",
+            )
+
+            action_col1, action_col2, action_col3, action_col4 = st.columns(
+                [1.45, 1.10, 0.75, 0.85]
+            )
+            with action_col1:
+                if st.button(
+                    "Use in new Application Session",
+                    key=f"job_finder_use_v16_{selected_job_id}",
+                    width="stretch",
+                    disabled=not bool(snapshot) or len(str(job.get("description") or "").strip()) < 100,
+                ):
+                    try:
+                        _handoff_to_new_application(job, snapshot_id=snapshot.get("id"))
+                    except ValueError as exc:
+                        st.error(str(exc))
+
+            with action_col2:
+                source_url = str(
+                    job.get("source_url") or job.get("apply_url") or ""
+                ).strip()
+                if source_url:
+                    st.link_button(
+                        "Open original posting",
+                        source_url,
+                        width="stretch",
+                    )
+                else:
+                    st.button(
+                        "No source URL",
+                        key=f"job_finder_no_url_v16_{selected_job_id}",
+                        disabled=True,
+                        width="stretch",
+                    )
+
+            with action_col3:
+                if st.button(
+                    "Hide job",
+                    key=f"job_finder_hide_job_v16_{selected_job_id}",
+                    width="stretch",
+                    disabled=bool(hidden_reasons),
+                ):
+                    upsert_hide_rule(
+                        rule_type="job",
+                        value=job_identity(job),
+                        label=(
+                            f"{job.get('title') or 'Untitled'} — "
+                            f"{job.get('company') or 'Unknown Company'}"
+                        ),
+                    )
+                    st.rerun()
+
+            with action_col4:
+                company_name = str(job.get("company") or "").strip()
+                if st.button(
+                    "Hide company",
+                    key=f"job_finder_hide_company_v16_{selected_job_id}",
+                    width="stretch",
+                    disabled=not company_name or bool(hidden_reasons),
+                ):
+                    upsert_hide_rule(
+                        rule_type="company",
+                        value=company_name,
+                        label=company_name,
+                    )
+                    st.rerun()
 
     previous_batch_feedback = str(
         st.session_state.get(

@@ -2597,7 +2597,7 @@ def _add_project_title_after(
     template: Paragraph | None = None,
     right_tab_position: Any = None,
     add_space_before: bool = False,
-    space_before_pt: int = 10,
+    space_before_pt: float = 10,
 ) -> Paragraph:
     """
     Add project title line after anchor, preserving original formatting.
@@ -2853,8 +2853,8 @@ def replace_projects_section(
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
     spacing_mode: str = "paragraph_spacing",
-    project_spacing_pt: int = 10,
-    after_projects_spacing_pt: int = 10,
+    project_spacing_pt: float = 10,
+    after_projects_spacing_pt: float = 10,
     blank_lines_between_projects: int = 1,
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
@@ -2864,6 +2864,9 @@ def replace_projects_section(
     """
     Replace PROJECTS section content while preserving original formatting.
     """
+    if spacing_mode not in {"source_template", "paragraph_spacing", "blank_line"}:
+        raise ValueError("Unsupported project spacing mode")
+
     (
         project_title_template,
         project_metadata_template,
@@ -2928,7 +2931,7 @@ def replace_projects_section(
     if spacing_mode == "blank_line":
         for _ in range(blank_lines_after_projects):
             anchor = _add_blank_line_after(anchor)
-    else:
+    elif spacing_mode == "paragraph_spacing":
         try:
             anchor.paragraph_format.space_after = Pt(after_projects_spacing_pt)
         except Exception:
@@ -3001,8 +3004,8 @@ def generate_tailored_resume_copy(
     max_projects: int = 3,
     max_bullets_per_project: int = 2,
     spacing_mode: str = "paragraph_spacing",
-    project_spacing_pt: int = 10,
-    after_projects_spacing_pt: int = 10,
+    project_spacing_pt: float = 10,
+    after_projects_spacing_pt: float = 10,
     blank_lines_between_projects: int = 1,
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
@@ -3657,8 +3660,8 @@ def prepare_fitting_input_snapshot(
     max_projects: int,
     max_bullets_per_project: int,
     spacing_mode: str,
-    project_spacing_pt: int,
-    after_projects_spacing_pt: int,
+    project_spacing_pt: float,
+    after_projects_spacing_pt: float,
     blank_lines_between_projects: int,
     blank_lines_after_projects: int,
     add_spacing_before_first_project: bool,
@@ -3809,8 +3812,8 @@ def generate_tailored_resume_copy_fit_one_page(
     max_projects: int = 3,
     max_bullets_per_project: int = 3,
     spacing_mode: str = "paragraph_spacing",
-    project_spacing_pt: int = 10,
-    after_projects_spacing_pt: int = 10,
+    project_spacing_pt: float = 10,
+    after_projects_spacing_pt: float = 10,
     blank_lines_between_projects: int = 1,
     blank_lines_after_projects: int = 1,
     add_spacing_before_first_project: bool = False,
@@ -5446,8 +5449,8 @@ def generate_tailored_resume_copy_fit_one_page(
 #     max_bullets_per_project: int = 3,
 #     max_attempts: int = 5,
 #     spacing_mode: str = "paragraph_spacing",
-#     project_spacing_pt: int = 10,
-#     after_projects_spacing_pt: int = 10,
+#     project_spacing_pt: float = 10,
+#     after_projects_spacing_pt: float = 10,
 #     blank_lines_between_projects: int = 1,
 #     blank_lines_after_projects: int = 1,
 #     add_spacing_before_first_project: bool = False,

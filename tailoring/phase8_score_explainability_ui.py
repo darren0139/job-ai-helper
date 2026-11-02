@@ -6,6 +6,7 @@ import html
 import io
 
 from typing import Any
+from tailoring.score_component_tables_ui import render_component_tables
 
 import streamlit as st
 
@@ -330,7 +331,7 @@ def _alignment_opportunity_table(
     ]
 
 
-def _render_score_receipt(
+def _render_score_receipt_legacy(
     breakdown: dict[str, Any],
     *,
     key_prefix: str,
@@ -498,11 +499,26 @@ def _render_score_receipt(
         )
 
 
+def _render_score_receipt(
+    breakdown: dict[str, Any], *, key_prefix: str,
+) -> None:
+    # Validated score tables, original Phase 8 is under Advanced.
+    receipt = build_score_receipt(breakdown)
+    render_component_tables(
+        st, receipt, breakdown=breakdown, key_prefix=key_prefix,
+        origin=f"phase8_{key_prefix}",
+    )
+    if st.checkbox("Show original Phase 8 receipts and exports",
+                   key=f"{key_prefix}_phase8_advanced_receipts_v1"):
+        _render_score_receipt_legacy(breakdown, key_prefix=key_prefix)
+
+
 def _render_breakdown(label: str, breakdown: dict[str, Any]) -> None:
     scorer_score = int(breakdown.get("scorer_score", 0) or 0)
     reconstructed = int(breakdown.get("reconstructed_score", 0) or 0)
     st.markdown(f"**{label}: {scorer_score}/100**")
-    st.dataframe(_component_table(breakdown), hide_index=True, width="stretch")
+    from tailoring.session_table_ui_v2 import render_session_dataframe
+    render_session_dataframe(st, _component_table(breakdown), hide_index=True, width="stretch")
     _render_score_receipt(
         breakdown,
         key_prefix="".join(

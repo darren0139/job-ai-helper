@@ -1201,6 +1201,22 @@ def render_phase9e_blueprint_selection(
         )
     except (Phase9EDecisionError, ValueError, RuntimeError) as exc:
         st.error(str(exc))
+        if 'Frozen document receipt is incompatible with current JD/scope/versions' in str(exc):
+            from tailoring.receipt_currentness_ui import compare_receipt_identity, receipt_refresh_guidance
+            from tailoring.document_grounded_analysis import validate_document_report
+            from tailoring.job_match_ab_analysis import current_ab_identity
+            try:
+                authority = validate_document_report(baseline_report)
+                saved_identity = authority.get('identity') or {}
+                current_identity = current_ab_identity(exact_jd.get('raw_text') or '')
+                comparison = compare_receipt_identity(saved_identity, current_identity)
+            except (ValueError, KeyError, TypeError):
+                comparison = {'status': 'unavailable', 'mismatched_fields': [], 'missing_fields': []}
+            st.warning(receipt_refresh_guidance(comparison))
+            if comparison['mismatched_fields'] or comparison['missing_fields']:
+                st.caption('Saved-vs-current receipt identity fields: ' +
+                           ', '.join(comparison['mismatched_fields'] + comparison['missing_fields']))
+            st.caption('Selection remains blocked until the current receipt is verified. No historical binding was modified.')
         return {
             "status": "blocked",
             "can_generate": False,

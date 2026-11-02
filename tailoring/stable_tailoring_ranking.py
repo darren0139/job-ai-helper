@@ -2631,6 +2631,27 @@ def _skill_category(skill: str, hints: list[str]) -> str:
     return "Tools"
 
 
+def _frozen_baseline_skill_match(skill_key: str, requirement: dict[str, Any]) -> str:
+    """Prioritize *already credited* exact skill evidence; never grant new credit.
+
+    This is a tailoring selection hint only. The native stable scorer and the
+    Phase 8 actual-DOCX approval gate remain authoritative.
+    """
+    label = _normalise_match_label(requirement.get("match_label"))
+    if label not in {"direct", "transferable"}:
+        return ""
+    for evidence in requirement.get("evidence") or []:
+        if not isinstance(evidence, dict):
+            continue
+        if str(evidence.get("section") or "") != "skills":
+            continue
+        if not str(evidence.get("source") or "").startswith("resume_profile.skills."):
+            continue
+        if _normalise_skill_key(evidence.get("text")) == skill_key:
+            return label
+    return ""
+
+
 def _skill_requirement_relevance(
     skill: str,
     requirements: dict[str, dict[str, Any]],
@@ -2657,6 +2678,40 @@ def _skill_requirement_relevance(
             candidate_evidence_text=skill,
         )
         taxonomy_label = decision.get("label")
+        # frozen_baseline_exact_selected_skill_v1: The scorer already credited
+        # this *exact* skill in the saved initial document. Preserve its JD
+        # relevance for Skills selection when an isolated skill/requirement
+        # ranking comparison misses a transferable relationship (e.g. cuDF/CUDA).
+        # This changes no canonical requirement, match label, or score.
+        if taxonomy_label not in {"direct", "transferable"}:
+            baseline_label = (
+                _frozen_baseline_skill_match(key, requirement)
+                if importance in {"required", "core", "deal_breaker", "preferred"}
+                else ""
+            )
+            if baseline_label:
+                preferred = importance == "preferred"
+                relevance = (
+                    (5 if not preferred else 4)
+                    if baseline_label == "direct"
+                    else (4 if not preferred else 3)
+                )
+                best = max(best, relevance)
+                matched_ids.append(requirement_id)
+                details.append({
+                    "requirement_id": requirement_id,
+                    "requirement_text": _clean_text(requirement.get("text")),
+                    "match_label": baseline_label,
+                    "strategy": "frozen_baseline_exact_selected_skill_v1",
+                    "capability_id": _clean_text(requirement.get("capability_id")),
+                    "overlap": 1.0,
+                })
+                if preferred:
+                    preferred_match = True
+                else:
+                    required_match = True
+                continue
+
 
         if taxonomy_label is not None:
             label = _normalise_match_label(taxonomy_label)

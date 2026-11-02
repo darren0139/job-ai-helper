@@ -50,3 +50,7 @@ debug_exports/
 *.bak.*
 /tqd3_*.json
 /tqd3_*.csv
+
+# Local research documents and generated reports
+/docs/*
+/reports/*

@@ -451,9 +451,18 @@ class LedgerUITests(unittest.TestCase):
             self.assertTrue(any(m[0]=="rerun" for m in st.messages))
             self.assertTrue(any(m[0]=="success" and "Published to production" in m[1][0] for m in st.messages))
             st.messages=[]; st.selectbox=lambda *a,**k:"published"
-            with patch.dict(sys.modules,{"streamlit":st}),patch.object(reviews,"_resolved_path",return_value=db): render_governed_review_ledger()
-            rows=next(m[1][0] for m in st.messages if m[0]=="dataframe")
-            self.assertEqual([r["status"] for r in rows],["published"])
+            # The cross-page V3 renderer is deliberately not st.dataframe.
+            # Capture the exact filtered rows passed to it, without changing UI mode.
+            rendered_rows = []
+            def capture_ledger_table(_st, rows, **_kwargs):
+                rendered_rows.append(rows)
+            with patch.dict(sys.modules, {"streamlit": st}), \
+                    patch.object(reviews, "_resolved_path", return_value=db), \
+                    patch("tailoring.session_table_ui_v2.render_cross_page_table",
+                          side_effect=capture_ledger_table):
+                render_governed_review_ledger()
+            self.assertEqual(len(rendered_rows), 1)
+            self.assertEqual([r["status"] for r in rendered_rows[0]], ["published"])
 
     def test_render_and_unconfirmed_click_never_publish(self):
         from taxonomy_discovery.governed_publication_ui import render_governed_review_ledger

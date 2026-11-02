@@ -43,19 +43,14 @@ class JobFinderV16LightweightUIContractTests(unittest.TestCase):
             self.text,
         )
 
-    def test_full_job_cards_are_replaced_by_one_selected_detail(self) -> None:
-        self.assertIn(
-            'st.write("### Page results")',
-            self.text,
-        )
-        self.assertIn(
-            '"Open job details"',
-            self.text,
-        )
-        self.assertNotIn(
-            "for page_offset, job in enumerate(page_jobs, start=1):",
-            self.text,
-        )
+    def test_every_page_result_has_an_expandable_card_and_selected_actions(self) -> None:
+        self.assertIn('st.write("### Page results")', self.text)
+        self.assertIn('for card_offset, card_job in enumerate(page_jobs, start=1):', self.text)
+        self.assertIn('with st.container(border=True):', self.text)
+        self.assertIn('Full job description · #', self.text)
+        self.assertIn('job_finder_select_card_v17_', self.text)
+        self.assertNotIn('"Open job details"', self.text)
+        self.assertIn('job = page_job_by_id[selected_job_id]', self.text)
 
     def test_page_navigation_sets_busy_overlay_flag(self) -> None:
         self.assertIn(

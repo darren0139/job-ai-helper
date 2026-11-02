@@ -409,5 +409,7 @@ def render_analyzed_jobs_summary(st, analyses):
         "Unresolved or unreviewed requirements are excluded from confirmed taxonomy coverage and are not assumed to be taxonomy gaps.")
     if view["pending"]:
         with st.expander("Analyzed jobs awaiting reviewed/current taxonomy status"):
-            st.dataframe(view["pending"], hide_index=True, width="stretch")
+            from tailoring.session_table_ui_v2 import render_cross_page_table
+            render_cross_page_table(st, view["pending"],
+                                    key="analyzed_jobs_taxonomy_pending")
     return view

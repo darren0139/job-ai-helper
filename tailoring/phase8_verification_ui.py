@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import streamlit as st
+from tailoring.session_table_ui_v2 import render_session_dataframe
 
 from database.tailoring_generation_control import (
     get_application_generation_control,
@@ -83,7 +84,7 @@ def _render_document_comparison(analysis, label):
     cols[0].metric(label.split(' vs ')[0], summary['initial_score'])
     cols[1].metric('Final', summary['tailored_score'])
     cols[2].metric('Job Match Δ', summary['score_delta'])
-    st.dataframe([{
+    render_session_dataframe(st, [{
         'Requirement ID': row['requirement_id'], 'Requirement': row.get('requirement_text'),
         'Importance': row.get('importance'), 'Match transition': row.get('match_transition'),
         'Classification': row.get('classification'),
@@ -92,7 +93,9 @@ def _render_document_comparison(analysis, label):
         'Final evidence': _evidence_summary(row.get('tailored') or {}),
     } for row in analysis.get('requirements', [])], hide_index=True, width='stretch')
     with st.expander(label + ' diagnostics'):
-        st.json(analysis)
+        if st.checkbox('Load comparison diagnostics (large)', value=False,
+                       key='session_v2_comparison_diag_' + label):
+            st.json(analysis)
 
 
 def _render_job_match_ab(result: dict[str, Any]) -> None:
@@ -105,7 +108,7 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         for col, label, key in zip(cols, ('Job Match', 'Required/Core', 'Preferred', 'Evidence strength'),
                 ('deterministic_alignment_score', 'required_core_coverage_score', 'preferred_coverage_score', 'evidence_strength_score')):
             col.metric(label, native.get(key, 'Unavailable'))
-        st.dataframe(_snapshot_rows(final), hide_index=True, width='stretch')
+        render_session_dataframe(st, _snapshot_rows(final), hide_index=True, width='stretch')
         # Initial explainability already appears in Step 1. Reuse the existing
         # native arithmetic formatter for Final alone, without a duplicate
         # initial/before-fitting panel in document sessions.
@@ -154,7 +157,7 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         cols[1].metric("Direct", counts.get("direct", 0))
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
-        st.dataframe(_snapshot_rows(initial), hide_index=True, width="stretch")
+        render_session_dataframe(st, _snapshot_rows(initial), hide_index=True, width="stretch")
     with tailored_tab:
         counts = tailored.get("match_counts") or {}
         cols = st.columns(4)
@@ -162,7 +165,7 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         cols[1].metric("Direct", counts.get("direct", 0))
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
-        st.dataframe(_snapshot_rows(tailored), hide_index=True, width="stretch")
+        render_session_dataframe(st, _snapshot_rows(tailored), hide_index=True, width="stretch")
     with comparison_tab:
         score_cols = st.columns(4)
         score_cols[0].metric("Initial score", summary.get("initial_score", 0))
@@ -208,7 +211,7 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
                     ),
                 }
             )
-        st.dataframe(rows, hide_index=True, width="stretch")
+        render_session_dataframe(st, rows, hide_index=True, width="stretch")
         with st.expander("A/B taxonomy and resolver diagnostics"):
             st.json(
                 [
@@ -329,7 +332,7 @@ def _render_result(result: dict[str, Any]) -> None:
             "Final evidence reconciliation",
             expanded=False,
         ):
-            st.dataframe(
+            render_session_dataframe(st,
                 reconciled_rows,
                 hide_index=True,
                 width="stretch",
@@ -344,7 +347,7 @@ def _render_result(result: dict[str, Any]) -> None:
             "New final evidence matches",
             expanded=False,
         ):
-            st.dataframe(
+            render_session_dataframe(st,
                 newly_supported_rows,
                 hide_index=True,
                 width="stretch",
@@ -373,10 +376,10 @@ def _render_result(result: dict[str, Any]) -> None:
             )
             if added:
                 st.write("**Added after reconstruction**")
-                st.dataframe(added, hide_index=True, width="stretch")
+                render_session_dataframe(st, added, hide_index=True, width="stretch")
             if removed:
                 st.write("**Missing after reconstruction**")
-                st.dataframe(removed, hide_index=True, width="stretch")
+                render_session_dataframe(st, removed, hide_index=True, width="stretch")
 
     if result.get("blueprint_ready"):
         st.success(
@@ -405,13 +408,13 @@ def _render_result(result: dict[str, Any]) -> None:
             f"Improved requirements ({len(improved)})",
             expanded=False,
         ):
-            st.dataframe(improved, hide_index=True, width="stretch")
+            render_session_dataframe(st, improved, hide_index=True, width="stretch")
     if regressed:
         with st.expander(
             f"Regressed requirements ({len(regressed)})",
             expanded=True,
         ):
-            st.dataframe(regressed, hide_index=True, width="stretch")
+            render_session_dataframe(st, regressed, hide_index=True, width="stretch")
 
     bullet_risks = (
         lineage.get("project_bullet_review_risks", []) or []
@@ -424,21 +427,25 @@ def _render_result(result: dict[str, Any]) -> None:
         ):
             if bullet_risks:
                 st.write("**Project bullets needing review**")
-                st.dataframe(
+                render_session_dataframe(st,
                     bullet_risks,
                     hide_index=True,
                     width="stretch",
                 )
             if skill_risks:
                 st.write("**Skills needing review**")
-                st.dataframe(
+                render_session_dataframe(st,
                     skill_risks,
                     hide_index=True,
                     width="stretch",
                 )
 
     with st.expander("Phase 8 technical details", expanded=False):
-        st.json(result)
+        if st.checkbox("Load Phase 8 diagnostic JSON (large)", value=False,
+                       key="session_v2_phase8_full_diagnostics"):
+            st.json(result)
+        else:
+            st.caption("Load full diagnostics only when needed.")
 
     st.download_button(
         "Download Phase 8 Verification JSON",

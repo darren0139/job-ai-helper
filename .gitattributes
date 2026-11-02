@@ -1,0 +1,3 @@
+# Preserve byte-stable taxonomy and registry identities
+taxonomy/capability_taxonomy_v1.json text eol=lf
+taxonomy/technology_registry_v1.json text eol=lf

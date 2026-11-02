@@ -4,11 +4,18 @@
 def render_governed_review_ledger():
     import streamlit as st
     from taxonomy_discovery import governed_publication as publication
+    from tailoring.session_table_ui_v2 import (
+        render_cross_page_table, render_cross_page_table_controls,
+    )
     st.subheader("Governed Review Ledger")
+    render_cross_page_table_controls(st)
     rows = publication.review_ledger()
     status = st.selectbox("Ledger status",["all","pending_review","research_more","rejected","approved_pending_publication","published","superseded"],key="tqd3_ledger_status") or "all"
     visible = [r for r in rows if status == "all" or r["status"] == status or status == "rejected" and r["human_decision"] == "reject"]
-    st.dataframe([{k:v for k,v in r.items() if k != "publication"} for r in visible],hide_index=True,width="stretch")
+    render_cross_page_table(
+        st, [{k: v for k, v in r.items() if k != "publication"} for r in visible],
+        key="governed_review_ledger", hide_index=True, width="stretch",
+    )
     for row in visible:
         with st.expander(row["concept"]+" · "+row["status"]+" · "+str(row["draft_id"] or "research evidence")):
             st.json(row)

@@ -65,6 +65,15 @@ except Exception:
 
 
 from tailoring.skills_section_tailor import tailor_skills_section, skill_lines_to_plain_text
+from tailoring.adaptive_skill_selection_v2 import (
+    apply_adaptive_skill_selection,
+    supported_skill_options,
+)
+from tailoring.adaptive_project_selection_v3 import (
+    apply_adaptive_project_selection,
+    generated_project_options,
+    select_auto_project_count,
+)
 
 from resume_builder.project_header_format import project_evidence_preview
 
@@ -2361,6 +2370,7 @@ show_debug_text = False
 CATEGORY_OPTIONS = [
     "Project",
     "Internship",
+    "Work Experience",
     "Coursework",
     "Certification",
     "Skill",
@@ -2515,26 +2525,26 @@ with st.sidebar:
 
         st.subheader("Application Sessions")
 
-        show_all_application_sessions = st.checkbox(
-            "Show all stored sessions",
-            value=False,
-            key="show_all_application_sessions",
-            help=(
-                "Normally the sidebar shows only the 15 most recently updated sessions. "
-                "Enable this to expose older sessions that are still stored in applications.db."
-            ),
+        application_session_display = st.selectbox(
+            "Application sessions shown",
+            options=[5, 10, 20, 40, 50, 100, "All"],
+            index=2,
+            key="application_session_display_limit_v2",
+            help="Limit the sidebar to recently updated sessions, or show every stored session.",
         )
-
-        application_session_limit = 1000 if show_all_application_sessions else 15
+        show_all_application_sessions = application_session_display == "All"
+        # SQLite's LIMIT -1 means no limit; unlike the previous 1000-row cap,
+        # "All" really includes every stored application session.
+        application_session_limit = -1 if show_all_application_sessions else int(application_session_display)
         recent_applications = get_recent_applications(limit=application_session_limit)
         current_application_id = st.session_state.get("current_application_id")
 
         if show_all_application_sessions:
-            st.caption(f"Showing {len(recent_applications)} stored application sessions.")
-        elif len(recent_applications) >= 15:
+            st.caption(f"Showing all {len(recent_applications)} stored application sessions.")
+        else:
             st.caption(
-                "Showing the 15 most recently updated sessions. "
-                "Enable **Show all stored sessions** to access older sessions."
+                f"Showing {len(recent_applications)} most recently updated sessions "
+                f"(Top {application_session_display}). Choose All to see older sessions."
             )
 
         if not recent_applications:
@@ -3010,6 +3020,24 @@ elif page == "Application Sessions":
                             dict,
                         )
 
+                # The cache key alone does not prove current taxonomy,
+                # registry, or scorer identity. Do not re-seal an outdated
+                # native score under a new identity on explicit re-analysis.
+                if isinstance(cached_analysis, dict):
+                    from tailoring.document_grounded_analysis import validate_document_report
+                    from tailoring.job_match_ab_analysis import current_ab_identity
+                    cached_report = cached_analysis.get("report") or {}
+                    try:
+                        cached_authority = validate_document_report(cached_report)
+                        cached_is_current = (
+                            cached_authority.get("identity") == current_ab_identity(jd_text)
+                        )
+                    except (ValueError, KeyError, TypeError):
+                        cached_is_current = False
+                    if not cached_is_current:
+                        cached_analysis = None
+                        cross_application_cache_hit = False
+
                 analysis_cache_hit = isinstance(
                     cached_analysis,
                     dict,
@@ -3307,6 +3335,9 @@ elif page == "Application Sessions":
             render_application_workflow_overview(
                 application_id=int(current_application_id), baseline_report=report,
             )
+            # session_tables_v2_global_control
+            from tailoring.session_table_ui_v2 import render_session_table_controls
+            render_session_table_controls(st, application_id=current_application_id)
             st.subheader("Step 1 — Initial Résumé Analysis")
             from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis, render_discovery_history
             render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
@@ -3985,14 +4016,62 @@ elif page == "Application Sessions":
                 ),
             )
 
+            # Auto determines a concrete count before explicit Projects generation.
+            # Existing frozen generation contracts still receive only max_projects.
+            auto_preview_candidates = None
+            auto_full_preview = None
+            project_count_label = st.radio(
+                "Project count before generation",
+                ["Manual (legacy)", "Auto (up to 5)"],
+                horizontal=True,
+                index=0,
+                key=f"adaptive_project_count_mode_{current_application_id}",
+                disabled=project_controls_disabled,
+                help=(
+                    "Auto evaluates the deterministic project candidate preview "
+                    "without AI calls. It considers a fifth project only when "
+                    "approved canonical bullets establish complementary breadth. "
+                    "The explicit Generate button still controls paid generation."
+                ),
+            )
             max_projects = st.slider(
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
                 value=int(generation_control_defaults.get("max_projects", 4)),
                 key=f"max_projects_{current_application_id}",
-                disabled=project_controls_disabled,
+                disabled=(project_controls_disabled or project_count_label == "Auto (up to 5)"),
             )
+            if (
+                project_count_label == "Auto (up to 5)"
+                and not project_controls_disabled
+                and phase9e_ready
+            ):
+                try:
+                    auto_candidates = build_project_candidate_pool(
+                        resume_profile=report.get("resume_profile", {}),
+                        evidence_items=get_evidence_items(limit=100),
+                    )
+                    auto_preview = build_project_selection_preview(
+                        project_candidates=auto_candidates,
+                        stable_analysis=report.get("stable_analysis", {}),
+                        selected_count=5,
+                    )
+                    max_projects, auto_reason = select_auto_project_count(
+                        auto_candidates, auto_preview, maximum=5,
+                    )
+                    auto_preview_candidates = auto_candidates
+                    auto_full_preview = auto_preview
+                    st.caption(
+                        f"Auto proposes {max_projects} projects for the next "
+                        f"explicit generation. {auto_reason}. "
+                        "Final one-page fitting may still remove content."
+                    )
+                except (ValueError, TypeError, KeyError) as auto_error:
+                    st.warning(
+                        "Auto project-count preview unavailable; manual count "
+                        f"remains effective ({max_projects}). Reason: {auto_error}"
+                    )
 
             saved_bullet_allocation_mode = str(
                     generation_control_defaults.get(
@@ -4323,14 +4402,22 @@ elif page == "Application Sessions":
                 and not phase9f_f_active
             ):
                 try:
-                    preview_candidates = build_project_candidate_pool(
-                        resume_profile=report.get("resume_profile", {}),
-                        evidence_items=get_evidence_items(limit=100),
+                    preview_candidates = (
+                        auto_preview_candidates
+                        if auto_preview_candidates is not None
+                        else build_project_candidate_pool(
+                            resume_profile=report.get("resume_profile", {}),
+                            evidence_items=get_evidence_items(limit=100),
+                        )
                     )
-                    project_selection_preview = build_project_selection_preview(
-                        project_candidates=preview_candidates,
-                        stable_analysis=report.get("stable_analysis", {}),
-                        selected_count=max_projects,
+                    project_selection_preview = (
+                        auto_full_preview
+                        if auto_full_preview is not None and max_projects == 5
+                        else build_project_selection_preview(
+                            project_candidates=preview_candidates,
+                            stable_analysis=report.get("stable_analysis", {}),
+                            selected_count=max_projects,
+                        )
                     )
                     st.session_state[
                         f"low_confidence_project_selection_preview_{current_application_id}"
@@ -7189,6 +7276,213 @@ elif page == "Application Sessions":
                         "the explicit Build and Fit step."
                     )
 
+                # Fit-time project selection uses only ALREADY GENERATED project
+                # bullets. An additional ungenerated project requires a new,
+                # explicit generation; no source-resume bullet is fabricated.
+                adaptive_projects_mode = "legacy"
+                adaptive_project_keys = []
+                adaptive_project_selection_valid = True
+                with st.expander("Adaptive Projects selection (no AI calls)", expanded=True):
+                    try:
+                        generated_project_pool = generated_project_options(project_result)
+                    except ValueError as project_pool_error:
+                        generated_project_pool = []
+                        st.warning("Adaptive Projects unavailable: " + str(project_pool_error))
+                    project_selection_locked = bool(
+                        workspace_edit_required
+                        or phase9f_f_fit_settings_locked
+                        or phase9e_projects_locked
+                        or bool(phase7_control.get("lock_projects"))
+                        or phase9f_f_active
+                    )
+                    if not generated_project_pool:
+                        st.caption(
+                            "No complete generated project-bullet pool is available. "
+                            "The existing Projects draft is unchanged."
+                        )
+                    elif project_selection_locked:
+                        st.caption(
+                            "Projects are locked or governed by the frozen Phase 9F "
+                            "execution. The original project selection remains unchanged."
+                        )
+                    else:
+                        project_modes = {
+                            "Balanced (up to 5)": "balanced",
+                            "Preserve all generated projects": "preserve_generated",
+                            "JD-focused": "jd_focused",
+                            "Manual": "manual",
+                            "Keep generated selection (legacy)": "legacy",
+                        }
+                        chosen_project_mode = st.radio(
+                            "Projects policy for this fitted résumé",
+                            options=list(project_modes),
+                            index=0,
+                            key=f"adaptive_project_fit_mode_{current_application_id}",
+                            help=(
+                                "Fit only: choose from projects already written in this "
+                                "generation. To add a fifth project to a four-project "
+                                "draft, select Auto before explicit Projects generation."
+                            ),
+                        )
+                        adaptive_projects_mode = project_modes[chosen_project_mode]
+                        if adaptive_projects_mode == "manual":
+                            project_labels = {
+                                entry["key"]: entry["label"]
+                                for entry in generated_project_pool
+                            }
+                            adaptive_project_keys = st.multiselect(
+                                "Include these generated projects",
+                                options=list(project_labels),
+                                default=list(project_labels),
+                                format_func=lambda key: project_labels[key],
+                                key=f"adaptive_project_fit_manual_{current_application_id}",
+                            )
+                        try:
+                            preview_projects_fit = apply_adaptive_project_selection(
+                                project_result,
+                                mode=adaptive_projects_mode,
+                                selected_keys=adaptive_project_keys,
+                            )
+                            count_projects_fit = len(preview_projects_fit.get("recommended_projects") or [])
+                            st.caption(
+                                f"{count_projects_fit} of {len(generated_project_pool)} "
+                                "previously generated projects enter one-page fitting. "
+                                "No AI call and no new Job Match credit."
+                            )
+                            if len(generated_project_pool) < 5:
+                                st.caption(
+                                    "A fifth project cannot be added from this saved "
+                                    "generation because its bullets were not generated."
+                                )
+                        except ValueError as project_selection_error:
+                            adaptive_project_selection_valid = False
+                            st.warning(str(project_selection_error))
+
+                # Select from the saved Python-owned full evidence-backed skill ranking.
+                # This runs locally at fitting, without repeating paid generation.
+                adaptive_skills_mode = "legacy"
+                adaptive_manual_keys = []
+                adaptive_selection_valid = True
+                with st.expander("Adaptive Skills selection (no AI calls)", expanded=True):
+                    try:
+                        skill_pool = (
+                            supported_skill_options(skills_result)
+                            if isinstance(skills_result, dict)
+                            else []
+                        )
+                    except ValueError as adaptive_pool_error:
+                        skill_pool = []
+                        st.warning(
+                            "Adaptive Skills unavailable for this draft: "
+                            + str(adaptive_pool_error)
+                        )
+                    adaptive_controls_locked = bool(
+                        workspace_edit_required
+                        or phase9f_f_fit_settings_locked
+                        or phase9e_skills_locked
+                        or bool(phase7_control.get("lock_skills"))
+                        or (phase9f_f_active and not phase9f_f_section_scope.get("skills_addressable", True))
+                        or (phase9f_f_active and not phase9f_f_normal_lifecycle)
+                    )
+                    if not skill_pool:
+                        st.caption(
+                            "This saved Skills draft has no full deterministic ranking. "
+                            "Its existing Skills selection remains unchanged."
+                        )
+                    elif adaptive_controls_locked and (
+                        phase9e_skills_locked
+                        or bool(phase7_control.get("lock_skills"))
+                        or (phase9f_f_active and not phase9f_f_section_scope.get("skills_addressable", True))
+                        or (phase9f_f_active and not phase9f_f_normal_lifecycle)
+                    ):
+                        st.caption(
+                            "This execution has locked Skills or uses historical "
+                            "private Phase 9F behavior. Its Skills selection remains unchanged."
+                        )
+                    else:
+                        adaptive_choices = {
+                            "Balanced (recommended)": "balanced",
+                            "Preserve all supported": "preserve_supported",
+                            "JD-focused": "jd_focused",
+                            "Manual": "manual",
+                            "Keep generated selection (legacy)": "legacy",
+                        }
+                        saved_adaptive = str(fit_control_defaults.get(
+                            "adaptive_skills_mode", "balanced"
+                        ))
+                        saved_label = next(
+                            (label for label, value in adaptive_choices.items()
+                             if value == saved_adaptive),
+                            "Balanced (recommended)",
+                        )
+                        adaptive_label = st.radio(
+                            "Skills policy for this fitted résumé",
+                            options=list(adaptive_choices),
+                            index=list(adaptive_choices).index(saved_label),
+                            key=f"adaptive_skills_mode_{current_application_id}",
+                            disabled=adaptive_controls_locked,
+                            help=(
+                                "The saved evidence-backed ranking supplies the candidates. "
+                                "Balanced sends up to 30; Preserve all sends the entire "
+                                "supported pool; JD-focused prioritizes canonical JD matches; "
+                                "Manual selects exact supported skills. The one-page fitter "
+                                "may still remove lower-priority skills when allowed."
+                            ),
+                        )
+                        adaptive_skills_mode = adaptive_choices[adaptive_label]
+                        if adaptive_skills_mode == "manual":
+                            label_by_key = {
+                                option["key"]: (
+                                    f"{option['label']} ({option['category']})"
+                                )
+                                for option in skill_pool
+                            }
+                            default_manual = [
+                                row.get("skill_key") or "".join(
+                                    char.casefold() for char in str(row.get("skill", ""))
+                                    if char.isalnum()
+                                )
+                                for row in skills_result.get("skill_priorities", [])
+                                if isinstance(row, dict)
+                            ]
+                            default_manual = list(dict.fromkeys(
+                                value for value in default_manual if value in label_by_key
+                            ))
+                            adaptive_manual_keys = st.multiselect(
+                                "Include these supported skills",
+                                options=list(label_by_key),
+                                default=default_manual,
+                                format_func=lambda value: label_by_key[value],
+                                key=f"adaptive_skills_manual_{current_application_id}",
+                                disabled=adaptive_controls_locked,
+                            )
+                        try:
+                            adaptive_preview = apply_adaptive_skill_selection(
+                                skills_result,
+                                mode=adaptive_skills_mode,
+                                selected_keys=adaptive_manual_keys,
+                            )
+                        except ValueError as adaptive_error:
+                            adaptive_selection_valid = False
+                            st.warning(str(adaptive_error))
+                        else:
+                            preview_total = sum(
+                                len(row.get("items") or [])
+                                for row in adaptive_preview.get("skill_lines", [])
+                                if isinstance(row, dict)
+                            )
+                            st.caption(
+                                f"{preview_total} skills selected from {len(skill_pool)} "
+                                "previously ranked candidates for fitting. "
+                                "Selection is not a new Job Match score."
+                            )
+                            if adaptive_skills_mode == "preserve_supported":
+                                st.caption(
+                                    "The fitter can remove lower-priority skills only if "
+                                    "its Skills compaction setting allows it. For a very "
+                                    "large skill pool, fitting may take longer."
+                                )
+
                 with st.expander("Fitting strategy", expanded=True):
                     if phase9f_f_active and phase9f_f_fit_settings_locked:
                         st.caption(
@@ -7432,19 +7726,22 @@ elif page == "Application Sessions":
 
                 with st.expander("Spacing options", expanded=False):
                     spacing_mode_options = [
+                        "Preserve original template spacing",
                         "Paragraph spacing",
                         "Blank line",
                     ]
                     saved_spacing_mode = str(
                         fit_control_defaults.get(
                             "spacing_mode",
-                            "paragraph_spacing",
+                            "source_template",
                         )
                     ).strip().lower()
                     default_spacing_mode_label = (
                         "Blank line"
                         if saved_spacing_mode == "blank_line"
                         else "Paragraph spacing"
+                        if saved_spacing_mode == "paragraph_spacing"
+                        else "Preserve original template spacing"
                     )
 
                     spacing_mode_label = st.radio(
@@ -7457,13 +7754,18 @@ elif page == "Application Sessions":
                         key=f"spacing_mode_{current_application_id}",
                         disabled=phase9f_f_fit_settings_locked,
                         help=(
-                            "Paragraph spacing uses Word spacing values. "
-                            "Blank line inserts real empty paragraphs, similar to pressing Enter."
+                            "Preserve original uses copied source project paragraph "
+                            "styles without adding spacing. It does not reproduce "
+                            "every original inter-project gap when content is reordered. "
+                            "Paragraph spacing adds a chosen value; Blank line "
+                            "inserts empty paragraphs."
                         ),
                     )
 
                     spacing_mode = (
-                        "blank_line"
+                        "source_template"
+                        if spacing_mode_label == "Preserve original template spacing"
+                        else "blank_line"
                         if spacing_mode_label == "Blank line"
                         else "paragraph_spacing"
                     )
@@ -7477,41 +7779,55 @@ elif page == "Application Sessions":
                             )
                         ),
                         key=f"spacing_before_first_project_{current_application_id}",
-                        disabled=phase9f_f_fit_settings_locked,
+                        disabled=(
+                            phase9f_f_fit_settings_locked
+                            or spacing_mode == "source_template"
+                        ),
                     )
-
-                    if spacing_mode == "paragraph_spacing":
-                        project_spacing_pt = st.slider(
+                    if spacing_mode == "source_template":
+                        add_spacing_before_first_project = False
+                        project_spacing_pt = 0.0
+                        after_projects_spacing_pt = 0.0
+                        blank_lines_between_projects = 0
+                        blank_lines_after_projects = 0
+                        st.caption(
+                            "Uses the saved DOCX's project title/bullet paragraph "
+                            "styles without adding extra spacing. Section content "
+                            "is still regenerated; inspect the fitted DOCX."
+                        )
+                    elif spacing_mode == "paragraph_spacing":
+                        project_spacing_pt = st.number_input(
                             "Spacing before each next project (pt)",
-                            min_value=0,
-                            max_value=20,
-                            value=int(
+                            min_value=0.0,
+                            max_value=20.0,
+                            value=float(
                                 fit_control_defaults.get(
                                     "project_spacing_pt",
                                     10,
                                 )
                             ),
+                            step=0.5,
+                            format="%.1f",
                             key=f"project_spacing_pt_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-
-                        after_projects_spacing_pt = st.slider(
+                        after_projects_spacing_pt = st.number_input(
                             "Spacing after final project / before Skills (pt)",
-                            min_value=0,
-                            max_value=20,
-                            value=int(
+                            min_value=0.0,
+                            max_value=20.0,
+                            value=float(
                                 fit_control_defaults.get(
                                     "after_projects_spacing_pt",
                                     10,
                                 )
                             ),
+                            step=0.5,
+                            format="%.1f",
                             key=f"after_projects_spacing_pt_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-
                         blank_lines_between_projects = 0
                         blank_lines_after_projects = 0
-
                     else:
                         blank_lines_between_projects = st.number_input(
                             "Blank lines before each project",
@@ -7527,7 +7843,6 @@ elif page == "Application Sessions":
                             key=f"blank_lines_between_projects_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-
                         blank_lines_after_projects = st.number_input(
                             "Blank lines after final project / before Skills",
                             min_value=0,
@@ -7542,13 +7857,12 @@ elif page == "Application Sessions":
                             key=f"blank_lines_after_projects_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-
-                        project_spacing_pt = 0
-                        after_projects_spacing_pt = 0
-
+                        project_spacing_pt = 0.0
+                        after_projects_spacing_pt = 0.0
                     st.caption(
                         "Changing spacing only affects DOCX formatting. "
-                        "You can regenerate the DOCX without re-tailoring the projects or skills."
+                        "You can regenerate the DOCX without re-tailoring "
+                        "the projects or skills."
                     )
 
                 st.info(
@@ -7569,6 +7883,8 @@ elif page == "Application Sessions":
                         or update_scope_dirty
                         or phase9f_f_blocked
                         or phase9f_f_fit_settings_locked
+                        or not adaptive_selection_valid
+                        or not adaptive_project_selection_valid
                     ),
                 ):
                     try:
@@ -7593,6 +7909,8 @@ elif page == "Application Sessions":
                                         "allow_bullet_fusion": allow_bullet_fusion,
                                         "prefer_balanced_bullets": prefer_balanced_bullets,
                                         "allow_skills_compaction": allow_skills_compaction,
+                                        "adaptive_skills_mode": adaptive_skills_mode,
+                                        "adaptive_skill_keys": adaptive_manual_keys,
                                         "page_density_mode": page_density_mode,
                                         "allow_margin_compaction": allow_margin_compaction,
                                         "project_header_layout": project_header_layout,
@@ -7692,6 +8010,25 @@ elif page == "Application Sessions":
                             lock_projects=fit_lock_projects,
                             lock_skills=fit_lock_skills,
                         )
+                        # Fit-only recomposition; never changes the frozen model output.
+                        if not fit_lock_projects:
+                            projects_for_fit = apply_adaptive_project_selection(
+                                projects_for_fit,
+                                mode=adaptive_projects_mode,
+                                selected_keys=adaptive_project_keys,
+                            )
+                        fit_effective_max_projects = (
+                            len(projects_for_fit.get("recommended_projects") or [])
+                            if projects_for_fit and not fit_lock_projects
+                            and adaptive_projects_mode != "legacy"
+                            else max_projects
+                        )
+                        if not fit_lock_skills:
+                            skills_for_fit = apply_adaptive_skill_selection(
+                                skills_for_fit,
+                                mode=adaptive_skills_mode,
+                                selected_keys=adaptive_manual_keys,
+                            )
                         fit_max_bullets_per_project = (
                             resolve_effective_fitting_bullet_ceiling(
                                 projects_for_fit,
@@ -7743,7 +8080,7 @@ elif page == "Application Sessions":
                             tailored_projects=projects_for_fit,
                             tailored_skills=skills_for_fit,
                             application_id=current_application_id,
-                            max_projects=max_projects,
+                            max_projects=fit_effective_max_projects,
                             max_bullets_per_project=fit_max_bullets_per_project,
                             spacing_mode=spacing_mode,
                             project_spacing_pt=project_spacing_pt,
@@ -7783,7 +8120,9 @@ elif page == "Application Sessions":
                             "fitting_search_algorithm_version": (
                                 PHASE6C_SEARCH_ALGORITHM_VERSION
                             ),
-                            "max_projects": max_projects,
+                            "max_projects": fit_effective_max_projects,
+                            "adaptive_projects_mode": adaptive_projects_mode,
+                            "adaptive_project_keys": adaptive_project_keys,
                             "max_bullets": max_bullets,
                             "fit_effective_max_bullets": fit_max_bullets_per_project,
                             "bullet_allocation_mode": (
@@ -7802,6 +8141,8 @@ elif page == "Application Sessions":
                                 allow_skills_compaction
                             ),
                             "minimum_total_skills": DEFAULT_MINIMUM_TOTAL_SKILLS,
+                            "adaptive_skills_mode": adaptive_skills_mode,
+                            "adaptive_skill_keys": adaptive_manual_keys,
                             "lock_projects": fit_lock_projects,
                             "lock_skills": fit_lock_skills,
                             "page_density_mode": page_density_mode,
@@ -9041,6 +9382,11 @@ elif page == "Profile & Evidence":
         "Published on Google Play."
     )
 
+    # profile-evidence-jobfinder-work-v1
+    from tailoring.profile_evidence_jobfinder_work_ui import render_job_finder_evidence_quick_add
+    render_job_finder_evidence_quick_add()
+    st.divider()
+
     st.subheader("Add Evidence Item")
     st.caption(
         "For Project evidence, bullet order matters. "
@@ -9051,7 +9397,7 @@ elif page == "Profile & Evidence":
     with st.form("add_evidence_form"):
         category = st.selectbox(
             "Category",
-            ["Project", "Internship", "Coursework", "Certification", "Skill", "Achievement", "Other"],
+            ["Project", "Internship", "Work Experience", "Coursework", "Certification", "Skill", "Achievement", "Other"],
         )
 
         title = st.text_input(
@@ -9208,8 +9554,22 @@ elif page == "Profile & Evidence":
     if not evidence_items:
         st.info("No evidence items saved yet.")
     else:
-        for item in evidence_items:
-            item_label = str(item.get("title") or "")
+        # saved-evidence-grouped-display-v1
+        from tailoring.profile_evidence_saved_groups import (
+            ordered_saved_evidence_items,
+            saved_evidence_group,
+            saved_evidence_group_heading,
+            saved_evidence_item_label,
+        )
+        _visible_saved_evidence_group = None
+        for item in ordered_saved_evidence_items(evidence_items):
+            _saved_evidence_group = saved_evidence_group(item)
+            if _saved_evidence_group != _visible_saved_evidence_group:
+                if _visible_saved_evidence_group is not None:
+                    st.divider()
+                st.markdown("#### " + saved_evidence_group_heading(_saved_evidence_group))
+                _visible_saved_evidence_group = _saved_evidence_group
+            item_label = saved_evidence_item_label(item)
             if item.get("category") == "Project":
                 item_label = project_evidence_preview(
                     item,
@@ -9218,7 +9578,12 @@ elif page == "Profile & Evidence":
                         "pipes",
                     ),
                 )
-            with st.expander(f"{item['category']}: {item_label}"):
+            # Work/project/skill headings already identify the type.
+            _saved_display_label = (
+                f"{item['category']}: {item_label}"
+                if _saved_evidence_group == "other" else item_label
+            )
+            with st.expander(_saved_display_label):
 
                 description = str(item.get("description", "")).strip()
 

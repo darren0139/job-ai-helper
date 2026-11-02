@@ -98,6 +98,10 @@ from tailoring.project_section_tailor import (
     tailor_projects_section,
 )
 from tailoring.skills_section_tailor import tailor_skills_section
+from tailoring.adaptive_skill_selection_v2 import (
+    apply_adaptive_skill_selection,
+    normalise_adaptive_fit_settings,
+)
 from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
 )
@@ -1057,11 +1061,31 @@ def _canonical_generation_settings(settings: dict[str, Any] | None) -> dict[str,
     }
 
 
+
+def _half_point_setting(value: Any, *, name: str) -> float | int:
+    # Accept 0..20 pt in half-point steps; preserve historical integer fingerprints.
+    try:
+        if isinstance(value, bool):
+            raise ValueError("bool is not a spacing value")
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise Phase9FFExecutionError(
+            f"The Phase 9F-F {name} setting must be a number.",
+            code=f"{name}_invalid", stage="fitting",
+        ) from exc
+    if not 0.0 <= numeric <= 20.0 or numeric * 2 != round(numeric * 2):
+        raise Phase9FFExecutionError(
+            f"The Phase 9F-F {name} setting must be 0–20 pt in half-point steps.",
+            code=f"{name}_invalid", stage="fitting",
+        )
+    return int(numeric) if numeric.is_integer() else numeric
+
+
 def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
     """Canonicalise normal Build/Fit controls without changing fitter semantics."""
     source = settings if isinstance(settings, dict) else {}
     spacing_mode = _clean(source.get("spacing_mode") or "paragraph_spacing").lower()
-    if spacing_mode not in {"paragraph_spacing", "blank_line"}:
+    if spacing_mode not in {"source_template", "paragraph_spacing", "blank_line"}:
         raise Phase9FFExecutionError(
             "The selected spacing mode is unsupported.",
             code="spacing_mode_invalid",
@@ -1092,7 +1116,7 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             code="project_metadata_style_invalid",
             stage="fitting",
         )
-    return {
+    result = {
         "policy_version": PHASE9F_F_FIT_SETTINGS_POLICY_VERSION,
         "fitting_search_algorithm_version": (
             PHASE6C_SEARCH_ALGORITHM_VERSION
@@ -1115,17 +1139,13 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
         "add_spacing_before_first_project": bool(
             source.get("add_spacing_before_first_project", False)
         ),
-        "project_spacing_pt": _integer_setting(
+        "project_spacing_pt": _half_point_setting(
             source.get("project_spacing_pt", 10),
             name="project_spacing_pt",
-            minimum=0,
-            maximum=20,
         ),
-        "after_projects_spacing_pt": _integer_setting(
+        "after_projects_spacing_pt": _half_point_setting(
             source.get("after_projects_spacing_pt", 10),
             name="after_projects_spacing_pt",
-            minimum=0,
-            maximum=20,
         ),
         "blank_lines_between_projects": _integer_setting(
             source.get("blank_lines_between_projects", 1),
@@ -1140,6 +1160,20 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             maximum=3,
         ),
     }
+    # Opt-in only. Old fitting settings retain their exact fingerprints.
+    if "adaptive_skills_mode" in source:
+        try:
+            adaptive_mode, adaptive_keys = normalise_adaptive_fit_settings(
+                source.get("adaptive_skills_mode"),
+                source.get("adaptive_skill_keys", []),
+            )
+        except ValueError as exc:
+            raise Phase9FFExecutionError(
+                str(exc), code="adaptive_skills_invalid", stage="fitting"
+            ) from exc
+        result["adaptive_skills_mode"] = adaptive_mode
+        result["adaptive_skill_keys"] = adaptive_keys
+    return result
 
 
 def build_phase9f_normal_fit_input_fingerprint(
@@ -3467,6 +3501,24 @@ def run_phase9f_normal_fit(
             stage="normal_fit",
         )
     canonical_fit = _canonical_fit_settings(fit_settings)
+    if "adaptive_skills_mode" in canonical_fit:
+        if not bool((execution.get("section_scope") or {}).get("skills_addressable")):
+            if canonical_fit["adaptive_skills_mode"] != "legacy":
+                raise Phase9FFExecutionError(
+                    "Cannot change Skills when the Phase 9F section is locked.",
+                    code="adaptive_skills_section_locked", stage="normal_fit",
+                )
+        else:
+            try:
+                skills = apply_adaptive_skill_selection(
+                    skills,
+                    mode=canonical_fit["adaptive_skills_mode"],
+                    selected_keys=canonical_fit["adaptive_skill_keys"],
+                )
+            except ValueError as exc:
+                raise Phase9FFExecutionError(
+                    str(exc), code="adaptive_skills_invalid", stage="normal_fit"
+                ) from exc
     lifecycle = _normal_lifecycle_state(generation)
     fit_input_fingerprint = build_phase9f_normal_fit_input_fingerprint(
         lifecycle=lifecycle,
