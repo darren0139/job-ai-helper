@@ -9,7 +9,7 @@ import secrets
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from database.application_profile_manager import get_application_profile
 from database.browser_bridge_settings import get_or_create_browser_bridge_token
@@ -26,8 +26,28 @@ TOKEN_HEADER = "X-Job-AI-Bridge-Token"
 
 
 def _allowed_extension_origin(origin: str) -> bool:
-    value = str(origin or "").strip().lower()
-    return value.startswith("chrome-extension://")
+    value = str(origin or "")
+    # urlsplit normalizes control characters; reject them before parsing.
+    if not value or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value):
+        return False
+    try:
+        parts = urlsplit(value)
+        return (
+            parts.scheme in {"chrome-extension", "moz-extension"}
+            and bool(parts.hostname)
+            and "\\" not in parts.netloc
+            and parts.username is None
+            and parts.password is None
+            and parts.port is None
+            and parts.netloc.lower() == parts.hostname.lower()
+            and not parts.path
+            and not parts.query
+            and not parts.fragment
+            and "?" not in value
+            and "#" not in value
+        )
+    except ValueError:
+        return False
 
 
 class JobAIBridgeServer(ThreadingHTTPServer):

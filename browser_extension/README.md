@@ -45,7 +45,7 @@ The bridge exposes only:
 - pending browser JD capture save/read operations
 
 Browser requests require the random bridge token. CORS responses are provided
-only to Chrome-extension origins, not ordinary webpages.
+only to Chrome/Edge or Firefox extension origins, not ordinary webpages.
 
 ## Careers@Gov improvements
 
@@ -504,3 +504,31 @@ While either batch action is running:
 The capture pipeline itself is unchanged: batch capture still sends
 `JOB_AI_EXTRACT_PAGE` to each selected tab and then POSTs the resulting clean
 capture to `/api/v1/jd-captures`.
+
+
+## Firefox packages and browser pairing
+
+Chrome, Edge, and Firefox use the same popup, capture, adapters, cleaning,
+batch capture, and deterministic safe autofill implementation. Only the manifest
+changes: `manifest.json` for Chrome/Edge and `manifest.firefox.json` for Firefox.
+Permissions are unchanged; Firefox metadata is isolated to its manifest.
+
+Build both targets with `python scripts/build_browser_extension.py --target all`.
+The ignored, untracked outputs are `dist/browser_extension/chrome/` and
+`dist/browser_extension/firefox/`. Load the Chrome directory as an unpacked
+extension; for Firefox use about:debugging > This Firefox > Load Temporary Add-on
+and select the Firefox output's manifest.json.
+
+Each browser stores a local copy of the same installation's bridge token.
+Tokens are masked by default; Show token / Hide token toggles visibility.
+Clear saved pairing removes only the extension-local token, preserving the
+Application Profile and JD data. HTTP 401 means the local bridge rejected the
+token. New URL/token/profile settings are saved together only after both health
+and profile requests succeed. No unauthenticated token-retrieval API is added.
+
+The bridge remains on 127.0.0.1 with independent token authentication. It accepts
+only structurally complete chrome-extension:// or moz-extension:// origins with
+a nonempty hostname and no credentials, port, path, query, or fragment. Firefox
+origin UUIDs need not match the Gecko add-on ID. Ordinary webpage origins are
+rejected; empty Origin remains supported for authenticated local diagnostics.
+All existing automation safety boundaries and zero model-call behavior remain.
