@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Job AI Helper — Stage 1 Read-only Probe</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font: 15px system-ui, sans-serif; max-width: 640px; margin: 42px auto; padding: 0 20px; }
+    h1 { font-size: 22px; }
+    code { overflow-wrap: anywhere; }
+    button { padding: 10px 14px; cursor: pointer; }
+    .note { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Job AI Helper — Browser Agent Stage 1</h1>
+  <p>Read-only extraction and field scanning. No autofill, clicks on job forms, or submission.</p>
+  <p>Target site: <code id="targetOrigin">Not selected</code></p>
+  <button id="grantSiteAccess" type="button" disabled>Grant access to this site</button>
+  <p id="status" role="status">Waiting for browser agent.</p>
+  <p class="note">Grant access only to job pages you trust. A permission prompt may appear. Site access is specific to the displayed hostname.</p>
+  <script src="agent_probe.js"></script>
+</body>
+</html>

@@ -22,5 +22,8 @@
   "action": {
     "default_title": "Job AI Helper Browser Integration",
     "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "agent_background.js"
   }
 }
