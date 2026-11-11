@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import score_value
+
 from typing import Any
 
 from analysis_stability.stable_evidence_scoring import IMPORTANCE_WEIGHTS
@@ -143,7 +145,7 @@ def best_match_sort_key(
         else {}
     )
     analyzed = bool(summary)
-    eligible = bool(summary.get("ranking_eligible"))
+    eligible = bool(summary.get("ranking_eligible")) and score_value(summary) is not None
 
     if eligible:
         bucket = 2

@@ -10,6 +10,8 @@ import hashlib
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.requirement_presentation import explicitly_unavailable, score_value, unavailable_score_reason
+from analysis_stability.reviewed_jd_exclusions import active_requirement_scope, effective_scoring_version, verify_effective_analysis
 from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
     requirement_is_score_eligible,
@@ -59,6 +61,7 @@ def production_knowledge_fingerprints() -> dict[str, str]:
 
 def current_ab_identity(raw_jd_text: str = "") -> dict[str, str]:
     versions = current_match_versions()
+    scope = active_requirement_scope(raw_jd_text)
     identity = {
         "jd_fingerprint": (
             hashlib.sha256(_normalise_jd(raw_jd_text).encode("utf-8")).hexdigest()
@@ -69,12 +72,16 @@ def current_ab_identity(raw_jd_text: str = "") -> dict[str, str]:
             versions.get("match_contract_version") or MATCH_VERSION
         ),
         "match_version": str(versions.get("match_version") or ""),
-        "scoring_version": str(versions.get("scoring_version") or ""),
+        "scoring_version": effective_scoring_version(
+            str(versions.get("scoring_version") or ""), scope["policy_identity"] if scope else ""
+        ),
         "taxonomy_version": str(versions.get("taxonomy_version") or ""),
         "registry_version": str(
             versions.get("technology_registry_version") or ""
         ),
     }
+    if scope:
+        identity["effective_requirement_scope_sha256"] = scope["effective_requirement_scope_sha256"]
     identity.update(production_knowledge_fingerprints())
     return identity
 
@@ -172,6 +179,21 @@ def build_job_match_snapshot(
             stable_analysis.get("input_fingerprint")
         ),
     )
+    retained_scope = verify_effective_analysis(raw_jd_text, stable_analysis)
+    identity.pop("effective_requirement_scope_sha256", None)
+    if retained_scope:
+        identity["effective_requirement_scope_sha256"] = retained_scope["effective_requirement_scope_sha256"]
+    score = score_value(stable_analysis)
+    if score is None:
+        return {
+            "snapshot_version": JOB_MATCH_AB_VERSION, "role": role, "identity": identity,
+            "generation_snapshot_fingerprint": _clean(generation_snapshot_fingerprint),
+            "score": None, "score_publication_status": stable_analysis.get("score_publication_status"),
+            "score_interpretation": unavailable_score_reason(stable_analysis),
+            "match_counts": {}, "requirements": [], "integrity_blockers": ["score_unavailable"],
+            "stable_analysis": deepcopy(stable_analysis),
+        }
+
     points = {
         _clean(item.get("requirement_id")): item
         for item in build_score_breakdown(stable_analysis).get(
@@ -264,9 +286,7 @@ def build_job_match_snapshot(
         "generation_snapshot_fingerprint": _clean(
             generation_snapshot_fingerprint
         ),
-        "score": int(
-            stable_analysis.get("deterministic_alignment_score", 0) or 0
-        ),
+        "score": score,
         "match_counts": {
             label: sum(
                 1 for row in requirements if row["final_match"] == label
@@ -285,6 +305,9 @@ def _identity_blockers(
     left = initial.get("identity") or {}
     right = tailored.get("identity") or {}
     blockers: list[str] = []
+    field = "effective_requirement_scope_sha256"
+    if left.get(field) != right.get(field):
+        blockers.append(f"identity_mismatch:{field}")
     for field in COMPARABILITY_FIELDS:
         if not _clean(left.get(field)) or not _clean(right.get(field)):
             blockers.append(f"missing_identity:{field}")
@@ -303,6 +326,9 @@ def build_job_match_ab_analysis(
         *list(tailored.get("integrity_blockers") or []),
         *_identity_blockers(initial, tailored),
     ]
+    if any(score_value(view, "score") is None or explicitly_unavailable(view.get("stable_analysis"))
+           for view in (initial, tailored)):
+        blockers.append("score_unavailable")
     before_rows = {
         _clean(row.get("requirement_id")): row
         for row in initial.get("requirements", []) or []
@@ -363,10 +389,9 @@ def build_job_match_ab_analysis(
         )
 
     summary = {
-        "initial_score": int(initial.get("score", 0) or 0),
-        "tailored_score": int(tailored.get("score", 0) or 0),
-        "score_delta": int(tailored.get("score", 0) or 0)
-        - int(initial.get("score", 0) or 0),
+        "initial_score": initial["score"],
+        "tailored_score": tailored["score"],
+        "score_delta": tailored["score"] - initial["score"],
         "requirements_improved": counts["IMPROVED"],
         "requirements_preserved": counts["PRESERVED"],
         "requirements_lost": counts["LOST"],

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from analysis_stability.requirement_presentation import score_value, explicitly_unavailable, unavailable_score_reason
+
 from pathlib import Path
 from copy import deepcopy
 from typing import Any
@@ -340,6 +342,9 @@ def compare_stable_analyses(
     after: dict[str, Any],
 ) -> dict[str, Any]:
     """Compare canonical requirement labels using stable requirement IDs."""
+    for analysis in (before, after):
+        if score_value(analysis) is None:
+            raise ValueError(unavailable_score_reason(analysis))
     before_rows = {
         str(row.get("requirement_id") or ""): row
         for row in before.get("canonical_requirements", []) or []
@@ -496,6 +501,9 @@ def resolve_phase8_baseline_analysis(
         raise ValueError(
             "The application does not contain a stable baseline analysis."
         )
+
+    if explicitly_unavailable(stored):
+        raise ValueError(unavailable_score_reason(stored))
 
     stored_version = _clean(stored.get("scoring_version"))
     stored_taxonomy_version = _clean(

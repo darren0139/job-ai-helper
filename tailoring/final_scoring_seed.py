@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from analysis_stability.requirement_presentation import score_value
+
 from copy import deepcopy
 from typing import Any, Iterable
 
@@ -156,9 +158,7 @@ def verify_final_scoring_seed(
     )
     reproduced = score_final_scoring_rows(rows)
     stored = seed.get("aggregate") or {}
-    stored_score = int(
-        stored.get("deterministic_alignment_score", 0) or 0
-    )
+    stored_score = score_value(stored)
     if reproduced["deterministic_alignment_score"] != stored_score:
         raise ValueError(
             "Final scoring seed aggregate does not reproduce its stored score."

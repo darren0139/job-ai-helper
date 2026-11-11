@@ -12,6 +12,8 @@ import sqlite3
 import os
 import tempfile
 import uuid
+from analysis_stability.requirement_presentation import saved_overall_score, score_text, score_value, unavailable_score_reason
+
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -877,26 +879,17 @@ def render_application_analysis_details(
     stable_analysis = report.get("stable_analysis", {}) or {}
 
     if stable_analysis:
-        stable_score = int(
-            stable_analysis.get(
-                "deterministic_alignment_score",
-                0,
+        stable_score = score_value(stable_analysis)
+        if stable_score is None:
+            st.info(f"Role alignment: Unavailable. {unavailable_score_reason(stable_analysis)}")
+        else:
+            stable_band = str(stable_analysis.get("alignment_band") or "not classified")
+            st.info(f"Role alignment: {stable_score}/100 — {stable_band.title()}")
+            st.caption(
+                "This evidence-linked score uses fixed Python weights and "
+                "constrained match labels. It is an alignment estimate, "
+                "not an ATS acceptance probability."
             )
-        )
-        stable_band = stable_analysis.get(
-            "alignment_band",
-            "not classified",
-        )
-        st.info(
-            f"Role alignment: {stable_score}/100 "
-            f"— {stable_band.title()}"
-        )
-        st.caption(
-            "This evidence-linked score uses fixed Python weights and "
-            "constrained match labels. It is an alignment estimate, "
-            "not an ATS acceptance probability."
-        )
-
 
         resolver_context = (
             (report.get("meta") or {})
@@ -936,22 +929,23 @@ def render_application_analysis_details(
         stable_col1, stable_col2, stable_col3, stable_col4 = st.columns(4)
         stable_col1.metric(
             "Required/Core Coverage",
-            f"{stable_analysis.get('required_core_coverage_score', 0)}%",
+            f"{score_text(score_value(stable_analysis, 'required_core_coverage_score'), '%')}",
         )
         stable_col2.metric(
             "Preferred Coverage",
-            f"{stable_analysis.get('preferred_coverage_score', 0)}%",
+            f"{score_text(score_value(stable_analysis, 'preferred_coverage_score'), '%')}",
         )
         stable_col3.metric(
             "Credited Requirements",
             (
                 f"{stable_analysis.get('credited_requirement_count', 0)}"
                 f"/{stable_analysis.get('requirement_count', 0)}"
+                if stable_score is not None else "Unavailable"
             ),
         )
         stable_col4.metric(
             "Strength of Credited Evidence",
-            f"{stable_analysis.get('evidence_strength_score', 0)}%",
+            f"{score_text(score_value(stable_analysis, 'evidence_strength_score'), '%')}",
         )
 
         with st.expander(
@@ -1009,7 +1003,7 @@ def render_application_analysis_details(
             legacy_col1, legacy_col2 = st.columns(2)
             legacy_col1.metric(
                 "Legacy Composite",
-                f"{overall_score}/100",
+                f"{score_text(overall_score, '/100')}",
             )
             legacy_col2.metric(
                 "AI Keyword Diagnostic",
@@ -1031,12 +1025,12 @@ def render_application_analysis_details(
     else:
         if passed:
             st.success(
-                f"Score: {overall_score}/100 "
+                f"Score: {score_text(overall_score, '/100')} "
                 f"({score_label(overall_score)})"
             )
         else:
             st.error(
-                f"Score: {overall_score}/100 "
+                f"Score: {score_text(overall_score, '/100')} "
                 f"({score_label(overall_score)})"
             )
 
@@ -1627,6 +1621,8 @@ def _markdown_escape(value: Any) -> str:
 
 def build_stable_alignment_summary(report: dict[str, Any]) -> str:
     stable = report.get("stable_analysis", {}) or {}
+    if score_value(stable) is None:
+        return f"- **Role alignment:** Unavailable. {unavailable_score_reason(stable)}"
     rows = stable.get("canonical_requirements", []) or []
 
     credited = [
@@ -1673,7 +1669,7 @@ def build_stable_alignment_summary(report: dict[str, Any]) -> str:
 
     lines = [
         (
-            f"- **Role alignment:** {stable.get('deterministic_alignment_score', 0)}/100 "
+            f"- **Role alignment:** {score_text(score_value(stable), '/100')} "
             f"— {str(stable.get('alignment_band', 'not classified')).title()}."
         )
     ]
@@ -1734,8 +1730,10 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
                 "",
                 (
                     f"**Deterministic score:** "
-                    f"{stable.get('deterministic_alignment_score', 0)}/100 "
-                    f"— {str(stable.get('alignment_band', '')).title()}"
+                    f"{score_text(score_value(stable), '/100')} "
+                    f"— {str(stable.get('alignment_band') or 'not classified').title()}"
+                    if score_value(stable) is not None
+                    else f"**Deterministic score:** Unavailable. {unavailable_score_reason(stable)}"
                 ),
                 "",
                 (
@@ -1743,15 +1741,17 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
                     "not an ATS acceptance probability."
                 ),
                 "",
-                f"- Required/Core coverage: **{stable.get('required_core_coverage_score', 0)}%**",
-                f"- Preferred coverage: **{stable.get('preferred_coverage_score', 0)}%**",
+                f"- Required/Core coverage: **{score_text(score_value(stable, 'required_core_coverage_score'), '%')}**",
+                f"- Preferred coverage: **{score_text(score_value(stable, 'preferred_coverage_score'), '%')}**",
                 (
                     f"- Credited requirements: **{stable.get('credited_requirement_count', 0)}"
                     f" of {stable.get('requirement_count', 0)}**"
+                    if score_value(stable) is not None
+                    else "- Credited requirements: **Unavailable**"
                 ),
                 (
                     f"- Strength of credited evidence: "
-                    f"**{stable.get('evidence_strength_score', 0)}%**"
+                    f"**{score_text(score_value(stable, 'evidence_strength_score'), '%')}**"
                 ),
                 "",
                 "## Role Alignment Summary",
@@ -1810,7 +1810,7 @@ def create_markdown_report(report: dict) -> tuple[str, str]:
                 "scoring system is validated. It is not a pass/fail ATS result."
             ),
             "",
-            f"- Legacy composite: **{report.get('overall_score', 0)}/100**",
+            f"- Legacy composite: **{score_text(saved_overall_score(report), '/100')}**",
             f"- AI keyword diagnostic: **{keyword_match.get('keyword_match_score', 0)}/100**",
             "",
             "### Legacy AI Summary",
@@ -2029,10 +2029,14 @@ def run_resume_analysis(
     report["meta"]["document_analysis"] = document["document_analysis"]
 
     log.write("[Final] Computing legacy score and summary...")
-    overall_score = compute_overall_score(report)
-    report["overall_score"] = overall_score
-    report["passes_ats_threshold"] = overall_score >= ATS_PASS_THRESHOLD
-    report["summary"] = summarise_overall(report)
+    from analysis_stability.requirement_presentation import report_for_score_publication, score_value
+    if score_value(report["stable_analysis"]) is None:
+        report = report_for_score_publication(report)
+    else:
+        overall_score = compute_overall_score(report)
+        report["overall_score"] = overall_score
+        report["passes_ats_threshold"] = overall_score >= ATS_PASS_THRESHOLD
+        report["summary"] = summarise_overall(report)
 
     progress.progress(100)
 
@@ -2102,7 +2106,9 @@ def run_resume_analysis(
 #     return report
 
 
-def score_label(score: int) -> str:
+def score_label(score: int | None) -> str:
+    if score is None:
+        return "Unavailable"
     """Return PASS/FAIL label for the ATS threshold."""
     if score >= ATS_PASS_THRESHOLD:
         return f"PASS — above {ATS_PASS_THRESHOLD}% ATS threshold"
@@ -3327,7 +3333,7 @@ elif page == "Application Sessions":
         render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
         render_discovery_history(st, int(current_application_id))
     if report:
-        overall_score = int(report.get("overall_score", 0))
+        overall_score = saved_overall_score(report)
         passed = bool(report.get("passes_ats_threshold", False))
 
         st.divider()
@@ -3342,6 +3348,8 @@ elif page == "Application Sessions":
             from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis, render_discovery_history
             render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
             render_discovery_history(st, int(current_application_id))
+            from tailoring.reviewed_analysis_selection_ui import render_reviewed_analysis_selection
+            render_reviewed_analysis_selection(st, int(current_application_id))
             from tailoring.initial_analysis_explainer_ui import render_tailoring_evidence_opportunities
             st.subheader("Step 2 — Evidence available for tailoring")
             render_tailoring_evidence_opportunities(st, report)

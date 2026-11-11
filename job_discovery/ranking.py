@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from analysis_stability.requirement_presentation import score_value
+
 from typing import Any
 
 
@@ -11,7 +13,8 @@ def rank_current_job_matches(jobs, *, context):
         state = inspect_job_match(job, context=context)
         if state["status"] != "current":
             return -1
-        return (state["snapshot"].get("summary") or {}).get("deterministic_alignment_score", 0)
+        value = score_value(state["snapshot"].get("summary"))
+        return value if value is not None else -1
     return sorted(jobs, key=score, reverse=True)
 
 
