@@ -274,6 +274,8 @@ def render_tailoring_evidence_opportunities(st, report):
 
 def render_application_bound_jd(st, application_id):
     """Read the existing exact binding/report; never initialize or backfill data."""
+    from tailoring.jd_knowledge_preview_ui import render_application_jd_knowledge
+    render_application_jd_knowledge(st, application_id)
     try:
         path = Path(db_manager.DB_PATH).resolve()
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
