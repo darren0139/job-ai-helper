@@ -987,7 +987,11 @@ def prepare_ranking_context(
         except Phase9FBRankingError as exc:
             integrity_issues.append(deepcopy(exc.diagnostic))
 
-    active_family_ids: set[str] = set()
+    # Phase 9D allows multiple active variants in one role family. Its
+    # persistence invariant is UNIQUE(role_family_id, variant_id) WHERE active.
+    # Match that invariant here, not the old one-blueprint-per-family rule.
+    # Legacy rows without an explicit variant belong to the primary lane.
+    active_variant_lanes: set[tuple[str, str]] = set()
     for blueprint in global_blueprints:
         if not isinstance(blueprint, dict):
             continue
@@ -1004,19 +1008,22 @@ def prepare_ranking_context(
             continue
         observations.append(_source_observation("global_blueprint", blueprint))
         role_family_id = _clean(blueprint.get("role_family_id"))
-        if role_family_id in active_family_ids:
+        variant_id = _clean(blueprint.get("variant_id")) or "primary"
+        variant_lane = (role_family_id, variant_id)
+        if variant_lane in active_variant_lanes:
             integrity_issues.append(
                 {
-                    "code": "multiple_active_blueprints_for_role_family",
+                    "code": "multiple_active_blueprints_for_variant_lane",
                     "message": (
-                        "Multiple active Global Blueprints exist for one role family."
+                        "Multiple active Global Blueprints exist for one "
+                        "role-family variant lane."
                     ),
                     "source_type": "global_blueprint",
                     "source_id": _clean(blueprint.get("blueprint_id")),
                 }
             )
             continue
-        active_family_ids.add(role_family_id)
+        active_variant_lanes.add(variant_lane)
         try:
             sources.append(normalize_active_blueprint_source(deepcopy(blueprint)))
         except Phase9FBRankingError as exc:
