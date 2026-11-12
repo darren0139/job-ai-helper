@@ -34,7 +34,15 @@ def _load_report_helpers() -> dict[str, object]:
             f"Missing report helper functions: {sorted(missing)}"
         )
 
-    module = ast.Module(body=functions, type_ignores=[])
+    # Keep the real application imports for the shared score helpers, without
+    # executing Streamlit's application entry point.
+    score_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "analysis_stability.requirement_presentation"
+    ]
+    module = ast.Module(body=[*score_imports, *functions], type_ignores=[])
     ast.fix_missing_locations(module)
 
     namespace: dict[str, object] = {
@@ -109,6 +117,23 @@ class MarkdownReportRegressionTests(unittest.TestCase):
             markdown_text,
         )
         self.assertTrue(filename.endswith(".md"))
+        self.assertIn("**Deterministic score:** 32/100", markdown_text)
+
+        report["stable_analysis"]["deterministic_alignment_score"] = 0
+        markdown_text, _ = create_report(report)
+        self.assertIn("**Deterministic score:** 0/100", markdown_text)
+        self.assertNotIn("**Deterministic score:** Unavailable", markdown_text)
+
+        report["stable_analysis"].update(
+            score_publishable=False,
+            score_interpretation="Applicant evidence review pending.",
+        )
+        markdown_text, _ = create_report(report)
+        self.assertIn(
+            "**Deterministic score:** Unavailable. Applicant evidence review pending.",
+            markdown_text,
+        )
+        self.assertNotIn("**Deterministic score:** 0/100", markdown_text)
 
 
 if __name__ == "__main__":
