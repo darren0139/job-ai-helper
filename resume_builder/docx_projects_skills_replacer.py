@@ -2498,11 +2498,8 @@ def _add_skill_line_after(
     if template is not None:
         _copy_paragraph_format(template, new_paragraph)
         _copy_numbering(template, new_paragraph)
-    else:
-        try:
-            new_paragraph.style = "List Bullet"
-        except Exception:
-            pass
+    # When no source Skills paragraph is available, leave Word's default
+    # paragraph style in place.  Never fabricate a bulleted Skills list.
 
     source_run = _get_first_run_template(template)
 
@@ -2528,7 +2525,13 @@ def replace_skills_section(
     """
     Replace SKILLS / TECHNICAL SKILLS section content while preserving formatting.
     """
-    _, skill_bullet_template = _find_templates_in_section(document, {"SKILLS", "TECHNICAL SKILLS"})
+    # Preserve the source's ordinary Skills paragraph when it does not use
+    # bullets (for example V8's `Resume Skill` or V6's `Normal`).  Do not
+    # manufacture a Word list merely because no bullet template exists.
+    skill_line_template, skill_bullet_template = _find_templates_in_section(
+        document, {"SKILLS", "TECHNICAL SKILLS"}
+    )
+    skill_template = skill_bullet_template or skill_line_template
 
     anchor = _clear_section_content(document, {"SKILLS", "TECHNICAL SKILLS"})
     skill_lines = tailored_skills.get("skill_lines", [])
@@ -2546,7 +2549,7 @@ def replace_skills_section(
                 anchor,
                 category=category,
                 items=items,
-                template=skill_bullet_template,
+                template=skill_template,
             )
 
 
@@ -3803,6 +3806,37 @@ def prepare_fitting_input_snapshot(
         effective_max_bullets=effective_max_bullets,
     )
 
+def _auto_inline_project_header_budget_allows(
+    projects_state: dict[str, Any] | None, *, metadata_style: str
+) -> bool:
+    """Avoid using Auto to force long stacked headers into wrapped inline lines.
+
+    Conservative single-line character budgets, not a replacement for actual
+    PDF measurement.  Rejecting Auto inline simply retains the source-like
+    stacked layout; no project text or evidence is removed by this guard.
+    Explicitly chosen Inline is intentionally not affected.
+    """
+    if not isinstance(projects_state, dict):
+        return True
+    rows = projects_state.get("recommended_projects") or []
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        title = _format_project_heading(row)
+        metadata = format_project_metadata(row, style=metadata_style)
+        period = str(row.get("period") or "").strip()
+        # The source's right-aligned date tab needs its own room.  These
+        # limits err on the side of stacked headers on A4 résumé layouts.
+        prefix_length = len(title) + (3 + len(metadata) if metadata else 0)
+        if prefix_length > 72:
+            return False
+        if period and prefix_length + 2 + len(period) > 88:
+            return False
+    return True
+
+
 def generate_tailored_resume_copy_fit_one_page(
     *,
     saved_resume_docx_path: str | Path,
@@ -4609,14 +4643,26 @@ def generate_tailored_resume_copy_fit_one_page(
         f"elapsed={time.perf_counter() - fitting_started_at:.3f}s"
     )
 
-    # Auto preserves the clearer stacked display until physical rendering
-    # proves that inline metadata saves meaningful space. This is a format
-    # choice with zero evidence loss, and is intentionally evaluated before
-    # margin compaction or evidence-removing candidates.
+    # Auto may save vertical space, but an overlong inline project header
+    # cannot faithfully represent the source's title / metadata / date rows.
+    # Explicitly requested Inline remains the user's choice.  The conservative
+    # Auto guard only prevents *automatic* header layout degradation.
+    auto_inline_safe = _auto_inline_project_header_budget_allows(
+        working_projects, metadata_style=active_project_metadata_style
+    )
     if (
         requested_project_header_layout == "auto"
         and working_projects
         and int(current_render["page_count"]) > 1
+        and not auto_inline_safe
+    ):
+        _fit_log("auto inline header skipped: long title/metadata/date; keep stacked")
+
+    if (
+        requested_project_header_layout == "auto"
+        and working_projects
+        and int(current_render["page_count"]) > 1
+        and auto_inline_safe
     ):
         inline_render = render_candidate(
             working_projects,

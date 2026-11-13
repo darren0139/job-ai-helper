@@ -60,8 +60,11 @@ class NarrowStructureCandidateTests(unittest.TestCase):
         self.assertFalse(narrative["scoring_children_created"])
 
     def test_dotted_token_guard_preserves_dot_and_does_not_alias_bare_net(self):
-        self.assertEqual(scorer._normalise_requirement_surface(".NET"), ". NET")
-        self.assertEqual(scorer._split_requirement_sentences(".NET"), ["NET"])
+        # The accepted NCS parser now preserves .NET by default; this is the
+        # production contract, not an opt-in prototype. Keep the simulation
+        # checks below as negative controls for unrelated punctuation changes.
+        self.assertEqual(scorer._normalise_requirement_surface(".NET"), ".NET")
+        self.assertEqual(scorer._split_requirement_sentences(".NET"), [".NET"])
         with simulation("dotnet"):
             self.assertEqual(scorer._normalise_requirement_surface(".NET"), ".NET")
             self.assertEqual(scorer._split_requirement_sentences(".NET"), [".NET"])
@@ -108,7 +111,20 @@ class NarrowStructureCandidateTests(unittest.TestCase):
         with simulation("parent_scope"):
             after = scorer.canonicalise_requirements({}, "Requirements\n" + text)
         annotated = [r for r in after["requirements"] if r.get("simulation_parent_scope")]
-        self.assertTrue(annotated)
+        # The earlier expectation assumed .Net would be split at its dot,
+        # leaving a child that needed a simulated parent-scope annotation.
+        # With the technical identifier preserved, the whole "such as" parent
+        # can remain coherent and no annotation is necessary. Neither result
+        # may introduce mandatory children or change native scores.
+        if not annotated:
+            self.assertEqual(len(after["requirements"]), 1)
+            self.assertTrue(scorer._preserves_coherent_parent(
+                after["requirements"][0]["atomic_focus"]
+            ))
+            self.assertTrue(any(
+                scorer._preserves_coherent_parent(p.get("raw_parent_text", ""))
+                for p in after["requirements"][0].get("source_provenance", [])
+            ))
         for row in annotated:
             meta = row["simulation_parent_scope"]
             self.assertTrue(meta["native_coherent_parent"])

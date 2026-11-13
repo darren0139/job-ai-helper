@@ -102,6 +102,10 @@ from tailoring.adaptive_skill_selection_v2 import (
     apply_adaptive_skill_selection,
     normalise_adaptive_fit_settings,
 )
+from tailoring.adaptive_project_selection_v3 import (
+    apply_adaptive_project_selection,
+    normalise_adaptive_project_settings,
+)
 from tailoring.tailoring_generation_fingerprint import (
     build_tailoring_input_fingerprint,
 )
@@ -1173,6 +1177,19 @@ def _canonical_fit_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
             ) from exc
         result["adaptive_skills_mode"] = adaptive_mode
         result["adaptive_skill_keys"] = adaptive_keys
+    # Opt-in: retain legacy fit fingerprints when no Projects choice exists.
+    if "adaptive_projects_mode" in source:
+        try:
+            adaptive_mode, adaptive_keys = normalise_adaptive_project_settings(
+                source.get("adaptive_projects_mode"),
+                source.get("adaptive_project_keys", []),
+            )
+        except ValueError as exc:
+            raise Phase9FFExecutionError(
+                str(exc), code="adaptive_projects_invalid", stage="fitting"
+            ) from exc
+        result["adaptive_projects_mode"] = adaptive_mode
+        result["adaptive_project_keys"] = adaptive_keys
     return result
 
 
@@ -3501,6 +3518,24 @@ def run_phase9f_normal_fit(
             stage="normal_fit",
         )
     canonical_fit = _canonical_fit_settings(fit_settings)
+    if "adaptive_projects_mode" in canonical_fit:
+        if not bool((execution.get("section_scope") or {}).get("projects_addressable")):
+            if canonical_fit["adaptive_projects_mode"] != "legacy":
+                raise Phase9FFExecutionError(
+                    "Cannot change Projects when the Phase 9F section is locked.",
+                    code="adaptive_projects_section_locked", stage="normal_fit",
+                )
+        else:
+            try:
+                projects = apply_adaptive_project_selection(
+                    projects,
+                    mode=canonical_fit["adaptive_projects_mode"],
+                    selected_keys=canonical_fit["adaptive_project_keys"],
+                )
+            except ValueError as exc:
+                raise Phase9FFExecutionError(
+                    str(exc), code="adaptive_projects_invalid", stage="normal_fit"
+                ) from exc
     if "adaptive_skills_mode" in canonical_fit:
         if not bool((execution.get("section_scope") or {}).get("skills_addressable")):
             if canonical_fit["adaptive_skills_mode"] != "legacy":

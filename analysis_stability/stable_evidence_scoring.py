@@ -283,7 +283,7 @@ def _normalise_requirement_surface(value: Any) -> str:
     else:
         # Preserve the technical identifier .NET in ordinary JD scoring.
         text = re.sub(r"(?i)(?<!\w)\.\s+NET\b", ".NET", text)
-        text = re.sub(r"(?<=[.!?])(?=[A-Z])(?!NET\b)", " ", text)
+        text = re.sub(r"(?<=[.!?])(?=[A-Z])(?!(?i:NET\b))", " ", text)
 
     # Repair the exact discourse-preamble join observed in the dConstruct PDF
     # extraction. This is intentionally narrow: it restores a missing layout
@@ -1338,6 +1338,13 @@ def _clause_record(
 ) -> dict[str, Any]:
     cleaned = _clean_text(text).strip(" ,;:.-")
     focus = _clean_text(focus_text or cleaned).strip(" ,;:.-")
+    # Preserve a leading technical dot at the last clause-record trim seam.
+    # Only the non-419 production parser is eligible for the corrected token.
+    if not _REVIEW419_LEGACY_PARSER.get():
+        if re.match(r"^\s*\.NET\b", _clean_text(text), re.IGNORECASE):
+            cleaned = "." + cleaned if not cleaned.startswith(".") else cleaned
+        if re.match(r"^\s*\.NET\b", _clean_text(focus_text or text), re.IGNORECASE):
+            focus = "." + focus if not focus.startswith(".") else focus
     group_id = atomic_group_id or _stable_id(
         "grp",
         _normalise_basic(parent_text or cleaned),
@@ -1803,17 +1810,26 @@ def _split_requirement_sentences(value: str) -> list[str]:
     if not text:
         return []
 
+    def trim_sentence_boundary(part: str) -> str:
+        # The old strip() deleted the leading dot of standalone .NET/.Net.
+        # The opt-in reviewed-419 replay must retain the historical trim.
+        if not _REVIEW419_LEGACY_PARSER.get():
+            dotted = part.strip(" ,;:-").rstrip(".")
+            if re.match(r"^\.NET\b", dotted, re.IGNORECASE):
+                return dotted
+        return part.strip(" ,;:.-")
+
     parts = [
-        part.strip(" ,;:.-")
+        trim_sentence_boundary(part)
         # ``e.g.`` and ``i.e.`` are inline introducers, not sentence endings.
         # Keeping them intact also lets the coherent-example guard preserve the
         # full competency instead of treating the examples as a second row.
         for part in re.split(
             (r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])"
-             + ("" if _REVIEW419_LEGACY_PARSER.get() else r"(?!NET\b)")),
+             + ("" if _REVIEW419_LEGACY_PARSER.get() else r"(?!(?i:NET\b))")),
             text,
         )
-        if part.strip(" ,;:.-")
+        if trim_sentence_boundary(part)
     ]
     return parts or [text]
 
@@ -2329,6 +2345,46 @@ _EXPLICIT_APPLICANT_OBLIGATION_PATTERN = re.compile(
 )
 
 
+# The generic "Job Description" heading is an umbrella, never an automatic
+# scoring section.  Bulleted, task-shaped duties beneath it are nevertheless
+# explicit job requirements.  Keep this admission much narrower than general
+# unheaded prose: only the exact generic heading, an actual bullet or explicit
+# "Responsibilities include" wording, and a bounded action are eligible.
+_GENERIC_JD_TASK_START = re.compile(
+    r"^(?:operate|coordinate|collaborate|develop|implement|maintain|"
+    r"build|design|test|deploy|monitor|manage|analy[sz]e|integrate|"
+    r"configure|support|troubleshoot|review|investigate|deliver|"
+    r"document|execute|prepare|perform|evaluate|improve)\b",
+    re.IGNORECASE,
+)
+_GENERIC_JD_RESPONSIBILITIES_INCLUDE = re.compile(
+    r"^Responsibilities\s+include\s+"
+    r"(?:implementing|developing|maintaining|building|designing|testing|"
+    r"deploying|monitoring|managing|analysing|analyzing|integrating|"
+    r"configuring|supporting|reviewing|investigating|delivering|"
+    r"documenting|executing|preparing|performing|evaluating|improving)\b",
+    re.IGNORECASE,
+)
+
+
+def _explicit_generic_jd_task_kind(span: dict[str, Any]) -> str:
+    """Recognise explicit duties, but only under a generic JD container."""
+    if _REVIEW419_LEGACY_PARSER.get():
+        return ""
+    if span.get("section_detection") != "structural_unheaded":
+        return ""
+    if _normalise_jd_section_heading(span.get("section_heading", "")) != "job description":
+        return ""
+    value = _clean_text(span.get("text", ""))
+    if len(_tokenise(value)) < 4:
+        return ""
+    if _GENERIC_JD_RESPONSIBILITIES_INCLUDE.match(value):
+        return "explicit_generic_jd_responsibility_sentence"
+    if span.get("is_bullet") and _GENERIC_JD_TASK_START.match(value):
+        return "explicit_generic_jd_task_bullet"
+    return ""
+
+
 def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
     """Classify unheaded prose without treating company context as a requirement."""
     text = _clean_text(span.get("text", ""))
@@ -2339,6 +2395,9 @@ def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
         return False, "recruiting_call_to_action"
     if any(pattern.search(text) for pattern in _UNHEADED_CONTEXTUAL_PATTERNS):
         return False, "contextual_company_or_team_prose"
+    generic_duty = _explicit_generic_jd_task_kind(span)
+    if generic_duty:
+        return True, generic_duty
     if any(pattern.search(text) for pattern in _UNHEADED_OBLIGATION_PATTERNS):
         return True, "explicit_role_or_qualification_marker"
     return False, "ambiguous_unheaded_prose"
@@ -2448,6 +2507,14 @@ def _unheaded_role_rows(
             continue
 
         content = _unheaded_obligation_content(sentence)
+        # For explicit generic-container duties, the role task itself is the
+        # requirement; there is no "you will" prefix to remove. Retain the
+        # complete task wording and its raw-source provenance.
+        if reason in {
+            "explicit_generic_jd_task_bullet",
+            "explicit_generic_jd_responsibility_sentence",
+        }:
+            content = _normalise_requirement_surface(sentence).strip(" ,;:.-")
         minimum_tokens = 1 if _is_explicit_unheaded_qualification(sentence) else 2
         if len(_tokenise(content)) < minimum_tokens:
             diagnostics.append(

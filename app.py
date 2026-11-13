@@ -3344,9 +3344,18 @@ elif page == "Application Sessions":
             # session_tables_v2_global_control
             from tailoring.session_table_ui_v2 import render_session_table_controls
             render_session_table_controls(st, application_id=current_application_id)
-            st.subheader("Step 1 — Initial Résumé Analysis")
-            from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis, render_discovery_history
-            render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
+            # Label the baseline from its authoritative entry path, not its score.
+            from tailoring.phase9f_explainer_stage_v2_1 import confirmed_phase9f_session
+            if (not (report.get("meta") or {}).get("document_analysis")
+                    and confirmed_phase9f_session(int(current_application_id))):
+                st.subheader("Step 1 — Selected Base Résumé Analysis")
+                from tailoring.phase9f_session_handoff import render_phase9f_selected_source_analysis
+                render_phase9f_selected_source_analysis(st, int(current_application_id))
+            else:
+                st.subheader("Step 1 — Initial Résumé Analysis")
+                from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis
+                render_application_initial_analysis(st, int(current_application_id), resume_only=True, show_comparison=False)
+            from tailoring.initial_analysis_explainer_ui import render_discovery_history
             render_discovery_history(st, int(current_application_id))
             from tailoring.reviewed_analysis_selection_ui import render_reviewed_analysis_selection
             render_reviewed_analysis_selection(st, int(current_application_id))
@@ -3424,7 +3433,26 @@ elif page == "Application Sessions":
                 from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
                 render_selected_base_analysis(st, selected_report)
             else:
-                st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
+                # Phase 9F-D already saved a truthful exact-JD starting-source
+                # score, even when no uploaded-document receipt was established.
+                from tailoring.phase9f_session_handoff import load_confirmed_source_view
+                try:
+                    bound_view = load_confirmed_source_view(int(current_application_id))
+                except (ValueError, KeyError, TypeError) as exc:
+                    st.warning("Confirmed starting-source receipt unavailable — " + str(exc))
+                    bound_view = None
+                if bound_view:
+                    bound = bound_view["selected"]
+                    st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
+                    st.metric("Confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
+                    st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
+                else:
+                    st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
+            # Read the confirmed Phase 9F-B receipt and saved Phase 8 result only.
+            # This is distinct from a frozen Initial Resume Analysis.
+            from tailoring.phase9f_base_vs_tailored_explainer import render_selected_base_vs_tailored
+            # Step 4 shows the source analysis; the saved delta belongs in Phase 8.
+            render_selected_base_vs_tailored(st, int(current_application_id), preview_only=True)
             st.subheader("Step 5 — Tailor résumé")
             if (
                 phase9e_context.get("status")
@@ -7272,6 +7300,18 @@ elif page == "Application Sessions":
                         "immutable DOCX source recorded by the Phase 9F ledger."
                     )
                 st.caption(f"Will update: {', '.join(selected_sections)}")
+                # Explain the actual saved deterministic project selection,
+                # including canonical requirements and supporting evidence.
+                if isinstance(project_result, dict) and project_result.get("recommended_projects"):
+                    from tailoring.project_selection_explainer_ui import render_project_selection_explainer
+                    render_project_selection_explainer(
+                        st, project_result, application_id=int(current_application_id),
+                        phase9f_execution=(phase9f_f_execution if phase9f_f_active else None),
+                        current_phase9e_decision=(
+                            phase9e_context.get("decision")
+                            if isinstance(phase9e_context, dict) else None
+                        ),
+                    )
 
                 if (
                     phase9f_f_normal_lifecycle
@@ -7296,23 +7336,23 @@ elif page == "Application Sessions":
                     except ValueError as project_pool_error:
                         generated_project_pool = []
                         st.warning("Adaptive Projects unavailable: " + str(project_pool_error))
-                    project_selection_locked = bool(
-                        workspace_edit_required
-                        or phase9f_f_fit_settings_locked
-                        or phase9e_projects_locked
-                        or bool(phase7_control.get("lock_projects"))
-                        or phase9f_f_active
+                    from tailoring.phase9f_session_handoff import normal_fit_selection_lock_reason
+                    project_selection_lock_reason = normal_fit_selection_lock_reason(
+                        execution_active=phase9f_f_active,
+                        normal_lifecycle=phase9f_f_normal_lifecycle,
+                        addressable=bool(phase9f_f_section_scope.get("projects_addressable")),
+                        fit_frozen=phase9f_f_fit_settings_locked,
+                        workspace_edit_required=(workspace_edit_required or (not phase9f_f_active and bool(phase7_control.get("lock_projects")))),
+                        legacy_section_locked=phase9e_projects_locked,
                     )
+                    project_selection_locked = bool(project_selection_lock_reason)
                     if not generated_project_pool:
                         st.caption(
                             "No complete generated project-bullet pool is available. "
                             "The existing Projects draft is unchanged."
                         )
                     elif project_selection_locked:
-                        st.caption(
-                            "Projects are locked or governed by the frozen Phase 9F "
-                            "execution. The original project selection remains unchanged."
-                        )
+                        st.caption("Adaptive Projects unavailable: " + project_selection_lock_reason + ". The saved generated content remains unchanged.")
                     else:
                         project_modes = {
                             "Balanced (up to 5)": "balanced",
@@ -7384,29 +7424,22 @@ elif page == "Application Sessions":
                             "Adaptive Skills unavailable for this draft: "
                             + str(adaptive_pool_error)
                         )
-                    adaptive_controls_locked = bool(
-                        workspace_edit_required
-                        or phase9f_f_fit_settings_locked
-                        or phase9e_skills_locked
-                        or bool(phase7_control.get("lock_skills"))
-                        or (phase9f_f_active and not phase9f_f_section_scope.get("skills_addressable", True))
-                        or (phase9f_f_active and not phase9f_f_normal_lifecycle)
+                    skills_selection_lock_reason = normal_fit_selection_lock_reason(
+                        execution_active=phase9f_f_active,
+                        normal_lifecycle=phase9f_f_normal_lifecycle,
+                        addressable=bool(phase9f_f_section_scope.get("skills_addressable")),
+                        fit_frozen=phase9f_f_fit_settings_locked,
+                        workspace_edit_required=(workspace_edit_required or (not phase9f_f_active and bool(phase7_control.get("lock_skills")))),
+                        legacy_section_locked=phase9e_skills_locked,
                     )
+                    adaptive_controls_locked = bool(skills_selection_lock_reason)
                     if not skill_pool:
                         st.caption(
                             "This saved Skills draft has no full deterministic ranking. "
                             "Its existing Skills selection remains unchanged."
                         )
-                    elif adaptive_controls_locked and (
-                        phase9e_skills_locked
-                        or bool(phase7_control.get("lock_skills"))
-                        or (phase9f_f_active and not phase9f_f_section_scope.get("skills_addressable", True))
-                        or (phase9f_f_active and not phase9f_f_normal_lifecycle)
-                    ):
-                        st.caption(
-                            "This execution has locked Skills or uses historical "
-                            "private Phase 9F behavior. Its Skills selection remains unchanged."
-                        )
+                    elif adaptive_controls_locked:
+                        st.caption("Adaptive Skills unavailable: " + skills_selection_lock_reason + ". The saved generated content remains unchanged.")
                     else:
                         adaptive_choices = {
                             "Balanced (recommended)": "balanced",
@@ -7919,6 +7952,10 @@ elif page == "Application Sessions":
                                         "allow_skills_compaction": allow_skills_compaction,
                                         "adaptive_skills_mode": adaptive_skills_mode,
                                         "adaptive_skill_keys": adaptive_manual_keys,
+                                        **({
+                                            "adaptive_projects_mode": adaptive_projects_mode,
+                                            "adaptive_project_keys": adaptive_project_keys,
+                                        } if adaptive_projects_mode != "legacy" else {}),
                                         "page_density_mode": page_density_mode,
                                         "allow_margin_compaction": allow_margin_compaction,
                                         "project_header_layout": project_header_layout,
@@ -8221,6 +8258,13 @@ elif page == "Application Sessions":
 
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)
+            # Show saved *post-fit* project retention separately from the
+            # canonical JD ranking rendered before Build and Fit.
+            if isinstance(project_result, dict) and project_result.get("recommended_projects"):
+                from tailoring.phase9f_explainer_stage_v2_1 import render_project_fit_retention
+                render_project_fit_retention(
+                    st, project_result, fit_result, application_id=int(current_application_id),
+                )
 
             has_debug_content = phase9e_ready and any(
             (
@@ -8421,6 +8465,25 @@ elif page == "Application Sessions":
 
                 phase8_result_rendered_above_approval = True
 
+                # Phase 8 V2.4: read-only audit of actual saved fitted DOCX,
+                # against immutable Phase 9F Base + Evidence Library sources.
+                from tailoring.phase9f_final_evidence_comparison_v2_4 import (
+                    render_final_evidence_audit,
+                )
+                render_final_evidence_audit(
+                    st,
+                    application_id=int(current_application_id),
+                    projects=project_result if isinstance(project_result, dict) else None,
+                    fit=(score_session_fit_result if score_session_fit_result.get("docx_path")
+                         else score_approved_fit_result if score_approved_fit_result.get("docx_path")
+                         else None),
+                    execution=phase9f_f_execution if phase9f_f_active else None,
+                    decision=(phase9e_context.get("decision")
+                              if isinstance(phase9e_context, dict) else None),
+                    generation_id=score_preferred_generation_id,
+                    repo_root=Path.cwd(),
+                )
+
 
             if (
                 phase9e_ready
@@ -8485,9 +8548,23 @@ elif page == "Application Sessions":
                             "Visual comparison of the full generated résumé "
                             "before fitting and the selected fitted result."
                         )
-                        after_tab, before_tab = st.tabs(
-                            ["After fitting", "Before fitting"]
+                        from tailoring.phase9f_selected_base_visual_ui import (
+                            has_confirmed_selected_base,
+                            render_selected_base_visual_tab,
                         )
+                        has_selected_base_preview = has_confirmed_selected_base(
+                            int(current_application_id)
+                        )
+                        preview_labels = ["After fitting", "Before fitting"]
+                        if has_selected_base_preview:
+                            preview_labels.append("Selected Base")
+                        preview_tabs = st.tabs(preview_labels)
+                        after_tab, before_tab = preview_tabs[:2]
+                        if has_selected_base_preview:
+                            with preview_tabs[2]:
+                                render_selected_base_visual_tab(
+                                    st, int(current_application_id)
+                                )
                         with before_tab:
                             st.markdown(
                                 pdf_to_preview_html(

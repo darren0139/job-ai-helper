@@ -1164,6 +1164,10 @@ def render_phase9e_blueprint_selection(
             actor_label=actor_label,
         )
         if phase9f_d_execution_state(current) is not None:
+            # The exact saved B ranking remains inspectable after binding;
+            # never recompute or offer a second source mutation here.
+            from tailoring.phase9f_session_handoff import render_phase9f_source_comparison
+            render_phase9f_source_comparison(st, application_id)
             _render_decision_history(application_id)
             return generation_context
         if not changing_source:

@@ -533,7 +533,7 @@ def _render_breakdown(label: str, breakdown: dict[str, Any]) -> None:
         )
 
 
-def render_phase8_score_explainability(result: dict[str, Any]) -> None:
+def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label: str = "Baseline before fitting") -> None:
     payload = build_phase8_explainability(result)
     before = payload["before"]
     after = payload["after"]
@@ -547,7 +547,7 @@ def render_phase8_score_explainability(result: dict[str, Any]) -> None:
     with after_tab:
         _render_breakdown("Verified after fitting", after)
     with before_tab:
-        _render_breakdown("Baseline before fitting", before)
+        _render_breakdown(baseline_label, before)
 
     changed = payload.get("changed_requirements", []) or []
     if changed:

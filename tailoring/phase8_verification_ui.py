@@ -98,7 +98,7 @@ def _render_document_comparison(analysis, label):
             st.json(analysis)
 
 
-def _render_job_match_ab(result: dict[str, Any]) -> None:
+def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initial") -> None:
     if result.get('document_analysis'):
         st.markdown('### Step 6 — Final Résumé Analysis / Phase8')
         st.caption('Phase 8 evaluates the actual final document. Available Profile/Evidence alone receives no document credit.')
@@ -117,24 +117,27 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         _render_breakdown('Final Résumé Analysis', build_score_breakdown(native))
         st.markdown('### Step 7 — Analysis comparison')
         st.caption('Saved native receipts use the same JD, scorer, taxonomy and registry. Changes alone do not prove their cause.')
-        _render_document_comparison(result.get('job_match_ab'), 'Initial vs Final')
-        selected = result.get('selected_base_analysis')
-        if selected and selected.get('same_as_initial'):
-            st.caption('Selected base is the original Application résumé. The comparison above also represents Selected Base vs Final.')
-        elif selected:
-            _render_document_comparison(result.get('selected_base_job_match_ab'), 'Selected Base vs Final')
-        else:
-            st.caption('This historical verification has no saved selected-base receipt; Selected Base vs Final is unavailable.')
+        # Present comparisons from saved document identities, not the page
+        # where the application was originally created.
+        from tailoring.phase9f_explainer_stage_v2_1 import document_phase8_comparison_sections
+        for label, saved_analysis in document_phase8_comparison_sections(result):
+            _render_document_comparison(saved_analysis, label)
+        if not isinstance(result.get('selected_base_analysis'), dict):
+            st.caption('No separately verified Selected Base receipt is saved for this generation.')
         return
     analysis = result.get("job_match_ab") or {}
     lifecycle = result.get("job_match_ab_lifecycle") or {}
+    selected_base_mode = baseline_mode == "selected_base"
+    baseline_name = "Selected Base" if selected_base_mode else "Saved Baseline"
     if not isinstance(analysis, dict) or not analysis:
         st.warning("No persisted Initial Job Match analysis is available yet.")
         return
     if analysis.get("comparable") is not True:
         st.error(
-            "Initial and Tailored Job Match analyses are not comparable. "
-            "Create a new same-generation Initial analysis before comparing."
+            f"{baseline_name} and Tailored Job Match analyses are not comparable. "
+             + ("The saved Selected Base and final result must share the exact JD/scorer/requirements. "
+         "Reverify the selected fitted generation; do not rerun Analyze Resume." if selected_base_mode else
+         "The saved before-tailoring and final receipts have incompatible identities; comparison is withheld.")
         )
         st.json({"state": lifecycle.get("state"), "blockers": analysis.get("blockers", [])})
         return
@@ -142,13 +145,19 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
     initial = analysis.get("initial") or {}
     tailored = analysis.get("tailored") or {}
     summary = analysis.get("summary") or {}
-    st.markdown("#### Initial vs Tailored Analysis" if result.get('document_analysis') else "#### Job Match — Initial vs Tailored")
+    st.markdown("#### Job Match — Selected Base vs Tailored" if selected_base_mode else
+                "#### Initial vs Tailored Analysis" if result.get('document_analysis') else
+                "#### Job Match — Saved Baseline vs Tailored")
     st.caption(
         "Both views use the same JD, scorer, taxonomy, and technology registry. "
         "Requirements are joined by stable requirement ID."
     )
     initial_tab, tailored_tab, comparison_tab = st.tabs(
-        ["Initial Résumé Analysis", "Tailored Résumé Analysis", "Initial vs Tailored"] if result.get('document_analysis') else ["Initial Job Match", "Tailored Job Match", "Initial vs Tailored"]
+        ["Selected Base Job Match", "Tailored Job Match", "Selected Base vs Tailored"]
+        if selected_base_mode else
+        ["Initial Résumé Analysis", "Tailored Résumé Analysis", "Initial vs Tailored"]
+        if result.get('document_analysis') else
+        ["Saved Baseline Job Match", "Tailored Job Match", "Saved Baseline vs Tailored"]
     )
     with initial_tab:
         counts = initial.get("match_counts") or {}
@@ -157,7 +166,10 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         cols[1].metric("Direct", counts.get("direct", 0))
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
-        render_session_dataframe(st, _snapshot_rows(initial), hide_index=True, width="stretch")
+        from tailoring.phase9f_explainer_clarity_v2_2 import compact_snapshot_rows
+        render_session_dataframe(st, compact_snapshot_rows(initial), hide_index=True, width="stretch")
+        with st.expander("Detailed Selected Base/Saved Baseline requirement provenance", expanded=False):
+            render_session_dataframe(st, _snapshot_rows(initial), hide_index=True, width="stretch")
     with tailored_tab:
         counts = tailored.get("match_counts") or {}
         cols = st.columns(4)
@@ -165,10 +177,13 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
         cols[1].metric("Direct", counts.get("direct", 0))
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
-        render_session_dataframe(st, _snapshot_rows(tailored), hide_index=True, width="stretch")
+        from tailoring.phase9f_explainer_clarity_v2_2 import compact_snapshot_rows
+        render_session_dataframe(st, compact_snapshot_rows(tailored), hide_index=True, width="stretch")
+        with st.expander("Detailed Tailored requirement provenance", expanded=False):
+            render_session_dataframe(st, _snapshot_rows(tailored), hide_index=True, width="stretch")
     with comparison_tab:
         score_cols = st.columns(4)
-        score_cols[0].metric("Initial score", summary.get("initial_score", 0))
+        score_cols[0].metric(baseline_name + " score", summary.get("initial_score", 0))
         score_cols[1].metric(
             "Tailored score",
             summary.get("tailored_score", 0),
@@ -198,11 +213,11 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
                     "Contribution Δ": round(
                         float(row.get("score_contribution_delta", 0.0) or 0.0), 3
                     ),
-                    "Initial provenance": _evidence_summary(left),
+                    baseline_name + " provenance": _evidence_summary(left),
                     "Tailored provenance": _evidence_summary(right),
-                    "Initial taxonomy": left.get("taxonomy_status", ""),
+                    baseline_name + " taxonomy": left.get("taxonomy_status", ""),
                     "Tailored taxonomy": right.get("taxonomy_status", ""),
-                    "Initial resolver": left.get("taxonomy_resolution_source", ""),
+                    baseline_name + " resolver": left.get("taxonomy_resolution_source", ""),
                     "Tailored resolver": right.get("taxonomy_resolution_source", ""),
                     "Capability / registry": (
                         right.get("taxonomy_capability_id")
@@ -211,7 +226,11 @@ def _render_job_match_ab(result: dict[str, Any]) -> None:
                     ),
                 }
             )
-        render_session_dataframe(st, rows, hide_index=True, width="stretch")
+        from tailoring.phase9f_explainer_clarity_v2_2 import compact_comparison_rows
+        st.caption(f"{baseline_name} is the saved pre-tailoring source; Tailored is the verified Phase 8 fitted document. Matching scores mean no measured coverage improvement, even if wording changed.")
+        render_session_dataframe(st, compact_comparison_rows(rows, baseline_name), hide_index=True, width="stretch")
+        with st.expander("Full requirement IDs, provenance and point contributions", expanded=False):
+            render_session_dataframe(st, rows, hide_index=True, width="stretch")
         with st.expander("A/B taxonomy and resolver diagnostics"):
             st.json(
                 [
@@ -263,6 +282,8 @@ def _phase9f_execution_uses_legacy_private_stages(
 
 
 def _render_result(result: dict[str, Any]) -> None:
+    from tailoring.phase9f_explainer_stage_v2_1 import phase8_baseline_mode
+    baseline_mode = phase8_baseline_mode(result)
     comparison = result.get("comparison", {}) or {}
     lineage = result.get("claim_lineage", {}) or {}
 
@@ -280,7 +301,8 @@ def _render_result(result: dict[str, Any]) -> None:
     comparison_valid = bool(result.get("comparison_valid", True))
     metric1, metric2, metric3, metric4 = st.columns(4)
     metric1.metric(
-        "Initial Job Match" if result.get('document_analysis') else "Before score",
+        "Initial Job Match" if result.get('document_analysis') else
+        "Selected Base Job Match" if baseline_mode == "selected_base" else "Before score",
         comparison.get("before_score", 0),
     )
     metric2.metric(
@@ -305,9 +327,15 @@ def _render_result(result: dict[str, Any]) -> None:
         lineage.get("claim_review_required_count", 0),
     )
 
-    _render_job_match_ab(result)
+    _render_job_match_ab(result, baseline_mode=baseline_mode)
+    # The Saved Selected Base comparison is already in the three Phase 8 tabs.
+    # Avoid showing a second, duplicate wide comparison directly underneath.
     if not result.get('document_analysis'):
-        render_phase8_score_explainability(result)
+        render_phase8_score_explainability(
+            result,
+            baseline_label=("Selected Base before tailoring" if baseline_mode == "selected_base"
+                            else "Baseline before fitting"),
+        )
 
     reconciliation = (
         result.get("requirement_reconciliation", {}) or {}

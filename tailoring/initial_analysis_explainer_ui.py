@@ -127,9 +127,15 @@ def render_application_initial_analysis(st, application_id, *, resume_only=False
         with st.expander("Initial Résumé Analysis" if resume_only else "Initial Analysis"):
             if str(exc) in {"No authoritative Initial Analysis reference", "No authoritative Initial Resume Analysis reference"}:
                 st.write("Not established yet")
-                st.caption("Run Analyze Resume to establish this application's frozen starting analysis.")
+                st.caption("No independently uploaded document analysis is frozen for this Application Session. A confirmed Phase 9F starting-source analysis, if available, is displayed separately below without rerunning Analyze Resume.")
             else:
                 st.caption("Initial Analysis unavailable — " + str(exc))
+        if resume_only and str(exc) in {
+            "No authoritative Initial Analysis reference",
+            "No authoritative Initial Resume Analysis reference",
+        }:
+            from tailoring.phase9f_session_handoff import render_phase9f_selected_source_analysis
+            render_phase9f_selected_source_analysis(st, application_id)
         return
     with st.expander("Initial Résumé Analysis" if resume_only else "Initial Analysis"):
         if initial["provenance"] in {"EXACT_SAVED_REUSE", "FRESH_ANALYSIS"}:
