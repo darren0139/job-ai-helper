@@ -532,3 +532,49 @@ a nonempty hostname and no credentials, port, path, query, or fragment. Firefox
 origin UUIDs need not match the Gecko add-on ID. Ordinary webpage origins are
 rejected; empty Origin remains supported for authenticated local diagnostics.
 All existing automation safety boundaries and zero model-call behavior remain.
+
+## Firefox private / unlisted release
+
+Firefox release packaging is intentionally separate from the Chrome/Edge
+development manifest.
+
+The repository keeps:
+
+- `manifest.json` for the browser-neutral / Chromium development build.
+- `manifest.firefox.json` for the Firefox signing build.
+- `PRIVACY.md` for Firefox privacy/data-handling disclosure.
+- `scripts/build_firefox_unlisted_release.py` as the allow-listed release
+  packager.
+
+The Firefox manifest uses a stable Gecko add-on ID, requires Firefox 142+ for
+Firefox's built-in data-collection consent flow, and declares the data classes
+handled by the current local-bridge/capture/autofill workflow.
+
+Validate without writing an artifact:
+
+```bat
+python scripts\build_firefox_unlisted_release.py --check
+```
+
+Build the unsigned AMO submission ZIP:
+
+```bat
+python scripts\build_firefox_unlisted_release.py --build
+```
+
+Output is written to the already-ignored directory:
+
+```text
+dist/browser_extension/firefox/
+```
+
+The builder copies `manifest.firefox.json` into the ZIP as root-level
+`manifest.json` and packages runtime files only. It excludes tests, README /
+privacy documentation, and the source manifest filenames.
+
+Upload the generated ZIP to Mozilla Add-ons as a self-distributed / unlisted
+add-on. Install or privately distribute the Mozilla-signed `.xpi` returned by
+AMO, not the local unsigned ZIP.
+
+After the first signed submission, increment the extension version for each
+new signed update.
