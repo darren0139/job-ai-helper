@@ -290,6 +290,33 @@ def _render_analysis(snapshot: dict[str, Any], *, current_source_url: str) -> No
             ),
         }
         st.json({key: value for key, value in details.items() if value})
+        # Read-only admission audit; never rewrites the JD, a requirement ID,
+        # an accepted match, or an immutable snapshot.
+        canonical = snapshot.get("canonicalisation") or {}
+        diagnostics = canonical.get("decomposition_debug") or {}
+        non_requirement = [
+            {"Text": _clean(item.get("text")),
+             "Exclusion reason": _clean(item.get("reason"))}
+            for item in (
+                list(canonical.get("filtered_non_requirement_rows") or [])
+                + list(diagnostics.get("unheaded_raw_exclusions") or [])
+            )
+            if isinstance(item, dict) and _clean(item.get("text"))
+        ]
+        non_requirement = list({
+            (item["Text"], item["Exclusion reason"]): item
+            for item in non_requirement
+        }.values())
+        st.write("**Non-requirement text excluded automatically (read-only)**")
+        st.caption(
+            "Inspect the excluded source text before comparing resumes. "
+            "These rows do not enter canonical requirement scoring; this "
+            "display is not a user-approved scope override."
+        )
+        if non_requirement:
+            st.dataframe(non_requirement, width="stretch", hide_index=True)
+        else:
+            st.caption("No excluded raw-JD statements were recorded.")
         st.write("**Responsibilities**")
         st.write(list(snapshot.get("responsibilities") or []))
         st.write("**Required/Core requirements**")

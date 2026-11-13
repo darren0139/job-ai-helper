@@ -49,6 +49,15 @@ def _selected(raw_jd_text):
     return manifest["sources"].get(source, ())
 
 
+def reviewed_exact_source_legacy_parser_active(raw_jd_text):
+    """Return true only inside the opt-in, SHA-pinned 419 review candidate.
+
+    This neither activates exclusions nor changes a normal JD parser run.
+    Withheld reviewed sources continue to raise CandidateScoreWithheld.
+    """
+    return bool(_selected(raw_jd_text))
+
+
 def matching_policy_identity(raw_jd_text):
     if _selected(raw_jd_text):
         return f"{MATCHING_POLICY_VERSION}:{MANIFEST_SHA256}"

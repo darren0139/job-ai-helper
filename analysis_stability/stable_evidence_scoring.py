@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any
 
@@ -26,6 +27,7 @@ from analysis_stability.reviewed_jd_exclusions import (
     apply_reviewed_exclusions,
     effective_scoring_version,
     matching_policy_identity,
+    reviewed_exact_source_legacy_parser_active,
 )
 from analysis_stability.reviewed_jd_exclusions import verify_effective_analysis
 from analysis_stability.evidence_support import (
@@ -48,6 +50,11 @@ from tailoring.phase6d6_structured_matching import (
 )
 
 from taxonomy_discovery.technology_registry import get_default_registry
+
+# Context-local, exact-source compatibility only.  The 419 candidate bundle
+# pins the pre-NCS canonical source scope.  New normal scoring stays on the
+# corrected parser.  No global switch and no change to accepted review hashes.
+_REVIEW419_LEGACY_PARSER = ContextVar("review419_legacy_jd_parser", default=False)
 
 # Requirement recognition is part of snapshot/A-B reproducibility identity.
 SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
@@ -269,9 +276,14 @@ def _normalise_requirement_surface(value: Any) -> str:
     if not text:
         return ""
 
-    # A missing space after ordinary terminal punctuation is layout damage, not
-    # a semantic variation (for example: "use cases.You will...").
-    text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+    # The explicit 419 candidate's immutable scope used the pre-NCS
+    # punctuation policy.  Only that exact-source candidate takes this path.
+    if _REVIEW419_LEGACY_PARSER.get():
+        text = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", text)
+    else:
+        # Preserve the technical identifier .NET in ordinary JD scoring.
+        text = re.sub(r"(?i)(?<!\w)\.\s+NET\b", ".NET", text)
+        text = re.sub(r"(?<=[.!?])(?=[A-Z])(?!NET\b)", " ", text)
 
     # Repair the exact discourse-preamble join observed in the dConstruct PDF
     # extraction. This is intentionally narrow: it restores a missing layout
@@ -642,6 +654,7 @@ _RAW_SECTION_HEADINGS = {
             "what you will do",
             "what you ll do",
             "what youll do",
+            "what will you do",
         }
     ),
     "requirements": frozenset(
@@ -660,6 +673,7 @@ _RAW_SECTION_HEADINGS = {
             "what we are looking for",
             "what we re looking for",
             "what were looking for",
+            "the ideal candidate should possess",
         }
     ),
     "core": frozenset(
@@ -718,6 +732,11 @@ def _raw_section_for_heading(value: Any) -> str:
     """Return the controlled section type for an exact heading, or empty."""
     heading = _normalise_jd_section_heading(value)
     if not heading:
+        return ""
+
+    if _REVIEW419_LEGACY_PARSER.get() and heading in {
+        "what will you do", "the ideal candidate should possess",
+    }:
         return ""
 
     for section, headings in _RAW_SECTION_HEADINGS.items():
@@ -1369,6 +1388,26 @@ def _split_safe_independent_and_pair(value: str) -> list[str]:
     second = parts[1].strip(" ,;.-")
     second_normalised = _normalise_basic(second)
 
+    # The reviewed 419 candidate has a frozen historical decomposition scope.
+    # Never silently reinterpret the pinned review while evaluating it.
+    if _REVIEW419_LEGACY_PARSER.get():
+        if not any(second_normalised.startswith(prefix) for prefix in _SAFE_SECOND_CLAUSE_PREFIXES):
+            return []
+        if len(_tokenise(first)) < 2 or len(_tokenise(second)) < 2:
+            return []
+        return [first, second]
+
+    # An incomplete first verb phrase shares its object with the second verb;
+    # do not emit dangling items such as 'Continually improve'.  Preserve
+    # genuine independent clauses where the first clause has its own object.
+    if re.search(
+        r"\b(?:improve|enhance|develop|design|build|create|maintain|"
+        r"update|test|deploy|integrate|review|manage)$",
+        first,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
     if not any(
         second_normalised.startswith(prefix)
         for prefix in _SAFE_SECOND_CLAUSE_PREFIXES
@@ -1770,7 +1809,8 @@ def _split_requirement_sentences(value: str) -> list[str]:
         # Keeping them intact also lets the coherent-example guard preserve the
         # full competency instead of treating the examples as a second row.
         for part in re.split(
-            r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])",
+            (r"(?<![Ee]\.[Gg]\.)(?<![Ii]\.[Ee]\.)(?<=[.!?])\s+(?=[A-Z])"
+             + ("" if _REVIEW419_LEGACY_PARSER.get() else r"(?!NET\b)")),
             text,
         )
         if part.strip(" ,;:.-")
@@ -1973,6 +2013,22 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
         pending = None
 
     def is_strong_grammatical_continuation(previous: str, current: str) -> bool:
+        # An unbulleted, capitalised, self-contained "Using X to do Y" line
+        # may be a new responsibility, not a continuation of the prior line.
+        # A lowercase/wrapped "using ...", an incomplete previous preposition,
+        # or a short fragment still follows the existing continuation rules.
+        # Only ordinary scoring is affected: exact-source opt-in 419 replay
+        # retains its historical source parser and authenticated scope hashes.
+        if (
+            active_section == "responsibilities"
+            and not _REVIEW419_LEGACY_PARSER.get()
+            and re.match(r"^Using\b", current)
+            and re.search(r"\bto\s+[A-Za-z][A-Za-z-]*\b", current)
+            and len(_tokenise(previous)) >= 5
+            and len(_tokenise(current)) >= 7
+            and not re.search(r"\b(?:and|or|with|for|to|in|of|using)$", previous, re.I)
+        ):
+            return False
         if re.match(r"^(?:and|or|with|for|to|in|of|using)\b", current, re.I):
             return True
         return bool(re.search(r"\b(?:with|using|for|to|in|of)$", previous, re.I))
@@ -2004,10 +2060,21 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
         )
         is_requirement_list_intro = bool(_introductory_list_kind(value))
 
+        # Protect independent action/gerund tasks in an authoritative
+        # Responsibilities section from inferred-heading detection.  This is
+        # not a global heading exemption: exact headings stay authoritative,
+        # and the opt-in reviewed-419 legacy context is left untouched.
+        is_unbulleted_action_in_role_section = bool(
+            active_section == "responsibilities"
+            and not _REVIEW419_LEGACY_PARSER.get()
+            and re.match(r"^(?:identify|execute|suggest|using)\b", value, re.I)
+            and len(_tokenise(value)) >= 4
+        )
         if (
             not section
             and not continues_pending
             and not is_requirement_list_intro
+            and not is_unbulleted_action_in_role_section
         ):
             inferred = infer_semantic_list_heading(raw_lines, line_offset)
             if inferred.get("is_heading_candidate"):
@@ -2026,10 +2093,23 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
         if section:
             flush_pending()
             block_index += 1
-            active_section = section
+            # "Job Description" is an umbrella heading, not proof that every
+            # following sentence is a requirement. Under this generic heading,
+            # admit only independently explicit unheaded obligations until an
+            # actual Responsibilities / Qualifications heading appears.
+            generic_container = (
+                not _REVIEW419_LEGACY_PARSER.get()
+                and _normalise_jd_section_heading(value) == "job description"
+            )
+            active_section = "" if generic_container else section
             active_section_heading = value
-            active_section_detection = "exact"
-            active_section_reason = "controlled_exact_heading"
+            active_section_detection = (
+                "structural_unheaded" if generic_container else "exact"
+            )
+            active_section_reason = (
+                "generic_jd_container_not_requirement_section"
+                if generic_container else "controlled_exact_heading"
+            )
             continue
 
         value = _strip_inline_jd_heading(value)
@@ -2716,6 +2796,25 @@ def _requirement_sources(
 
 
 def canonicalise_requirements(
+    jd_profile: dict[str, Any],
+    raw_jd_text: str = "",
+) -> dict[str, Any]:
+    """Canonicalise with exact-source 419 historical parser policy if active.
+
+    ContextVar is reset in finally: no spillover into unrelated JDs, requests,
+    Streamlit reruns or worker execution. The candidate context is opt-in and
+    authenticated by raw JD SHA-256 in reviewed_jd_exclusions._selected().
+    """
+    token = _REVIEW419_LEGACY_PARSER.set(
+        reviewed_exact_source_legacy_parser_active(raw_jd_text)
+    )
+    try:
+        return _canonicalise_requirements_impl(jd_profile, raw_jd_text)
+    finally:
+        _REVIEW419_LEGACY_PARSER.reset(token)
+
+
+def _canonicalise_requirements_impl(
     jd_profile: dict[str, Any],
     raw_jd_text: str = "",
 ) -> dict[str, Any]:
