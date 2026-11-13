@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from analysis_stability.requirement_presentation import score_text, score_value, unavailable_score_reason
+
 from contextlib import closing
 import sqlite3
 from pathlib import Path
@@ -26,7 +28,9 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Job Match", "Required/core", "Preferred", "Evidence strength"),
                                ("deterministic_alignment_score", "required_core_coverage_score", "preferred_coverage_score", "evidence_strength_score")):
-        col.metric(label, native.get(key, "Unavailable"))
+        col.metric(label, score_text(score_value(native, key)))
+    if score_value(native) is None:
+        st.caption(unavailable_score_reason(native))
     st.caption("Job Match is out of 100; Required/core, Preferred and Evidence strength are component percentages.")
     render_initial_score_math(st, view)
     if show_taxonomy:
@@ -145,7 +149,7 @@ def render_selected_base_analysis(st, effective_report):
         if selected['same_as_initial']:
             st.caption('Selected base is the original Application résumé. '
                        'Using frozen Initial Résumé Analysis: '
-                       + str(selected['stable_analysis']['deterministic_alignment_score']) + '.')
+                       + score_text(score_value(selected['stable_analysis'])) + '.')
         else:
             with st.expander('Selected Base Analysis'):
                 st.caption('The selected résumé is the working baseline. Initial Résumé Analysis remains immutable.')
@@ -274,6 +278,8 @@ def render_tailoring_evidence_opportunities(st, report):
 
 def render_application_bound_jd(st, application_id):
     """Read the existing exact binding/report; never initialize or backfill data."""
+    from tailoring.jd_knowledge_preview_ui import render_application_jd_knowledge
+    render_application_jd_knowledge(st, application_id)
     try:
         path = Path(db_manager.DB_PATH).resolve()
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:

@@ -18,6 +18,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.requirement_presentation import score_value
 from analysis_stability.stable_evidence_scoring import (
     MATCH_VALUES,
     build_stable_analysis,
@@ -322,6 +323,9 @@ def build_fresh_target_analysis(
         structure_score=structure_score,
         retrieval_mode_override=retrieval_mode_override,
     )
+
+    if score_value(analysis) is None:
+        return analysis
 
     rows, report = apply_fresh_taxonomy_evidence_rediscovery(
         analysis.get("canonical_requirements", []) or [],

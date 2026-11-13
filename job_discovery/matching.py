@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import score_value, unavailable_score_reason
+
 from typing import Any, Callable
 
 from tailoring.candidate_context import build_candidate_context, context_fingerprint
@@ -329,12 +331,19 @@ def summarize_stable_match(
 
     ranking_quality = build_ranking_quality(taxonomy_resolution)
 
+    if score_value(stable_analysis) is None:
+        ranking_quality.update(ranking_eligible=False, ranking_status="score_unavailable",
+            ranking_ineligible_reasons=[*ranking_quality["ranking_ineligible_reasons"], "score_unavailable"])
+
     return {
         "taxonomy_resolution": taxonomy_resolution,
         "ranking_quality": ranking_quality,
         "ranking_version": ranking_quality["ranking_version"],
         "ranking_eligible": ranking_quality["ranking_eligible"],
         "ranking_status": ranking_quality["ranking_status"],
+        **({"score_publication_status": stable_analysis.get("score_publication_status"),
+            "score_interpretation": unavailable_score_reason(stable_analysis)}
+           if score_value(stable_analysis) is None else {}),
         "ranking_ineligible_reasons": ranking_quality[
             "ranking_ineligible_reasons"
         ],
@@ -348,19 +357,11 @@ def summarize_stable_match(
         "important_taxonomy_gap_count": ranking_quality[
             "important_taxonomy_gap_count"
         ],
-        "deterministic_alignment_score": int(
-            stable_analysis.get("deterministic_alignment_score", 0) or 0
-        ),
+        "deterministic_alignment_score": score_value(stable_analysis, "deterministic_alignment_score"),
         "alignment_band": _clean(stable_analysis.get("alignment_band")),
-        "required_core_coverage_score": int(
-            stable_analysis.get("required_core_coverage_score", 0) or 0
-        ),
-        "preferred_coverage_score": int(
-            stable_analysis.get("preferred_coverage_score", 0) or 0
-        ),
-        "evidence_strength_score": int(
-            stable_analysis.get("evidence_strength_score", 0) or 0
-        ),
+        "required_core_coverage_score": score_value(stable_analysis, "required_core_coverage_score"),
+        "preferred_coverage_score": score_value(stable_analysis, "preferred_coverage_score"),
+        "evidence_strength_score": score_value(stable_analysis, "evidence_strength_score"),
         "requirement_count": len(rows),
         "direct_requirement_count": counts["direct"],
         "transferable_requirement_count": counts["transferable"],

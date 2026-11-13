@@ -7,6 +7,7 @@ from copy import deepcopy
 import hashlib
 import re
 
+from analysis_stability.reviewed_jd_exclusions import project_requirement_scope, verify_effective_analysis
 from analysis_stability.stable_evidence_scoring import (
     build_deterministic_keyword_match, build_stable_analysis, canonicalise_requirements,
 )
@@ -99,18 +100,25 @@ def analyze_actual_resume_against_jd(*, resume_text, jd_text, jd_profile,
         raise ValueError('Exact resume/JD text required for document analysis')
     profile = represented_profile(resume_profile or {}, resume_text)
     canonical = canonicalise_requirements(jd_profile=jd_profile, raw_jd_text=jd_text)
-    keyword = build_deterministic_keyword_match(requirements=canonical['requirements'],
+    expected, scope = project_requirement_scope(
+        jd_text, canonical_requirements if canonical_requirements is not None else canonical['requirements'])
+    keyword_rows = expected if scope else canonical['requirements']
+    keyword = build_deterministic_keyword_match(requirements=keyword_rows,
         acronym_map=canonical['acronym_map'], resume_profile=profile, raw_resume_text=resume_text)
     stable = build_stable_analysis(jd_profile=jd_profile, keyword_match=keyword,
         raw_jd_text=jd_text, raw_resume_text=resume_text, resume_profile=profile,
         retrieval_mode_override='lexical')
-    if canonical_requirements is not None and canonical_requirement_scope_fingerprint(stable['canonical_requirements']) != canonical_requirement_scope_fingerprint(canonical_requirements):
+    if verify_effective_analysis(jd_text, stable, require_active=True) != scope:
+        raise ValueError('Document analysis effective scope is inconsistent')
+    if (scope or canonical_requirements is not None) and canonical_requirement_scope_fingerprint(stable['canonical_requirements']) != canonical_requirement_scope_fingerprint(expected):
         raise ValueError('Document analysis changed the canonical requirement scope')
     authority = {'version': DOCUMENT_ANALYSIS_VERSION, 'resume_text_sha256': text_fingerprint(resume_text),
         'jd_text_sha256': text_fingerprint(jd_text), 'identity': current_ab_identity(jd_text),
         'canonical_requirement_fingerprint': canonical_requirement_scope_fingerprint(stable['canonical_requirements']),
         'stable_analysis_fingerprint': fingerprint_value(stable),
         'resume_profile_fingerprint': fingerprint_value(profile), 'input_authority': 'ACTUAL_RESUME_DOCUMENT'}
+    if scope:
+        authority['effective_requirement_scope'] = scope
     authority['fingerprint'] = fingerprint_value(authority)
     return {'stable_analysis': stable, 'keyword_match': keyword, 'resume_profile': profile, 'jd_profile': deepcopy(jd_profile),
             'raw_resume_text': resume_text, 'raw_jd_text': jd_text, 'document_analysis': authority}
@@ -127,12 +135,22 @@ def validate_document_report(report):
         raise ValueError('Document analysis provenance unavailable or inconsistent')
     if authority.get('canonical_requirement_fingerprint') != canonical_requirement_scope_fingerprint(report['stable_analysis']['canonical_requirements']):
         raise ValueError('Document analysis canonical scope is inconsistent')
+    scope = verify_effective_analysis(report['raw_jd_text'], report['stable_analysis'])
+    if scope != authority.get('effective_requirement_scope') or (scope and (
+            authority['identity'].get('effective_requirement_scope_sha256') != scope['effective_requirement_scope_sha256']
+            or authority['identity'].get('scoring_version') != report['stable_analysis']['scoring_version'])):
+        raise ValueError('Document analysis effective scope authority is inconsistent')
     return deepcopy(authority)
 
 
 def seal_document_report(report):
     """Seal the effective application-local scope after existing override handling."""
+    scope = verify_effective_analysis(report['raw_jd_text'], report['stable_analysis'], require_active=True)
     authority = report.setdefault('meta', {}).get('document_analysis') or {}
+    if scope:
+        authority['effective_requirement_scope'] = scope
+    elif authority.get('effective_requirement_scope'):
+        raise ValueError('Cannot reseal a different effective scope as historical analysis')
     authority.update(version=DOCUMENT_ANALYSIS_VERSION, input_authority='ACTUAL_RESUME_DOCUMENT',
         resume_text_sha256=text_fingerprint(report['raw_resume_text']),
         jd_text_sha256=text_fingerprint(report['raw_jd_text']), identity=current_ab_identity(report['raw_jd_text']),

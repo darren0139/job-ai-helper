@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import report_for_score_publication, score_value
+
 from copy import deepcopy
 from datetime import datetime
 import hashlib
@@ -10,6 +12,7 @@ import sqlite3
 import uuid
 from typing import Any
 
+from analysis_stability.reviewed_jd_exclusions import active_requirement_scope, is_reviewed_analysis, refuse_candidate_persistence, REVIEWED_ANALYSIS_CONTRACT
 from database import db_manager as base_manager
 
 
@@ -66,6 +69,9 @@ def build_analysis_input_fingerprint(
         "model_id": str(model_id or "").strip(),
         "retrieval_config": retrieval_config or {},
     }
+    effective_scope = active_requirement_scope(jd_text)
+    if effective_scope:
+        payload["effective_requirement_scope"] = effective_scope
     canonical = json.dumps(
         payload,
         sort_keys=True,
@@ -156,6 +162,22 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _is_reviewed_snapshot(snapshot):
+    return is_reviewed_analysis(snapshot["report"], contract=snapshot["pipeline_contract_version"],
+                                status=snapshot["status"])
+
+
+def _first_ordinary_cache_result(rows):
+    for row in rows:
+        snapshot = _row_to_dict(row)
+        if not isinstance(snapshot["report"], dict) or not snapshot["report"] or _is_reviewed_snapshot(snapshot):
+            continue
+        stable = snapshot["report"].get("stable_analysis")
+        if not isinstance(stable, dict) or score_value(stable) is not None:
+            return snapshot
+    return None
+
+
 def find_cached_analysis(
     *,
     application_id: int,
@@ -177,13 +199,13 @@ def find_cached_analysis(
             CASE status WHEN 'active' THEN 0 ELSE 1 END,
             updated_at DESC,
             id DESC
-        LIMIT 1
         """,
         (int(application_id), fingerprint),
     )
-    row = cursor.fetchone()
-    connection.close()
-    return _row_to_dict(row) if row is not None else None
+    try:
+        return _first_ordinary_cache_result(cursor)
+    finally:
+        connection.close()
 
 
 def find_reusable_analysis(
@@ -215,19 +237,22 @@ def find_reusable_analysis(
             CASE status WHEN 'active' THEN 0 ELSE 1 END,
             updated_at DESC,
             id DESC
-        LIMIT 1
         """,
         (fingerprint, excluded_id, excluded_id),
     )
-    row = cursor.fetchone()
-    connection.close()
-    return _row_to_dict(row) if row is not None else None
+    try:
+        return _first_ordinary_cache_result(cursor)
+    finally:
+        connection.close()
 
 
 def prepare_reusable_analysis_report(
     snapshot: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Copy reusable analysis content without source-session usage/cache metadata."""
+    if snapshot and is_reviewed_analysis(snapshot.get("report") or {},
+            contract=snapshot.get("pipeline_contract_version"), status=snapshot.get("status")):
+        raise ValueError("Reviewed analyses cannot be reused through the ordinary cache")
     report = deepcopy((snapshot or {}).get("report") or {})
     report.pop("api_cost_summary", None)
 
@@ -253,6 +278,7 @@ def persist_explicit_application_analysis(
     from tailoring.job_match_ab_analysis import current_ab_identity
     from tailoring.phase9e_blueprint_selection import fingerprint_value
 
+    refuse_candidate_persistence(report)
     if not input_fingerprint or not raw_jd_text or report.get("raw_jd_text") != raw_jd_text:
         raise ValueError("Analysis/application JD identity mismatch")
     stable = report.get("stable_analysis") or {}
@@ -294,6 +320,8 @@ def persist_explicit_application_analysis(
             if source is None or _row_to_dict(source) != reused_snapshot:
                 raise ValueError("Exact saved analysis changed or is unavailable")
             snapshot = _row_to_dict(source)
+            if _is_reviewed_snapshot(snapshot):
+                raise ValueError("Reviewed analyses cannot be reused through the ordinary cache")
             source_report = snapshot["report"]
             source_rows = (source_report.get("stable_analysis") or {}).get("canonical_requirements") or []
             if (snapshot["input_fingerprint"] != input_fingerprint
@@ -307,7 +335,7 @@ def persist_explicit_application_analysis(
                 raise ValueError("Saved analysis JD/input/canonical scope is incompatible")
         owned_reuse = snapshot is not None and snapshot["application_id"] == int(application_id)
         analysis_id = snapshot["analysis_id"] if owned_reuse else uuid.uuid4().hex
-        persisted_report = deepcopy(report)
+        persisted_report = deepcopy(report_for_score_publication(report))
         persisted_report.setdefault("meta", {}).setdefault("analysis_cache", {})["analysis_id"] = analysis_id
         origin = "EXACT_SAVED_REUSE" if snapshot is not None else "FRESH_ANALYSIS"
         # Binding metadata references the existing native receipt, never a new
@@ -325,8 +353,8 @@ def persist_explicit_application_analysis(
                 input_fingerprint=input_fingerprint, report=persisted_report, analysis_model=analysis_model,
                 resume_filename=resume_filename, analysis_id=analysis_id, created_at=_now(),
                 pipeline_contract_version=ANALYSIS_PIPELINE_CONTRACT_VERSION)
-        connection.execute("UPDATE application_analysis_versions SET status=CASE WHEN analysis_id=? THEN 'active' ELSE 'archived' END WHERE application_id=?",
-                           (analysis_id, application_id))
+        connection.execute("UPDATE application_analysis_versions SET status=CASE WHEN analysis_id=? THEN 'active' ELSE 'archived' END WHERE application_id=? AND pipeline_contract_version<>?",
+                           (analysis_id, application_id, REVIEWED_ANALYSIS_CONTRACT))
         if not already_bound:
             connection.execute("UPDATE applications SET initial_analysis_id=?, initial_analysis_binding_json=? WHERE id=? AND initial_analysis_id IS NULL",
                                (analysis_id, json.dumps(reference, ensure_ascii=False), application_id))
@@ -366,7 +394,9 @@ def save_analysis_snapshot(
         raise ValueError("input_fingerprint is required.")
     if not isinstance(report, dict) or not report:
         raise ValueError("report is required.")
+    refuse_candidate_persistence(report)
 
+    report = report_for_score_publication(report)
     init_analysis_cache()
     now = _now()
     resolved_id = str(analysis_id or uuid.uuid4().hex)
@@ -466,6 +496,8 @@ def insert_analysis_snapshot_with_connection(
     """Insert one initial analysis without committing the caller's transaction."""
     if not str(input_fingerprint or "").strip() or not isinstance(report, dict):
         raise ValueError("A complete analysis snapshot is required.")
+    refuse_candidate_persistence(report)
+    report = report_for_score_publication(report)
     connection.execute(
         """
         INSERT INTO application_analysis_versions (
@@ -494,48 +526,31 @@ def activate_analysis_snapshot(
     application_id: int,
     analysis_id: str,
 ) -> dict[str, Any]:
+    from contextlib import closing
     init_analysis_cache()
-    now = _now()
-    connection = _connect()
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        UPDATE application_analysis_versions
-        SET status = 'archived',
-            updated_at = ?
-        WHERE application_id = ?
-          AND status = 'active'
-        """,
-        (now, int(application_id)),
-    )
-    cursor.execute(
-        """
-        UPDATE application_analysis_versions
-        SET status = 'active',
-            updated_at = ?
-        WHERE application_id = ?
-          AND analysis_id = ?
-        """,
-        (now, int(application_id), str(analysis_id)),
-    )
-    if cursor.rowcount != 1:
-        connection.rollback()
-        connection.close()
-        raise ValueError("Analysis snapshot was not found.")
-    connection.commit()
-    cursor.execute(
-        """
-        SELECT *
-        FROM application_analysis_versions
-        WHERE application_id = ? AND analysis_id = ?
-        """,
-        (int(application_id), str(analysis_id)),
-    )
-    row = cursor.fetchone()
-    connection.close()
-    if row is None:
-        raise RuntimeError("Active analysis snapshot could not be reloaded.")
-    return _row_to_dict(row)
+    with closing(_connect()) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM application_analysis_versions WHERE application_id=? AND analysis_id=?",
+            (int(application_id), str(analysis_id)),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Analysis snapshot was not found.")
+        if _is_reviewed_snapshot(_row_to_dict(row)):
+            raise ValueError("Reviewed analyses require authorized application selection")
+        now = _now()
+        connection.execute(
+            "UPDATE application_analysis_versions SET status='archived', updated_at=? WHERE application_id=? AND status='active'",
+            (now, int(application_id)),
+        )
+        connection.execute(
+            "UPDATE application_analysis_versions SET status='active', updated_at=? WHERE application_id=? AND analysis_id=?",
+            (now, int(application_id), str(analysis_id)),
+        )
+        return _row_to_dict(connection.execute(
+            "SELECT * FROM application_analysis_versions WHERE application_id=? AND analysis_id=?",
+            (int(application_id), str(analysis_id)),
+        ).fetchone())
 
 
 def list_analysis_snapshots(

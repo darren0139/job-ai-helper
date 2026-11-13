@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from analysis_stability.requirement_presentation import score_text, score_value, unavailable_score_reason
+
 from copy import deepcopy
 from typing import Any
 
@@ -59,13 +61,13 @@ def _score_suffix(comparison: dict[str, Any] | None) -> str:
         return ""
     return (
         " · Job Match "
-        f"{int(comparison.get('deterministic_alignment_score', 0) or 0)}"
+        f"{score_text(score_value(comparison, 'deterministic_alignment_score'), '')}"
         " · Core "
-        f"{int(comparison.get('required_core_coverage_score', 0) or 0)}%"
+        f"{score_text(score_value(comparison, 'required_core_coverage_score'), '%')}"
         " · Pref "
-        f"{int(comparison.get('preferred_coverage_score', 0) or 0)}%"
+        f"{score_text(score_value(comparison, 'preferred_coverage_score'), '%')}"
         " · Evidence "
-        f"{int(comparison.get('evidence_strength_score', 0) or 0)}%"
+        f"{score_text(score_value(comparison, 'evidence_strength_score'), '%')}"
     )
 
 
@@ -371,10 +373,13 @@ def _ranking_report_snapshot(
     }
 
 
-def _tailoring_base_resolution_identity() -> dict[str, str]:
+def _tailoring_base_resolution_identity(raw_jd_text: str = "") -> dict[str, str]:
     """Return current deterministic resolver identities used to salt UI caches."""
+    from analysis_stability.reviewed_jd_exclusions import active_requirement_scope, effective_scoring_version
+    scope = active_requirement_scope(raw_jd_text)
     return {
-        "scoring_version": str(SCORING_VERSION),
+        "scoring_version": effective_scoring_version(str(SCORING_VERSION), scope["policy_identity"] if scope else ""),
+        **({"effective_requirement_scope_sha256": scope["effective_requirement_scope_sha256"]} if scope else {}),
         "capability_taxonomy_version": str(
             get_default_taxonomy().version
         ),
@@ -481,22 +486,24 @@ def _show_decision(decision: dict[str, Any], *, heading: str) -> None:
     )
     st.caption("Recommended workflow")
     st.write(f"**{decision_label}**")
+    if score_value(comparison) is None:
+        st.caption(unavailable_score_reason(comparison))
     metrics = st.columns(4)
     metrics[0].metric(
         "Job Match",
-        comparison.get("deterministic_alignment_score", 0),
+        score_text(score_value(comparison)),
     )
     metrics[1].metric(
         "Required/Core",
-        f"{comparison.get('required_core_coverage_score', 0)}%",
+        score_text(score_value(comparison, "required_core_coverage_score"), "%"),
     )
     metrics[2].metric(
         "Preferred",
-        f"{comparison.get('preferred_coverage_score', 0)}%",
+        score_text(score_value(comparison, "preferred_coverage_score"), "%"),
     )
     metrics[3].metric(
         "Evidence strength",
-        f"{comparison.get('evidence_strength_score', 0)}%",
+        score_text(score_value(comparison, "evidence_strength_score"), "%"),
     )
     st.caption(
         "The numeric values below are a visible-résumé diagnostic. "
@@ -1191,7 +1198,7 @@ def render_phase9e_blueprint_selection(
             )
         active = list_reusable_global_blueprints()
         base_resume_starting_snapshot = get_phase9e_base_resume_starting_snapshot()
-        resolution_identity = _tailoring_base_resolution_identity()
+        resolution_identity = _tailoring_base_resolution_identity(exact_jd["raw_text"])
         recommendation = _cached_blueprint_recommendation(
             exact_jd,
             active,
@@ -1295,7 +1302,7 @@ def render_phase9e_blueprint_selection(
         st.dataframe(
             [
                 {
-                    "Rank": int(row.get("diagnostic_rank", 0) or 0),
+                    "Rank": row.get("diagnostic_rank"),
                     "Source": (
                         "Application source résumé" if row.get("source_type") == "original_resume"
                         else ("Master résumé — " + (_clean((row.get("base_resume") or {}).get("source_display_name")) or "current master")) if row.get("source_type") == "base_resume"
@@ -1303,11 +1310,11 @@ def render_phase9e_blueprint_selection(
                     ),
                     "Variant": "—" if row.get("source_type") in {"original_resume", "base_resume"} else (_clean((row.get("blueprint") or {}).get("variant_label")) or "Primary"),
                     "Family": "Application source" if row.get("source_type") == "original_resume" else "Neutral master source" if row.get("source_type") == "base_resume" else _clean((row.get("blueprint") or {}).get("role_family_label")),
-                    "Job Match": int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
+                    "Job Match": score_text(score_value(row.get("comparison"), "deterministic_alignment_score")),
                     "Analysis source": (row.get("comparison") or {}).get("analysis_source") or 'Legacy profile/text comparison',
-                    "Required/Core": f"{int((row.get('comparison') or {}).get('required_core_coverage_score', 0) or 0)}%",
-                    "Preferred": f"{int((row.get('comparison') or {}).get('preferred_coverage_score', 0) or 0)}%",
-                    "Evidence": f"{int((row.get('comparison') or {}).get('evidence_strength_score', 0) or 0)}%",
+                    "Required/Core": f"{score_text(score_value(row.get('comparison'), 'required_core_coverage_score'), '%')}",
+                    "Preferred": f"{score_text(score_value(row.get('comparison'), 'preferred_coverage_score'), '%')}",
+                    "Evidence": f"{score_text(score_value(row.get('comparison'), 'evidence_strength_score'), '%')}",
                     "Important gaps": int((row.get("comparison") or {}).get("important_gap_count", 0) or 0),
                     "Recommended": "Yes" if row.get("recommended") else "",
                 }

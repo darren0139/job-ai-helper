@@ -7,6 +7,8 @@ import json
 from copy import deepcopy
 from typing import Any, Iterable
 
+from analysis_stability.requirement_presentation import explicitly_unavailable, score_value, unavailable_score_reason
+from analysis_stability.reviewed_jd_exclusions import active_requirement_scope, project_requirement_scope, requirement_scope_sha256, verify_effective_analysis
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
     build_deterministic_keyword_match,
@@ -555,6 +557,8 @@ def match_exact_approved_source(
         "stable_input_fingerprint": expected_stable
         == _clean(source.get("stable_input_fingerprint")),
     }
+    if active_requirement_scope(exact_jd["raw_text"]):
+        current_checks["reviewed_scope_policy_current"] = False
     source_identity = {
         "policy_version": PHASE9E_EXACT_SOURCE_REUSE_POLICY_VERSION,
         "application_id": int(application_id),
@@ -615,19 +619,12 @@ def _blueprint_comparison_summary(
 ) -> dict[str, Any]:
     """Keep only visible deterministic metrics used for source ranking."""
     return {
+        **{key: comparison[key] for key in ("score_publication_status", "score_interpretation") if key in comparison},
         "analysis_source": comparison.get("analysis_source", "Legacy frozen profile/text comparison"),
-        "deterministic_alignment_score": int(
-            comparison.get("deterministic_alignment_score", 0) or 0
-        ),
-        "required_core_coverage_score": int(
-            comparison.get("required_core_coverage_score", 0) or 0
-        ),
-        "preferred_coverage_score": int(
-            comparison.get("preferred_coverage_score", 0) or 0
-        ),
-        "evidence_strength_score": int(
-            comparison.get("evidence_strength_score", 0) or 0
-        ),
+        "deterministic_alignment_score": score_value(comparison, "deterministic_alignment_score"),
+        "required_core_coverage_score": score_value(comparison, "required_core_coverage_score"),
+        "preferred_coverage_score": score_value(comparison, "preferred_coverage_score"),
+        "evidence_strength_score": score_value(comparison, "evidence_strength_score"),
         "important_gap_count": int(
             comparison.get("important_gap_count", 0) or 0
         ),
@@ -637,18 +634,27 @@ def _blueprint_comparison_summary(
     }
 
 
-def _blueprint_variant_ranking_key(
-    row: dict[str, Any],
-) -> tuple[Any, ...]:
-    comparison = row.get("comparison") or {}
-    blueprint = row.get("blueprint") or {}
+def _comparison_ranking_key(comparison: dict[str, Any]) -> tuple[Any, ...]:
+    if score_value(comparison) is None:
+        return (1,)
+    components = (
+        score_value(comparison, "required_core_coverage_score"),
+        score_value(comparison),
+        score_value(comparison, "evidence_strength_score"),
+        score_value(comparison, "preferred_coverage_score"),
+    )
     return (
+        0,
         int(comparison.get("deal_breaker_gap_count", 0) or 0),
         int(comparison.get("important_gap_count", 0) or 0),
-        -int(comparison.get("required_core_coverage_score", 0) or 0),
-        -int(comparison.get("deterministic_alignment_score", 0) or 0),
-        -int(comparison.get("evidence_strength_score", 0) or 0),
-        -int(comparison.get("preferred_coverage_score", 0) or 0),
+        *(1 if value is None else -value for value in components),
+    )
+
+
+def _blueprint_variant_ranking_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    blueprint = row.get("blueprint") or {}
+    return (
+        _comparison_ranking_key(row.get("comparison") or {}),
         _clean(blueprint.get("variant_id")) or "primary",
         _clean(blueprint.get("blueprint_id")),
     )
@@ -763,10 +769,11 @@ def recommend_active_blueprint(
         })
 
     diagnostic_rankings = sorted(rankings, key=_blueprint_variant_ranking_key)
-    same_family_rankings = [row for row in diagnostic_rankings if row["role_family_match"]]
+    scored_blueprints = [row for row in diagnostic_rankings if score_value(row["comparison"]) is not None]
+    same_family_rankings = [row for row in scored_blueprints if row["role_family_match"]]
     recommended_row = same_family_rankings[0] if same_family_rankings else None
     recommended = deepcopy(recommended_row["blueprint"]) if recommended_row is not None else None
-    best_diagnostic = deepcopy(diagnostic_rankings[0]["blueprint"]) if diagnostic_rankings else None
+    best_diagnostic = deepcopy(scored_blueprints[0]["blueprint"]) if scored_blueprints else None
 
     base_resume_comparison: dict[str, Any] | None = None
     base_resume_identity = _base_resume_identity(base_resume_starting_snapshot)
@@ -820,12 +827,7 @@ def recommend_active_blueprint(
     source_rankings = sorted(
         source_rankings,
         key=lambda row: (
-            int((row.get("comparison") or {}).get("deal_breaker_gap_count", 0) or 0),
-            int((row.get("comparison") or {}).get("important_gap_count", 0) or 0),
-            -int((row.get("comparison") or {}).get("required_core_coverage_score", 0) or 0),
-            -int((row.get("comparison") or {}).get("deterministic_alignment_score", 0) or 0),
-            -int((row.get("comparison") or {}).get("evidence_strength_score", 0) or 0),
-            -int((row.get("comparison") or {}).get("preferred_coverage_score", 0) or 0),
+            _comparison_ranking_key(row.get("comparison") or {}),
             source_order.get(_clean(row.get("source_type")), 9),
             _clean(row.get("source_id")),
             _clean(row.get("blueprint_id")),
@@ -836,6 +838,7 @@ def recommend_active_blueprint(
         row
         for row in source_rankings
         if row.get("source_type") in {"base_resume", "original_resume"}
+        and score_value(row.get("comparison")) is not None
     ]
     neutral_by_type = {
         _clean(row.get("source_type")): row
@@ -865,15 +868,18 @@ def recommend_active_blueprint(
         recommended_source = "global_blueprint"
     elif neutral:
         recommended_source = _clean(neutral[0].get("source_type"))
+    elif source_rankings and all(score_value(row["comparison"]) is None for row in source_rankings):
+        recommended_source = ""
     else:
         recommended_source = "original_resume"
 
     for index, row in enumerate(source_rankings, start=1):
-        row["diagnostic_rank"] = index
+        score_available = score_value(row.get("comparison")) is not None
+        row["diagnostic_rank"] = index if score_available else None
         row["eligible_for_auto_recommendation"] = bool(
-            row.get("source_type") in {"base_resume", "original_resume"} or row.get("role_family_match")
+            score_available and (row.get("source_type") in {"base_resume", "original_resume"} or row.get("role_family_match"))
         )
-        row["recommended"] = bool(
+        row["recommended"] = bool(score_available and (
             (recommended_source == "base_resume" and row.get("source_type") == "base_resume")
             or (recommended_source == "original_resume" and row.get("source_type") == "original_resume")
             or (
@@ -881,9 +887,11 @@ def recommend_active_blueprint(
                 and row.get("source_type") == "global_blueprint"
                 and _clean(row.get("blueprint_id")) == _clean((recommended or {}).get("blueprint_id"))
             )
-        )
+        ))
 
-    if recommended:
+    if not recommended_source:
+        reasons = ["Job Match unavailable for all evaluated sources."]
+    elif recommended:
         variant_label = _clean(recommended.get("variant_label")) or "Primary"
         reasons = [
             "The JD and recommended Blueprint share the same canonical role-family ID.",
@@ -1062,6 +1070,8 @@ def build_original_resume_starting_snapshot(
             for k in ('document_analysis', 'jd_user_inputs') if k in selected.get('meta', {})}
         result['analysis_source'] = 'Frozen Initial Résumé Analysis' if selected is frozen else 'Document-grounded analysis'
         result['source_identity']['document_analysis_version'] = authority['version']
+    elif explicitly_unavailable(application_report.get("stable_analysis")):
+        result["unavailable_analysis"] = deepcopy(application_report["stable_analysis"])
     result["starting_snapshot_fingerprint"] = fingerprint_value(result)
     return result
 
@@ -1321,6 +1331,17 @@ def _apply_phase9e_preliminary_match_ceilings(
     return analysis
 
 
+def _expected_phase9e_requirement_scope(jd, overrides):
+    original = ((jd.get("canonicalisation") or {}).get("requirements")
+                or jd.get("canonical_requirements") or [])
+    effective, scope = project_requirement_scope(
+        jd["raw_text"], original, has_local_overrides=bool(overrides))
+    if scope and requirement_scope_sha256(jd["canonical_requirements"]) != scope["original_requirement_scope_sha256"]:
+        raise Phase9EDecisionError("The saved original requirement scope is inconsistent.")
+    rows, local = build_effective_application_local_requirement_scope(effective, overrides)
+    return rows, local, scope
+
+
 def _build_phase9e_starting_analysis(
     *,
     starting_snapshot: dict[str, Any],
@@ -1340,12 +1361,13 @@ def _build_phase9e_starting_analysis(
     resume_text = starting_snapshot.get("resume_text_snapshot")
     if not isinstance(profile, dict) or not _clean(resume_text):
         raise Phase9EDecisionError("The starting resume snapshot is incomplete.")
+    if starting_snapshot.get("unavailable_analysis") is not None:
+        return deepcopy(starting_snapshot["unavailable_analysis"]), {}, {}
     if starting_snapshot.get('document_report_snapshot') or starting_snapshot.get('document_analysis_mode'):
         from tailoring.document_grounded_analysis import analyze_actual_resume_against_jd, validate_document_report
         from tailoring.jd_user_input_overrides import apply_application_session_jd_user_inputs
         saved = starting_snapshot.get('document_report_snapshot')
-        expected, local_scope = build_effective_application_local_requirement_scope(
-            (jd.get('canonicalisation') or {}).get('requirements') or jd.get('canonical_requirements') or [], preferred_requirements)
+        expected, local_scope, scope = _expected_phase9e_requirement_scope(jd, preferred_requirements)
         if saved:
             authority = validate_document_report(saved)
             from tailoring.job_match_ab_analysis import current_ab_identity
@@ -1353,7 +1375,9 @@ def _build_phase9e_starting_analysis(
                 raise Phase9EDecisionError('Frozen document receipt is incompatible with current JD/scope/versions')
             return deepcopy(saved['stable_analysis']), deepcopy(saved['keyword_match']), local_scope
         document = analyze_actual_resume_against_jd(resume_text=resume_text, jd_text=jd['raw_text'],
-            jd_profile=jd['jd_profile'], resume_profile=profile)
+            jd_profile=jd['jd_profile'], resume_profile=profile,
+            canonical_requirements=(jd.get('canonicalisation') or {}).get('requirements')
+                or jd.get('canonical_requirements') if scope else None)
         prepared = apply_application_session_jd_user_inputs(document, raw_jd_text=jd['raw_text'],
             raw_resume_text=resume_text, preferred_requirements=preferred_requirements)
         if canonical_requirement_scope_fingerprint(prepared['stable_analysis']['canonical_requirements']) != canonical_requirement_scope_fingerprint(expected):
@@ -1361,17 +1385,9 @@ def _build_phase9e_starting_analysis(
         return prepared['stable_analysis'], prepared['keyword_match'], local_scope
 
     canonical = jd.get("canonicalisation") or {}
-    base_requirements = canonical.get("requirements") or jd.get(
-        "canonical_requirements"
-    )
     acronym_map = canonical.get("acronym_map") or {}
     overrides = normalise_requirement_override_lines(preferred_requirements)
-    effective_requirements, local_scope = (
-        build_effective_application_local_requirement_scope(
-            base_requirements,
-            overrides,
-        )
-    )
+    effective_requirements, local_scope, _ = _expected_phase9e_requirement_scope(jd, overrides)
     keyword_match = build_phase9e_keyword_match(
         requirements=deepcopy(effective_requirements),
         acronym_map=deepcopy(acronym_map),
@@ -1386,6 +1402,8 @@ def _build_phase9e_starting_analysis(
         resume_profile=deepcopy(profile),
         retrieval_mode_override="lexical",
     )
+    if score_value(analysis) is None:
+        return analysis, keyword_match, local_scope
     analysis = _apply_phase9e_preliminary_match_ceilings(
         analysis,
         keyword_match,
@@ -1514,14 +1532,9 @@ def evaluate_starting_snapshot(
         for row in result_rows
         if _clean(row.get("requirement_id"))
     )
-    expected_rows, _expected_scope = (
-        build_effective_application_local_requirement_scope(
-            (jd.get("canonicalisation") or {}).get("requirements")
-            or jd.get("canonical_requirements")
-            or [],
-            overrides,
-        )
-    )
+    expected_rows, _local_scope, expected_scope = _expected_phase9e_requirement_scope(jd, overrides)
+    if verify_effective_analysis(jd["raw_text"], analysis, require_active=True) != expected_scope:
+        raise Phase9EDecisionError("Stable scoring effective requirement authority is inconsistent.")
     expected_ids = sorted(
         _clean(row.get("requirement_id"))
         for row in expected_rows
@@ -1552,22 +1565,15 @@ def evaluate_starting_snapshot(
             }
             for row in result_rows
         ],
-        "deterministic_alignment_score": int(
-            analysis.get("deterministic_alignment_score", 0) or 0
-        ),
-        "required_core_coverage_score": int(
-            analysis.get("required_core_coverage_score", 0) or 0
-        ),
-        "preferred_coverage_score": int(
-            analysis.get("preferred_coverage_score", 0) or 0
-        ),
-        "evidence_strength_score": int(
-            analysis.get("evidence_strength_score", 0) or 0
-        ),
+        "deterministic_alignment_score": score_value(analysis, "deterministic_alignment_score"),
+        "required_core_coverage_score": score_value(analysis, "required_core_coverage_score"),
+        "preferred_coverage_score": score_value(analysis, "preferred_coverage_score"),
+        "evidence_strength_score": score_value(analysis, "evidence_strength_score"),
         "important_gaps": important_gaps,
     }
     result = {
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": analysis.get("scoring_version") if expected_scope else SCORING_VERSION,
+        **({"effective_requirement_scope": expected_scope} if expected_scope else {}),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_selection_policy_version": (
             PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION
@@ -1603,6 +1609,9 @@ def evaluate_starting_snapshot(
         "stable_analysis_snapshot": deepcopy(analysis),
         "keyword_match_snapshot": deepcopy(keyword_match),
     }
+    if score_value(analysis) is None:
+        result["score_publication_status"] = analysis.get("score_publication_status")
+        result["score_interpretation"] = unavailable_score_reason(analysis)
     result['analysis_source'] = starting_snapshot.get('analysis_source') or ('Document-grounded analysis' if starting_snapshot.get('document_analysis_mode') else 'Legacy frozen profile/text comparison')
     if overrides:
         result["application_local_jd_user_inputs"] = deepcopy(local_scope)
@@ -1618,7 +1627,9 @@ def decide_tailoring(
     original_comparison: dict[str, Any] | None = None,
     original_source_fidelity: str = "",
 ) -> dict[str, Any]:
-    overall = int(comparison.get("deterministic_alignment_score", 0) or 0)
+    overall = score_value(comparison)
+    if overall is None:
+        raise Phase9EDecisionError(unavailable_score_reason(comparison))
     required = int(comparison.get("required_core_coverage_score", 0) or 0)
     preferred = int(comparison.get("preferred_coverage_score", 0) or 0)
     evidence = int(comparison.get("evidence_strength_score", 0) or 0)
@@ -1632,13 +1643,13 @@ def decide_tailoring(
         preferred_count == 0 or preferred >= REUSE_PREFERRED_MINIMUM
     )
     original = original_comparison or {}
-    original_automatic_comparison = bool(original) and (
+    original_automatic_comparison = score_value(original) is not None and (
         original_source_fidelity != "persisted_profile_only"
     )
     original_clearly_better = bool(
         original_automatic_comparison
         and int(original.get("deal_breaker_gap_count", 0) or 0) == 0
-        and int(original.get("deterministic_alignment_score", 0) or 0)
+        and score_value(original)
         >= overall + ORIGINAL_SUPERIORITY_MINIMUM_DELTA
         and int(original.get("required_core_coverage_score", 0) or 0)
         >= required
@@ -2038,7 +2049,9 @@ def build_phase9e_decision(
         }
     else:
         semantic_identity["scoring"] = {
-            "scoring_version": SCORING_VERSION,
+            "scoring_version": comparison["scoring_version"] if comparison.get("effective_requirement_scope") else SCORING_VERSION,
+            **({"effective_requirement_scope": comparison["effective_requirement_scope"]}
+               if comparison.get("effective_requirement_scope") else {}),
             "capability_taxonomy_version": get_default_taxonomy().version,
             "evidence_selection_policy_version": (
                 PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION

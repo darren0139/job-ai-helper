@@ -13,9 +13,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from analysis_stability.requirement_presentation import score_value, explicitly_unavailable
+
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.reviewed_jd_exclusions import active_requirement_scope, verify_effective_analysis
 from analysis_stability import build_stable_analysis
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
@@ -695,10 +698,17 @@ def apply_application_session_jd_user_inputs(
     preferred classification can never linger in a reused report.
     """
     output = deepcopy(report or {})
+    if explicitly_unavailable(output.get("stable_analysis")):
+        return output
+    reviewed_scope = active_requirement_scope(raw_jd_text)
+    if reviewed_scope:
+        if normalise_requirement_override_lines(preferred_requirements) or _had_prior_override(output):
+            raise ValueError("Reviewed exclusions cannot be combined with local preferred overrides")
+        verify_effective_analysis(raw_jd_text, output.get("stable_analysis") or {}, require_active=True)
     original_profile = _original_extracted_profile(output)
     original_metadata = _restore_original_metadata(output, original_profile)
     had_prior_override = _had_prior_override(output)
-    stored_stable_is_current = _stable_analysis_is_current(
+    stored_stable_is_current = bool(reviewed_scope) or _stable_analysis_is_current(
         output.get("stable_analysis")
     )
     # Input order is presentation-only.  Persisted effective requirements and
@@ -731,6 +741,9 @@ def apply_application_session_jd_user_inputs(
             raw_jd_text=raw_jd_text,
             raw_resume_text=raw_resume_text,
         )
+        if score_value(rebuilt) is None:
+            output["stable_analysis"] = rebuilt
+            return output
         if overrides:
             base_fingerprint = _clean(rebuilt.get("input_fingerprint"))
             (
@@ -846,6 +859,8 @@ def refresh_application_session_analysis_report(
     historical database payload remains unchanged.
     """
     source = deepcopy(report or {})
+    if explicitly_unavailable(source.get("stable_analysis")):
+        return source
     if (source.get('meta') or {}).get('document_analysis'):
         from tailoring.document_grounded_analysis import validate_document_report
         from tailoring.job_match_ab_analysis import current_ab_identity

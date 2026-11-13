@@ -46,10 +46,16 @@ class Phase9EBindRenderingTests(unittest.TestCase):
                 "active_blueprints": [],
             },
         ))
-        stack.enter_context(patch.object(ui, "get_exact_job_description_for_application", return_value={}))
+        self.exact_jd = {"raw_text": "Requirements\nExperience with Python."}
+        stack.enter_context(patch.object(
+            ui, "get_exact_job_description_for_application", return_value=self.exact_jd,
+        ))
         stack.enter_context(patch.object(ui, "list_reusable_global_blueprints", return_value=[]))
         stack.enter_context(patch.object(ui, "get_phase9e_base_resume_starting_snapshot", return_value={}))
-        stack.enter_context(patch.object(ui, "_tailoring_base_resolution_identity", return_value={}))
+        self.resolve_identity = ui._tailoring_base_resolution_identity
+        self.identity = stack.enter_context(patch.object(
+            ui, "_tailoring_base_resolution_identity", wraps=self.resolve_identity,
+        ))
         stack.enter_context(patch.object(ui, "_render_tailoring_base_snapshot_preview"))
         stack.enter_context(patch.object(ui, "_show_decision"))
         stack.enter_context(patch.object(ui, "_render_decision_history"))
@@ -89,6 +95,17 @@ class Phase9EBindRenderingTests(unittest.TestCase):
 
     def click_bind(self, app):
         next(b for b in app.button if b.key == "phase9e_bind_94").click().run()
+
+    def test_recommendation_receives_resolution_identity_for_the_linked_jd(self):
+        app = AppTest.from_string(HARNESS, default_timeout=60).run()
+        self.assertEqual(list(app.exception), [])
+        self.identity.assert_called_once_with(self.exact_jd["raw_text"])
+        self.recommend.assert_called_once()
+        self.assertEqual(self.recommend.call_args.args[0], self.exact_jd)
+        self.assertEqual(
+            self.recommend.call_args.args[4],
+            self.resolve_identity(self.exact_jd["raw_text"]),
+        )
 
     def test_original_bind_precedes_one_fresh_render_without_duplicate_preview(self):
         app = self.ready_app()

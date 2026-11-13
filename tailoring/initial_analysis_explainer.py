@@ -1,6 +1,8 @@
 """Read-only views of saved native analyses; no scoring or requirement inference."""
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import score_value
+
 from copy import deepcopy
 from contextlib import closing
 import json
@@ -8,6 +10,7 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
+from analysis_stability.reviewed_jd_exclusions import is_reviewed_analysis
 from database import db_manager
 from job_discovery.matching import current_match_versions
 from tailoring.job_match_ab_analysis import current_ab_identity
@@ -59,7 +62,8 @@ def build_analysis_receipt(stable_analysis, *, raw_jd_text, provenance, identity
     stale = any(stable.get(field) != versions[key] for field, key in (
         ("scoring_version", "scoring_version"), ("capability_taxonomy_version", "taxonomy_version"),
         ("technology_registry_version", "technology_registry_version")))
-    breakdown = build_score_breakdown(stable) if stable.get("scoring_version") == versions["scoring_version"] else None
+    breakdown = (build_score_breakdown(stable) if score_value(stable) is not None
+                 and stable.get("scoring_version") == versions["scoring_version"] else None)
     # Do not present reconstructed contributions as historical truth if parity fails.
     points = {r["requirement_id"]: r for r in breakdown["requirements"]} if breakdown and breakdown["score_parity"] else {}
     rows = []
@@ -79,7 +83,7 @@ def build_analysis_receipt(stable_analysis, *, raw_jd_text, provenance, identity
             "jd_fingerprint": current_ab_identity(raw_jd_text)["jd_fingerprint"],
             "canonical_requirement_fingerprint": canonical_requirement_scope_fingerprint(stable["canonical_requirements"]),
             "raw_jd_text": raw_jd_text, "stable_analysis": stable,
-            "score": stable.get("deterministic_alignment_score"), "requirements": rows,
+            "score": score_value(stable), "requirements": rows,
             "currentness": "Stale historical analysis" if stale else "Historical analysis",
             "contribution_status": "available" if points else "Historical contributions unavailable / parity not established"}
 
@@ -165,11 +169,14 @@ def load_frozen_document_report(application_id, *, db_path=None):
     view = load_application_initial(application_id, db_path=db_path, resume_only=True)
     path = Path(db_path or db_manager.DB_PATH).resolve()
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
-        row = conn.execute('SELECT report_json FROM application_analysis_versions WHERE application_id=? AND analysis_id=?',
+        row = conn.execute('SELECT report_json, pipeline_contract_version, status FROM application_analysis_versions WHERE application_id=? AND analysis_id=?',
                            (application_id, view['identity']['initial_analysis_id'])).fetchone()
     if row is None:
         raise ValueError('Frozen document receipt unavailable')
-    return json.loads(row[0])
+    report = json.loads(row[0])
+    if is_reviewed_analysis(report, contract=row[1], status=row[2]):
+        raise ValueError("A reviewed selection cannot be used as the frozen ordinary baseline.")
+    return report
 
 
 def compare_analysis_receipts(initial, final):

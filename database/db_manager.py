@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from analysis_stability.reviewed_jd_exclusions import is_reviewed_analysis, refuse_candidate_persistence
+from analysis_stability.requirement_presentation import report_for_score_publication, saved_overall_score, score_value
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -185,6 +188,8 @@ def insert_application_session_with_connection(
     """Insert one populated session without committing the caller's transaction."""
     if not isinstance(report, dict) or not report:
         raise ValueError("A populated application report is required.")
+    refuse_candidate_persistence(report)
+    report = report_for_score_publication(report)
     jd_profile = report.get("jd_profile") or {}
     meta = report.get("meta") or {}
     job_title = str(jd_profile.get("job_title") or "Unknown Role")
@@ -210,7 +215,7 @@ def insert_application_session_with_connection(
             job_title,
             company,
             str(meta.get("degree") or ""),
-            int(report.get("overall_score") or 0),
+            saved_overall_score(report),
             str(report.get("summary") or ""),
             json.dumps(report, ensure_ascii=False, default=str),
             str(created_at),
@@ -232,13 +237,15 @@ def save_application(
     This is used when the user analyzes without first clicking
     "New Application Session".
     """
+    refuse_candidate_persistence(report)
+    report = report_for_score_publication(report)
     jd_profile = report.get("jd_profile", {})
     meta = report.get("meta", {})
 
     job_title = jd_profile.get("job_title", "Unknown Role") or "Unknown Role"
     company = jd_profile.get("company", "Unknown Company") or "Unknown Company"
     degree = meta.get("degree", "")
-    overall_score = int(report.get("overall_score", 0))
+    overall_score = saved_overall_score(report)
     summary = report.get("summary", "")
 
     if company and company != "Unknown Company":
@@ -299,13 +306,15 @@ def update_application_report(
     connection: sqlite3.Connection | None = None,
 ) -> None:
     """Update an existing draft/current session with the analysis report."""
+    refuse_candidate_persistence(report)
+    report = report_for_score_publication(report)
     jd_profile = report.get("jd_profile", {})
     meta = report.get("meta", {})
 
     job_title = jd_profile.get("job_title", "Unknown Role") or "Unknown Role"
     company = jd_profile.get("company", "Unknown Company") or "Unknown Company"
     degree = meta.get("degree", "")
-    overall_score = int(report.get("overall_score", 0))
+    overall_score = saved_overall_score(report)
     summary = report.get("summary", "")
 
     if company and company != "Unknown Company":
@@ -444,7 +453,8 @@ def get_recent_applications(limit: int = 15) -> list[tuple]:
                 WHEN report_json IS NOT NULL AND TRIM(report_json) != '' THEN 1
                 ELSE 0
             END AS has_report,
-            COALESCE(updated_at, created_at)
+            COALESCE(updated_at, created_at),
+            report_json
         FROM applications
         ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
         LIMIT ?
@@ -455,7 +465,18 @@ def get_recent_applications(limit: int = 15) -> list[tuple]:
     rows = cursor.fetchall()
     conn.close()
 
-    return rows
+    result = []
+    for app_id, name, title, company, score, has_report, updated, payload in rows:
+        try:
+            report = json.loads(payload or "{}")
+        except json.JSONDecodeError:
+            report = {}
+        stable = report.get("stable_analysis") if isinstance(report, dict) else None
+        if ((isinstance(stable, dict) and score_value(stable) is None)
+                or (isinstance(report, dict) and is_reviewed_analysis(report))):
+            score = None
+        result.append((app_id, name, title, company, score, has_report, updated))
+    return result
 
 
 def get_application_by_id(application_id: int) -> dict[str, Any] | None:
@@ -491,6 +512,9 @@ def get_application_by_id(application_id: int) -> dict[str, Any] | None:
 
     report_json = row[7] or ""
     report = json.loads(report_json) if report_json.strip() else None
+    reviewed = isinstance(report, dict) and is_reviewed_analysis(report)
+    if reviewed:
+        report = None
 
     return {
         "session_name": row[0],
@@ -498,8 +522,9 @@ def get_application_by_id(application_id: int) -> dict[str, Any] | None:
         "job_title": row[2],
         "company": row[3],
         "degree": row[4],
-        "overall_score": row[5],
-        "summary": row[6],
+        "overall_score": (None if reviewed or (isinstance((report or {}).get("stable_analysis"), dict)
+                          and score_value(report["stable_analysis"]) is None) else row[5]),
+        "summary": "" if reviewed else row[6],
         "report": report,
         "cover_letter": row[8] or "",
         "created_at": row[9],

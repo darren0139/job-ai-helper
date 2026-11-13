@@ -22,6 +22,12 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from analysis_stability.reviewed_jd_exclusions import (
+    apply_reviewed_exclusions,
+    effective_scoring_version,
+    matching_policy_identity,
+)
+from analysis_stability.reviewed_jd_exclusions import verify_effective_analysis
 from analysis_stability.evidence_support import (
     classify_verified_evidence_support,
 )
@@ -4352,6 +4358,18 @@ def compute_deterministic_alignment(
     }
 
 
+def stable_analysis_input_fingerprint(raw_resume_text, raw_jd_text, taxonomy_version,
+                                      registry_version, scoring_version, scope=None):
+    parts = (
+        _normalise_basic(raw_resume_text), _normalise_basic(raw_jd_text),
+        taxonomy_version, registry_version, TECHNOLOGY_REGISTRY_RESOLUTION_VERSION,
+        CAPABILITY_NONE_RECOVERY_POLICY_VERSION, scoring_version,
+    )
+    if scope:
+        parts += (scope["effective_requirement_scope_sha256"],)
+    return hashlib.sha256("\n---INPUT-PART---\n".join(parts).encode("utf-8")).hexdigest()
+
+
 def build_stable_analysis(
     *,
     jd_profile: dict[str, Any],
@@ -4364,11 +4382,13 @@ def build_stable_analysis(
     retrieval_mode_override: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete Phase 6A.1C stable-analysis payload."""
+    policy_identity = matching_policy_identity(raw_jd_text)
     canonical = canonicalise_requirements(
         jd_profile=jd_profile,
         raw_jd_text=raw_jd_text,
     )
 
+    canonical = apply_reviewed_exclusions(raw_jd_text, canonical)
     linked, link_warnings = link_requirement_matches(
         requirements=canonical["requirements"],
         keyword_match=keyword_match,
@@ -4430,20 +4450,12 @@ def build_stable_analysis(
         structure_score=structure_score,
     )
 
-    input_material = "\n---INPUT-PART---\n".join(
-        (
-            _normalise_basic(raw_resume_text),
-            _normalise_basic(raw_jd_text),
-            taxonomy_version,
-            registry_version,
-            TECHNOLOGY_REGISTRY_RESOLUTION_VERSION,
-            CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
-            SCORING_VERSION,
-        )
-    )
-
-    return {
-        "scoring_version": SCORING_VERSION,
+    scope = canonical.get("effective_requirement_scope")
+    scoring_version = effective_scoring_version(SCORING_VERSION, policy_identity)
+    result = {
+        "scoring_version": scoring_version,
+        **({"matching_policy_identity": policy_identity,
+            "effective_requirement_scope": canonical["effective_requirement_scope"]} if policy_identity else {}),
         "capability_taxonomy_version": taxonomy_version,
         "technology_registry_version": registry_version,
         "technology_registry_resolution_version": (
@@ -4454,9 +4466,9 @@ def build_stable_analysis(
         ),
         "credential_evidence_policy_version": CREDENTIAL_EVIDENCE_POLICY_VERSION,
         "jd_structure_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
-        "input_fingerprint": hashlib.sha256(
-            input_material.encode("utf-8")
-        ).hexdigest(),
+        "input_fingerprint": stable_analysis_input_fingerprint(
+            raw_resume_text, raw_jd_text, taxonomy_version, registry_version, scoring_version, scope
+        ),
         "canonical_requirements": taxonomy_validated,
         "capability_evidence_reselection": {
             "policy_version": CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION,
@@ -4512,3 +4524,6 @@ def build_stable_analysis(
         ),
         **score,
     }
+    if policy_identity:
+        verify_effective_analysis(raw_jd_text, result, require_active=True)
+    return result

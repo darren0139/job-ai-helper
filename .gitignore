@@ -54,3 +54,6 @@ debug_exports/
 # Local research documents and generated reports
 /docs/*
 /reports/*
+
+# Local browser-extension build output
+dist/browser_extension/

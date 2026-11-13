@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from analysis_stability.requirement_presentation import score_value, unavailable_score_reason
+from analysis_stability.reviewed_jd_exclusions import (
+    effective_scoring_version, project_requirement_scope, requirement_scope_sha256, verify_effective_analysis,
+)
+
 from copy import deepcopy
 from typing import Any, Iterable
 
@@ -359,10 +364,15 @@ def validate_exact_jd_snapshot(
             code="exact_jd_role_family_mismatch",
         )
 
+    effective_rows, reviewed_scope = project_requirement_scope(raw_text, rows, has_local_overrides=bool(local_overrides))
+    if reviewed_scope and requirement_scope_sha256(canonicalisation_rows) != reviewed_scope["original_requirement_scope_sha256"]:
+        raise Phase9FBRankingError("The frozen original requirement scope is inconsistent.",
+                                   code="reviewed_original_scope_mismatch")
     return {
         "raw_text": raw_text,
         "jd_profile": deepcopy(profile),
         "canonical_requirements": deepcopy(rows),
+        **({"effective_requirements": deepcopy(effective_rows)} if reviewed_scope else {}),
         "application_local_jd_user_inputs": local_inputs,
         "acronym_map": deepcopy(canonicalisation.get("acronym_map") or {}),
         "semantic_identity": {
@@ -370,6 +380,9 @@ def validate_exact_jd_snapshot(
             "structured_profile_fingerprint": profile_fingerprint,
             "canonical_requirement_fingerprint": requirement_fingerprint,
             "canonical_requirement_ids": requirement_ids,
+            **({"effective_requirement_scope": reviewed_scope,
+                "effective_canonical_requirement_fingerprint": canonical_requirement_scope_fingerprint(effective_rows)}
+               if reviewed_scope else {}),
             "role_family": role_identity,
         },
         "provenance": {
@@ -974,7 +987,11 @@ def prepare_ranking_context(
         except Phase9FBRankingError as exc:
             integrity_issues.append(deepcopy(exc.diagnostic))
 
-    active_family_ids: set[str] = set()
+    # Phase 9D allows multiple active variants in one role family. Its
+    # persistence invariant is UNIQUE(role_family_id, variant_id) WHERE active.
+    # Match that invariant here, not the old one-blueprint-per-family rule.
+    # Legacy rows without an explicit variant belong to the primary lane.
+    active_variant_lanes: set[tuple[str, str]] = set()
     for blueprint in global_blueprints:
         if not isinstance(blueprint, dict):
             continue
@@ -991,19 +1008,22 @@ def prepare_ranking_context(
             continue
         observations.append(_source_observation("global_blueprint", blueprint))
         role_family_id = _clean(blueprint.get("role_family_id"))
-        if role_family_id in active_family_ids:
+        variant_id = _clean(blueprint.get("variant_id")) or "primary"
+        variant_lane = (role_family_id, variant_id)
+        if variant_lane in active_variant_lanes:
             integrity_issues.append(
                 {
-                    "code": "multiple_active_blueprints_for_role_family",
+                    "code": "multiple_active_blueprints_for_variant_lane",
                     "message": (
-                        "Multiple active Global Blueprints exist for one role family."
+                        "Multiple active Global Blueprints exist for one "
+                        "role-family variant lane."
                     ),
                     "source_type": "global_blueprint",
                     "source_id": _clean(blueprint.get("blueprint_id")),
                 }
             )
             continue
-        active_family_ids.add(role_family_id)
+        active_variant_lanes.add(variant_lane)
         try:
             sources.append(normalize_active_blueprint_source(deepcopy(blueprint)))
         except Phase9FBRankingError as exc:
@@ -1022,6 +1042,10 @@ def prepare_ranking_context(
             row["source_fingerprint"],
         )
     )
+    reviewed_scope = jd["semantic_identity"].get("effective_requirement_scope")
+    if reviewed_scope:
+        for source in sources:
+            source["exact_verified_reuse"] = ineligible_exact_verified_reuse("matching_policy_changed")
     semantic_sources = [deepcopy(row["semantic_identity"]) for row in sources]
     exact_reuse_scope = [
         {
@@ -1055,7 +1079,8 @@ def prepare_ranking_context(
 
     scoring_identity = {
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": effective_scoring_version(
+            SCORING_VERSION, reviewed_scope["policy_identity"] if reviewed_scope else ""),
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "retrieval_mode": "lexical",
@@ -1106,7 +1131,8 @@ def score_normalized_source(
     exact_jd: dict[str, Any],
 ) -> dict[str, Any]:
     """Run the Phase 9C fresh-target public scoring path for one source."""
-    requirements = deepcopy(exact_jd["canonical_requirements"])
+    scope_identity = exact_jd["semantic_identity"].get("effective_requirement_scope")
+    requirements = deepcopy(exact_jd.get("effective_requirements", exact_jd["canonical_requirements"]))
     keyword_match = build_deterministic_keyword_match(
         requirements=requirements,
         acronym_map=deepcopy(exact_jd["acronym_map"]),
@@ -1121,6 +1147,11 @@ def score_normalized_source(
         resume_profile=deepcopy(source["resume_profile_snapshot"]),
         retrieval_mode_override="lexical",
     )
+    if score_value(analysis) is None:
+        raise Phase9FBRankingError(
+            unavailable_score_reason(analysis), code="score_unavailable",
+            source_type=source["source_type"], source_id=source["source_id"],
+        )
     analysis = _apply_phase9f_jd_user_inputs_to_fresh_analysis(
         analysis,
         exact_jd=exact_jd,
@@ -1134,19 +1165,22 @@ def score_normalized_source(
     result_scope_fingerprint = canonical_requirement_scope_fingerprint(
         result_rows
     )
-    expected_scope_fingerprint = exact_jd["semantic_identity"][
-        "canonical_requirement_fingerprint"
-    ]
+    verified_scope = verify_effective_analysis(exact_jd["raw_text"], analysis, require_active=True)
+    if verified_scope != scope_identity:
+        raise Phase9FBRankingError("The reviewed effective scope is inconsistent.",
+                                   code="reviewed_effective_scope_mismatch")
+    expected_scope_fingerprint = exact_jd["semantic_identity"].get(
+        "effective_canonical_requirement_fingerprint" if verified_scope else "canonical_requirement_fingerprint")
     result_ids = sorted(
         _clean(row.get("requirement_id"))
         for row in result_rows
         if _clean(row.get("requirement_id"))
     )
-    if (
-        result_scope_fingerprint != expected_scope_fingerprint
-        or result_ids
-        != exact_jd["semantic_identity"]["canonical_requirement_ids"]
-    ):
+    expected_ids = exact_jd["semantic_identity"]["canonical_requirement_ids"]
+    if verified_scope:
+        excluded_ids = set(verified_scope["excluded_requirement_ids"])
+        expected_ids = [rid for rid in expected_ids if rid not in excluded_ids]
+    if result_scope_fingerprint != expected_scope_fingerprint or result_ids != expected_ids:
         raise Phase9FBRankingError(
             "Fresh scoring changed the frozen Phase 9F-A canonical requirement scope.",
             code="fresh_scoring_requirement_scope_mismatch",
@@ -1180,7 +1214,7 @@ def score_normalized_source(
     scoring_identity = {
         "exact_jd": deepcopy(exact_jd["semantic_identity"]),
         "source": deepcopy(source["semantic_identity"]),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": analysis["scoring_version"] if verified_scope else SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
@@ -1284,7 +1318,7 @@ def score_normalized_source(
         "candidate_analysis_snapshot_fingerprint": (
             candidate_analysis_snapshot_fingerprint
         ),
-        "scoring_version": SCORING_VERSION,
+        "scoring_version": analysis["scoring_version"] if verified_scope else SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
         "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
         "exact_verified_reuse_eligible": bool(
@@ -1365,6 +1399,7 @@ def order_scored_candidates(
     scored_candidates: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Apply the deterministic comparator and calibrated family prior."""
+    scored_candidates = [row for row in scored_candidates if score_value(row) is not None]
     exact = sorted(
         (
             deepcopy(row)
@@ -1468,6 +1503,8 @@ def validate_ranked_candidate_comparison_contract(
             "The Phase 9F-B ranked candidate is missing.",
             code="ranked_candidate_missing",
         )
+    if score_value(candidate) is None:
+        raise Phase9FBRankingError(unavailable_score_reason(candidate), code="score_unavailable")
     try:
         identity = build_comparison_result_identity(
             canonical_requirement_results=candidate[
@@ -1614,7 +1651,7 @@ def validate_ranked_candidate_analysis_snapshot(
         "evidence_strength_score",
     )
     if any(
-        int(analysis.get(field) or 0) != int(candidate.get(field) or 0)
+        score_value(analysis, field) is None or score_value(analysis, field) != score_value(candidate, field)
         for field in metric_fields
     ):
         raise Phase9FBRankingError(
@@ -1628,9 +1665,14 @@ def validate_ranked_candidate_analysis_snapshot(
             "The retained stable-analysis input fingerprint is inconsistent.",
             code="candidate_analysis_input_fingerprint_mismatch",
         )
+    scope = verify_effective_analysis(raw_jd_text, analysis)
+    if scope != exact_jd_identity.get("effective_requirement_scope"):
+        raise Phase9FBRankingError("The retained reviewed scope is inconsistent.",
+                                   code="reviewed_effective_scope_mismatch")
+    scope_field = "effective_canonical_requirement_fingerprint" if scope else "canonical_requirement_fingerprint"
     if canonical_requirement_scope_fingerprint(analysis_rows) != _clean(
         candidate.get("canonical_requirement_scope_fingerprint")
-    ) or _clean(exact_jd_identity.get("canonical_requirement_fingerprint")) != _clean(
+    ) or _clean(exact_jd_identity.get(scope_field)) != _clean(
         candidate.get("canonical_requirement_scope_fingerprint")
     ):
         raise Phase9FBRankingError(

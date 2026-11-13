@@ -7,6 +7,9 @@ only after the user explicitly confirms creation of an Application Session.
 
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import score_value, unavailable_score_reason
+from analysis_stability.reviewed_jd_exclusions import refuse_candidate_persistence
+
 from copy import deepcopy
 from typing import Any
 
@@ -397,6 +400,7 @@ def build_application_baseline_report(
     validated = validate_ranked_candidate_analysis_snapshot(selected)
     snapshot = validated["candidate_analysis_snapshot"]
     analysis = deepcopy(snapshot["stable_analysis_snapshot"])
+    refuse_candidate_persistence({"stable_analysis": analysis})
     keyword_match = deepcopy(snapshot["keyword_match_snapshot"])
     profile = deepcopy(snapshot["resume_profile_snapshot"])
     jd_profile = deepcopy(snapshot["jd_profile_snapshot"])
@@ -408,7 +412,9 @@ def build_application_baseline_report(
             code="application_baseline_content_missing",
         )
 
-    alignment = int(analysis.get("deterministic_alignment_score") or 0)
+    alignment = score_value(analysis)
+    if alignment is None:
+        raise Phase9FDConfirmationError(unavailable_score_reason(analysis), code="score_unavailable")
     report = {
         "meta": {
             "model": "deterministic-phase9f-b-baseline",

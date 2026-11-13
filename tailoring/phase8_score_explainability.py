@@ -6,6 +6,8 @@ or the stored scorer result.
 """
 from __future__ import annotations
 
+from analysis_stability.requirement_presentation import score_value
+
 from typing import Any
 
 from analysis_stability.stable_evidence_scoring import (
@@ -205,10 +207,7 @@ def build_score_breakdown(analysis: dict[str, Any] | None) -> dict[str, Any]:
     ]
     unrounded_total = sum(float(row["weighted_points"]) for row in components)
     reconstructed = int(max(0, min(100, round(unrounded_total))))
-    try:
-        scorer_score = int(analysis.get("deterministic_alignment_score", 0) or 0)
-    except (TypeError, ValueError):
-        scorer_score = 0
+    scorer_score = score_value(analysis)
 
     requirement_rows = [*required["requirements"], *preferred["requirements"]]
     by_id = {
@@ -259,7 +258,7 @@ def build_score_breakdown(analysis: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "explainability_version": PHASE8_SCORE_EXPLAINABILITY_VERSION,
         "scorer_score": scorer_score,
-        "reconstructed_score": reconstructed,
+        "reconstructed_score": reconstructed if scorer_score is not None else None,
         "score_parity": scorer_score == reconstructed,
         "unrounded_total": round(unrounded_total, 6),
         "components": components,
@@ -470,7 +469,7 @@ def build_score_receipt(breakdown: dict[str, Any] | None) -> dict[str, Any]:
         "component_subtotal": component_subtotal,
         "subtotal_before_rounding": subtotal_before_rounding,
         "final_score": final_score,
-        "stored_scorer_score": int(breakdown.get("scorer_score", 0) or 0),
+        "stored_scorer_score": breakdown.get("scorer_score"),
         "score_parity": bool(breakdown.get("score_parity", False)),
         "requirement_subtotal": requirement_subtotal,
         "component_subtotal_parity": abs(
