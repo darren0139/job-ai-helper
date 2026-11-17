@@ -44,9 +44,22 @@ class BrowserFirefoxCompatibilityTests(unittest.TestCase):
             gecko["id"],
             "job-ai-helper-browser@job-ai-helper.local",
         )
+        required_data = set(
+            gecko["data_collection_permissions"]["required"]
+        )
+        self.assertNotIn("none", required_data)
         self.assertEqual(
-            gecko["data_collection_permissions"]["required"],
-            ["none"],
+            required_data,
+            {
+                "authenticationInfo",
+                "browsingActivity",
+                "personallyIdentifyingInfo",
+                "websiteContent",
+            },
+        )
+        self.assertEqual(
+            gecko["strict_min_version"],
+            "142.0",
         )
 
     def test_bridge_accepts_chromium_and_firefox_extension_origins(self) -> None:
