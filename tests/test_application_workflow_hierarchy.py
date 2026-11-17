@@ -146,8 +146,13 @@ _render_result(st.session_state['result'])
             self.assertIn('Initial Job Match', [m.label for m in app.metric])
             self.assertIn('Final Job Match', [m.label for m in app.metric])
             text = [m.value for m in app.markdown]
-            self.assertIn('#### Initial vs Final', text)
+            self.assertIn(
+                '#### Initial vs Final' if second
+                else '#### Initial / Selected Base vs Final',
+                text,
+            )
             self.assertEqual('#### Selected Base vs Final' in text, second)
+            self.assertEqual('#### Initial / Selected Base vs Final' in text, not second)
             self.assertEqual(text.count('### Step 6 — Final Résumé Analysis / Phase8'), 1)
             self.assertLess(text.index('### Step 6 — Final Résumé Analysis / Phase8'), text.index('### Step 7 — Analysis comparison'))
             self.assertFalse(any('Baseline before fitting' in value for value in text))

@@ -277,6 +277,13 @@ Good written communication skills.
 
 
 class AtomicRequirementMatchingTests(unittest.TestCase):
+    def _garena_explicit_responsibilities_jd(self) -> str:
+        # Explicit heading authorises atomic duty decomposition. The generic
+        # 'Job Description' container, without bullets, deliberately does not.
+        return self._garena_raw_jd().replace(
+            "\nJob Description\n", "\nResponsibilities\n", 1
+        )
+
     def _garena_raw_jd(self) -> str:
         return """
 Job Description
@@ -323,10 +330,20 @@ Having a track record of working with meticulous works that require high attenti
             "skills": {},
         }
 
+    def test_generic_unbulleted_job_description_does_not_infer_duties(self) -> None:
+        # Regression for the newer conservative JD-heading admission rule:
+        # the bare generic container must not silently grant core requirements.
+        result = canonicalise_requirements({}, self._garena_raw_jd())
+        self.assertFalse(any(
+            'daily operations of the gaming product' in
+            row.get('parent_text', '').lower()
+            for row in result['requirements']
+        ))
+
     def test_compound_responsibility_is_split_atomically(self) -> None:
         result = canonicalise_requirements(
             {},
-            self._garena_raw_jd(),
+            self._garena_explicit_responsibilities_jd(),
         )
         texts = [row["text"].lower() for row in result["requirements"]]
         self.assertTrue(any("gaming product configuration" in text for text in texts))
@@ -336,7 +353,9 @@ Having a track record of working with meticulous works that require high attenti
         self.assertTrue(any("operational evaluation" in text for text in texts))
 
     def test_atomic_children_do_not_merge_back_into_parent(self) -> None:
-        result = canonicalise_requirements({}, self._garena_raw_jd())
+        result = canonicalise_requirements(
+            {}, self._garena_explicit_responsibilities_jd()
+        )
         first_group = [
             row
             for row in result["requirements"]
@@ -348,7 +367,7 @@ Having a track record of working with meticulous works that require high attenti
     def test_published_game_does_not_prove_daily_operations_or_qa(self) -> None:
         stable = build_stable_analysis(
             jd_profile={},
-            raw_jd_text=self._garena_raw_jd(),
+            raw_jd_text=self._garena_explicit_responsibilities_jd(),
             raw_resume_text="Built a mobile game published on Google Play.",
             resume_profile=self._resume_profile(),
             keyword_match={

@@ -384,7 +384,10 @@ class JobMatchSessionABTests(unittest.TestCase):
         self.assertIn("Tailored Job Match", source)
         self.assertIn("Initial vs Tailored", source)
         self.assertIn("Evidence / provenance", source)
-        self.assertIn("Initial provenance", source)
+        # The dynamic baseline is not always an Initial document.
+        # Keep the actual column contract rather than pinning a stale label.
+        self.assertIn('Baseline evidence', source)
+        self.assertIn('baseline_name + " provenance"', source)
         self.assertIn("Tailored provenance", source)
         self.assertIn("A/B taxonomy and resolver diagnostics", source)
         self.assertIn("Contribution Δ", source)
