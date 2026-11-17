@@ -100,7 +100,7 @@ async function getActiveTab() {
   return tab;
 }
 
-const CONTENT_SCRIPT_VERSION = "browser-content-v4.2";
+const CONTENT_SCRIPT_VERSION = "browser-content-v4.3";
 const BATCH_CONCURRENCY = 3;
 
 async function hasCurrentContentScript(tabId) {
@@ -135,6 +135,8 @@ async function ensureInjected(tabId) {
       "adapters/successfactors.js",
       "adapters/mycareersfuture.js",
       "adapters/smartrecruiters.js",
+      "adapters/fastjobs.js",
+      "adapters/workjio.js",
       "adapters/linkedin.js",
       "adapters/structured_job.js",
       "content.js",
@@ -348,6 +350,7 @@ async function batchCaptureSelectedTabs() {
             saved?.capture?.extraction_strategy ||
             capture?.job?.cleaning_strategy ||
             "",
+          job_finder_index: saved?.job_finder_index || null,
           elapsed_ms: Math.round(performance.now() - startedAt),
         };
       } catch (error) {
@@ -393,7 +396,7 @@ async function batchCaptureSelectedTabs() {
     model_calls: 0,
     items,
     note:
-      "Captures were extracted locally and saved to the localhost inbox only. No JD analysis or model call was triggered.",
+      "Captures were extracted locally and saved through the localhost bridge. FastJobs/WorkJio captures may also be indexed locally in Job Finder; no JD analysis or model call was triggered.",
   };
 }
 

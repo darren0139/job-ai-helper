@@ -28,6 +28,7 @@ from database.job_discovery_manager import (
 )
 from job_discovery.hide_filters import job_identity, partition_hidden_jobs, rule_description
 from job_discovery.faceted_search import (
+    JOB_TYPE_MODES,
     apply_job_finder_filters,
     company_counts,
     employment_type_counts,
@@ -76,6 +77,15 @@ SOURCE_LABELS = {
     "lever": "Lever company boards",
     "ashby": "Ashby company boards",
     "smartrecruiters": "SmartRecruiters company boards",
+    "fastjobs": "FastJobs (browser-assisted; direct HTTP may be blocked)",
+    "workjio": "WorkJio (browser-assisted; direct HTTP may be blocked)",
+    "staffie": "Staffie shifts (public sample)",
+}
+
+
+DIRECT_REFRESH_EXCLUDED_SOURCES = {
+    "fastjobs",
+    "workjio",
 }
 
 
@@ -492,11 +502,18 @@ def render_job_finder() -> None:
     ):
         st.caption(
             "Refresh updates the local index. ATS companies can be refreshed concurrently, "
-            "while database writes remain serialized for SQLite safety."
+            "while database writes remain serialized for SQLite safety. "
+            "FastJobs and WorkJio are browser-assisted because their public pages "
+            "block this direct HTTP client; open a job normally and use the "
+            "Job AI Helper browser extension to capture it into Job Finder."
         )
         refresh_sources = st.multiselect(
             "Sources to refresh",
-            options=list(SOURCE_LABELS),
+            options=[
+                source
+                for source in SOURCE_LABELS
+                if source not in DIRECT_REFRESH_EXCLUDED_SOURCES
+            ],
             default=[],
             format_func=lambda value: SOURCE_LABELS.get(value, value),
             key="job_finder_refresh_sources_v124",
@@ -598,6 +615,21 @@ def render_job_finder() -> None:
                 target_overrides["smartrecruiters"] = _split_identifiers(
                     st.text_area("One-off SmartRecruiters company identifiers", key="job_targets_smartrecruiters_v124", height=70)
                 )
+
+        if "fastjobs" in refresh_sources:
+            st.caption(
+                "FastJobs search/list pages may render job cards client-side. "
+                "Paste direct public job URLs for the most reliable import; "
+                "the adapter fails closed when a listing exposes no job links."
+            )
+            target_overrides["fastjobs"] = _split_identifiers(
+                st.text_area(
+                    "FastJobs job/search URLs",
+                    key="job_targets_fastjobs_v1",
+                    height=90,
+                    placeholder="https://www.fastjobs.sg/singapore-job-ad/...",
+                )
+            )
 
         query_required = any(
             source in {"mycareersfuture", "careers_gov"}
@@ -787,6 +819,7 @@ def render_job_finder() -> None:
         st.session_state["job_finder_filter_companies_v123"] = []
         st.session_state["job_finder_filter_freshness_v123"] = "Any time"
         st.session_state["job_finder_filter_experience_v123"] = "Any"
+        st.session_state["job_finder_filter_job_type_v1"] = "All jobs"
         st.session_state["job_finder_filter_employment_v123"] = []
         st.session_state["job_finder_filter_lifecycle_v123"] = ["active"]
         st.session_state["job_finder_filter_events_v123"] = []
@@ -808,6 +841,7 @@ def render_job_finder() -> None:
         "job_finder_filter_companies_v123": [],
         "job_finder_filter_freshness_v123": "Any time",
         "job_finder_filter_experience_v123": "Any",
+        "job_finder_filter_job_type_v1": "All jobs",
         "job_finder_filter_employment_v123": [],
         "job_finder_filter_lifecycle_v123": ["active"],
         "job_finder_filter_events_v123": [],
@@ -959,6 +993,16 @@ def render_job_finder() -> None:
                 key="job_finder_filter_entry_v123",
             )
 
+        job_type_mode = st.selectbox(
+            "Job Type",
+            options=list(JOB_TYPE_MODES),
+            key="job_finder_filter_job_type_v1",
+            help=(
+                "Broad preset across inconsistent source labels. "
+                "Employment type below remains an independent exact-match facet."
+            ),
+        )
+
         employment_count_map = employment_type_counts(
             facetable_preview
         )
@@ -1023,6 +1067,7 @@ def render_job_finder() -> None:
         max_experience_years=experience_ceiling,
         selected_lifecycle_statuses=lifecycle_filter,
         selected_events=event_filter,
+        job_type_mode=job_type_mode,
         selected_employment_types=selected_employment,
         entry_only=entry_only,
     )
@@ -1075,6 +1120,8 @@ def render_job_finder() -> None:
         )
     if event_filter:
         active_filter_bits.append("Event: " + ", ".join(value.title() for value in event_filter))
+    if job_type_mode != "All jobs":
+        active_filter_bits.append(f"Job Type: {job_type_mode}")
     if selected_employment:
         active_filter_bits.append("Employment: " + ", ".join(selected_employment))
     if entry_only:

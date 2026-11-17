@@ -19,6 +19,9 @@ from job_discovery.models import SearchSpec
 from job_discovery.sources import (
     AshbySource,
     CareersGovSource,
+    WorkJioSource,
+    StaffieSource,
+    FastJobsSource,
     GreenhouseSource,
     LeverSource,
     MyCareersFutureSource,
@@ -94,6 +97,17 @@ def _build_sources(
     if "careers_gov" in selected:
         sources.append(CareersGovSource())
 
+    if "workjio" in selected:
+        sources.append(WorkJioSource())
+    if "staffie" in selected:
+        sources.append(StaffieSource())
+    if "fastjobs" in selected:
+        sources.append(
+            FastJobsSource(
+                start_urls=(target_overrides or {}).get("fastjobs", [])
+            )
+        )
+
     for target in _targets(config, "greenhouse", target_overrides, target_selection):
         if "greenhouse" in selected:
             sources.append(GreenhouseSource(target["identifier"], company_name=target.get("company", "")))
@@ -145,7 +159,16 @@ def _can_reuse_recent_run(
 ) -> bool:
     if force_full_refresh or min_interval <= 0 or age_minutes is None or age_minutes >= min_interval:
         return False
-    if isinstance(source, (MyCareersFutureSource, CareersGovSource)):
+    if isinstance(
+        source,
+        (
+            MyCareersFutureSource,
+            CareersGovSource,
+            FastJobsSource,
+            WorkJioSource,
+            StaffieSource,
+        ),
+    ):
         return (
             str((recent_run or {}).get("query") or "").strip().casefold()
             == spec.query.strip().casefold()

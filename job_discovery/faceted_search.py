@@ -243,6 +243,76 @@ def filter_jobs_by_entry_level(
     return [dict(job) for job in jobs if is_entry_level_job(job)]
 
 
+
+JOB_TYPE_MODES = (
+    "All jobs",
+    "Full-time",
+    "Part-time / shift",
+    "Internship",
+    "Contract / temporary",
+)
+
+
+def job_type_bucket(job: dict[str, Any]) -> str:
+    """Map inconsistent source employment labels to one broad Job Type bucket."""
+    import re
+
+    def classify(value: str) -> str:
+        text = _text(value).casefold()
+        if not text:
+            return ""
+        if re.search(r"\bintern(?:ship)?\b", text):
+            return "Internship"
+        if re.search(
+            r"\bpart[\s-]?time\b|\bgig\b|\bshift\b|\bcasual\b|"
+            r"\bfreelance\b|\bhourly\b",
+            text,
+        ):
+            return "Part-time / shift"
+        if re.search(
+            r"\bcontract(?:or)?\b|\btemporary\b|\btemp\b",
+            text,
+        ):
+            return "Contract / temporary"
+        if re.search(
+            r"\bfull[\s-]?time\b|\bfulltime\b|\bpermanent\b",
+            text,
+        ):
+            return "Full-time"
+        return ""
+
+    structured = classify(_text(job.get("employment_type")))
+    if structured:
+        return structured
+
+    fallback = " ".join(
+        _text(job.get(key))
+        for key in ("title", "description")
+    )
+    return classify(fallback) or "Other / unspecified"
+
+
+def filter_jobs_by_job_type_mode(
+    jobs: Iterable[dict[str, Any]],
+    job_type_mode: str = "All jobs",
+) -> list[dict[str, Any]]:
+    """Apply the broad Job Type preset independently of exact employment type."""
+    mode = _text(job_type_mode) or "All jobs"
+    if mode not in JOB_TYPE_MODES:
+        raise ValueError(
+            "Unknown Job Type mode: "
+            f"{mode!r}. Expected one of {JOB_TYPE_MODES!r}."
+        )
+    if mode == "All jobs":
+        return [dict(job) for job in jobs]
+
+    return [
+        dict(job)
+        for job in jobs
+        if job_type_bucket(job) == mode
+    ]
+
+
 def apply_job_finder_filters(
     jobs: Iterable[dict[str, Any]],
     *,
@@ -252,6 +322,7 @@ def apply_job_finder_filters(
     max_experience_years: float | None = None,
     selected_lifecycle_statuses: Iterable[str] = (),
     selected_events: Iterable[str] = (),
+    job_type_mode: str = "All jobs",
     selected_employment_types: Iterable[str] = (),
     entry_only: bool = False,
     now_timestamp: float | None = None,
@@ -289,6 +360,12 @@ def apply_job_finder_filters(
 
     rows = filter_jobs_by_events(rows, selected_events)
     trace.append({"Stage": "Last refresh event", "Jobs": len(rows)})
+
+    rows = filter_jobs_by_job_type_mode(
+        rows,
+        job_type_mode,
+    )
+    trace.append({"Stage": "Job Type", "Jobs": len(rows)})
 
     rows = filter_jobs_by_employment_types(
         rows,

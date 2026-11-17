@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const CONTENT_VERSION = "browser-content-v4.2";
+  const CONTENT_VERSION = "browser-content-v4.3";
   if (self.__JOB_AI_HELPER_CONTENT_VERSION__ === CONTENT_VERSION) return;
   self.__JOB_AI_HELPER_CONTENT_VERSION__ = CONTENT_VERSION;
   self.__JOB_AI_HELPER_CONTENT_V2__ = true;
@@ -364,6 +364,9 @@
         job_title: identity.title || "",
         company: identity.company || "",
         location: identity.location || "",
+        employment_type: String(
+          adapted?.metadata?.employmentType || ""
+        ).trim(),
         jd_text: isolated.jdText || "",
         jd_character_count: String(isolated.jdText || "").length,
         posting_notes: Array.isArray(isolated.postingNotes)

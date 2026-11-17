@@ -17,6 +17,9 @@ from database.browser_capture_manager import (
     list_browser_job_captures,
     save_browser_job_capture,
 )
+from job_discovery.browser_capture_ingest import (
+    ingest_browser_capture_to_job_finder,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -216,6 +219,17 @@ class JobAIBridgeHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            try:
+                job_finder_index = ingest_browser_capture_to_job_finder(
+                    payload,
+                    saved,
+                )
+            except Exception as exc:
+                job_finder_index = {
+                    "status": "error",
+                    "error": str(exc),
+                }
+
             self._send_json(
                 HTTPStatus.OK,
                 {
@@ -229,9 +243,12 @@ class JobAIBridgeHandler(BaseHTTPRequestHandler):
                         "source_url": saved.get("source_url"),
                         "extraction_strategy": saved.get("extraction_strategy"),
                     },
+                    "job_finder_index": job_finder_index,
                     "note": (
-                        "Saved as a pending browser capture only. "
-                        "No LLM analysis or canonical JD write was performed."
+                        "Saved as a pending browser capture. "
+                        "Supported browser-assisted sources may also be upserted "
+                        "into the local Job Finder index. No LLM analysis or "
+                        "canonical JD write was performed."
                     ),
                 },
             )
