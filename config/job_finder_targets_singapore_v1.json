@@ -1,0 +1,131 @@
+{
+  "schema_version": "job-finder-target-registry-v1",
+  "targets": [
+    {
+      "company_name": "Airwallex",
+      "ats_provider": "ashby",
+      "ats_identifier": "airwallex",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Bjak",
+      "ats_provider": "ashby",
+      "ats_identifier": "bjakcareer",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Exa",
+      "ats_provider": "ashby",
+      "ats_identifier": "exa",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Fireworks AI",
+      "ats_provider": "ashby",
+      "ats_identifier": "fireworks",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Mobbin",
+      "ats_provider": "ashby",
+      "ats_identifier": "mobbin.com",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "DRW",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "drweng",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Encora",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "encora10",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Grasshopper",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "grasshopperasia",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Metabit Technology",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "metabittechnologyllc",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "OKX",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "okx",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Reolink",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "reolink",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "SimplifyNext",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "simplifynext",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Temus",
+      "ats_provider": "greenhouse",
+      "ats_identifier": "temus",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "CSIT",
+      "ats_provider": "lever",
+      "ats_identifier": "csit",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Palantir",
+      "ats_provider": "lever",
+      "ats_identifier": "palantir",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "fun.xyz",
+      "ats_provider": "lever",
+      "ats_identifier": "funxyz",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "Delivery Hero / foodpanda",
+      "ats_provider": "smartrecruiters",
+      "ats_identifier": "DeliveryHero",
+      "careers_url": "",
+      "enabled": true
+    },
+    {
+      "company_name": "NCS",
+      "ats_provider": "smartrecruiters",
+      "ats_identifier": "NCS3",
+      "careers_url": "",
+      "enabled": true
+    }
+  ]
+}

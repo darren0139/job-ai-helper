@@ -13,6 +13,10 @@ from database.job_match_manager import (
 from database.job_discovery_manager import (
     delete_hide_rule,
     delete_target_company,
+    export_target_company_registry,
+    preview_target_company_registry_import,
+    import_target_company_registry,
+    load_singapore_target_company_registry,
     get_job_discovery_lifecycle_counts,
     get_job_discovery_source_counts,
     get_recent_discovery_runs,
@@ -247,6 +251,89 @@ def _handoff_to_new_application(job: dict[str, Any], snapshot_id: int | None = N
 
 
 
+def _render_target_registry_import(payload: dict[str, Any], *, label: str, key: str) -> None:
+    import sqlite3
+
+    try:
+        preview = preview_target_company_registry_import(payload)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        st.error(f"Invalid registry. {exc}")
+        return
+    st.caption(
+        f"{preview['input_count']} targets · {preview['new_count']} new · "
+        f"{preview['updated_count']} updates · {preview['unchanged_count']} unchanged"
+    )
+    st.dataframe(
+        [{"Action": change["action"], **change["target"]} for change in preview["changes"]],
+        width="stretch",
+        hide_index=True,
+    )
+    if st.button(label, key=key):
+        try:
+            receipt = import_target_company_registry(payload)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+            st.error(f"Registry import failed. {exc}")
+        else:
+            st.session_state["job_finder_registry_import_receipt_v1"] = receipt
+            st.rerun()
+
+
+def _render_target_registry_portability() -> None:
+    import json
+
+    st.markdown("##### Registry backup and transfer")
+    st.caption(
+        "SQLite holds your active targets. Download JSON for a backup or transfer. "
+        "Imports merge targets and keep companies missing from the file."
+    )
+    receipt = st.session_state.pop("job_finder_registry_import_receipt_v1", None)
+    if receipt:
+        st.success(
+            f"Imported {receipt['input_count']} targets. {receipt['new_count']} new, "
+            f"{receipt['updated_count']} updated, {receipt['unchanged_count']} already current."
+        )
+    st.download_button(
+        "Download target registry",
+        data=json.dumps(export_target_company_registry(), ensure_ascii=False, indent=2) + "\n",
+        file_name="job_finder_target_registry.json",
+        mime="application/json",
+        key="job_finder_registry_download_v1",
+    )
+    uploaded = st.file_uploader(
+        "Import registry backup",
+        type=["json"],
+        key="job_finder_registry_upload_v1",
+    )
+    if uploaded is not None:
+        try:
+            payload = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+        except (ValueError, UnicodeError) as exc:
+            st.error(f"Invalid registry JSON. {exc}")
+        else:
+            _render_target_registry_import(
+                payload,
+                label="Import target registry",
+                key="job_finder_registry_import_v1",
+            )
+
+    with st.expander("Singapore starter targets", expanded=False):
+        st.caption(
+            "A bundled starter list of 18 ATS targets for software / CS job discovery. "
+            "It is not automatically synchronized with employers. "
+            "Review, disable, or delete targets normally after importing."
+        )
+        try:
+            starter = load_singapore_target_company_registry()
+        except (ValueError, OSError) as exc:
+            st.error(f"Starter registry could not be loaded. {exc}")
+        else:
+            _render_target_registry_import(
+                starter,
+                label="Load Singapore starter targets",
+                key="job_finder_registry_starter_import_v1",
+            )
+
+
 def _render_target_company_registry() -> None:
     targets = list_target_companies(include_disabled=True)
 
@@ -255,6 +342,7 @@ def _render_target_company_registry() -> None:
         "Save each ATS company once. Enabled targets are used automatically when you refresh "
         "Greenhouse, Lever, Ashby, or SmartRecruiters."
     )
+    _render_target_registry_portability()
 
     if targets:
         display_rows = [
