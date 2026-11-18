@@ -12,6 +12,10 @@ class JobSourceError(RuntimeError):
     pass
 
 
+class JobSourceTimeout(JobSourceError):
+    """The source did not complete a request within the configured timeout."""
+
+
 class JsonHttpClient:
     def __init__(
         self,
@@ -37,7 +41,15 @@ class JsonHttpClient:
             raise JobSourceError(
                 f"HTTP {exc.code} for {request.full_url}: {body or exc.reason}"
             ) from exc
-        except (URLError, TimeoutError) as exc:
+        except TimeoutError as exc:
+            raise JobSourceTimeout(
+                f"Request timed out after {self.timeout:g}s for {request.full_url}"
+            ) from exc
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise JobSourceTimeout(
+                    f"Request timed out after {self.timeout:g}s for {request.full_url}"
+                ) from exc
             raise JobSourceError(f"Request failed for {request.full_url}: {exc}") from exc
 
         try:
