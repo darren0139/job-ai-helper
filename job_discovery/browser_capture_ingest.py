@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from database.browser_capture_manager import canonicalize_browser_source_url
 from database.job_discovery_manager import upsert_discovered_jobs
 from job_discovery.models import NormalizedJob
+from job_discovery.structural_text_selection import select_job_description
 
 
 _SUPPORTED = {
@@ -72,7 +73,7 @@ def normalized_browser_discovery_job(
     if not title or len(description) < 120:
         return None
 
-    return NormalizedJob(
+    job = NormalizedJob(
         source=source,
         source_job_id=_source_job_id(source, source_url),
         source_platform="browser_extension",
@@ -97,6 +98,7 @@ def normalized_browser_discovery_job(
             "capture_payload": payload,
         },
     )
+    return select_job_description(job)
 
 
 def ingest_browser_capture_to_job_finder(

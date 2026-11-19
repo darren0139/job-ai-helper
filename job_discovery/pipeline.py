@@ -16,6 +16,7 @@ from database.job_discovery_manager import (
 )
 from job_discovery.config import load_job_discovery_config
 from job_discovery.models import SearchSpec
+from job_discovery.structural_text_selection import select_job_description
 from job_discovery.sources import (
     AshbySource,
     CareersGovSource,
@@ -291,7 +292,7 @@ def refresh_job_sources(
             for future in as_completed(futures):
                 source, started, started_clock = futures[future]
                 try:
-                    jobs = future.result()
+                    jobs = [select_job_description(job) for job in future.result()]
                     stats = upsert_discovered_jobs(jobs, source_scope=source.run_key)
                     removed_count = 0
                     fetch_complete = bool(getattr(source, "fetch_complete", False))
