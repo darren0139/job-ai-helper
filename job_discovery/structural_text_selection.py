@@ -9,6 +9,7 @@ from typing import Any
 
 from analysis_stability.jd_section_inference import (
     JD_STRUCTURE_INFERENCE_VERSION,
+    _signals,
     infer_semantic_list_heading,
 )
 from analysis_stability.stable_evidence_scoring import (
@@ -18,28 +19,73 @@ from analysis_stability.stable_evidence_scoring import (
 from job_discovery.models import NormalizedJob
 
 
-STRUCTURAL_TEXT_SELECTION_VERSION = "job-finder-structural-text-selection-v1"
+STRUCTURAL_TEXT_SELECTION_VERSION = "job-finder-structural-text-selection-v1.1"
+_PREVIOUS_SELECTION_VERSIONS = {"job-finder-structural-text-selection-v1"}
 PROVENANCE_KEY = "_job_finder_structural_text_selection"
 
 # These additions only identify explicit administrative boundaries or retained
 # work context. Core JD headings come from the existing controlled classifier.
+_HEADING_ALIASES = {
+    "your responsibilities": "responsibilities",
+    "what you ll be doing": "responsibilities",
+    "what youll be doing": "responsibilities",
+    "what you will be doing": "responsibilities",
+    "the role": "role overview",
+    "your role": "role overview",
+    "what you bring": "requirements",
+    "who you are": "requirements",
+    "about you": "requirements",
+    "skills": "requirements",
+    "technical skills": "requirements",
+    "experience": "requirements",
+    "education": "requirements",
+    "preferred experience": "preferred qualifications",
+    "bonus points": "preferred qualifications",
+    "our mission": "about the company",
+    "why join us": "what we offer",
+    "perks": "benefits",
+    "employee benefits": "benefits",
+    "equal opportunity": "equal opportunity employer",
+    "application instructions": "how to apply",
+    "privacy notices": "privacy notice",
+}
 _CONTEXT_HEADINGS = frozenset({
     "eligibility", "work eligibility", "work authorization", "work authorisation",
     "right to work", "working hours", "work arrangements", "working arrangements",
     "employment conditions", "work location", "security clearance",
+    "visa", "sponsorship", "visa sponsorship", "hybrid onsite requirements",
+    "hybrid work", "work model", "shift schedule", "shift requirements",
+    "weekend requirements", "contract duration", "contract terms",
+    "temporary assignment", "travel", "relocation", "travel relocation",
+    "physical requirements", "physical location constraints", "location requirements",
 })
 _ADMIN_HEADINGS = frozenset({
     "legal disclaimer", "privacy notice", "privacy policy",
     "equal employment opportunity", "equal opportunities",
+    "cookie policy", "cookie notice", "navigation", "footer",
+    "related jobs", "similar jobs", "recruiting information", "tracking notice",
 })
 _BULLET = re.compile(r"^\s*(?:[-*•]+|\d+[.)])\s+")
 _CONSTRAINT = re.compile(
-    r"\b(?:must|required|requirement[s]?|eligib(?:le|ility)|citizen(?:ship)?|"
+    r"\b(?:must|should|shall|required|requirement[s]?|eligib(?:le|ility)|citizen(?:ship)?|"
     r"work (?:permit|authori[sz]ation|rights?)|security clearance|"
-    r"weekends?|night shifts?|working hours|travel|able to|ability to|"
-    r"licen[cs]e|certification|experience|knowledge|proficien(?:cy|t))\b",
+    r"visa|sponsor(?:ship|ed|ing)?|hybrid|on[ -]?site|weekends?|shifts?|"
+    r"working hours|travel|relocat(?:e|ion|ing)|contract|temporary|"
+    r"physical|lifting|standing|mobility|(?:carry|lift)\s+\d+|"
+    r"able to|ability to|licen[cs](?:e[ds]?|ing)|certification|"
+    r"experience|knowledge|proficien(?:cy|t))\b",
     re.IGNORECASE,
 )
+
+
+def _has_important_content(text: str) -> bool:
+    if _CONSTRAINT.search(text):
+        return True
+    for line in text.splitlines():
+        signals = _signals(_BULLET.sub("", line.strip()))
+        if signals["responsibilities"] or signals["requirements"]:
+            return True
+    return False
 
 
 def _unknown_heading(line: str) -> bool:
@@ -72,11 +118,14 @@ def select_structural_jd_text(description: str) -> dict[str, Any]:
                 ambiguous.append(index)
             continue
         heading = _normalise_jd_section_heading(line)
-        section = _raw_section_for_heading(line)
+        canonical_heading = _HEADING_ALIASES.get(heading, heading)
+        section = _raw_section_for_heading(canonical_heading)
         detection = "controlled_heading"
+        if heading != canonical_heading:
+            detection = "controlled_heading_alias"
         if heading in _CONTEXT_HEADINGS or heading in {"salary", "compensation"}:
             section = "work_context"
-        elif heading in _ADMIN_HEADINGS:
+        elif canonical_heading in _ADMIN_HEADINGS:
             section = "stop"
         elif not section:
             inferred = infer_semantic_list_heading(raw_lines, index)
@@ -114,7 +163,7 @@ def select_structural_jd_text(description: str) -> dict[str, Any]:
     jd_sections = [
         section for section in sections
         if section["section"] in {"responsibilities", "requirements", "core", "preferred"}
-        and section["detection"] == "controlled_heading"
+        and section["detection"] in {"controlled_heading", "controlled_heading_alias"}
         and original[section["body_start"]:section["end"]].strip()
     ]
     discarded = [section for section in sections if section["section"] == "stop"]
@@ -123,7 +172,11 @@ def select_structural_jd_text(description: str) -> dict[str, Any]:
         original[section["body_start"]:section["end"]] for section in jd_sections
     ).strip()
     reason = ""
-    if not jd_sections:
+    if any(section["section"] == "unheaded" and _has_important_content(
+        original[section["start"]:section["end"]]
+    ) for section in sections):
+        reason = "important_unsectioned_text"
+    elif not jd_sections:
         reason = "no_confident_jd_structure"
     elif len(body) < 80 or len([line for line in body.splitlines() if line.strip()]) < 2:
         reason = "insufficient_jd_content"
@@ -137,7 +190,7 @@ def select_structural_jd_text(description: str) -> dict[str, Any]:
             if any(section["body_start"] <= starts[index] < section["end"] for index in ambiguous):
                 reason = "ambiguous_heading_in_non_jd_section"
                 break
-            if _CONSTRAINT.search(original[section["body_start"]:section["end"]]):
+            if _has_important_content(original[section["body_start"]:section["end"]]):
                 reason = "possible_requirement_in_non_jd_section"
                 break
 
@@ -158,8 +211,12 @@ def select_structural_jd_text(description: str) -> dict[str, Any]:
         "version": STRUCTURAL_TEXT_SELECTION_VERSION,
         "section_inference_version": JD_STRUCTURE_INFERENCE_VERSION,
         "strategy": "full_description_fallback" if reason else "conservative_section_selection",
+        "fallback_occurred": bool(reason),
         "original_description": original,
         "selected_description": selected,
+        "original_character_count": len(original),
+        "selected_character_count": len(selected),
+        "discarded_character_count": len(original) - len(selected),
         "included_sections": [row for row in diagnostics if row["action"] == "include"],
         "discarded_sections": [row for row in diagnostics if row["action"] == "discard"],
         "fallback_reason": reason,
@@ -172,7 +229,7 @@ def select_job_description(job: NormalizedJob) -> NormalizedJob:
     previous = raw.get(PROVENANCE_KEY)
     owned = (
         isinstance(previous, dict)
-        and previous.get("version") == STRUCTURAL_TEXT_SELECTION_VERSION
+        and previous.get("version") in _PREVIOUS_SELECTION_VERSIONS | {STRUCTURAL_TEXT_SELECTION_VERSION}
         and previous.get("selected_description") == job.description
         and isinstance(previous.get("original_description"), str)
     )

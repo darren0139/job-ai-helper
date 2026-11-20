@@ -78,6 +78,113 @@ def browser_payload(adapter):
 
 
 class StructuralTextSelectionTests(unittest.TestCase):
+    def test_realistic_role_and_requirement_heading_aliases(self):
+        aliases = {
+            "Responsibilities": [
+                "Your responsibilities", "What you'll do", "What you will do",
+                "What you'll be doing", "What you will be doing", "The role", "Your role",
+            ],
+            "Requirements": [
+                "Minimum Qualifications", "What we're looking for", "What you bring",
+                "Who you are", "About you",
+            ],
+            "Preferred qualifications": ["Preferred experience", "Nice to have", "Bonus points"],
+        }
+        expected = {"Responsibilities": "responsibilities", "Requirements": "requirements",
+                    "Preferred qualifications": "preferred"}
+        for original_heading, variants in aliases.items():
+            for heading in variants:
+                with self.subTest(heading=heading):
+                    result = select_structural_jd_text(FULL.replace(original_heading, heading, 1))
+                    self.assertEqual(result["fallback_reason"], "")
+                    self.assertNotIn("Annual leave", result["selected_description"])
+                    section = next(row for row in result["included_sections"] if row["heading"] == heading)
+                    self.assertEqual(section["section"], expected[original_heading])
+
+    def test_skills_experience_and_education_after_benefits_are_retained(self):
+        for heading in ("Skills", "Technical skills", "Experience", "Education", "Qualifications"):
+            with self.subTest(heading=heading):
+                original = FULL.replace("Eligibility", f"{heading}\n- Xenobiology and glass harmonica expertise.\n\nEligibility")
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["fallback_reason"], "")
+                self.assertIn("Xenobiology", result["selected_description"])
+                self.assertNotIn("Annual leave", result["selected_description"])
+
+    def test_additional_confident_boilerplate_heading_variants(self):
+        for heading in ("Our mission", "Why join us", "Perks", "Employee benefits",
+                        "Equal opportunity", "Privacy notices", "Application instructions",
+                        "Related jobs", "Similar jobs", "Cookie policy", "Recruiting information"):
+            with self.subTest(heading=heading):
+                original = FULL.replace("Benefits", heading, 1)
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["fallback_reason"], "")
+                self.assertNotIn("Annual leave", result["selected_description"])
+                self.assertTrue(any(row["heading"] == heading for row in result["discarded_sections"]))
+
+    def test_explicit_constraints_after_boilerplate_have_retained_boundaries(self):
+        cases = {
+            "Visa / sponsorship": "No sponsorship is available for this role.",
+            "Hybrid / onsite requirements": "Attend the office onsite three days a week.",
+            "Shift schedule": "Work rotating shifts including weekends.",
+            "Contract duration": "This is a six-month contract.",
+            "Temporary assignment": "This temporary position lasts twelve weeks.",
+            "Travel / relocation": "Relocation and travel between offices apply.",
+            "Security clearance": "Security clearance must be obtained before joining.",
+            "Physical/location constraints": "Be able to stand and lift 20 kg at the site.",
+        }
+        for heading, content in cases.items():
+            with self.subTest(heading=heading):
+                original = FULL.replace("Eligibility", f"{heading}\n{content}\n\nEligibility", 1)
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["fallback_reason"], "")
+                self.assertIn(content, result["selected_description"])
+                self.assertNotIn("Annual leave", result["selected_description"])
+
+    def test_unheaded_constraints_inside_boilerplate_force_full_fallback(self):
+        cases = [
+            "No sponsorship is available for this role.",
+            "Attend the office onsite three days a week.",
+            "Work a rotating shift pattern.",
+            "This is a six-month contract.",
+            "Relocation is necessary.",
+            "Travel between sites.",
+            "Carry 20 kg daily.",
+            "Applicants should decipher medieval shorthand.",
+        ]
+        for content in cases:
+            with self.subTest(content=content):
+                original = FULL.replace("Annual leave and medical cover.", content)
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["selected_description"], original)
+                self.assertEqual(result["fallback_reason"], "possible_requirement_in_non_jd_section")
+
+    def test_important_unsectioned_prefix_forces_full_fallback(self):
+        original = "Must have work authorization before joining.\n\n" + FULL
+        result = select_structural_jd_text(original)
+        self.assertEqual(result["selected_description"], original)
+        self.assertEqual(result["fallback_reason"], "important_unsectioned_text")
+
+    def test_provenance_explicitly_records_fallback_and_character_counts(self):
+        for original in (FULL, "  A single unheaded paragraph.\r\n "):
+            with self.subTest(original=original):
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["fallback_occurred"], bool(result["fallback_reason"]))
+                self.assertEqual(result["original_character_count"], len(original))
+                self.assertEqual(result["selected_character_count"], len(result["selected_description"]))
+                self.assertEqual(result["discarded_character_count"], len(original) - len(result["selected_description"]))
+                self.assertEqual(result, select_structural_jd_text(original))
+
+    def test_legacy_selection_is_upgraded_from_preserved_full_description(self):
+        first = select_job_description(job())
+        legacy_raw = deepcopy(first.raw_payload)
+        legacy_raw[PROVENANCE_KEY]["version"] = "job-finder-structural-text-selection-v1"
+        legacy = NormalizedJob(source=first.source, source_job_id=first.source_job_id,
+                               title=first.title, company=first.company, description=first.description,
+                               location=first.location, raw_payload=legacy_raw)
+        upgraded = select_job_description(legacy)
+        self.assertEqual(upgraded, first)
+        self.assertNotIn("source_provenance_value", upgraded.raw_payload[PROVENANCE_KEY])
+
     def test_confident_sections_keep_role_requirements_and_preferred(self):
         result = select_structural_jd_text(FULL)
         self.assertEqual(result["strategy"], "conservative_section_selection")
@@ -256,6 +363,14 @@ class StructuralSelectionIntegrationTests(unittest.TestCase):
         raw = json.loads(row["raw_payload_json"])
         self.assertEqual(raw[PROVENANCE_KEY], expected)
         self.assertEqual(raw["description"], FULL)
+
+    def test_explicit_automatic_capture_uses_the_structural_selector(self):
+        payload = browser_payload("fastjobs")
+        payload["source"]["capture_mode"] = "automatic"
+        normalized = normalized_browser_discovery_job(payload, {"id": 1})
+        self.assertEqual(normalized.description, select_structural_jd_text(FULL.strip())["selected_description"])
+        self.assertEqual(normalized.raw_payload["capture_payload"]["source"]["capture_mode"], "automatic")
+        self.assertNotIn("Annual leave", normalized.description)
 
     def test_fastjobs_and_workjio_use_same_selector_and_keep_capture_payload(self):
         expected = select_structural_jd_text(FULL.strip())
