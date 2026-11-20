@@ -59,7 +59,7 @@ class BrowserExtensionFirefoxReleaseTests(unittest.TestCase):
 
     def test_builder_validates_offline(self) -> None:
         report = release.validate_release_inputs()
-        self.assertEqual(report["version"], "0.4.6.8")
+        self.assertEqual(report["version"], "0.4.6.9")
         self.assertIn("websiteContent", report["required_data"])
 
     def test_built_zip_uses_firefox_manifest_at_archive_root(self) -> None:

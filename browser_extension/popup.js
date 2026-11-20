@@ -13,6 +13,7 @@ const showBridgeTokenButton = document.getElementById("showBridgeTokenButton");
 const clearPairingButton = document.getElementById("clearPairingButton");
 const connectButton = document.getElementById("connectButton");
 const extractButton = document.getElementById("extractButton");
+const selectiveExtractButton = document.getElementById("selectiveExtractButton");
 const saveCaptureButton = document.getElementById("saveCaptureButton");
 const scanButton = document.getElementById("scanButton");
 const autofillButton = document.getElementById("autofillButton");
@@ -619,6 +620,23 @@ extractButton.addEventListener("click", async () => {
       latestJob.capture_quality === "needs_review";
     showResult(response);
   } catch (error) {
+    showResult({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+selectiveExtractButton.addEventListener("click", async () => {
+  try {
+    const response = await sendToActiveTab({ type: "JOB_AI_EXTRACT_SELECTION" });
+    latestJobCapture = response?.data || null;
+    const latestJob = latestJobCapture?.job || {};
+    saveCaptureButton.disabled =
+      !latestJob.jd_text ||
+      latestJob.availability_status === "unavailable" ||
+      latestJob.capture_quality === "needs_review";
+    showResult(response);
+  } catch (error) {
+    latestJobCapture = null;
+    saveCaptureButton.disabled = true;
     showResult({ ok: false, error: String(error?.message || error) });
   }
 });

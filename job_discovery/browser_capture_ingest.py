@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -17,6 +18,14 @@ _SUPPORTED = {
     "fastjobs": {"fastjobs.sg", "www.fastjobs.sg"},
     "workjio": {"workjio.com", "www.workjio.com"},
 }
+
+
+def _capture_mode(payload: dict[str, Any]) -> str:
+    source = payload.get("source")
+    if not isinstance(source, dict):
+        return "automatic"
+    value = str(source.get("capture_mode") or "automatic").strip().casefold()
+    return value or "automatic"
 
 
 def _source_job_id(source: str, canonical_url: str) -> str:
@@ -86,6 +95,7 @@ def normalized_browser_discovery_job(
         employment_type=str(job_payload.get("employment_type") or "").strip(),
         raw_payload={
             "provenance": "browser_extension_capture",
+            "capture_mode": _capture_mode(payload),
             "browser_capture_id": saved_capture.get("id"),
             "browser_capture_hash": str(
                 saved_capture.get("capture_hash") or ""
@@ -104,7 +114,24 @@ def normalized_browser_discovery_job(
 def ingest_browser_capture_to_job_finder(
     payload: dict[str, Any],
     saved_capture: dict[str, Any],
+    *,
+    allow_user_selection: bool = False,
 ) -> dict[str, Any]:
+    capture_mode = _capture_mode(payload)
+    source = str(
+        (payload.get("source") or {}).get("site_adapter") or ""
+    ).strip().casefold()
+    if capture_mode == "user_selection" and not allow_user_selection:
+        return {
+            "status": "withheld_user_selection",
+            "source": source,
+            "capture_mode": capture_mode,
+            "reason": (
+                "Manual browser selections are Browser JD Queue artifacts and "
+                "are withheld from automatic Job Finder indexing."
+            ),
+        }
+
     job = normalized_browser_discovery_job(payload, saved_capture)
     if job is None:
         return {
@@ -114,6 +141,31 @@ def ingest_browser_capture_to_job_finder(
             ).strip(),
         }
 
+    manual_selection_promoted = False
+    if capture_mode == "user_selection" and allow_user_selection:
+        job_payload = payload.get("job")
+        selected_description = (
+            str(job_payload.get("jd_text") or "").strip()
+            if isinstance(job_payload, dict)
+            else ""
+        )
+        if not selected_description:
+            return {
+                "status": "not_applicable",
+                "source": source,
+                "capture_mode": capture_mode,
+                "reason": "Manual selection has no JD text to promote.",
+            }
+        raw_payload = dict(job.raw_payload)
+        raw_payload["capture_mode"] = "user_selection"
+        raw_payload["manual_selection_promoted"] = True
+        job = replace(
+            job,
+            description=selected_description,
+            raw_payload=raw_payload,
+        )
+        manual_selection_promoted = True
+
     stats = upsert_discovered_jobs(
         [job],
         source_scope=f"browser:{job.source}",
@@ -121,6 +173,8 @@ def ingest_browser_capture_to_job_finder(
     return {
         "status": "indexed",
         "source": job.source,
+        "capture_mode": capture_mode,
+        "manual_selection_promoted": manual_selection_promoted,
         "source_job_id": job.source_job_id,
         "source_url": job.source_url,
         "stats": stats,
