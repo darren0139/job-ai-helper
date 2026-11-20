@@ -11,10 +11,16 @@ import hashlib
 import json
 import re
 import sqlite3
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from job_discovery.structural_text_selection import (
+    PROVENANCE_KEY,
+    select_structural_jd_text,
+)
 
 
 DB_PATH = Path("data/applications.db")
@@ -28,7 +34,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 def _normalise_capture_text(value: str) -> str:
@@ -306,10 +312,66 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
         item["source_url"]
     )
     digest = _capture_hash(canonical_source_url, item["jd_text"])
+    # Keep source-based capture identity and the complete incoming payload.
+    # Generic automatic captures also feed the queue/tailoring handoff, even
+    # when they are intentionally not eligible for Job Finder promotion.
+    mode = str(
+        (payload.get("source") or {}).get("capture_mode")
+        or payload.get("capture_mode") or "automatic"
+    ).strip().casefold()
+    if mode == "automatic":
+        receipt = select_structural_jd_text(item["jd_text"], job_title=item["job_title"])
+        previous = item["payload"].get(PROVENANCE_KEY)
+        owned = (
+            isinstance(previous, dict)
+            and previous.get("version") == receipt["version"]
+            and previous.get("original_description") == item["jd_text"]
+        )
+        item["jd_text"] = receipt["selected_description"]
+        item["payload"] = deepcopy(item["payload"])
+        if owned:
+            if "source_provenance_value" in previous:
+                receipt["source_provenance_value"] = deepcopy(previous["source_provenance_value"])
+        elif PROVENANCE_KEY in item["payload"]:
+            receipt["source_provenance_value"] = item["payload"][PROVENANCE_KEY]
+        item["payload"][PROVENANCE_KEY] = receipt
     now = _now()
 
     connection = _connect()
     try:
+        # Serialize identity lookup and update with concurrent bridge saves.
+        connection.execute("BEGIN IMMEDIATE")
+        exact = connection.execute(
+            "SELECT id FROM browser_job_captures WHERE capture_hash = ?",
+            (digest,),
+        ).fetchone()
+        if mode == "automatic" and exact is None:
+            pending = connection.execute(
+                """
+                SELECT * FROM browser_job_captures
+                WHERE canonical_source_url = ? AND status = 'pending'
+                ORDER BY last_received_at DESC, id DESC
+                """,
+                (canonical_source_url,),
+            ).fetchall()
+            for candidate in pending:
+                try:
+                    previous_payload = json.loads(candidate["payload_json"])
+                    previous_mode = str(
+                        dict(candidate).get("capture_mode")
+                        or (previous_payload.get("source") or {}).get("capture_mode")
+                        or previous_payload.get("capture_mode") or "automatic"
+                    ).strip().casefold()
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                if previous_mode == "automatic":
+                    # Source content may change while this pending logical job
+                    # keeps its ID. The following upsert refreshes every field.
+                    connection.execute(
+                        "UPDATE browser_job_captures SET capture_hash = ? WHERE id = ?",
+                        (digest, candidate["id"]),
+                    )
+                    break
         connection.execute(
             """
             INSERT INTO browser_job_captures (
@@ -344,6 +406,7 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 job_title = excluded.job_title,
                 company = excluded.company,
                 location = excluded.location,
+                jd_text = excluded.jd_text,
                 raw_page_text = excluded.raw_page_text,
                 headings_json = excluded.headings_json,
                 extraction_strategy = excluded.extraction_strategy,

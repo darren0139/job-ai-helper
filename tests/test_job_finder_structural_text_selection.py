@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from database import job_discovery_manager as manager
+from database import browser_capture_manager
+from browser_integration.tailor_resume_handoff import browser_capture_to_phase9f_input
 from job_discovery import pipeline
 from job_discovery.browser_capture_ingest import (
     ingest_browser_capture_to_job_finder,
@@ -75,6 +77,272 @@ def browser_payload(adapter):
         "job": {"job_title": "Service Engineer", "company": "Example",
                 "location": "Singapore", "jd_text": FULL, "employment_type": "Part-time"},
     }
+
+
+NCS_PAGE = """Skip to main content
+AI Products & Platforms
+Services
+Industries
+Insights
+Partners
+Careers
+About Us
+
+AI Software Engineer (Nucleus Graduate Programme)
+
+Date: 2026-11-10
+Location: Singapore
+Company: NCS
+Job Requisition ID: 163113
+
+Company Description
+NCS is a leading AI Tech Services company serving organisations around the world.
+
+Job Description
+Your role is only the beginning of a journey delivering software solutions.
+
+What will you do?
+- Partner with stakeholders to understand business and system requirements.
+- Develop and enhance software applications.
+- Improve and maintain software applications.
+- Execute unit, integration, system and user acceptance testing.
+- Use configuration management, integration and build automation tools.
+- Identify opportunities for system improvement.
+
+Qualifications
+- Frontend frameworks including HTML5, Angular and React JS.
+- Backend languages including Java, .NET, Python and PHP.
+- Databases and frontend/backend web application development.
+- Computer Science / Engineering degree.
+- Recent graduate or up to 2 years experience.
+
+Additional Information
+We receive a high volume of applications. Only shortlisted applicants will be notified.
+
+Scam Alert
+We never ask for payment as part of recruitment. Report suspicious messages to us.
+
+Apply now »
+AI Products & Platforms
+Services
+Industries
+About Us
+Careers
+Thank you for your interest.
+"""
+
+CSIT_POSTING = """CSIT develops products to advance the national security interests of Singapore.
+We use our products in a wide range of use-cases and missions.
+
+We are looking for talented platform engineers that are passionate about developer experience.
+
+Role
+Build reliable platforms that help engineering teams ship secure software.
+
+Responsibilities
+- Develop platforms and maintain services supporting engineering teams.
+- Improve deployment automation and investigate operational incidents.
+
+Requirements (Minimum Qualifications)
+- A Computer Science degree and experience operating distributed systems.
+- Only Singapore Citizens will be considered.
+
+Nice to Have
+- Familiarity with Kubernetes and cloud platforms.
+
+Benefits
+Annual leave and medical cover.
+"""
+
+SIMULAR_POSTING = """We're looking for an engineer who cares about growth metrics as much as they care about code quality.
+
+You'll build the data infrastructure and product experiments that drive how we grow,
+working closely with the GTM team to turn user insights into shipped product.
+
+What you'll do
+- Build data infrastructure and maintain reliable product experiments.
+- Partner with engineers and investigate growth opportunities.
+
+What we're looking for
+- Experience with Python, SQL and production data pipelines.
+
+Bonus
+- Familiarity with experimentation platforms.
+
+Benefits
+Annual leave and medical cover.
+"""
+
+EXA_POSTING = """Exa is an applied AI lab building a search engine.
+We now power search for Cursor, Cognition and HubSpot and have raised $350m.
+
+As a backend engineer, you'd play a critical role in our search architecture.
+We're pretty flexible on what projects people work on based on their skills and interests.
+
+Desired Experience
+- High throughput / low latency systems and reliable infrastructure.
+- Data pipelines processing millions of documents.
+- System optimization and solving the information-quality problem.
+- C++ / Rust experience.
+
+Example Projects
+- Design ingestion infrastructure and build search architecture.
+- Investigate information quality and improve system performance.
+
+Logistics
+• Location: This is an in-person opportunity in Singapore.
+• Visas: We're happy to sponsor international candidates!
+While we cannot guarantee your visa, we have historically been successful in sponsoring candidates.
+• Benefits: We offer premium healthcare benefits, parental leave and a wellness stipend.
+
+We are an equal opportunity employer and welcome applications from everyone.
+"""
+
+
+# Exact public page text from the observed generic automatic browser capture,
+# including sparse menu headings, NBSP and narrow NBSP; never clean it by hand.
+NCS_CAPTURE_PAGE = (Path(__file__).parent / "fixtures" / "ncs_automatic_capture_page.txt").read_text(encoding="utf-8")
+
+
+def ncs_capture_payload():
+    return {
+        "source": {
+            "url": "https://www.ncs.co/careers/job-details/?jobSource=sm&jobId=6000000001565161",
+            "site_adapter": "generic", "capture_mode": "automatic",
+        },
+        "capture": {"raw_visible_text": NCS_CAPTURE_PAGE},
+        "job": {"job_title": "AI Software Engineer (Nucleus Graduate Programme)",
+                "jd_text": NCS_CAPTURE_PAGE, "cleaning_strategy": "generic_visible_main_text"},
+    }
+
+
+class RealPostingStructuralSelectionTests(unittest.TestCase):
+    def test_observed_ncs_capture_uses_real_browser_normalization(self):
+        payload = ncs_capture_payload()
+        validated = browser_capture_manager._validated_capture(payload)
+        self.assertEqual(validated["jd_text"], NCS_CAPTURE_PAGE)
+        result = select_structural_jd_text(validated["jd_text"], job_title=validated["job_title"])
+        self.assertFalse(result["fallback_occurred"], result["fallback_reason"])
+        self.assertEqual(result["job_region_start_reason"], "title_with_metadata")
+        self.assertEqual(result["job_region_end_reason"], "standalone_end_marker_with_footer_context")
+        for phrase in ("Skip to main content", "AI Products & Platforms", "CommanderAI",
+                       "Overview", "Advanced Comms & Physical AI", "Company Description",
+                       "subsidiary of the Singtel Group", "Scam Alert", "fraudulent job offers",
+                       "Apply now", "View all jobs", "Thank you for your interest"):
+            self.assertNotIn(phrase, result["selected_description"])
+        for phrase in ("Job Description", "What will you do?", "Qualifications", "Partner",
+                       "Develop", "Continually improve", "acceptance testing", "build automation",
+                       "HTML5/Angular/React JS", "Java/.NET/Python/PHP", "Proficiency in database",
+                       "Degree in Computer Science", "up to 2 years of working experience"):
+            self.assertIn(phrase, result["selected_description"])
+        self.assertEqual(result["original_description"], NCS_CAPTURE_PAGE)
+        self.assertEqual(result, select_structural_jd_text(validated["jd_text"], job_title=validated["job_title"]))
+
+    def test_real_physical_constraints_outside_job_region_still_prevent_deletion(self):
+        original = "Physical stamina for field work.\n" + NCS_CAPTURE_PAGE
+        result = select_structural_jd_text(original)
+        self.assertEqual(result["selected_description"], original)
+        self.assertEqual(result["fallback_reason"], "important_content_outside_job_region")
+
+    def test_ncs_page_isolates_job_region_and_keeps_technical_scope(self):
+        result = select_structural_jd_text(NCS_PAGE)
+        selected = result["selected_description"]
+        self.assertFalse(result["fallback_occurred"])
+        self.assertFalse(result["job_region_fallback"])
+        self.assertNotEqual(result["job_region_text"], NCS_PAGE)
+        for phrase in ("Skip to main content", "AI Products & Platforms", "Industries",
+                       "Scam Alert", "suspicious messages", "Apply now", "Thank you",
+                       "Company Description", "leading AI Tech Services", "shortlisted applicants"):
+            self.assertNotIn(phrase, selected)
+        for phrase in ("Job Description", "What will you do?", "Qualifications",
+                       "Partner with stakeholders", "Develop and enhance", "Improve and maintain",
+                       "unit, integration, system and user acceptance testing", "build automation",
+                       "system improvement", "HTML5", "Angular", "React JS", "Java", ".NET",
+                       "Python", "PHP", "Databases", "Computer Science / Engineering degree",
+                       "up to 2 years experience"):
+            self.assertIn(phrase, selected)
+        transformed = select_job_description(job(NCS_PAGE))
+        self.assertEqual(transformed.raw_payload[PROVENANCE_KEY]["original_description"], NCS_PAGE)
+
+    def test_csit_discards_only_organisation_preamble(self):
+        result = select_structural_jd_text(CSIT_POSTING)
+        self.assertFalse(result["fallback_occurred"])
+        selected = result["selected_description"]
+        self.assertNotIn("CSIT develops products", selected)
+        self.assertNotIn("wide range of use-cases", selected)
+        for phrase in ("We are looking for talented platform engineers", "Role", "Responsibilities",
+                       "Requirements (Minimum Qualifications)", "Nice to Have", "Singapore Citizens"):
+            self.assertIn(phrase, selected)
+        self.assertTrue(result["preamble_discarded"])
+        self.assertTrue(result["preamble_retained"])
+
+    def test_simular_retains_entire_role_introduction(self):
+        result = select_structural_jd_text(SIMULAR_POSTING)
+        self.assertFalse(result["fallback_occurred"])
+        self.assertTrue(result["selected_description"].startswith(SIMULAR_POSTING.split("What you'll do")[0]))
+        for heading in ("What you'll do", "What we're looking for", "Bonus"):
+            self.assertIn(heading, result["selected_description"])
+        self.assertNotIn("Annual leave", result["selected_description"])
+
+    def test_exa_splits_logistics_only_at_bullet_and_paragraph_boundaries(self):
+        result = select_structural_jd_text(EXA_POSTING)
+        self.assertFalse(result["fallback_occurred"])
+        selected = result["selected_description"]
+        for phrase in ("applied AI lab", "raised $350m", "premium healthcare",
+                       "parental leave", "wellness stipend", "equal opportunity employer"):
+            self.assertNotIn(phrase, selected)
+        for phrase in ("As a backend engineer", "pretty flexible", "Desired Experience",
+                       "Example Projects", "high throughput", "millions of documents",
+                       "optimization", "C++ / Rust", "Logistics", "in-person opportunity in Singapore",
+                       "sponsor international candidates", "cannot guarantee your visa"):
+            self.assertIn(phrase.casefold(), selected.casefold())
+
+    def test_mixed_preamble_and_unsplittable_mixed_prose_are_preserved(self):
+        preamble = "ExampleCo builds cloud software and we are looking for a backend engineer to design distributed systems."
+        logistics = "Location: in-person Singapore; visa sponsorship available; Benefits: healthcare."
+        original = preamble + "\n\n" + FULL + "\nLogistics\n" + logistics
+        result = select_structural_jd_text(original)
+        self.assertIn(preamble, result["selected_description"])
+        self.assertIn(logistics, result["selected_description"])
+
+    def test_protected_content_outside_region_boundaries_prevents_truncation(self):
+        for text in ("Only Singapore Citizens will be considered.\n", "Security clearance required.\n"):
+            with self.subTest(text=text):
+                original = text + NCS_PAGE
+                result = select_structural_jd_text(original)
+                self.assertEqual(result["selected_description"], original)
+                self.assertTrue(result["job_region_fallback"])
+
+    def test_navigation_without_reliable_job_boundaries_falls_back_unchanged(self):
+        original = "Skip to main content\nServices\nIndustries\nCareers\n" + FULL
+        result = select_structural_jd_text(original)
+        self.assertEqual(result["selected_description"], original)
+        self.assertTrue(result["job_region_fallback"])
+
+    def test_boundary_words_inside_ordinary_prose_do_not_truncate(self):
+        original = FULL.replace("Investigate incidents and document operational procedures.",
+                                "Investigate a scam alert and explain how to apply security controls.")
+        result = select_structural_jd_text(original)
+        self.assertIn("Investigate a scam alert", result["selected_description"])
+
+    def test_region_preamble_and_selection_receipts_are_deterministic(self):
+        for original in (NCS_PAGE, CSIT_POSTING, SIMULAR_POSTING, EXA_POSTING):
+            with self.subTest(original=original[:30]):
+                result = select_structural_jd_text(original)
+                self.assertEqual(result, select_structural_jd_text(original))
+                self.assertEqual(result["job_region_character_count"], len(result["job_region_text"]))
+                self.assertTrue(result["job_region_start_reason"])
+                self.assertTrue(result["job_region_end_reason"])
+                transformed = select_job_description(job(original))
+                self.assertEqual(select_job_description(transformed), transformed)
+                for version in ("job-finder-structural-text-selection-v1", "job-finder-structural-text-selection-v1.1"):
+                    legacy_raw = deepcopy(transformed.raw_payload)
+                    legacy_raw[PROVENANCE_KEY]["version"] = version
+                    legacy = NormalizedJob(source=transformed.source, source_job_id=transformed.source_job_id,
+                                           title=transformed.title, company=transformed.company,
+                                           location=transformed.location, description=transformed.description,
+                                           raw_payload=legacy_raw)
+                    self.assertEqual(select_job_description(legacy), transformed)
 
 
 class StructuralTextSelectionTests(unittest.TestCase):
@@ -329,6 +597,90 @@ class StructuralSelectionIntegrationTests(unittest.TestCase):
         database_patch.start()
         self.addCleanup(database_patch.stop)
         manager.init_job_discovery_schema()
+
+    def test_observed_ncs_browser_queue_persists_selection_and_hands_off_same_text(self):
+        payload = ncs_capture_payload()
+        frozen = deepcopy(payload)
+        expected = select_structural_jd_text(NCS_CAPTURE_PAGE, job_title=payload["job"]["job_title"])
+        with patch.object(browser_capture_manager, "DB_PATH", self.db):
+            saved = browser_capture_manager.save_browser_job_capture(payload)
+            repeated = browser_capture_manager.save_browser_job_capture(payload)
+            round_trip = browser_capture_manager.save_browser_job_capture(json.loads(saved["payload_json"]))
+        self.assertEqual(saved["id"], repeated["id"])
+        self.assertEqual(saved["jd_text"], expected["selected_description"])
+        self.assertEqual(repeated["jd_text"], saved["jd_text"])
+        self.assertEqual(saved["raw_page_text"], NCS_CAPTURE_PAGE)
+        stored = json.loads(saved["payload_json"])
+        self.assertEqual(json.loads(round_trip["payload_json"]), stored)
+        self.assertEqual(stored["job"]["jd_text"], NCS_CAPTURE_PAGE)
+        self.assertEqual(stored[PROVENANCE_KEY], expected)
+        self.assertEqual(payload, frozen)
+        self.assertEqual(browser_capture_to_phase9f_input(saved)["raw_text"], saved["jd_text"])
+        self.assertIsNone(normalized_browser_discovery_job(payload, saved))
+        self.assertEqual(manager.list_discovered_jobs(), [])
+
+    def test_resaving_old_capture_reprocesses_same_identity_without_migration(self):
+        payload = ncs_capture_payload()
+        with patch.object(browser_capture_manager, "DB_PATH", self.db):
+            with patch.object(browser_capture_manager, "select_structural_jd_text", return_value={
+                "selected_description": NCS_CAPTURE_PAGE, "version": "older-selector",
+            }):
+                old = browser_capture_manager.save_browser_job_capture(payload)
+            updated = browser_capture_manager.save_browser_job_capture(payload)
+        self.assertEqual(updated["id"], old["id"])
+        self.assertEqual(updated["capture_hash"], old["capture_hash"])
+        self.assertNotIn("Skip to main content", updated["jd_text"])
+        self.assertEqual(json.loads(updated["payload_json"])[PROVENANCE_KEY]["version"],
+                         STRUCTURAL_TEXT_SELECTION_VERSION)
+
+    def test_manual_capture_text_and_payload_are_preserved_without_selection(self):
+        payload = ncs_capture_payload()
+        payload["source"]["capture_mode"] = "user_selection"
+        with patch.object(browser_capture_manager, "DB_PATH", self.db):
+            with patch.object(browser_capture_manager, "select_structural_jd_text", side_effect=AssertionError("manual capture")):
+                saved = browser_capture_manager.save_browser_job_capture(payload)
+        self.assertEqual(saved["jd_text"], NCS_CAPTURE_PAGE)
+        self.assertEqual(json.loads(saved["payload_json"]), payload)
+
+    def test_layered_selection_matches_across_direct_and_browser_ingestion(self):
+        class Client:
+            def get_json(self, _url, **_kwargs):
+                return {"results": [{"uuid": "layered-direct", "title": "Service Engineer",
+                                     "description": EXA_POSTING,
+                                     "postedCompany": {"name": "Example"}}]}
+
+            def pause(self, _seconds):
+                pass
+
+        source = MyCareersFutureSource(client=Client())
+        with patch.object(pipeline, "_build_sources", return_value=[source]):
+            receipt = pipeline.refresh_job_sources(
+                query="", selected_sources=["mycareersfuture"], min_refresh_interval_minutes=0,
+            )
+        self.assertEqual(receipt[0]["status"], "ok")
+        direct = manager.list_discovered_jobs()[0]
+        # Source normalization removes blank lines. Compare identical selector
+        # inputs, and preserve the now-unsplittable company/role preamble.
+        source_text = MyCareersFutureSource.normalize({
+            "uuid": "layered-direct", "title": "Service Engineer", "description": EXA_POSTING,
+            "postedCompany": {"name": "Example"},
+        }).description
+        expected = select_structural_jd_text(source_text)
+        self.assertFalse(expected["fallback_occurred"])
+        self.assertIn("Exa is an applied AI lab", expected["selected_description"])
+        self.assertIn("As a backend engineer", expected["selected_description"])
+        self.assertNotIn("premium healthcare", expected["selected_description"])
+        self.assertEqual(direct["description"], expected["selected_description"])
+        direct_raw = json.loads(direct["raw_payload_json"])
+        self.assertEqual(direct_raw[PROVENANCE_KEY], expected)
+        self.assertEqual(direct_raw["description"], EXA_POSTING)
+        for adapter in ("fastjobs", "workjio"):
+            payload = browser_payload(adapter)
+            payload["job"]["jd_text"] = source_text
+            normalized = normalized_browser_discovery_job(payload, {"id": 1})
+            self.assertEqual(normalized.description, direct["description"])
+            self.assertEqual(normalized.raw_payload[PROVENANCE_KEY], expected)
+            self.assertEqual(normalized.raw_payload["capture_payload"]["job"]["jd_text"], source_text)
 
     def test_source_refresh_fetches_full_text_then_persists_shared_selection(self):
         class Client:

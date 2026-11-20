@@ -68,7 +68,7 @@ class BrowserCaptureManagerTests(unittest.TestCase):
         self.assertIn("two-year contract", saved["posting_notes_json"])
         self.assertIn("#LI-HL1", saved["discarded_tracking_tags_json"])
 
-    def test_new_cleaning_for_same_url_supersedes_old_pending_capture(self) -> None:
+    def test_new_cleaning_for_same_url_refreshes_pending_automatic_capture(self) -> None:
         first = manager.save_browser_job_capture(_payload())
 
         changed = _payload()
@@ -77,7 +77,9 @@ class BrowserCaptureManagerTests(unittest.TestCase):
         )
         second = manager.save_browser_job_capture(changed)
 
-        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(first["id"], second["id"])
+        self.assertNotEqual(first["capture_hash"], second["capture_hash"])
+        self.assertEqual(second["jd_text"], changed["job"]["jd_text"])
 
         pending = manager.list_browser_job_captures(
             limit=10,
@@ -87,7 +89,7 @@ class BrowserCaptureManagerTests(unittest.TestCase):
 
         all_rows = manager.list_browser_job_captures(limit=10)
         statuses = {row["id"]: row["status"] for row in all_rows}
-        self.assertEqual(statuses[first["id"]], "superseded")
+        self.assertEqual(len(all_rows), 1)
         self.assertEqual(statuses[second["id"]], "pending")
 
     def test_clear_pending_queue_preserves_rows_as_cleared(self) -> None:
