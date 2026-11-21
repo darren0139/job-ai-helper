@@ -20,10 +20,11 @@ from database.tailoring_verification_manager import (
     get_latest_tailoring_verification,
 )
 from tests.phase9f_d_test_support import configure_database
-from tests.phase9f_e_test_support import create_d_reuse_session
-from tests.test_phase9f_tailoring_execution import Phase9FTailoringExecutionTests
-from tailoring.phase8_verification import (
-    build_phase8_generation_snapshot_fingerprint,
+from tests.phase9f_e_test_support import (
+    create_d_reuse_session,
+    phase9f_projects_for_document_verification,
+    phase9f_skills_for_document_verification,
+    write_phase9f_document_verification_fit,
 )
 from tailoring.phase9f_tailoring_execution import (
     PHASE9F_F_SECTION_SCOPE_POLICY_VERSION,
@@ -78,65 +79,33 @@ def main() -> None:
                 confirmed_intensity="minor",
             )
             application_id = state["application_id"]
-            source_docx = root / "source.docx"
+            source_docx = state["blueprint"]["docx_path"]
+            source_bytes = source_docx.read_bytes()
+            source_sha256 = hashlib.sha256(source_bytes).hexdigest()
             output_docx = root / "changed.docx"
             output_pdf = root / "changed.pdf"
-            source_docx.write_bytes(b"phase9f-f-smoke-source")
-            output_docx.write_bytes(b"phase9f-f-smoke-changed-docx")
-            output_pdf.write_bytes(b"phase9f-f-smoke-changed-pdf")
             calls = {"projects": 0, "skills": 0, "fit": 0}
 
             def projects_writer(**kwargs):
                 calls["projects"] += 1
-                return {
-                    "recommended_projects": [
-                        {
-                            "title": "Smoke evidence project",
-                            "display_title": "Smoke evidence project",
-                            "period": "2026",
-                            "draft_bullets": [
-                                "Built a verified React and PostgreSQL integration."
-                            ],
-                        }
-                    ],
-                    "candidate_project_ranking": [],
-                }
+                return phase9f_projects_for_document_verification(kwargs["resume_profile"])
 
             def skills_writer(**kwargs):
                 calls["skills"] += 1
-                return {"skill_lines": [{"category": "Tools", "items": ["PostgreSQL"]}]}
+                return phase9f_skills_for_document_verification(kwargs["resume_profile"])
 
             def fit_writer(**kwargs):
                 calls["fit"] += 1
-                return {
-                    "generation_id": kwargs["generation_id"],
-                    "fit_one_page": True,
-                    "page_count": 1,
-                    "docx_path": str(output_docx),
-                    "pdf_path": str(output_pdf),
-                    "tailored_projects_used": copy.deepcopy(kwargs["tailored_projects"]),
-                    "tailored_skills_used": copy.deepcopy(kwargs["tailored_skills"]),
-                }
+                return write_phase9f_document_verification_fit(
+                    source_docx, output_docx, output_pdf, **kwargs,
+                )
 
-            with patch.object(execution_manager, "build_section_scope", _scope), patch.object(
-                execution_manager,
-                "resolve_exact_phase9f_d_source",
-                side_effect=lambda **_kwargs: {
-                    "artifacts": [
-                        {
-                            "artifact_type": "docx",
-                            "source_path": str(source_docx),
-                            "artifact_bytes": source_docx.read_bytes(),
-                            "sha256": hashlib.sha256(source_docx.read_bytes()).hexdigest(),
-                            "byte_size": source_docx.stat().st_size,
-                        }
-                    ]
-                },
-            ):
+            with patch.object(execution_manager, "build_section_scope", _scope):
                 prepared = execution_manager.prepare_or_reuse_phase9f_tailoring_execution(
                     application_id=application_id,
                 )
                 assert prepared["execution"]["status"] == "preparing"
+                assert prepared["execution"]["source_artifact"]["sha256"] == source_sha256
                 assert calls == {"projects": 0, "skills": 0, "fit": 0}
                 generated = execution_manager.run_phase9f_normal_generation(
                     application_id=application_id,
@@ -174,39 +143,24 @@ def main() -> None:
                     "fit"
                 ]["settings"]["page_density_mode"] == "maximize"
                 # PHASE9F_F_SMOKE_PREAPPROVAL_LIFECYCLE_V1
-                baseline = execution_manager._prepare_frozen_phase8_context(
-                    execution_manager.get_phase9f_tailoring_execution(application_id)
-                )["baseline_report"]
-                # The merged approval gate requires current Initial/Tailored
-                # A/B analysis bound to this exact fitted generation. Reuse
-                # the complete mocked success contract used by the unit tests.
-                phase8_result = Phase9FTailoringExecutionTests._valid_phase8_result(
+                preapproval = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
                     application_id=application_id,
                     generation_id=fitted["generation_id"],
-                    baseline=baseline,
-                    generation_status="draft",
-                    blueprint_ready=False,
-                    verified_generation_snapshot_fingerprint=(
-                        build_phase8_generation_snapshot_fingerprint(fitted)
-                    ),
                 )
-                phase8_result["verification_fingerprint"] = "9" * 64
-                with patch.object(
-                    execution_manager,
-                    "build_phase8_verification",
-                    return_value=phase8_result,
-                ):
-                    preapproval = (
-                        execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
-                            application_id=application_id,
-                            generation_id=fitted["generation_id"],
-                        )
-                    )
 
-                assert preapproval["execution"]["status"] == "waiting_for_approval"
-                assert preapproval["verification"]["approval_ready"] is True
-                assert preapproval["verification"]["blueprint_ready"] is False
-                assert preapproval["verification"]["generation_status"] == "draft"
+                verification = preapproval["verification"]
+                assert verification["approval_ready"] is True, verification["verdict_message"]
+                assert preapproval["execution"]["status"] == "waiting_for_approval", (
+                    preapproval.get("issues")
+                )
+                assert verification["blueprint_ready"] is False
+                assert verification["generation_status"] == "draft"
+                assert verification["initial_document_status"] == "not_available_for_handoff"
+                assert verification["starting_document_contract"]["selected_base_docx_sha256"] == source_sha256
+                assert verification["document_analysis"]["final_document_sha256"] == (
+                    hashlib.sha256(output_docx.read_bytes()).hexdigest()
+                )
+                assert source_docx.read_bytes() == source_bytes
 
                 approve_tailoring_generation(
                     application_id, fitted["generation_id"]

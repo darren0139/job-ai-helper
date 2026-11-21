@@ -15,10 +15,10 @@ VERSION = 'phase9f-v3.6.5-read-only-jd-evidence-v1'
 REQUIRED = frozenset({'required', 'core', 'deal_breaker'})
 PREFERRED = frozenset({'preferred', 'bonus'})
 _WORD = re.compile(r"ci/cd|\.?[a-z][a-z0-9+#.]*", re.IGNORECASE)
-STOP = frozenset(('the a an and or to of in on for with from through using use used '
-    'will should would can could one more at by is are be been being as this that '
-    'added advantage preferred experience proficiency good strong have has had '
-    'ability knowledge skill skills relevant related meet requirements requirement '
+STOP = frozenset(('the a an and or to of in on for with from through using use used ' 
+    'will should would can could one more at by is are be been being as this that ' 
+    'added advantage preferred experience proficiency good strong have has had ' 
+    'ability knowledge skill skills relevant related meet requirements requirement ' 
     'software application applications working work candidate team').split())
 # Important: only literal JD/bullet overlaps are shown. Synonyms below help label
 # an action-family overlap, without granting scorer evidence or JD identity credit.
@@ -34,9 +34,9 @@ ACTIONS = {
  'collaborate': ('stakeholder', 'stakeholders', 'collaborat', 'partner', 'business'),
  'improve': ('improv', 'improvement', 'optimiz', 'optimization'),
 }
-TECH = frozenset(('python java kotlin react angular html5 typescript javascript postgresql '
-    'postgres supabase sqlite postgrest docker kubernetes linux windows ubuntu '
-    'github gitlab aws azure gcp ci/cd cicd sql .net dotnet php mongodb '
+TECH = frozenset(('python java kotlin react angular html5 typescript javascript postgresql ' 
+    'postgres supabase sqlite postgrest docker kubernetes linux windows ubuntu ' 
+    'github gitlab aws azure gcp ci/cd cicd sql .net dotnet php mongodb ' 
     'streamlit c++ c# github-actions').split())
 
 

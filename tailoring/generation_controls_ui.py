@@ -552,6 +552,19 @@ def render_tailoring_generation_controls(
                     else {"ready": True, "reasons": []}
                 )
                 approval_ready = bool(approval_gate.get("ready"))
+                if (approval_ready and require_phase8_before_approval):
+                    from database.tailoring_generation_control import (
+                        get_phase9f_normal_generation_lifecycle,
+                        PHASE9F_F_NORMAL_LIFECYCLE_VERSION,
+                    )
+                    if (get_phase9f_normal_generation_lifecycle(loaded).get('lifecycle_version')
+                            == PHASE9F_F_NORMAL_LIFECYCLE_VERSION):
+                        from tailoring.phase9f_v361_approval_floor import verify_current_phase9f_floor
+                        floor = verify_current_phase9f_floor(application_id, loaded_generation_id, loaded)
+                        approval_ready = floor.get('ready') is True
+                        if not approval_ready:
+                            st.warning('Approval held. The existing fitted résumé must meet both starting-résumé scores and preserve Required/Core strength. '
+                                       + str(floor.get('reason') or 'No comparable receipt'))
                 if require_phase8_before_approval:
                     if approval_ready:
                         st.success(
@@ -701,11 +714,23 @@ def render_tailoring_generation_controls(
             )
             st.rerun()
 
+        legacy_floor_ok = True
+        from database.tailoring_generation_control import (
+            get_phase9f_normal_generation_lifecycle,
+            PHASE9F_F_NORMAL_LIFECYCLE_VERSION,
+        )
+        if (get_phase9f_normal_generation_lifecycle(selected).get('lifecycle_version')
+                == PHASE9F_F_NORMAL_LIFECYCLE_VERSION):
+            from tailoring.phase9f_v361_approval_floor import verify_current_phase9f_floor
+            legacy_floor = verify_current_phase9f_floor(application_id, selected_id, selected)
+            legacy_floor_ok = legacy_floor.get('ready') is True
+            if not legacy_floor_ok:
+                st.warning('Selected version approval held: '+str(legacy_floor.get('reason')))
         if action_col2.button(
             "Approve Selected",
             key=f"phase7_approve_{application_id}",
             width="stretch",
-            disabled=selected.get("status") == "approved",
+            disabled=(selected.get("status") == "approved" or not legacy_floor_ok),
         ):
             approve_tailoring_generation(application_id, selected_id)
             st.session_state[

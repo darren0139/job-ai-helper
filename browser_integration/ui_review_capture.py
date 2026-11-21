@@ -118,3 +118,4 @@ class CaptureSession:
                 if hasattr(self,'runtime'):self.runtime.stop()
                 self.active=False
         self.call(close)
+

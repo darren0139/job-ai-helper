@@ -9,9 +9,9 @@ Stage 1:
 
 Stage 2:
     AI writes bullets only for the Python-selected projects.
-    Evidence Library bullets are treated as the canonical blueprints.
-    Resume evidence may inform project scoring but is not used for final
-    bullet writing.
+    V2.7 admits exact bullets from the confirmed Base and frozen Library into
+    the same Python-owned deterministic allocation before paid writing.
+    New mixed-source drafts retain exact Base wording and versioned receipts.
 
 Public functions kept compatible with the existing app:
     - build_project_candidate_pool(...)
@@ -42,6 +42,11 @@ from tailoring.stable_tailoring_ranking import (
     build_bullet_evidence_priorities,
     rank_projects_deterministically,
     select_complementary_projects,
+)
+from tailoring.combined_project_bullet_sources_v2_7 import (
+    POLICY_VERSION as COMBINED_BULLET_POLICY_VERSION,
+    source_bullet_records,
+    bullet_sources,
 )
 from tailoring.deterministic_bullet_allocation import (
     BULLET_ALLOCATION_VERSION,
@@ -238,14 +243,15 @@ completed by Python. Do not add, remove, replace, or re-rank project titles.
 Do not change the allocated bullet count for any project.
 
 Canonical-bullet rules:
-- Treat Evidence Library bullets as the only user-approved canonical bullets.
-- Use allocated_blueprint_bullets as the exact selected canonical evidence.
+- Treat Python-allocated bullets as the only eligible evidence; they may come
+  from the confirmed Base Resume, Evidence Library, or both.
+- Use allocated_blueprint_bullets as the exact selected source-grounded evidence.
 - Return those allocated bullets in the supplied order.
-- Do not substitute an unallocated canonical bullet.
-- Do not select, copy, paraphrase, or reuse bullets extracted from the resume profile.
-- Prefer selecting and reordering existing Evidence Library bullets over rewriting them.
+- Never substitute unallocated Base or Library bullets.
+- Do not prefer or reject a source because of its label.
+- Base Resume bullets must be reproduced verbatim; do not rewrite them.
 - draft_bullets should normally be identical to selected_blueprint_bullets.
-- Lightly rewrite an Evidence Library bullet only when needed to:
+- Lightly rewrite Library-only bullets only when needed to:
   1. improve clarity,
   2. remove repetition,
   3. make the bullet more concise,
@@ -253,10 +259,9 @@ Canonical-bullet rules:
   5. combine overlapping Evidence Library evidence without changing meaning.
 - Never rewrite merely to sound more impressive.
 - Never add a result, metric, tool, responsibility, or skill that is not supplied.
-- When no usable Evidence Library bullet exists, synthesise a bullet only from
-  non-bullet Evidence Library fields such as description, tools, skills, impact,
-  scope, and contribution.
-- Do not use resume bullet wording as fallback evidence.
+- When no approved source bullet is available, use a synthesis slot only
+  where independently approved library fields support the wording.
+- Never invent content from a missing Base or Library source.
 - Explain any synthesised bullet in rewrite_reason.
 
 CAR and ordering rules:
@@ -820,23 +825,17 @@ def build_project_candidate_pool(
 
 
 def _candidate_canonical_bullets(candidate: dict[str, Any]) -> dict[str, list[str]]:
-    """
-    Use Evidence Library bullets as the only approved canonical
-    bullet source.
-    """
-    library_evidence = (
-        candidate.get("evidence_library_evidence")
-        or {}
-    )
-
-    library_bullets = _clean_string_list(
-        library_evidence.get("bullets", [])
-    )
-
+    """V2.7 writer contract: only Python-allocated source-owned bullets."""
+    selected = candidate.get("_phase9f_v27_allocated_bullets")
+    if selected is None:
+        selected = [row["text"] for row in source_bullet_records(candidate)]
+    approved = _clean_string_list(selected)
+    if any(not bullet_sources(candidate, text) for text in approved):
+        raise ValueError("Writer bullet not present in either approved source")
     return {
-        "preferred_canonical_bullets": library_bullets,
+        "preferred_canonical_bullets": list(approved),
         "alternate_resume_bullets": [],
-        "all_approved_source_bullets": library_bullets,
+        "all_approved_source_bullets": list(approved),
     }
 
 
@@ -1268,6 +1267,12 @@ def _build_project_from_writer_plan(
 
     if not draft_bullets:
         draft_bullets = list(selected_blueprints)
+    # Selected Base bullets are user-authored evidence, not permission for an
+    # AI to invent a stronger version. All bullets stay exact in a mixed slate.
+    if any("base" in bullet_sources(candidate, bullet) for bullet in selected_blueprints):
+        draft_bullets = list(selected_blueprints)
+        rewritten_bullets = []
+        rewrite_reason = "V2.7 exact source wording preserved for mixed Base/Library selection."
 
     # A project may have descriptive evidence but no pre-existing bullet. In that
     # case the writer can create a truthful bullet. Keep that result only when a
@@ -1292,6 +1297,9 @@ def _build_project_from_writer_plan(
         draft_bullets,
         compact_bullets,
     ):
+        compact_bullets = []
+    if any("base" in bullet_sources(candidate, bullet) for bullet in selected_blueprints):
+        # No unchecked model-derived compaction of user-authored Base evidence.
         compact_bullets = []
 
     space_action = "single_bullet" if len(draft_bullets) <= 1 else "keep_full"
@@ -1321,6 +1329,10 @@ def _build_project_from_writer_plan(
         ),
         "why_relevant": ranking_row.get("reason", ""),
         "selected_blueprint_bullets": selected_blueprints,
+        "bullet_source_policy_version": COMBINED_BULLET_POLICY_VERSION,
+        "selected_bullet_sources": [
+            bullet_sources(candidate, bullet) for bullet in selected_blueprints
+        ],
         "rewritten_bullets": rewritten_bullets,
         "rewrite_reason": rewrite_reason,
         "draft_bullets": draft_bullets,
@@ -2198,6 +2210,9 @@ IMPORTANT:
             "allocated_bullet_ids",
             [],
         )
+        project["bullet_decision_receipts"] = deepcopy(
+            allocation_plan.get("bullet_decision_receipts", [])
+        )
         recommended_projects.append(project)
 
     selected_keys = {
@@ -2277,6 +2292,7 @@ IMPORTANT:
             PROJECT_RELEVANCE_METADATA_VERSION
         ),
         "recommended_projects": recommended_projects,
+        "bullet_selection_policy_version": COMBINED_BULLET_POLICY_VERSION,
         "bullet_validation_warnings": bullet_validation_warnings,
         "candidate_project_ranking": ranked_rows,
         "low_confidence_selection": low_confidence_selection,

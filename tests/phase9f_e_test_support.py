@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import fitz
+from docx import Document
 
 from database import db_manager, jd_library_manager, tailoring_version_manager
 from database.application_resume_result_manager import (
@@ -131,6 +132,41 @@ def _sections(profile: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         ]
     }
     return projects, skills
+
+
+def phase9f_projects_for_document_verification(resume_profile: dict) -> dict:
+    projects, _ = _sections(resume_profile)
+    bullets = projects["recommended_projects"][0]["draft_bullets"]
+    # The added wording is a literal excerpt from the frozen source project.
+    bullets.append(bullets[0].split(",", 1)[0])
+    return projects
+
+
+def phase9f_skills_for_document_verification(resume_profile: dict) -> dict:
+    _, skills = _sections(resume_profile)
+    return skills
+
+
+def write_phase9f_document_verification_fit(
+    source_docx: Path, output_docx: Path, output_pdf: Path, **fit_inputs,
+) -> dict:
+    """Use real fixture documents in place of the external layout engine."""
+    projects = fit_inputs["tailored_projects"]
+    document = Document(source_docx)
+    document.add_paragraph(projects["recommended_projects"][0]["draft_bullets"][-1])
+    document.save(output_docx)
+    output_pdf.write_bytes(one_page_pdf_bytes(
+        "\n".join(paragraph.text for paragraph in document.paragraphs)
+    ))
+    return {
+        "generation_id": fit_inputs["generation_id"],
+        "fit_one_page": True,
+        "page_count": 1,
+        "docx_path": str(output_docx),
+        "pdf_path": str(output_pdf),
+        "tailored_projects_used": copy.deepcopy(projects),
+        "tailored_skills_used": copy.deepcopy(fit_inputs["tailored_skills"]),
+    }
 
 
 def make_executable_blueprint(

@@ -92,6 +92,9 @@ from tailoring.phase9f_tailoring_execution import (
     prepare_execution,
     validate_minor_full_execution_scope,
 )
+from tailoring.combined_project_bullet_sources_v2_7 import (
+    POLICY_VERSION as COMBINED_BULLET_POLICY_VERSION,
+)
 from tailoring.project_section_tailor import (
     build_project_candidate_pool,
     estimate_project_section_length,
@@ -1637,6 +1640,7 @@ def _prepare_frozen_phase8_context(
         )
     return {
         "decision": decision,
+        "confirmation": confirmation,
         "scope": scope,
         "baseline_report": build_effective_tailoring_report(
             application_report,
@@ -1895,6 +1899,7 @@ def _normal_generation_identity_settings(
         prepared=prepared,
     )
     fingerprint_settings = {
+        "bullet_source_policy_version": COMBINED_BULLET_POLICY_VERSION,
         "max_projects": settings["max_projects"],
         "max_bullets": settings["max_bullets"],
         "bullet_allocation_mode": settings["bullet_allocation_mode"],
@@ -2233,6 +2238,12 @@ def _prepare_normal_generation(
     )
     scope = execution.get("section_scope") or {}
     evidence_pool = _normal_generation_evidence_pool(execution=execution)
+    # A new selection policy must never reuse a prior Library-only generation
+    # under the same JD, resume, model, and project settings. Preserve the
+    # existing canonical frozen settings schema for legacy F stage retries.
+    fingerprint_settings["phase9f_f_project_bullet_source_policy"] = (
+        "phase9f-combined-project-bullet-sources-v2.7"
+    )
     fingerprint_settings["phase9f_f_evidence_pool"] = {
         key: deepcopy(evidence_pool[key])
         for key in (
@@ -4764,13 +4775,43 @@ def run_or_reuse_phase9f_normal_generation_phase8(
         )
 
     prepared = _prepare_frozen_phase8_context(execution)
+    source_contract = None
+    baseline_for_verification = prepared["baseline_report"]
+    if not (baseline_for_verification.get('meta') or {}).get('document_analysis'):
+        # Handoff sessions have an immutable selected-source DOCX, but no
+        # independently uploaded Initial DOCX. Never turn that missing Initial
+        # into a fabricated historical receipt.
+        from tailoring.phase9f_v364_document_reverify import build_frozen_selected_base_document_report
+        frozen_artifact_identity = execution.get('source_artifact') or {}
+        if (not isinstance(frozen_artifact_identity, dict)
+                or not isinstance(frozen_artifact_identity.get('sha256'), str)
+                or len(frozen_artifact_identity['sha256']) != 64
+                or frozen_artifact_identity.get('artifact_type') != 'docx'):
+            raise Phase9FFExecutionError(
+                'Frozen Selected Base DOCX source identity was never established; cannot certify a new Phase 8 baseline.',
+                code='phase8_selected_base_docx_not_frozen', stage='phase8')
+        selected_source = _resolve_prepared_source_artifact(
+            decision=prepared['decision'],
+            confirmation=prepared['confirmation'],
+            expected_identity=frozen_artifact_identity,
+        )
+        baseline_for_verification, source_contract = build_frozen_selected_base_document_report(
+            baseline_report=baseline_for_verification,
+            jd_text=str(baseline_for_verification.get('raw_jd_text') or ''),
+            source_artifact=selected_source,
+        )
     result = build_phase8_verification(
-        baseline_report=prepared["baseline_report"],
+        baseline_report=baseline_for_verification,
         generation_state=generation,
-        raw_jd_text=str(
-            prepared["baseline_report"].get("raw_jd_text") or ""
-        ),
+        raw_jd_text=str(baseline_for_verification.get('raw_jd_text') or ''),
     )
+    if source_contract is not None:
+        result['starting_document_contract'] = source_contract
+        result['verification_mode'] = 'selected_base_docx_vs_final_docx'
+        # The already-sealed Initial role inside Phase 8 represents the first
+        # starting document *for this handoff*. Expose its true Selected Base
+        # role and do not claim a separate uploaded Initial comparison.
+        result['initial_document_status'] = 'not_available_for_handoff'
     latest = save_tailoring_verification(
         application_id=int(application_id),
         generation_id=str(generation_id),

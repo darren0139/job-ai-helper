@@ -384,9 +384,11 @@ class JobMatchSessionABTests(unittest.TestCase):
         self.assertIn("Tailored Job Match", source)
         self.assertIn("Initial vs Tailored", source)
         self.assertIn("Evidence / provenance", source)
-        self.assertIn("Initial provenance", source)
-        self.assertIn("Tailored provenance", source)
-        self.assertIn("A/B taxonomy and resolver diagnostics", source)
+        self.assertIn("Detailed Selected Base/Saved Baseline requirement provenance", source)
+        self.assertIn("Detailed Tailored requirement provenance", source)
+        self.assertIn('baseline_name + " provenance"', source)
+        self.assertIn('"Tailored provenance"', source)
+        self.assertIn("Résumé comparison taxonomy and resolver diagnostics", source)
         self.assertIn("Contribution Δ", source)
 
 

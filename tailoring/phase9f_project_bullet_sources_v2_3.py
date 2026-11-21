@@ -1,9 +1,8 @@
 """Read-only Phase 9F project bullet-source comparison.
 
-Project ranking pools résumé and Evidence Library evidence. Project bullet
-writing takes approved *canonical* bullets from Evidence Library by policy.
-Neither fact proves an individual Evidence Library bullet scored better than a
-résumé bullet; this UI deliberately makes no such claim.
+Historical generation used Library-only bullet selection. V2.7 generations
+include selected Base and Evidence Library bullets, with source ownership and
+saved decisions. Neither policy proves that a global best résumé was found.
 """
 from __future__ import annotations
 
@@ -41,6 +40,68 @@ def _pool_index(rows: Any) -> tuple[dict[str, dict[str, Any]], str]:
         pool[key] = candidate
     return pool, ""
 
+
+
+def explain_saved_bullet_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    """Read-only explanation from an allocator-time snapshot; never infer a winner.
+
+    Older receipts do not contain the decision tuple. Their original reason is
+    retained, but relative ranking and efficiency claims are explicitly withheld.
+    """
+    generic = {"status": "partial", "reason": _clean(decision.get("reason")),
+               "message": "No verified per-step rank comparison in this saved generation.",
+               "step": "", "peer": None, "metric": "", "chosen_value": None,
+               "peer_value": None, "word_count_is_decision_factor": False}
+    context = decision.get("decision_context")
+    if not isinstance(context, dict) or context.get("version") != "phase9f-v27-bullet-selection-explanation-v1":
+        return generic
+    chosen = context.get("selected")
+    if not isinstance(chosen, dict) or str(chosen.get("bullet_id")) != str(decision.get("bullet_id")):
+        return {**generic, "status": "withheld", "message": "Decision snapshot identity mismatch; comparative explanation withheld."}
+    if not decision.get("selected"):
+        return generic
+    if context.get("word_count_used_for_selection") is not False:
+        return {**generic, "status": "withheld", "message": "Unexpected word-budget decision metadata; comparative explanation withheld."}
+    mode = _clean(context.get("mode"))
+    if mode == "all_canonical_before_fitting":
+        return {**generic, "status": "all_admitted",
+                "message": "Both Base and Library bullets were admitted before fitting. No quality winner at this stage.",
+                "step": _clean(context.get("phase")),
+                "word_count": chosen.get("word_count")}
+    peer = context.get("best_opposite_source_peer_at_step")
+    factor = _clean(context.get("first_differing_rank_factor"))
+    factors = context.get("factor_order") or []
+    chosen_rank = chosen.get("rank_tuple") or []
+    peer_rank = peer.get("rank_tuple") if isinstance(peer, dict) else None
+    if isinstance(peer, dict) and (factor not in factors and factor != "rank_tie"):
+        return {**generic, "status": "withheld", "message": "Rank comparison fields are inconsistent; explanation withheld."}
+    if isinstance(peer, dict) and (not isinstance(peer_rank, list)
+                                    or len(factors) != len(chosen_rank)
+                                    or len(factors) != len(peer_rank)):
+        return {**generic, "status": "withheld", "message": "Incomplete ranking tuple; explanation withheld."}
+    if isinstance(peer, dict) and factor in factors:
+        idx = factors.index(factor)
+        metric, value, peer_value = factor, chosen_rank[idx], peer_rank[idx]
+        message = ("At this allocation step, the chosen bullet ranked ahead of the "
+                   "best available opposite-source bullet within this project. "
+                   "The first differing ranking factor is shown below; this is not a global quality score.")
+    elif isinstance(peer, dict):
+        metric, value, peer_value = "rank_tie", None, None
+        message = "The local opposite-source alternative tied on recorded ranking factors; stable ordering decided."
+    else:
+        metric, value, peer_value = "", None, None
+        message = "No opposite-source bullet was available as a local alternative at this step."
+    return {"status": "step_recorded", "reason": generic["reason"],
+            "message": message, "step": _clean(context.get("phase")),
+            "ranking_scope": _clean(context.get("ranking_scope")),
+            "metric": metric, "chosen_value": value, "peer_value": peer_value,
+            "peer": peer, "word_count": chosen.get("word_count"),
+            "named_technical_terms": chosen.get("named_technical_terms"),
+            "ownership_score": chosen.get("ownership_score"),
+            "new_strong": chosen.get("new_strong"),
+            "new_required_core": chosen.get("new_required_core"),
+            "strong_requirement_ids": chosen.get("strong_requirement_ids") or [],
+            "word_count_is_decision_factor": False}
 
 def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_pool: Any) -> dict[str, Any]:
     """Ground exact bullet-source displays in saved source and generation rows.
@@ -100,7 +161,18 @@ def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_
         lib_text = {_key(s) for s in library}
         selected_text = {_key(s) for s in selected}
         draft_text = {_key(s) for s in draft}
-        if any(s not in lib_text for s in selected_text):
+        new_policy = (project.get("bullet_source_policy_version")
+                      == "phase9f-combined-project-bullet-sources-v2.7")
+        base_text = {_key(s) for s in base}
+        if new_policy:
+            if any(s not in (lib_text | base_text) for s in selected_text):
+                return {"projects": [], "notice": "Selected V2.7 bullets are not in either frozen source."}
+            from tailoring.combined_project_bullet_sources_v2_7 import bullet_sources
+            recorded_owners = project.get("selected_bullet_sources")
+            if (not isinstance(recorded_owners, list)
+                or recorded_owners != [bullet_sources(source, text) for text in selected]):
+                return {"projects": [], "notice": "Saved V2.7 bullet ownership receipt does not match frozen sources."}
+        elif any(s not in lib_text for s in selected_text):
             return {"projects": [], "notice": "Selected canonical bullets are not in the saved Evidence Library source."}
         priority = project.get("bullet_evidence_priorities") or []
         priority_by_index = {}
@@ -111,6 +183,7 @@ def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_
         base_rows = [{
             "#": i, "Base Resume bullet": text,
             "Canonical Library text?": "Exact match" if _key(text) in lib_text else "No",
+            "Selected for generation?": "Yes" if _key(text) in selected_text else "No",
             "Exact draft wording?": "Yes" if _key(text) in draft_text else "No",
         } for i, text in enumerate(base, 1)]
         library_rows = [{
@@ -154,8 +227,24 @@ def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_
             "rank": rank.get("selection_rank"),
             "project_rank_score": rank.get("selection_score"),
             "rewrite_reason": _clean(project.get("rewrite_reason")),
+            "bullet_decision_receipts": (
+                project.get("bullet_decision_receipts") or []
+            ),
+            "saved_requirement_labels": {
+                _clean(m.get("requirement_id")): {
+                    "text": _clean(m.get("requirement_text")),
+                    "match": _clean(m.get("match_label")),
+                }
+                for m in (rank.get("requirement_matches") or [])
+                if isinstance(m, dict) and _clean(m.get("requirement_id"))
+            },
+            "bullet_source_policy_version": _clean(project.get("bullet_source_policy_version")),
         })
-    return {"projects": output, "notice": "The Evidence Library is canonical by bullet-source policy, not because a saved Base-versus-Library bullet-quality contest was won."}
+    policy_set = {r.get("bullet_source_policy_version", "") for r in output}
+    notice = ("V2.7 allowed both the confirmed Base and frozen Library bullets. Saved source ownership and allocation decisions are shown; this is not a validated global quality optimum."
+              if policy_set == {"phase9f-combined-project-bullet-sources-v2.7"}
+              else "Legacy generation: the Evidence Library was canonical by bullet-source policy, not because a Base-versus-Library quality contest was won.")
+    return {"projects": output, "notice": notice}
 
 
 def _bound_candidate_sources(
@@ -219,56 +308,138 @@ def render_project_bullet_source_comparison(
         return False
     st.caption(view["notice"])
     st.caption("Source authority: " + provenance + ". Each source list is independent; bullet numbers do not imply paired alternatives.")
-    options = list(range(len(view["projects"])))
-    picked = st.selectbox("Inspect source bullets for project", options,
-                          format_func=lambda i: view["projects"][i]["project"],
-                          key=f"phase9f_project_bullet_sources_v23_{int(application_id)}")
-    if picked is None:
-        return True
-    chosen = view["projects"][picked]
-    col_base, col_library, col_draft = st.columns(3)
-    col_base.metric("Base bullets", chosen["base_count"])
-    col_library.metric("Canonical Library", chosen["library_count"])
-    col_draft.metric("Generated draft", chosen["draft_count"])
-    st.caption("Why Library wording is used: the writer's current eligibility rule accepts canonical Evidence Library bullets. This is a policy, NOT a measured verdict that a Base bullet is weaker.")
-    st.markdown("**Selected Base Resume — full original wording**")
-    if not chosen["base_bullets"]:
-        st.caption("No saved Base bullets for this project.")
-    for row in chosen["base_bullets"]:
-        with st.container(border=True):
-            st.write(f"**Base B{row['#']}**")
-            st.write(row["Base Resume bullet"])
-            st.caption("Verbatim in canonical Library: " + row["Canonical Library text?"] +
-                       " · Exact wording in generated draft: " + row["Exact draft wording?"])
-    st.markdown("**Canonical Evidence Library — approved alternatives**")
-    if not chosen["library_bullets"]:
-        st.caption("No canonical Library bullets recorded.")
-    for row in chosen["library_bullets"]:
-        with st.container(border=True):
-            st.write(f"**Library L{row['#']} · {row['Canonical selection']}**")
-            st.write(row["Evidence Library bullet"])
-            st.caption("Exact generated draft wording: " + row["Exact draft wording?"] +
-                       ". Inclusion is not a claim of relative bullet quality.")
-    st.markdown("**Generated draft — complete readable bullet text**")
-    for row in chosen["draft_bullets"]:
-        with st.container(border=True):
-            st.write(f"**Draft D{row['#']}**")
-            st.write(row["Generated draft bullet"])
-            note = row["Wording lineage"]
-            if row["Saved JD requirement IDs"]:
-                note += " · Saved JD IDs: " + row["Saved JD requirement IDs"]
-            if row["Saved evidence priority"] is not None:
-                note += " · Saved draft evidence value: " + str(row["Saved evidence priority"])
-            st.caption(note)
-    if chosen["rewrite_reason"]:
-        st.caption("Saved writer explanation: " + chosen["rewrite_reason"])
-    if chosen["evidence_links"]:
-        if st.checkbox("Show saved JD evidence links for this project", value=False,
-                       key=f"phase9f_bullet_source_jd_links_{int(application_id)}"):
-            for row in chosen["evidence_links"]:
+    import pandas as pd
+    summary = []
+    for row in view["projects"]:
+        receipts = row.get("bullet_decision_receipts") or []
+        accepted = [r for r in receipts if r.get("selected") is True]
+        ownership = [set(r.get("sources") or []) for r in accepted]
+        is_new = row.get("bullet_source_policy_version") == "phase9f-combined-project-bullet-sources-v2.7"
+        summary.append({
+            "Inspect": False,
+            "Project": row["project"],
+            "Base available": row["base_count"],
+            "Library available": row["library_count"],
+            "Chosen Base-only": sum(x == {"base"} for x in ownership) if is_new else "Legacy",
+            "Chosen Library-only": sum(x == {"library"} for x in ownership) if is_new else "Legacy",
+            "Chosen shared": sum(x == {"base", "library"} for x in ownership) if is_new else "Legacy",
+            "Draft count": row["draft_count"],
+        })
+    st.caption("Tick Inspect on one or more projects below. The checked boxes expand explanations only; they do not edit the saved generation.")
+    inspection = st.data_editor(
+        pd.DataFrame(summary), hide_index=True, width="stretch", num_rows="fixed",
+        disabled=[col for col in summary[0] if col != "Inspect"],
+        key=f"phase9f_v27_generated_project_inspection_{int(application_id)}",
+    )
+    picks = [i for i, checked in enumerate(inspection["Inspect"].tolist()) if checked]
+    for i in picks:
+        chosen = view["projects"][i]
+        st.markdown("### " + chosen["project"])
+        col_base, col_library, col_draft = st.columns(3)
+        col_base.metric("Base bullets", chosen["base_count"])
+        col_library.metric("Library bullets", chosen["library_count"])
+        col_draft.metric("Generated draft", chosen["draft_count"])
+        if chosen.get("bullet_source_policy_version") == "phase9f-combined-project-bullet-sources-v2.7":
+            decisions = chosen.get("bullet_decision_receipts") or []
+            st.markdown("**Actual bullet allocation and saved reasons**")
+            if not decisions:
+                st.warning("This generation has no saved per-bullet selection receipts.")
+            for decision in decisions:
+                label = "Chosen" if decision.get("selected") else "Not allocated"
                 with st.container(border=True):
-                    st.write("**" + row["JD requirement"] + "** · " + row["Match"])
-                    st.write(row["Saved evidence excerpt"] or "No specific excerpt recorded")
-                    st.caption("Evidence record IDs: " + row["Evidence record IDs"])
-            st.caption("JD matching applies to pooled project evidence; it did not compare Base versus Library wording.")
+                    st.write("**" + label + "** · " + ", ".join(decision.get("sources") or []))
+                    st.write(str(decision.get("bullet") or ""))
+                    reason = str(decision.get("reason") or "No saved reason")
+                    reqids = decision.get("supported_requirement_ids") or []
+                    st.caption("Allocator: " + reason)
+                    evidence = chosen.get("saved_requirement_labels") or {}
+                    if reqids:
+                        st.caption("Saved project-level JD signals used by this allocator bullet: " +
+                                   "; ".join(
+                                      (evidence.get(rid, {}).get("text") or rid) +
+                                      (" [" + evidence.get(rid, {}).get("match", "") + "]"
+                                       if evidence.get(rid, {}).get("match") else "")
+                                      for rid in reqids
+                                   ))
+                    else:
+                        st.caption("No strong JD requirement support recorded for this bullet.")
+                    why = explain_saved_bullet_decision(decision)
+                    if why["status"] == "step_recorded":
+                        st.write("**Why at this allocation step?** " + why["message"])
+                        st.caption("Phase: " + why["step"] + " · Scope: " + why.get("ranking_scope", ""))
+                        if why.get("metric"):
+                            st.write("First differing rank factor: **" + why["metric"] + "**")
+                            if why["chosen_value"] is not None:
+                                st.caption("Chosen: " + str(why["chosen_value"]) +
+                                           " · Other-source alternative: " + str(why["peer_value"]))
+                        peer = why.get("peer")
+                        if peer:
+                            st.write("**Best other-source bullet available then:** " + str(peer.get("bullet") or ""))
+                            st.caption("Source: " + ", ".join(peer.get("sources") or []))
+                        st.caption("Chosen words: " + str(why.get("word_count")) +
+                                   " · Named technical-term hits: " + str(why.get("named_technical_terms")) +
+                                   " · Ownership signal: " + str(why.get("ownership_score")) +
+                                   ". Word count is informational: it is NOT an allocator ranking factor.")
+                    elif why["status"] == "all_admitted":
+                        st.caption(why["message"])
+                    else:
+                        st.caption(why["message"])
+                    if decision.get("selected"):
+                        with st.expander("Compare JD terms: selected bullet vs other-source alternative", expanded=False):
+                            from tailoring.phase9f_bullet_comparison_detail_v1 import compare_saved_source_bullets
+                            detail = compare_saved_source_bullets(decision, evidence)
+                            if detail["status"] != "ok":
+                                st.caption(detail["message"])
+                            else:
+                                st.caption(detail["selection_reason"])
+                                st.caption(detail["caveat"])
+                                cols = st.columns(2)
+                                for column, key in zip(cols, ("chosen", "peer")):
+                                    item = detail[key]
+                                    with column:
+                                        st.markdown("**" + ("Selected" if key == "chosen" else "Other-source alternative")
+                                                    + " — " + ", ".join(item["sources"]) + "**")
+                                        st.markdown(item["marked"])
+                                        st.caption("Words: " + str(item["words"]) +
+                                                   " · JD terms present: " + ", ".join(item["jd_terms"]))
+                                st.write("**Shared JD terms:** " + ", ".join(detail["common_terms"]))
+                                st.write("**Selected-only JD terms:** " + ", ".join(detail["chosen_only_terms"]))
+                                st.write("**Alternative-only JD terms:** " + ", ".join(detail["peer_only_terms"]))
+                                for requirement in detail["requirements"]:
+                                    st.markdown("**JD: " + requirement["text"] + "**")
+                                    st.caption("Saved project match: " + requirement["project_match"] +
+                                               " · Selected support recorded: " + str(requirement["selected_support_recorded"]) +
+                                               " · Alternative support recorded: " + str(requirement["alternative_support_recorded"]))
+                                    st.caption("Exact terms — Selected: " + ", ".join(requirement["lexical_selected"]) +
+                                               " | Alternative: " + ", ".join(requirement["lexical_alternative"]))
+            st.caption("Older generations have broad saved reasons only. New selection-step explanations are not backfilled; word efficiency is a diagnostic, not an allocator rank factor.")
+            st.caption("Source ownership is not a quality score. No alternative is proven globally optimal.")
+        else:
+            st.caption("Legacy Library-only generation. The Library source won by the historical policy, not by a Base-vs-Library quality comparison.")
+        with st.expander("See full original Base, Library and generated bullets", expanded=False):
+            st.markdown("**Selected Base Resume**")
+            for bullet in chosen["base_bullets"]:
+                with st.container(border=True):
+                    st.write(f"**Base B{bullet['#']}**")
+                    st.write(bullet["Base Resume bullet"])
+            st.markdown("**Evidence Library**")
+            for bullet in chosen["library_bullets"]:
+                with st.container(border=True):
+                    st.write(f"**Library L{bullet['#']} · {bullet['Canonical selection']}**")
+                    st.write(bullet["Evidence Library bullet"])
+            st.markdown("**Generated draft**")
+            for bullet in chosen["draft_bullets"]:
+                with st.container(border=True):
+                    st.write(f"**Draft D{bullet['#']}**")
+                    st.write(bullet["Generated draft bullet"])
+                    st.caption(bullet["Wording lineage"])
+            if chosen["rewrite_reason"]:
+                st.caption("Saved writer note: " + chosen["rewrite_reason"])
+        with st.expander("JD evidence links and requirement provenance", expanded=False):
+            for item in chosen["evidence_links"]:
+                with st.container(border=True):
+                    st.write("**" + item["JD requirement"] + "** · " + item["Match"])
+                    st.write(item["Saved evidence excerpt"] or "No excerpt recorded")
+                    st.caption("Evidence IDs: " + item["Evidence record IDs"])
+            st.caption("Project-level JD evidence does not prove that one alternative bullet text is superior.")
     return True

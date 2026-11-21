@@ -532,3 +532,27 @@ a nonempty hostname and no credentials, port, path, query, or fragment. Firefox
 origin UUIDs need not match the Gecko add-on ID. Ordinary webpage origins are
 rejected; empty Origin remains supported for authenticated local diagnostics.
 All existing automation safety boundaries and zero model-call behavior remain.
+
+### Capture the open Job AI Helper tab
+
+1. Build and reload the extension using the instructions above. Use Firefox 126+
+   or Chromium. Open Job AI Helper at `http://localhost` or `http://127.0.0.1`.
+2. Refresh the app once to load the Capture control and extension content script.
+3. Open the Job AI Helper toolbar extension on this tab, then close the popup.
+   The toolbar invocation grants the existing `activeTab` permission.
+4. Open **Capture** in the sidebar. Choose **Visible area** or **Full scrollable
+   main panel**, optionally include the visible sidebar, then click **Capture**.
+5. Download the PNG or the numbered PNG parts. Keep the tab active and the
+   viewport stable during full capture.
+
+Capture crops browser screenshots, skips overlap between scroll positions, and
+restores the original scroll position on completion or failure. For a full capture,
+the visible sidebar appears beside the opening viewport. Very long panels are
+split into bounded PNGs. Only rendered rows and expanded details are captured.
+Images stay in browser memory and local downloads. This feature uses no bridge
+or Streamlit widget callback.
+
+See the browser requirements for
+[`tabs.captureVisibleTab`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/captureVisibleTab).
+The standalone `capture_streamlit_scroll_stitched_v2.py` remains available as a
+separate-window fallback.

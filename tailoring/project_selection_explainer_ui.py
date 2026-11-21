@@ -113,6 +113,7 @@ def render_project_selection_explainer(
     st: Any, projects: dict[str, Any], *, application_id: int,
     phase9f_execution: dict[str, Any] | None = None,
     current_phase9e_decision: dict[str, Any] | None = None,
+    stable_analysis: dict[str, Any] | None = None,
 ) -> bool:
     tables = project_explanation_tables(projects)
     if not tables["summary"]:
@@ -127,22 +128,31 @@ def render_project_selection_explainer(
         st.caption(f"{tables['generated_count']} project(s) generated from "
                    f"{tables['candidate_count']} saved candidate(s). "
                    "Generated selection, manual fit selection and one-page retention are different stages.")
-        from tailoring.phase9f_explainer_clarity_v2_2 import project_selection_summary
-        choice = project_selection_summary(projects)
-        if choice["rows"]:
-            st.write("**Why each project was chosen**")
-            st.caption(choice["notice"] + " · Selection source: " + choice["selection_source"])
-            st.dataframe(choice["rows"], hide_index=True, width="stretch")
-        else:
-            st.caption("Selection-basis table withheld: " + choice["notice"])
         from tailoring.phase9f_project_bullet_sources_v2_3 import (
-            render_project_bullet_source_comparison,
+            _bound_candidate_sources, render_project_bullet_source_comparison,
         )
-        render_project_bullet_source_comparison(
-            st, projects, application_id=application_id,
-            phase9f_execution=phase9f_execution,
-            current_phase9e_decision=current_phase9e_decision,
-        )
+        from tailoring.phase9f_pre_fit_decision_explorer_v281 import render_pre_fit_decision_explorer
+        candidates, source_note = _bound_candidate_sources(phase9f_execution, current_phase9e_decision)
+        if candidates is not None:
+            render_pre_fit_decision_explorer(st, projects=projects, candidates=candidates,
+                                             application_id=application_id, stable_analysis=stable_analysis)
+        else:
+            st.info("Pre-fit interactive comparison unavailable: " + source_note)
+        if st.checkbox("Show advanced — original project ranking and full bullet allocation records",
+                       value=False,key=f"phase9f_prefit_explorer_advanced_{int(application_id)}"):
+            from tailoring.phase9f_explainer_clarity_v2_2 import project_selection_summary
+            choice = project_selection_summary(projects)
+            if choice["rows"]:
+                st.write("**Why each project was chosen**")
+                st.caption(choice["notice"] + " · Selection source: " + choice["selection_source"])
+                st.dataframe(choice["rows"], hide_index=True, width="stretch")
+            else:
+                st.caption("Selection-basis table withheld: " + choice["notice"])
+            render_project_bullet_source_comparison(
+                st, projects, application_id=application_id,
+                phase9f_execution=phase9f_execution,
+                current_phase9e_decision=current_phase9e_decision,
+            )
         st.divider()
         show_advanced = st.checkbox(
             "Show full ranking, coverage and requirement evidence",

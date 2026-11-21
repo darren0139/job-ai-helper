@@ -579,6 +579,26 @@ def _importance_sensitive_fuzzy_merge_is_unsafe(
     )
 
 
+def _strip_nonqualification_hard_cues(normalised: str) -> str:
+    """Mask duty-context vocabulary, not true applicant must-have signals.
+
+    A role can deliver a *minimum viable product*, assist *as required*, or
+    respond to *workforce needs*. Those strings do not establish a required
+    applicant qualification. The reviewed-419 compatibility path is frozen.
+    """
+    if _REVIEW419_LEGACY_PARSER.get():
+        return normalised
+    for pattern in (
+        r"\b(?:as|where)\s+(?:required|needed)\b",
+        r"\bminimum\s+viable\s+product\b",
+        r"\b(?:business|client|customer|user|stakeholder|operational|workforce|data)\s+needs\b",
+        r"\bneeds\s+(?:into|in\s+mind|of)\b",
+        r"\bneed\s+for\s+continuous\s+improvement\b",
+    ):
+        normalised = re.sub(pattern, " ", normalised)
+    return normalised
+
+
 def _classify_raw_importance(
     text: str,
     default: str = "core",
@@ -592,7 +612,15 @@ def _classify_raw_importance(
         return "preferred"
 
     # Explicit hard-requirement language wins over the supporting classifier.
-    if any(hint in normalised for hint in _REQUIRED_HINTS):
+    # 'needs of stakeholders/analysts' describes beneficiaries, not a must-have.
+    benign_needs_phrase = (
+        not _REVIEW419_LEGACY_PARSER.get()
+        and (re.search(r"\bneeds\s+of\b", normalised)
+             or re.search(r"\b(?:business|client|customer|user|stakeholder|operational)\s+needs\b", normalised))
+        and not re.search(r"\b(?:must|required|minimum|essential|mandatory|need\s+to)\b", normalised)
+    )
+    hard_cue_surface = _strip_nonqualification_hard_cues(normalised)
+    if any(hint in hard_cue_surface for hint in _REQUIRED_HINTS) and not benign_needs_phrase:
         return "required"
 
     # An explicit Preferred section is itself an optionality signal.
@@ -644,6 +672,12 @@ _RAW_SECTION_HEADINGS = {
             "position overview",
             "overview",
             "key responsibilities",
+            # Explicit job-duty list introductions.
+            "your key responsibilities include",
+            "key responsibilities include",
+            "your responsibilities include",
+            "responsibilities include",
+            "other responsibilities include",
             "responsibilities",
             "job responsibilities",
             "role responsibilities",
@@ -695,6 +729,7 @@ _RAW_SECTION_HEADINGS = {
             "nice to haves",
             "bonus qualifications",
             "additional qualifications",
+            "additional valuable skills",
         }
     ),
     "stop": frozenset(
@@ -736,9 +771,15 @@ def _raw_section_for_heading(value: Any) -> str:
 
     if _REVIEW419_LEGACY_PARSER.get() and heading in {
         "what will you do", "the ideal candidate should possess",
+        # Preserve immutable exact-source reviewed-419 parser scope.
+        "your key responsibilities include", "key responsibilities include",
+        "your responsibilities include", "responsibilities include",
+        "other responsibilities include", "additional valuable skills",
     }:
         return ""
 
+    if not _REVIEW419_LEGACY_PARSER.get() and heading in {"period", "location", "working hours"}:
+        return "stop"
     for section, headings in _RAW_SECTION_HEADINGS.items():
         if heading in headings:
             return section
@@ -860,6 +901,32 @@ def classify_jd_statement_semantics(
         return metadata
 
     administrative_rules = (
+        # High-confidence non-skill statements: never score recruiters' identities,
+        # statutory citizenship eligibility, or invitations without experience.
+        (
+            "candidate_eligibility_citizenship_notice",
+            re.compile(r"\bonly\s+(?:[A-Za-z-]+\s+){0,3}citizens\s+will\s+be\s+considered$", re.I),
+        ),
+        (
+            "candidate_eligibility_no_experience_welcome",
+            re.compile(
+                r"^(?:those|applicants?|candidates?)\s+(?:without|with\s+no)\s+"
+                r"(?:(?:prior|working|work|professional)\s+)?(?:experience|expereince)\b"
+                r".*\b(?:are|is)\s+(?:welcome|encouraged)\s+to\s+apply$", re.I,
+            ),
+        ),
+        (
+            "recruiter_company_identity",
+            re.compile(r"^[A-Za-z][A-Za-z0-9 .,()&'-]{4,120}\b(?:Pte|Pvt)\.?(?:\s+)Ltd\.?$", re.I),
+        ),
+        (
+            "recruiter_registration_identity",
+            re.compile(r"^(?:UEN(?:\s+No\.?)?|EA\s+Personnel(?:\s+Registration\s+No\.?)?)\s*:", re.I),
+        ),
+        (
+            "employment_contract_notice",
+            re.compile(r"^this\s+is\s+a\s+\d+[- ]year\s+contract$", re.I),
+        ),
         (
             "application_status_notice",
             re.compile(
@@ -877,10 +944,19 @@ def classify_jd_statement_semantics(
             ),
         ),
         (
+            "candidate_eligibility_citizenship_notice",
+            re.compile(r"^(?:singaporean(?:s)?|singapore\s+citizens\s+only|only\s+singapore\s+citizens)$", re.I),
+        ),
+        (
+            "candidate_eligibility_citizenship_notice",
+            re.compile(r"^only\s+(?:singaporeans?|singapore\s+citizens?)\s+(?:need|may|can|should)\s+apply$", re.I),
+        ),
+        (
             "application_instruction",
             re.compile(
                 r"^(?:how to apply:\s*)?please submit your resume\b|"
-                r"^interested applicants,? kindly send in a copy of your updated resume\b",
+                r"^interested applicants,? kindly send in a copy of your updated resume\b|"
+                r"^interested applicants,? kindly (?:email|send)\b.{0,200}\b(?:resume|cv)\b",
                 re.IGNORECASE,
             ),
         ),
@@ -913,6 +989,18 @@ def classify_jd_statement_semantics(
             ),
         ),
         (
+            "recruiter_contact_information",
+            re.compile(r"^(?:.+@[-a-z0-9.]+\.[a-z]{2,}.+\breg\s*no\s*:|t\s*:\s*\+?\d.+\bw\s*:\s*www\.)", re.I),
+        ),
+        (
+            "application_privacy_notice",
+            re.compile(r"^you may find out more information on the pdpa policies at\b", re.I),
+        ),
+        (
+            "application_instruction",
+            re.compile(r"^please ensure that applications sent through email are no bigger than\b", re.I),
+        ),
+        (
             "recruiter_postal_address",
             re.compile(
                 r"^\d+\s+[^.!?]{1,100}\b(?:road|street|avenue|drive|boulevard|lane)\b"
@@ -922,6 +1010,29 @@ def classify_jd_statement_semantics(
         ),
     )
     for rule, pattern in administrative_rules:
+        # Exact reviewed source compatibility is deliberately opt-in and frozen.
+        if _REVIEW419_LEGACY_PARSER.get() and rule in {
+            "candidate_eligibility_citizenship_notice",
+            "candidate_eligibility_no_experience_welcome",
+            "recruiter_company_identity", "recruiter_registration_identity",
+            "employment_contract_notice",
+        }:
+            continue
+        if (
+            _REVIEW419_LEGACY_PARSER.get()
+            and rule == "application_instruction"
+            and re.match(r"^interested applicants,? kindly (?:email|send)\b", surface, re.I)
+            and not re.match(r"^interested applicants,? kindly send in a copy of your updated resume", surface, re.I)
+        ):
+            continue
+        if _REVIEW419_LEGACY_PARSER.get() and rule in {
+            "recruiter_contact_information", "application_privacy_notice",
+        }:
+            continue
+        if _REVIEW419_LEGACY_PARSER.get() and rule == "application_instruction" and re.match(
+            r"^please ensure that applications sent through email are no bigger than\b", surface, re.I,
+        ):
+            continue
         if pattern.search(surface):
             return _ineligible_semantic_metadata(
                 metadata,
@@ -930,6 +1041,10 @@ def classify_jd_statement_semantics(
             )
 
     narrative_rules = (
+        (
+            "role_summary_context",
+            re.compile(r"^this integrated role ensures\b", re.I),
+        ),
         (
             "role_reporting_context",
             re.compile(r"^this role reports to\b", re.IGNORECASE),
@@ -964,6 +1079,8 @@ def classify_jd_statement_semantics(
         ),
     )
     for rule, pattern in narrative_rules:
+        if _REVIEW419_LEGACY_PARSER.get() and rule == "role_summary_context":
+            continue
         if pattern.search(surface):
             semantic_type = (
                 "training_outcome"
@@ -1137,6 +1254,11 @@ def _classify_non_requirement_row(value: Any) -> str:
     if not text:
         return ""
 
+    if not _REVIEW419_LEGACY_PARSER.get():
+        if re.fullmatch(r"(?:period|permanent|location|working hours|salary)", text):
+            return "employment_terms_notice"
+        if re.fullmatch(r"(?:mon\s*[-–—]\s*fri|monday\s*[-–—]\s*friday)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[-–—]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?", surface, re.I):
+            return "employment_terms_notice"
     semantic = classify_jd_statement_semantics(surface)
     if not semantic["score_eligible"]:
         return _clean_text(semantic.get("eligibility_rule"))
@@ -1466,6 +1588,45 @@ def _split_shared_head_and_list(value: str) -> list[str]:
     if len(items) < 2:
         return []
 
+    # Modifiers connected to the same noun phrase are not independent skills:
+    # e.g. 'translate datasets into clear, actionable insights' or
+    # 'build dynamic, responsive interfaces'.
+    if (not _REVIEW419_LEGACY_PARSER.get() and len(items) == 2
+            and re.search(r"\b(?:into|as)\s+[a-z-]+$|\b(?:building|build|creating|create)\s+(?:dynamic|scalable|secure|robust)$", items[0], re.I)
+            and re.match(r"^(?:actionable|responsive|maintainable|usable|secure|reliable)\s+", items[1], re.I)):
+        return []
+
+    # Rejoin adjectival modifiers that share a later noun phrase before
+    # treating top-level commas as independently matchable skill boundaries.
+    # For example: "building dynamic, responsive UIs" must not produce a
+    # standalone "building dynamic" requirement. Likewise "static, dynamic
+    # and manual source-code review" is one shared-object item, not two
+    # naked adjectives. Only the current parser receives this change.
+    if not _REVIEW419_LEGACY_PARSER.get():
+        modifiers = (
+            r"(?:dynamic|static|manual|complex|distributed|responsive|"
+            r"actionable|scalable|secure|robust|maintainable|reliable|"
+            r"efficient)"
+        )
+        fixed_items = list(items)
+        index = 0
+        merged = False
+        while index < len(fixed_items) - 1:
+            left, right = fixed_items[index:index + 2]
+            adjective_run = re.fullmatch(rf"{modifiers}(?:,\s*{modifiers})*", left, re.I)
+            if (re.search(rf"\b{modifiers}$", left, re.I)
+                    and re.match(rf"^{modifiers}\b", right, re.I)
+                    and (adjective_run or
+                         re.search(r"\b(?:building|creating|within|into)\b", left, re.I))):
+                fixed_items[index:index + 2] = [left + ", " + right]
+                merged = True
+            else:
+                index += 1
+        items = ([item[4:] if item.lower().startswith("and ") else item
+                  for item in fixed_items] if merged else fixed_items)
+        if len(items) < 2:
+            return []
+
     head = match.group("head").strip()
     return [
         f"{head} {item}".strip()
@@ -1737,6 +1898,38 @@ def _split_single_requirement_clause(
         return []
 
     parent_text = value
+    # Split a parenthesized "Y is considered a plus" cue from its sibling
+    # qualifications. The optionality applies only to Y, not the surrounding
+    # shared-head knowledge list. Preserve the raw parent for lineage and
+    # source-group budget; the reviewed-419 compatibility parser is frozen.
+    if not _REVIEW419_LEGACY_PARSER.get():
+        inline_plus = re.fullmatch(
+            r"(?:[·•]\s*)?"
+            r"(?P<head>(?:knowledge|experience|proficiency|familiarity)\s+"
+            r"(?:in|with|of|using)\s+)"
+            r"(?P<first>[^(),]{1,70}?)\s*\(\s*"
+            r"(?P<bonus>[^(),]{1,45}?)\s+is\s+considered\s+a\s+plus\s*\)"
+            r"(?P<rest>\s*,\s*[^()]+)?",
+            value,
+            flags=re.I,
+        )
+        if inline_plus:
+            head = inline_plus.group("head")
+            first = inline_plus.group("first").strip(" ,;.-")
+            optional = inline_plus.group("bonus").strip(" ,;.-")
+            remainder = (inline_plus.group("rest") or "").strip(" ,;.-")
+            if (first and optional and _is_bounded_named_term(optional)
+                    and (_is_bounded_named_term(first)
+                         or re.fullmatch(r"[A-Z][+#]?", first))):
+                base = f"{head}{first}" + (f", {remainder}" if remainder else "")
+                main_importance = _classify_raw_importance(
+                    base, default_importance,
+                    preserve_required_default=(default_importance == "required"),
+                )
+                main = _split_non_preference_clause(base, main_importance, value)
+                bonus = _split_non_preference_clause(f"{head}{optional}", "preferred", value)
+                return main + bonus
+
     preference_match = re.search(
         r"\b(preferably|ideally|nice[- ]to[- ]have|would be preferred)\b",
         value,
@@ -1744,6 +1937,12 @@ def _split_single_requirement_clause(
     )
 
     if preference_match:
+        # A terminal 'would be preferred' applies to the entire qualification,
+        # not an empty preference tail (which used to be reclassified as Core).
+        if (not _REVIEW419_LEGACY_PARSER.get()
+                and preference_match.group().casefold() == "would be preferred"
+                and not value[preference_match.end():].strip(" ,;.-")):
+            return _split_non_preference_clause(value, "preferred", parent_text)
         before = value[: preference_match.start()].strip(" ,;.-")
         after = value[preference_match.end() :].strip(" ,;.-")
         after_normalised = _normalise_basic(after)
@@ -1884,6 +2083,10 @@ def _looks_like_introductory_list_item(value: str) -> bool:
     """Conservatively recognise a short item under an explicit list introducer."""
     text = _normalise_requirement_surface(value).strip(" ,;:.-")
     tokens = _tokenise(text)
+    # A middle-dot top-level bullet ends an 'including:' example list;
+    # it is not another child of the preceding colon-introduced inventory.
+    if not _REVIEW419_LEGACY_PARSER.get() and text.startswith("·"):
+        return False
     if not tokens or len(tokens) > 9:
         return False
     if re.search(r"[.!?;:]$", text):
@@ -2059,6 +2262,13 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
     for line_offset, raw_line in enumerate(raw_lines):
         line_index = line_offset + 1
         original = _clean_text(raw_line).strip("-•* \t")
+        # Some employer portals use middle-dot bullets and nested 'o ' bullets.
+        # Consume markers only in ordinary parsing, never the 419 legacy replay.
+        if not _REVIEW419_LEGACY_PARSER.get():
+            if re.match(r"^·\s*additional valuable skills\s*$", original, re.I):
+                original = "Additional Valuable Skills"
+            if active_section in {"requirements", "preferred", "responsibilities", "core"}:
+                original = re.sub(r"^o\s+(?=[A-Za-z])", "", original)
         value = _normalise_requirement_surface(original)
         if not value:
             flush_pending()
@@ -2068,6 +2278,10 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
         section = _raw_section_for_heading(value)
 
         is_bullet = bool(re.match(r"^\s*(?:[-*•]+|\d+[.)])\s*", raw_line))
+        if not _REVIEW419_LEGACY_PARSER.get():
+            is_bullet = is_bullet or bool(re.match(r"^\s*·\s+", raw_line))
+            if active_section in {"requirements", "preferred", "responsibilities", "core"}:
+                is_bullet = is_bullet or bool(re.match(r"^\s*o\s+[A-Za-z]", raw_line))
         continues_pending = bool(
             pending
             and not is_bullet
@@ -2075,6 +2289,43 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             and is_unambiguous_continuation(pending["text"], value)
         )
         is_requirement_list_intro = bool(_introductory_list_kind(value))
+
+        # Preserve nested task groups ("Application Security", "Model Development
+        # & Operations") under an explicit Responsibilities section. An inferred
+        # title-like subsection is structural, never itself a scored capability.
+        # Only admit this boundary when the following line is independently
+        # action-led. The frozen reviewed-419 parser is not affected.
+        next_raw = raw_lines[line_offset + 1].strip() if line_offset + 1 < len(raw_lines) else ""
+        next_task = re.sub(r"^(?:[-*•]\s+|\d+[.)]\s+)", "", next_raw)
+        if (
+            not _REVIEW419_LEGACY_PARSER.get()
+            and active_section == "responsibilities"
+            and not section and not is_bullet and not continues_pending
+            and 1 <= len(_tokenise(value)) <= 8
+            and not re.search(r"[.!?;:]$", value)
+            and not re.search(r"\b(?:must|should|experience|knowledge|proficiency|degree|"
+                              r"qualifications?|requirements?|skills?|ability|familiarity)\b", value, re.I)
+            and re.match(r"^\s*[-*•]\s+[A-Za-z]", next_raw)
+            and re.match(r"^(?:develop|provide|review|track|monitor|participate|assess|organise|"
+                         r"establish|serve|discover|integrate|collaborate|work|implement|"
+                         r"recommend|present|enhance|stay|identify|design|build|test|"
+                         r"deploy|collect|ensure|configure)\b", next_task, re.I)
+            and len(_tokenise(next_task)) >= 6
+        ):
+            flush_pending()
+            block_index += 1
+            continue
+
+        # Structural subheadings within Qualifications must not become one-word
+        # scored requirements. Preserve the current explicit section for items.
+        if (
+            not _REVIEW419_LEGACY_PARSER.get()
+            and active_section in {"requirements", "core", "preferred"}
+            and _normalise_jd_section_heading(value) in {"skillset", "attributes"}
+        ):
+            flush_pending()
+            block_index += 1
+            continue
 
         # Protect independent action/gerund tasks in an authoritative
         # Responsibilities section from inferred-heading detection.  This is
@@ -2178,12 +2429,57 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
     flush_pending()
     return _coalesce_one_or_more_alternative_lists(spans)
 
+def _mark_generic_jd_unbulleted_task_runs(spans: list[dict[str, Any]]) -> None:
+    """Admit contiguous, action-led duty lists under an exact JD umbrella.
+
+    A lone unbulleted imperative under "Job Description" is not enough:
+    marketing slogans can also start with "Build" or "Develop".  Require
+    neighbouring independent task lines in the same source block and guard
+    against career/recruitment slogans. Never run in reviewed-419 replay.
+    """
+    if _REVIEW419_LEGACY_PARSER.get():
+        return
+
+    def is_candidate(span: dict[str, Any]) -> bool:
+        text = _clean_text(span.get("text", ""))
+        return bool(
+            span.get("section_detection") == "structural_unheaded"
+            and _normalise_jd_section_heading(span.get("section_heading", ""))
+            == "job description"
+            and not span.get("is_bullet")
+            and _GENERIC_JD_TASK_START.match(text)
+            and len(_tokenise(text)) >= 7
+            and not re.search(
+                r"\b(?:your career|your future|your journey|join (?:our|the) team|"
+                r"apply (?:today|now)|our mission|exciting opportunities)\b",
+                text, re.IGNORECASE,
+            )
+        )
+
+    candidates = [is_candidate(span) for span in spans]
+    for index, span in enumerate(spans):
+        if not candidates[index]:
+            continue
+        for other_index in (index - 1, index + 1):
+            if not 0 <= other_index < len(spans) or not candidates[other_index]:
+                continue
+            other = spans[other_index]
+            if (
+                span.get("block_index") == other.get("block_index")
+                and abs(int(span.get("line_index", 0))
+                        - int(other.get("line_index", 0))) == 1
+            ):
+                span["inferred_unbulleted_task_run"] = True
+                break
+
+
 def _raw_jd_requirement_rows(
     raw_jd_text: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Extract direct rows from explicit sections and retain raw grounding spans."""
     rows: list[dict[str, Any]] = []
     spans = _raw_jd_content_spans(raw_jd_text)
+    _mark_generic_jd_unbulleted_task_runs(spans)
     unheaded_exclusions: list[dict[str, Any]] = []
 
     for span in spans:
@@ -2211,6 +2507,32 @@ def _raw_jd_requirement_rows(
         # already consumed above, so require a meaningful token rather than a
         # presentation-length threshold.
         if active_section and _tokenise(value):
+            # Evaluate the *whole source line* before sentence splitting. A company
+            # such as 'Brunel International S.E.A. Pte. Ltd.' must not turn into
+            # several scored rows when split on the periods of its abbreviation.
+            if not _REVIEW419_LEGACY_PARSER.get():
+                # Only full-line admin/eligibility patterns need early filtering;
+                # classifying arbitrary multi-sentence spans here can suppress
+                # legitimate duties alongside a non-skill sentence.
+                protected_full_line = bool(
+                    re.search(r"\b(?:Pte|Pvt)\.?\s+Ltd\.?$", value, re.I)
+                    or re.match(r"^(?:UEN|EA\s+Personnel)\b", value, re.I)
+                    or re.search(r"\bonly\s+(?:[A-Za-z-]+\s+){0,3}citizens\s+will\s+be\s+considered$", value, re.I)
+                    or re.fullmatch(r"(?:singaporean(?:s)?|singapore citizens only|only singapore citizens)", value, re.I)
+                    or re.match(r"^interested applicants,? kindly (?:email|send)\b", value, re.I)
+                    or re.search(r"@[-a-z0-9.]+\.[a-z]{2,}.*\breg\s*no\s*:", value, re.I)
+                    or re.match(r"^t\s*:\s*\+?\d", value, re.I)
+                    or re.match(r"^(?:please ensure that applications sent through email|you may find out more information on the pdpa policies)", value, re.I)
+                )
+                span_non_skill = (_classify_non_requirement_row(value)
+                                  if protected_full_line else "")
+                if span_non_skill:
+                    unheaded_exclusions.append({
+                        "text": value, "span_id": span.get("span_id", ""),
+                        "line_index": span.get("line_index", 0),
+                        "section": active_section, "reason": span_non_skill,
+                    })
+                    continue
             default_importance = {
                 "responsibilities": "core",
                 "core": "core",
@@ -2241,6 +2563,8 @@ def _raw_jd_requirement_rows(
                         sentence,
                         flags=re.IGNORECASE,
                     )
+                    or (not _REVIEW419_LEGACY_PARSER.get()
+                        and re.search(r"\([^()]+\bis considered a plus\s*\)", sentence, re.I))
                 )
                 split_default_importance = (
                     default_importance
@@ -2382,6 +2706,8 @@ def _explicit_generic_jd_task_kind(span: dict[str, Any]) -> str:
         return "explicit_generic_jd_responsibility_sentence"
     if span.get("is_bullet") and _GENERIC_JD_TASK_START.match(value):
         return "explicit_generic_jd_task_bullet"
+    if span.get("inferred_unbulleted_task_run") and _GENERIC_JD_TASK_START.match(value):
+        return "explicit_generic_jd_task_run"
     return ""
 
 
@@ -2456,7 +2782,7 @@ def _unheaded_role_importance(sentence: str) -> str:
         return _classify_raw_importance(sentence, "core")
     if re.search(
         r"\b(?:must|required|minimum|essential|mandatory)\b",
-        sentence,
+        _strip_nonqualification_hard_cues(_normalise_basic(sentence)),
         flags=re.IGNORECASE,
     ):
         return "required"
@@ -2513,6 +2839,7 @@ def _unheaded_role_rows(
         if reason in {
             "explicit_generic_jd_task_bullet",
             "explicit_generic_jd_responsibility_sentence",
+            "explicit_generic_jd_task_run",
         }:
             content = _normalise_requirement_surface(sentence).strip(" ,;:.-")
         minimum_tokens = 1 if _is_explicit_unheaded_qualification(sentence) else 2

@@ -1,0 +1,22 @@
+{
+  "schema": "phase9f-v363-synthetic-weak-resume-challenge-v1",
+  "synthetic_only": true,
+  "purpose": "Negative-control fixture, NOT a real applicant résumé or authoritative JD scorer result.",
+  "jd_requirements": [
+    {"id":"req_testing","importance":"core","proxy_points":9,"description":"Write unit tests"},
+    {"id":"req_ci","importance":"core","proxy_points":12,"description":"Automate tests in CI"}
+  ],
+  "project": "Synthetic API Project",
+  "word_proxy_cap": 8,
+  "bullets": [
+    {"id":"poor_base","source":"Selected Base","text":"Helped work on software project tasks","saved_jd_ids":["req_testing"],"jd_terms":[],"words":8,"in_fitted_a":true},
+    {"id":"strong_library","source":"Evidence Library","text":"Built Python unit tests and automated CI","saved_jd_ids":["req_testing","req_ci"],"jd_terms":["python","unit","testing","ci"],"words":8,"in_fitted_a":false},
+    {"id":"keyword_stuffed","source":"Evidence Library","text":"Python Python unit testing CI deployment testing","saved_jd_ids":["req_testing"],"jd_terms":["python","unit","testing","ci","deployment"],"words":8,"in_fitted_a":false}
+  ],
+  "expected_proxy_choice":"strong_library",
+  "limitations":[
+    "JD links are deliberately assigned and are not independently validated by this synthetic test",
+    "The model is expected to prefer distinct saved JD coverage over keyword volume",
+    "This is not a proof of actual one-page DOCX fit or native Job Match improvement"
+  ]
+}

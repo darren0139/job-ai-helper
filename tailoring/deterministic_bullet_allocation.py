@@ -2,8 +2,8 @@
 """
 Phase 6B.2 deterministic bullet-budget allocation.
 
-Python selects the exact canonical Evidence Library bullets and the exact
-per-project bullet counts before the writing model runs. The model may preserve
+Python selects exact source-grounded bullets from the confirmed selected
+Base Resume and/or the Evidence Library and allocates per-project bullet counts. The model may preserve
 or lightly rewrite those allocated bullets and may produce one-to-one compact
 alternatives, but it does not decide the budget.
 """
@@ -18,12 +18,17 @@ from typing import Any
 from tailoring.stable_tailoring_ranking import (
     build_bullet_evidence_priorities,
 )
+from tailoring.combined_project_bullet_sources_v2_7 import (
+    POLICY_VERSION as COMBINED_BULLET_POLICY_VERSION,
+    bullet_sources,
+    source_bullet_records,
+)
 
 
 BULLET_ALLOCATION_VERSION = (
-    "phase6b2-deterministic-bullet-allocation-v5"
+    "phase6b2-deterministic-bullet-allocation-v7-decision-trace"
 )
-LEAD_BULLET_POLICY_VERSION = "phase6b2-first-canonical-lead-v1"
+LEAD_BULLET_POLICY_VERSION = "phase6b2-evidence-first-mixed-v2"
 BULLET_ALLOCATION_MODE_ADAPTIVE = "adaptive"
 BULLET_ALLOCATION_MODE_PREFER_AVAILABLE = (
     "prefer_available_evidence"
@@ -170,32 +175,25 @@ def _jaccard(
 def _canonical_bullets(
     candidate: dict[str, Any],
 ) -> list[str]:
-    evidence = (
-        candidate.get("evidence_library_evidence")
-        or {}
-    )
-    if not isinstance(evidence, dict):
-        return []
-    return _clean_string_list(
-        evidence.get("bullets", [])
-    )
+    """V2.7: eligible exact bullets from both source records, not Library-only."""
+    return [row["text"] for row in source_bullet_records(candidate)]
 
 
 
 def _candidate_named_terms(
     candidate: dict[str, Any],
 ) -> set[str]:
-    evidence = (
-        candidate.get("evidence_library_evidence")
-        or {}
-    )
-    if not isinstance(evidence, dict):
-        return set()
-
-    values = [
-        *(evidence.get("tools", []) or []),
-        *(evidence.get("skills", []) or []),
-    ]
+    # Named-term diagnostics must not privilege Library-only metadata when
+    # Base bullets are also eligible. Neither source grants capability proof.
+    values = []
+    for source_field in ("resume_evidence", "evidence_library_evidence"):
+        evidence = candidate.get(source_field) or {}
+        if not isinstance(evidence, dict):
+            raise ValueError("Malformed source skills/tools evidence")
+        for field in ("tools", "skills"):
+            terms = evidence.get(field) or []
+            if isinstance(terms, list):
+                values.extend(x for x in terms if isinstance(x, str))
     return {
         term
         for value in values
@@ -282,6 +280,7 @@ def _build_project_state(
         ranking_row,
     )
     bullets = _canonical_bullets(candidate)
+    mixed_pool = bool(candidate.get("resume_evidence") and candidate.get("evidence_library_evidence"))
     priorities = build_bullet_evidence_priorities(
         bullets=bullets,
         ranking_row=ranking_row,
@@ -409,6 +408,8 @@ def _build_project_state(
                     bullet,
                 ),
                 "bullet_text": bullet,
+                "source_owners": bullet_sources(candidate, bullet),
+                "mixed_pool": mixed_pool,
                 "tokens": _token_set(bullet),
                 # Strong matches own allocation coverage. Weak matches
                 # remain diagnostic and act only as a late tie-break.
@@ -756,12 +757,106 @@ def _remaining_records(
     ]
 
 
+
+# Decision traces explain the actual lexicographic selection order. A diagnostic
+# word count is never inserted into either ranking key.
+_INITIAL_DECISION_FACTORS = (
+    "unique_required_core", "direct_total", "required_core_total",
+    "named_technical_terms", "action_ownership", "strong_evidence_value",
+    "weak_evidence_value", "project_fit", "evidence_priority_tiebreak",
+    "source_order_tiebreak",
+)
+_MARGINAL_DECISION_FACTORS = (
+    "new_required_core_global", "new_direct_global", "new_strong_global",
+    "new_strong_within_project", "project_balance", "unique_required_core",
+    "named_technical_terms", "action_ownership", "strong_evidence_value",
+    "weak_evidence_value", "within_project_distinctness", "project_fit",
+    "evidence_priority_tiebreak", "project_order_tiebreak",
+    "source_order_tiebreak",
+)
+
+
+def _decision_snapshot(*, state, record, phase, globally_covered, selection_mode):
+    """Capture the real rank tuple and best other-source peer BEFORE selecting.
+
+    This is deliberately diagnostic only: it must never influence allocation.
+    The local peer is not necessarily a globally competing candidate; all-
+    canonical mode has no excluded alternatives until fitting.
+    """
+    marginal = phase != "project_minimum"
+    def rank(item):
+        if marginal:
+            return _marginal_record_key(
+                record=item, state=state, globally_covered=globally_covered)
+        return _initial_record_key(item, state)
+
+    def summary(item):
+        metrics = _record_metrics(record=item, state=state,
+                                  globally_covered=globally_covered)
+        word_count = len(_clean_text(item.get("bullet_text")).split())
+        return {
+            "bullet_id": str(item.get("bullet_id") or ""),
+            "bullet": str(item.get("bullet_text") or ""),
+            "sources": list(item.get("source_owners") or []),
+            "rank_tuple": list(rank(item)),
+            "new_required_core": metrics["uncovered_required_core"],
+            "new_direct": metrics["uncovered_direct"],
+            "new_strong": metrics["uncovered_any"],
+            "new_within_project": metrics["new_within_project"],
+            "distinctness": metrics["distinctness"],
+            "named_technical_terms": int(item.get("named_technical_term_count") or 0),
+            "ownership_score": int(item.get("ownership_score") or 0),
+            "evidence_value": float(item.get("evidence_value") or 0),
+            "weak_evidence_value": float(item.get("weak_evidence_value") or 0),
+            "strong_requirement_ids": list(item.get("supported_requirement_ids") or []),
+            "word_count": word_count,
+            "strong_signals_per_100_words_diagnostic": round(
+                100 * len(item.get("supported_requirement_ids") or []) / max(1, word_count), 3),
+        }
+
+    chosen = summary(record)
+    owners = set(chosen["sources"])
+    opposite = "base" if owners == {"library"} else "library" if owners == {"base"} else ""
+    others = [item for item in _remaining_records(state)
+              if item.get("bullet_id") != record.get("bullet_id")]
+    peers = [item for item in others
+             if set(item.get("source_owners") or []) == {opposite}] if opposite else []
+    # The initial-project tie-break uses a bullet ID; marginal selection has
+    # the stable source iteration order as its final tie-break.
+    if peers:
+        best = max(peers, key=lambda r: (rank(r), str(r["bullet_id"]))) if not marginal else max(peers, key=rank)
+        challenger = summary(best)
+        factors = _MARGINAL_DECISION_FACTORS if marginal else _INITIAL_DECISION_FACTORS
+        first_difference = next((name for i, name in enumerate(factors)
+                                 if chosen["rank_tuple"][i] != challenger["rank_tuple"][i]), "rank_tie")
+    else:
+        challenger, first_difference = None, "no_opposite_source_peer"
+    return {
+        "version": "phase9f-v27-bullet-selection-explanation-v1",
+        "phase": phase,
+        "mode": selection_mode,
+        "decision_kind": ("all_canonical_admission" if selection_mode == BULLET_ALLOCATION_MODE_ALL_CANONICAL
+                          else "ranked_allocation"),
+        "factor_order": list(_MARGINAL_DECISION_FACTORS if marginal else _INITIAL_DECISION_FACTORS),
+        "ranking_scope": ("each_project_first_bullet" if not marginal
+                          else "cross_project_remaining_pool"),
+        "project_remaining_candidates_at_step": len(_remaining_records(state)),
+        "selected": chosen,
+        "best_opposite_source_peer_at_step": challenger,
+        "first_differing_rank_factor": first_difference,
+        "word_count_used_for_selection": False,
+        "note": ("All canonical bullets are admitted before fitting; no Library/Base winner is implied."
+                 if selection_mode == BULLET_ALLOCATION_MODE_ALL_CANONICAL
+                 else "Rank values are ordered lexicographically, not summed; peer is local to this project and need not be the global runner-up."),
+    }
+
 def _select_record(
     *,
     state: dict[str, Any],
     record: dict[str, Any],
     reason: str,
     trace: list[dict[str, Any]],
+    decision_context: dict[str, Any] | None = None,
 ) -> None:
     state["selected"].append(record)
     trace.append(
@@ -771,6 +866,7 @@ def _select_record(
             "bullet_id": record["bullet_id"],
             "bullet_text": record["bullet_text"],
             "reason": reason,
+            "decision_context": decision_context or {},
             "allocated_count_after": len(
                 state["selected"]
             ),
@@ -954,15 +1050,15 @@ def _selected_display_order_key(
 ) -> tuple[Any, ...]:
     """Order selected bullets for presentation without changing selection.
 
-    Canonical Evidence Library bullet #1 (index 0) is the project lead.
-    If it was selected by the existing allocation policy, display it first.
-    Remaining bullets keep the existing deterministic evidence-priority order.
+    Preserve the historical single-source first-bullet convention. For a
+    combined Base/Library pool, display by JD evidence priority instead of
+    privileging the alphabetically first source option.
     """
     bullet_index = int(
         record.get("bullet_index", 0) or 0
     )
     return (
-        0 if bullet_index == 0 else 1,
+        (0 if bullet_index == 0 else 1) if not record.get("mixed_pool") else 0,
         int(
             record.get(
                 "evidence_priority",
@@ -987,7 +1083,7 @@ def build_deterministic_bullet_allocation(
     allocation_mode: str = BULLET_ALLOCATION_MODE_ADAPTIVE,
 ) -> dict[str, Any]:
     """
-    Allocate exact canonical bullets across selected projects.
+    Allocate exact Base/Library-approved bullets across selected projects.
 
     Every selected project receives at least one target slot. Python first fills
     a balanced baseline of roughly two bullets per project, then expands beyond
@@ -1053,6 +1149,10 @@ def build_deterministic_bullet_allocation(
             record=first,
             reason="minimum_project_coverage",
             trace=trace,
+            decision_context=_decision_snapshot(
+                state=state, record=first, phase="project_minimum",
+                globally_covered=_global_covered(states), selection_mode=mode,
+            ),
         )
 
     total_capacity = sum(
@@ -1099,6 +1199,10 @@ def build_deterministic_bullet_allocation(
                 record=record,
                 reason=fill_reason,
                 trace=trace,
+                decision_context=_decision_snapshot(
+                    state=state, record=record, phase="evidence_fill",
+                    globally_covered=_global_covered(states), selection_mode=mode,
+                ),
             )
             target_count += 1
     else:
@@ -1118,6 +1222,10 @@ def build_deterministic_bullet_allocation(
                 record=record,
                 reason="baseline_budget",
                 trace=trace,
+                decision_context=_decision_snapshot(
+                    state=state, record=record, phase="baseline_budget",
+                    globally_covered=_global_covered(states), selection_mode=mode,
+                ),
             )
             target_count += 1
 
@@ -1135,6 +1243,10 @@ def build_deterministic_bullet_allocation(
                 record=record,
                 reason=reason,
                 trace=trace,
+                decision_context=_decision_snapshot(
+                    state=state, record=record, phase="adaptive_expansion",
+                    globally_covered=_global_covered(states), selection_mode=mode,
+                ),
             )
             target_count += 1
 
@@ -1157,6 +1269,50 @@ def build_deterministic_bullet_allocation(
             if allocated_bullets
             else 1
         )
+
+        # The trace records the real allocation step/reason. Calculate remaining
+        # requirement novelty *after* allocation for an honest exclusion note.
+        selected_ids = set(allocated_ids)
+        selected_support = set().union(*[
+            set(record.get("supported_requirement_ids") or [])
+            for record in selected_records
+        ]) if selected_records else set()
+        trace_by_id = {
+            str(item.get("bullet_id")): item
+            for item in trace
+            if item.get("project_id") == state["project_id"]
+            and item.get("bullet_id")
+        }
+        receipts = []
+        for record in state.get("records", []):
+            chosen = record["bullet_id"] in selected_ids
+            remaining = sorted(set(record.get("supported_requirement_ids") or []) - selected_support)
+            if chosen:
+                reason = str(trace_by_id.get(record["bullet_id"], {}).get("reason") or "allocated_for_evidence")
+            elif remaining:
+                reason = "not_allocated_budget_or_marginal_gate; additional JD signals remain"
+            elif record.get("supported_requirement_ids"):
+                reason = "not_allocated; supported JD signals overlap already selected bullets"
+            else:
+                reason = "not_allocated; no strong JD requirement support established"
+            receipts.append({
+                "bullet_id": record["bullet_id"],
+                "bullet": record["bullet_text"],
+                "sources": list(record.get("source_owners") or []),
+                "selected": chosen,
+                "supported_requirement_ids": list(record.get("supported_requirement_ids") or []),
+                "direct_requirement_ids": list(record.get("direct_requirement_ids") or []),
+                "weak_requirement_ids": list(record.get("weak_supported_requirement_ids") or []),
+                "additional_supported_ids_after_selection": remaining,
+                "evidence_value": record.get("evidence_value", 0),
+                "word_count": len(_clean_text(record["bullet_text"]).split()),
+                "named_technical_terms": int(record.get("named_technical_term_count") or 0),
+                "ownership_score": int(record.get("ownership_score") or 0),
+                "decision_context": (trace_by_id.get(record["bullet_id"], {}).get("decision_context", {})
+                                     if chosen else {}),
+                "explanation_completeness": ("decision_step_recorded" if chosen else "post_selection_only"),
+                "reason": reason,
+            })
 
         project_plans.append(
             {
@@ -1187,6 +1343,7 @@ def build_deterministic_bullet_allocation(
                 "allocated_bullet_ids": (
                     allocated_ids
                 ),
+                "bullet_decision_receipts": receipts,
                 "requires_synthesis": bool(
                     state["requires_synthesis"]
                 ),
@@ -1210,6 +1367,7 @@ def build_deterministic_bullet_allocation(
         )
 
     return {
+        "source_policy_version": COMBINED_BULLET_POLICY_VERSION,
         "allocation_version": (
             BULLET_ALLOCATION_VERSION
         ),
@@ -1308,19 +1466,20 @@ def apply_bullet_allocation_to_selected_pairs(
             )
         )
         if allocated:
-            evidence = deepcopy(
-                candidate_copy.get(
-                    "evidence_library_evidence"
-                )
-                or {}
-            )
-            evidence["bullets"] = allocated
-            evidence["description"] = "\n".join(
-                allocated
-            )
-            candidate_copy[
-                "evidence_library_evidence"
-            ] = evidence
+            candidate_copy["_phase9f_v27_allocated_bullets"] = list(allocated)
+            candidate_copy["_phase9f_v27_allocated_sources"] = [
+                bullet_sources(candidate, text) for text in allocated
+            ]
+            if not all(candidate_copy["_phase9f_v27_allocated_sources"]):
+                raise ValueError("Allocated bullet is not grounded in candidate source evidence")
+            # Existing Library-only allocation consumers require only the
+            # allocated subset to be exposed via the Library field. Do not
+            # do this for mixed-source projects: it would mislabel Base bullets.
+            if not (candidate.get("resume_evidence") or {}).get("bullets"):
+                evidence = deepcopy(candidate_copy.get("evidence_library_evidence") or {})
+                evidence["bullets"] = list(allocated)
+                evidence["description"] = "\n".join(allocated)
+                candidate_copy["evidence_library_evidence"] = evidence
 
         prepared.append(
             (

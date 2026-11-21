@@ -215,7 +215,8 @@ def render_selected_base_vs_tailored(st: Any, application_id: int, *, preview_on
                        key=f"phase9f_full_selected_base_receipt_{application_id}"):
             from tailoring.initial_analysis_explainer_ui import render_analysis_receipt
             with st.container(border=True):
-                render_analysis_receipt(st, receipt, show_taxonomy=False)
+                render_analysis_receipt(st, receipt, show_taxonomy=False,
+                                        widget_namespace=f"phase9f_selected_base_preview_{int(application_id)}")
 
     if preview_only:
         return True

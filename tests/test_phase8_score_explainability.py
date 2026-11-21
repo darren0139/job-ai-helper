@@ -296,12 +296,15 @@ class Phase8ScoreExplainabilityTests(unittest.TestCase):
         self.assertIn("probability or hiring likelihood.", ui)
 
 
-    def test_score_receipt_v5_compact_and_export_contract(self) -> None:
+    def test_score_receipt_wraps_full_requirements_and_keeps_exports(self) -> None:
         ui = Path(
             "tailoring/phase8_score_explainability_ui.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("def _compact_requirement_text(", ui)
-        self.assertIn('"JD requirement": _compact_requirement_text(', ui)
+        from tailoring.phase8_score_explainability_ui import _jd_score_map_table
+
+        requirement = "Maintain documented enterprise project delivery procedures " * 4
+        shown = _jd_score_map_table({"jd_requirements": [{"requirement": requirement}]})
+        self.assertEqual(shown[0]["JD requirement"], requirement)
         self.assertIn("Show full JD requirement text", ui)
         self.assertIn("Download JD score map CSV", ui)
         self.assertIn("Download printable score explanation", ui)

@@ -21,7 +21,7 @@ OPTIONS = (SCROLL, PAGED, INTERACTIVE)
 def render_session_table_controls(st: Any, *, application_id: int | None = None) -> str:
     """One session-wide setting; configured once above Step 1."""
     st.markdown("##### Requirements table display")
-    st.caption("Applies to Initial Analysis, score breakdowns, Step 2 and Phase 8. "
+    st.caption("Applies to Initial Analysis, its score breakdowns and Step 2. "
                "Scrollable and Paginated avoid the interactive canvas renderer.")
     mode = st.radio("Table display mode", OPTIONS, key=MODE_KEY, horizontal=True)
     return mode if mode in OPTIONS else SCROLL

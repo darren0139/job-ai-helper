@@ -260,7 +260,9 @@ render_application_initial_analysis(st, st.session_state['application_id'])
         view['provenance'] = 'EXACT_SAVED_REUSE'
         with patch('tailoring.initial_analysis_explainer_ui.load_application_initial', return_value=view), patch('tailoring.initial_analysis_explainer_ui.render_analysis_receipt') as renderer:
             render_application_initial_analysis(st, self.app_id)
-        renderer.assert_called_once_with(st, view)
+        renderer.assert_called_once_with(
+            st, view, widget_namespace=f"application_initial_{int(self.app_id)}"
+        )
         st.caption.assert_any_call('Analysis origin: Reused exact saved analysis')
 
     def test_normal_event_binding_is_inside_explicit_analyze_branch_only(self):

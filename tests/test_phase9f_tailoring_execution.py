@@ -33,10 +33,7 @@ from database.tailoring_verification_manager import (
     list_tailoring_verifications,
 )
 from analysis_stability import build_stable_analysis
-from tailoring.phase8_verification import (
-    PHASE8_PREAPPROVAL_GATE_VERSION,
-    build_phase8_generation_snapshot_fingerprint,
-)
+from tailoring.phase8_verification import PHASE8_PREAPPROVAL_GATE_VERSION
 from tailoring.job_match_ab_analysis import (
     build_job_match_ab_analysis,
     current_ab_identity,
@@ -56,7 +53,12 @@ from tailoring.phase9f_tailoring_execution import (
     build_section_scope,
 )
 from tests.phase9f_d_test_support import configure_database
-from tests.phase9f_e_test_support import create_d_reuse_session
+from tests.phase9f_e_test_support import (
+    create_d_reuse_session,
+    phase9f_projects_for_document_verification,
+    phase9f_skills_for_document_verification,
+    write_phase9f_document_verification_fit,
+)
 from tests.test_phase9f_starting_source_ranking import (
     JD_PROFILE,
     JD_TEXT,
@@ -214,6 +216,22 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             }
 
         return writer
+
+    def _document_verification_writers(self, state, project_calls, fit_calls):
+        def projects_writer(**kwargs):
+            project_calls.append(kwargs)
+            return phase9f_projects_for_document_verification(kwargs["resume_profile"])
+
+        def skills_writer(**kwargs):
+            return phase9f_skills_for_document_verification(kwargs["resume_profile"])
+
+        def fit_writer(**kwargs):
+            fit_calls.append(kwargs)
+            return write_phase9f_document_verification_fit(
+                state["blueprint"]["docx_path"], self.output_docx, self.output_pdf, **kwargs,
+            )
+
+        return {"projects_writer": projects_writer, "skills_writer": skills_writer}, fit_writer
 
     @staticmethod
     def _valid_phase8_result(
@@ -969,63 +987,31 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         self._add_evidence(1)
         project_calls: list[dict] = []
         fit_calls: list[dict] = []
+        writers, fit_writer = self._document_verification_writers(state, project_calls, fit_calls)
         with patch.object(
             execution_manager, "build_section_scope", self._scope_from_snapshot
-        ), patch.object(
-            execution_manager,
-            "resolve_exact_phase9f_d_source",
-            side_effect=lambda **_kwargs: self._source_bundle(),
         ):
             first = execution_manager.run_phase9f_normal_generation(
                 application_id=application_id,
-                projects_writer=self._projects_writer(project_calls),
-                skills_writer=self._skills_writer,
                 generation_settings={"max_projects": 4},
                 generation_model="model-a",
+                **writers,
             )
             second = execution_manager.run_phase9f_normal_generation(
                 application_id=application_id,
-                projects_writer=self._projects_writer(project_calls),
-                skills_writer=self._skills_writer,
                 generation_settings={"max_projects": 3},
                 generation_model="model-b",
+                **writers,
             )
             fitted = execution_manager.run_phase9f_normal_fit(
                 application_id=application_id,
                 generation_id=second["generation"]["generation_id"],
-                fit_writer=self._fit_writer(fit_calls),
+                fit_writer=fit_writer,
             )
-            fitted_generation = execution_manager.get_tailoring_generation(
-                application_id,
-                fitted["generation"]["generation_id"],
-            )
-            self.assertIsNotNone(fitted_generation)
-            baseline = execution_manager._prepare_frozen_phase8_context(
-                execution_manager.get_phase9f_tailoring_execution(application_id)
-            )["baseline_report"]
-            expected = self._valid_phase8_result(
+            preapproval = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
                 application_id=application_id,
                 generation_id=fitted["generation"]["generation_id"],
-                baseline=baseline,
-                generation_status="draft",
-                blueprint_ready=False,
-                verified_generation_snapshot_fingerprint=(
-                    build_phase8_generation_snapshot_fingerprint(
-                        fitted_generation
-                    )
-                ),
             )
-            with patch.object(
-                execution_manager,
-                "build_phase8_verification",
-                return_value=expected,
-            ):
-                preapproval = (
-                    execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
-                        application_id=application_id,
-                        generation_id=fitted["generation"]["generation_id"],
-                    )
-                )
 
             self.assertEqual(
                 preapproval["execution"]["status"],
@@ -1037,6 +1023,7 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             )
             self.assertTrue(preapproval["verification"]["approval_ready"])
             self.assertFalse(preapproval["verification"]["blueprint_ready"])
+            self.assertEqual(preapproval["verification"]["verification_mode"], "selected_base_docx_vs_final_docx")
             self.assertEqual(
                 preapproval["verification"]["generation_status"],
                 "draft",
@@ -1090,68 +1077,63 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         self.assertTrue(self.output_pdf.exists())
 
     def test_normal_approval_with_missing_ab_waits_for_phase8_then_recovers(self) -> None:
-        """Approval cannot complete an incomplete mock; a current retry can."""
+        """Approval rejects an incomplete comparison and accepts a verified retry."""
         state = self._session("minor")
         application_id = state["application_id"]
         self._add_evidence(1)
         project_calls: list[dict] = []
         fit_calls: list[dict] = []
-        with patch.object(execution_manager, "build_section_scope", self._scope_from_snapshot), patch.object(
-            execution_manager, "resolve_exact_phase9f_d_source",
-            side_effect=lambda **_kwargs: self._source_bundle(),
-        ):
+        writers, fit_writer = self._document_verification_writers(state, project_calls, fit_calls)
+        build_verification = execution_manager.build_phase8_verification
+
+        def without_comparison(**kwargs):
+            result = build_verification(**kwargs)
+            result.pop("job_match_ab")
+            result["verification_fingerprint"] = "0" * 64
+            return result
+
+        with patch.object(execution_manager, "build_section_scope", self._scope_from_snapshot):
             generated = execution_manager.run_phase9f_normal_generation(
                 application_id=application_id,
-                projects_writer=self._projects_writer(project_calls),
-                skills_writer=self._skills_writer,
+                **writers,
             )
             fitted = execution_manager.run_phase9f_normal_fit(
                 application_id=application_id,
                 generation_id=generated["generation"]["generation_id"],
-                fit_writer=self._fit_writer(fit_calls),
+                fit_writer=fit_writer,
             )["generation"]
             generation_id = fitted["generation_id"]
-            baseline = execution_manager._prepare_frozen_phase8_context(
-                execution_manager.get_phase9f_tailoring_execution(application_id)
-            )["baseline_report"]
-            valid = self._valid_phase8_result(
-                application_id=application_id, generation_id=generation_id,
-                baseline=baseline, generation_status="draft", blueprint_ready=False,
-                verified_generation_snapshot_fingerprint=build_phase8_generation_snapshot_fingerprint(fitted),
-            )
-            incomplete = copy.deepcopy(valid)
-            incomplete.pop("job_match_ab")
-            incomplete["verification_fingerprint"] = "0" * 64
-            with patch.object(execution_manager, "build_phase8_verification", return_value=incomplete):
+            with patch.object(execution_manager, "build_phase8_verification", side_effect=without_comparison):
                 preapproval = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
                     application_id=application_id, generation_id=generation_id,
                 )
             original_history = list_tailoring_verifications(application_id)
             self.assertEqual(len(original_history), 1)
             self.assertEqual(preapproval["execution"]["status"], "waiting_for_approval")
-            approve_tailoring_generation(application_id, generation_id)
-            blocked = execution_manager.reconcile_phase9f_tailoring_approval(application_id=application_id)
+            with self.assertRaisesRegex(ValueError, "Current Phase 8 verification gate is not ready"):
+                approve_tailoring_generation(application_id, generation_id)
             gate = execution_manager.get_tailoring_verification_approval_gate(application_id, generation_id)
-            self.assertEqual(blocked["status"], "waiting_for_phase8")
-            self.assertEqual(blocked["current_stage"], "approved_changed_output")
             self.assertFalse(gate["ready"])
             self.assertEqual(gate["reasons"], ["no_initial_analysis"])
-            self.assertEqual(gate["generation"]["status"], "approved")
+            self.assertEqual(gate["generation"]["status"], "draft")
             self.assertFalse(get_latest_tailoring_verification(application_id, generation_id)["blueprint_ready"])
             self.assertTrue(self.output_docx.exists())
             self.assertTrue(self.output_pdf.exists())
 
-            valid.update(generation_status="approved", blueprint_ready=True)
-            with patch.object(execution_manager, "build_phase8_verification", return_value=valid):
-                completed = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
-                    application_id=application_id, generation_id=generation_id,
-                )
-        self.assertEqual(completed["execution"]["status"], "completed")
-        self.assertEqual(completed["execution"]["current_stage"], "normal_phase8_verified")
-        self.assertEqual(completed["execution"]["generation_id"], generation_id)
+            verified = execution_manager.run_or_reuse_phase9f_normal_generation_phase8(
+                application_id=application_id, generation_id=generation_id,
+            )
+            self.assertEqual(verified["execution"]["status"], "waiting_for_approval")
+            self.assertTrue(verified["verification"]["job_match_ab"]["comparable"])
+            approve_tailoring_generation(application_id, generation_id)
+            completed = execution_manager.reconcile_phase9f_tailoring_approval(application_id=application_id)
+        final_verification = get_latest_tailoring_verification(application_id, generation_id)
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["current_stage"], "normal_phase8_verified_and_approved")
+        self.assertEqual(completed["generation_id"], generation_id)
         self.assertTrue(execution_manager.get_tailoring_verification_approval_gate(application_id, generation_id)["ready"])
-        self.assertTrue(completed["verification"]["blueprint_ready"])
-        self.assertEqual(completed["verification"]["job_match_ab"], valid["job_match_ab"])
+        self.assertTrue(final_verification["blueprint_ready"])
+        self.assertEqual(final_verification["job_match_ab"], verified["verification"]["job_match_ab"])
         history = list_tailoring_verifications(application_id)
         self.assertEqual(len(history), 2)
         self.assertEqual(next(row for row in history if row["verification_id"] == original_history[0]["verification_id"]), original_history[0])

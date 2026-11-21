@@ -192,6 +192,8 @@ def build_final_evidence_audit(
         exact_base = {_key(x["Base Resume bullet"]) for x in base}
         exact_library = {_key(x["Evidence Library bullet"]) for x in library}
         draft_lookup = {_key(x["Generated draft bullet"]): x for x in draft}
+        new_policy = (row.get("bullet_source_policy_version")
+                      == "phase9f-combined-project-bullet-sources-v2.7")
         selected_library = {_key(x["Evidence Library bullet"]) for x in library if x["Canonical selection"] == "Selected"}
         final_rows = []
         for n, bullet in enumerate(bullets, 1):
@@ -200,9 +202,11 @@ def build_final_evidence_audit(
             if base_exact and library_exact:
                 lineage = "Exact wording exists in both sources; which source caused selection is not proven."
             elif library_exact:
-                lineage = "Exact canonical Evidence Library wording; library is preferred by policy."
+                lineage = ("Exact Library wording in a mixed-source V2.7 selection."
+                           if new_policy else "Exact canonical Evidence Library wording; library was preferred by legacy policy.")
             elif base_exact:
-                lineage = "Exact Base wording; generation route cannot be inferred from text equality."
+                lineage = ("Exact Base wording in a mixed-source V2.7 selection."
+                           if new_policy else "Exact Base wording; generation route cannot be inferred from text equality.")
             else:
                 lineage = "Changed wording; no exact source-to-final attribution available."
             from_draft = draft_lookup.get(k)
@@ -215,7 +219,8 @@ def build_final_evidence_audit(
             })
         outcome_base = [
             {"number": r["#"], "text": r["Base Resume bullet"], "exact_final": _key(r["Base Resume bullet"]) in {_key(x) for x in bullets},
-             "reason": "Base bullets were comparison evidence; they were not direct canonical writer candidates by source policy."}
+             "reason": ("Base bullets were eligible in V2.7; selection is shown by the saved allocation receipt."
+                        if new_policy else "Base bullets were comparison evidence; they were not direct canonical writer candidates by legacy policy.")}
             for r in base
         ]
         outcome_library = [
@@ -245,7 +250,7 @@ def build_final_evidence_audit(
         "verified": True, "projects": results,
         "docx_sha256": digest, "generation_id": saved_gen,
         "notice": "Final bullets independently read from the DOCX referenced by the saved one-page fit, cross-checked against active reductions. "
-                  "This is NOT proof that the best possible bullets were chosen: no validated Base-vs-Library bullet optimizer ran. "
+                  "This is NOT proof of globally optimal bullet choice; the selection policy and its evidence are versioned. "
                   "File SHA-256 is computed now; the fit receipt does not contain a pinned DOCX digest.",
     }
 
@@ -262,71 +267,94 @@ def render_final_evidence_audit(
     fit: dict[str, Any] | None, execution: dict[str, Any] | None,
     decision: dict[str, Any] | None, generation_id: str, repo_root: Path,
 ) -> bool:
-    """Render after Phase 8, never rerun the scorer/model or access live Library."""
-    with st.expander("Phase 8 — Final DOCX bullets vs Selected Base and Evidence Library", expanded=True):
-        st.caption("Compare what is **actually present** in the final fitted document against both frozen source bullet lists. No new scoring or generation.")
+    """A compact after-fit receipt, not another place to choose résumé bullets."""
+    with st.expander("Fitting and source audit (advanced)", expanded=False):
         from tailoring.phase9f_project_bullet_sources_v2_3 import _bound_candidate_sources
         candidates, msg = _bound_candidate_sources(execution, decision)
         if candidates is None:
-            st.info("Final evidence comparison withheld: " + msg)
+            st.caption("Saved source comparison withheld: " + msg)
             return False
-        result = build_final_evidence_audit(projects, fit, candidates, repo_root=repo_root,
-                                            application_id=application_id, expected_generation_id=generation_id)
-        if not result["verified"]:
-            st.info(result["notice"])
+        result = build_final_evidence_audit(
+            projects, fit, candidates, repo_root=repo_root,
+            application_id=application_id, expected_generation_id=generation_id,
+        )
+        if not result.get("verified"):
+            st.info(result.get("notice") or "The actual final document was not verified.")
             return False
+        st.caption("Actual final DOCX verified as one page. Source selection belongs in the pre-generation stage; this section audits the result.")
         st.caption(result["notice"])
-        rows = result["projects"]
-        options = list(range(len(rows)))
-        picked = st.selectbox("Project — inspect actual final bullets and alternative sources", options,
-                              format_func=lambda i: rows[i]["project"],
-                              key=f"phase9f_final_evidence_v24_{int(application_id)}")
-        if picked is None:
-            return True
-        chosen = rows[picked]
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Original Base", chosen["base_count"])
-        c2.metric("Canonical Library", chosen["library_count"])
-        c3.metric("In final DOCX", chosen["final_count"])
-        tab_final, tab_base, tab_library, tab_fit, tab_quality = st.tabs([
-            "Final DOCX bullets", "Selected Base alternatives", "Evidence Library alternatives", "Fitting decisions", "Coverage-quality pilot (shadow)"
-        ])
-        with tab_final:
-            for row in chosen["final"]:
-                detail = row["lineage"]
-                detail += " Exact generated draft: " + ("Yes" if row["exact_generated_draft"] else "No; wording or fitting changed")
-                if row["jd_requirement_ids"]:
-                    detail += " Saved draft JD IDs: " + row["jd_requirement_ids"]
-                if row["saved_evidence_priority"] is not None:
-                    detail += f" · Saved draft evidence value: {row['saved_evidence_priority']}"
-                detail += " · Draft-level fit protection: " + str(row["fit_protected"])
-                _render_bullet(st, f"Final F{row['number']}", row["text"], detail)
-            if not chosen["final"]:
-                st.caption("Project absent from final DOCX.")
-        with tab_base:
-            st.caption("Base bullets were not direct writer candidates under the current canonical-library policy. An omission does not prove lower quality.")
-            for row in chosen["base"]:
-                status = "Exact wording in final" if row["exact_final"] else "Not present verbatim in final"
-                _render_bullet(st, f"Base B{row['number']} — {status}", row["text"], row["reason"])
-        with tab_library:
-            for row in chosen["library"]:
-                status = "Exact wording in final" if row["exact_final"] else "Not present verbatim in final"
-                selected = "Selected canonical" if row["selected"] else "Not selected for draft"
-                _render_bullet(st, f"Library L{row['number']} — {selected}", row["text"], status + ". " + row["reason"])
-        with tab_fit:
-            if not chosen["changes"]:
-                st.caption("No active project-fitting changes recorded for this project.")
-            for row in chosen["changes"]:
-                _render_bullet(st, row["action"], row["text"] or "Saved fitting action", row["reason"])
-            st.caption("Fitting protects or removes evidence according to recorded constraints; this does not establish a global best alternative.")
-        with tab_quality:
-            from tailoring.phase9f_bullet_quality_shadow_v2_5 import (
-                render_shadow_bullet_quality_trial,
+        from tailoring.phase9f_multi_project_evidence_v36 import render_multi_project_evidence
+        render_multi_project_evidence(
+            st, application_id=application_id, generation_id=generation_id,
+            final_audit=result,
+        )
+        with st.expander('Historical single-project source receipt (V2.8)', expanded=False):
+            from tailoring.phase9f_decision_explorer_v28 import render_decision_explorer
+            render_decision_explorer(
+                st, application_id=application_id, projects=projects,
+                candidates=candidates, final_audit=result,
             )
-            render_shadow_bullet_quality_trial(
-                st, audit_project=chosen, projects=projects,
-                application_id=application_id,
+        with st.container(border=True):
+            st.markdown("**Final vs Selected Base — project-bullet JD coverage (diagnostic)**")
+            st.caption("This proxy measures saved links in the project-bullet section.")
+            from tailoring.phase9f_final_base_coverage_check_v1 import build_final_vs_base_project_coverage
+            comparison = build_final_vs_base_project_coverage(result, projects or {})
+            if comparison["status"] != "comparable_project_proxy":
+                st.info("Comparable project evidence unavailable: " + comparison["reason"])
+            else:
+                st.caption(comparison["notice"])
+                p1, p2, p3 = st.columns(3)
+                p1.metric("Base JD proxy", comparison["base_points"])
+                p2.metric("Final JD proxy", comparison["final_points"], delta=comparison["delta"])
+                p3.metric("Project bullet words", comparison["final_words"],
+                          delta=comparison["final_words"] - comparison["base_words"])
+                st.write("**Proxy verdict:** " + comparison["verdict"].replace("_", " "))
+                from tailoring.phase9f_v365_jd_evidence import requirement_catalog
+                labels = requirement_catalog(None, projects)
+                for title, field in (("New saved links", "gained_ids"), ("Lost saved links", "lost_ids")):
+                    for rid in comparison[field]:
+                        st.write(title + " · " + labels.get(rid, {}).get("text", "Requirement text unavailable"))
+                if comparison["lost_required_core_ids"]:
+                    st.warning("Required/Core saved-link coverage declined.")
+                st.info("This project-only proxy cannot verify overall résumé improvement. "
+                        "Review Phase 8's actual final-DOCX Job Match comparison for Initial / Selected Base, "
+                        "and Decision Explorer for the existing fitted résumé and optimized alternative.")
+        if st.checkbox("Show advanced — original bullet tables, fitting details and coverage diagnostics",
+                       value=False, key=f"phase9f_v28_advanced_{application_id}_{generation_id}"):
+            rows = result["projects"]
+            import pandas as pd
+            summary = [
+                {"Project": row["project"], "Base": row["base_count"],
+                 "Library": row["library_count"], "Final DOCX": row["final_count"],
+                 "Fitting actions": len(row["changes"])}
+                for row in rows
+            ]
+            st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
+            choices = st.multiselect(
+                "Inspect final project bullets (optional)",
+                options=list(range(len(rows))),
+                format_func=lambda i: rows[i]["project"],
+                key=f"phase9f_v27_final_inspect_{int(application_id)}",
             )
+            for i in choices:
+                chosen = rows[i]
+                st.write("**" + chosen["project"] + "**")
+                for row in chosen["final"]:
+                    _render_bullet(st, "Existing fitted résumé bullet", row["text"], row["lineage"])
+                with st.expander("Original evidence and saved fitting actions", expanded=False):
+                    st.caption("These are source alternatives, not additional generation choices.")
+                    for row in chosen["base"]:
+                        _render_bullet(st, "Base bullet", row["text"], row["reason"])
+                    for row in chosen["library"]:
+                        _render_bullet(st, "Library bullet", row["text"], row["reason"])
+                    for row in chosen["changes"]:
+                        _render_bullet(st, row["action"], row["text"] or "Fitting record", row["reason"])
+                with st.expander("Optional JD coverage shadow (read-only)", expanded=False):
+                    st.caption("Diagnostic only: no bullet selection, optimizer, saved result or fitted document changes.")
+                    from tailoring.phase9f_bullet_quality_shadow_v2_5 import render_shadow_bullet_quality_trial
+                    render_shadow_bullet_quality_trial(
+                        st, audit_project=chosen, projects=projects, application_id=application_id,
+                    )
         with st.popover("Audit provenance"):
-            st.code("Saved generation: " + result["generation_id"] + "\nCurrent DOCX SHA-256: " + result["docx_sha256"])
+            st.code("Saved generation: " + result["generation_id"] + "\nDOCX SHA-256: " + result["docx_sha256"])
     return True

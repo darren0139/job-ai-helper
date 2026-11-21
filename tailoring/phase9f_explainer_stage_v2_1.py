@@ -49,6 +49,8 @@ def document_phase8_comparison_sections(result: dict[str, Any] | None) -> list[t
     if not isinstance(result, dict) or not isinstance(result.get("document_analysis"), dict):
         return []
     initial = result.get("job_match_ab")
+    if (result.get('starting_document_contract') or {}).get('mode') == 'selected_base_docx_only':
+        return [('Selected Base (frozen DOCX) vs Final', initial)]
     selected = result.get("selected_base_analysis")
     if not isinstance(selected, dict):
         return [("Initial vs Final", initial)]

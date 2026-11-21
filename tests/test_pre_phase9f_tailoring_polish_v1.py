@@ -68,14 +68,21 @@ class LeadBulletPresentationRegressionTests(unittest.TestCase):
             ["bullet_relevant", "bullet_other"],
         )
 
+    def test_mixed_source_prioritizes_saved_evidence_over_first_position(self) -> None:
+        chosen = [
+            {"bullet_index": 0, "evidence_priority": 99, "bullet_id": "lead", "mixed_pool": True},
+            {"bullet_index": 1, "evidence_priority": 1, "bullet_id": "strong", "mixed_pool": True},
+        ]
+        self.assertEqual(sorted(chosen, key=_selected_display_order_key)[0]["bullet_id"], "strong")
+
     def test_policy_versions_are_explicit(self) -> None:
         self.assertEqual(
             BULLET_ALLOCATION_VERSION,
-            "phase6b2-deterministic-bullet-allocation-v5",
+            "phase6b2-deterministic-bullet-allocation-v7-decision-trace",
         )
         self.assertEqual(
             LEAD_BULLET_POLICY_VERSION,
-            "phase6b2-first-canonical-lead-v1",
+            "phase6b2-evidence-first-mixed-v2",
         )
 
 

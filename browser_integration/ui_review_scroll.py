@@ -86,3 +86,4 @@ def _capture(page, output: Path, *, max_height: int = 45000, settle_ms: int = 15
         raise RuntimeError(f'Only {last_end:,} of {total:,} rows captured; the page may have rerendered. Try again.')
     stitched.save(output,optimize=True)
     return {'mode':'stitched','pixels':stitched.size,'frames':frames,'selector':info['selector']}
+

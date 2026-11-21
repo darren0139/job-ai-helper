@@ -121,6 +121,9 @@ from tailoring.project_section_tailor import (
     estimate_project_section_length,
     build_project_candidate_pool,
 )
+from tailoring.combined_project_bullet_sources_v2_7 import (
+    POLICY_VERSION as COMBINED_BULLET_POLICY_VERSION,
+)
 from tailoring.stable_tailoring_ranking import (
     build_project_selection_preview,
 )
@@ -2389,6 +2392,9 @@ CATEGORY_OPTIONS = [
 
 with st.sidebar:
     with st.expander("Capture", expanded=False):
+        st.markdown("**Job Capture**")
+        st.caption("Existing extension capture and JD inbox remain unchanged.")
+        st.html(Path(__file__).resolve().parent / "assets" / "streamlit_capture.html")
         st.divider()
         from tailoring.ui_review_capture_ui import render_ui_review_capture
         render_ui_review_capture()
@@ -4071,7 +4077,7 @@ elif page == "Application Sessions":
                 help=(
                     "Auto evaluates the deterministic project candidate preview "
                     "without AI calls. It considers a fifth project only when "
-                    "approved canonical bullets establish complementary breadth. "
+                    "approved Base/Library evidence establishes complementary breadth. "
                     "The explicit Generate button still controls paid generation."
                 ),
             )
@@ -4124,7 +4130,7 @@ elif page == "Application Sessions":
             bullet_allocation_options = [
                 "Adaptive",
                 "Prefer available evidence",
-                "Fit from all canonical evidence",
+                "Fit from all eligible evidence",
             ]
             if (
                 saved_bullet_allocation_mode
@@ -4149,15 +4155,15 @@ elif page == "Application Sessions":
                 help=(
                     "Adaptive starts compact and expands only when evidence gates "
                     "justify another bullet. Prefer available evidence includes "
-                    "truthful canonical bullets up to the Bullet limit per project. "
-                    "Fit from all canonical evidence sends every available truthful "
-                    "canonical bullet from each selected project into fitting, where "
+                    "truthful Base and Library bullets up to the Bullet limit per project. "
+                    "Fit from all eligible evidence sends every available truthful "
+                    "eligible Base or Library bullet from each selected project into fitting, where "
                     "lower-value content is removed only if needed for one page."
                 ),
             )
             if (
                 bullet_allocation_label
-                == "Fit from all canonical evidence"
+                == "Fit from all eligible evidence"
             ):
                 bullet_allocation_mode = (
                     "all_canonical_before_fitting"
@@ -4185,7 +4191,7 @@ elif page == "Application Sessions":
                 ),
                 help=(
                     "Adaptive and Prefer available evidence use this as a "
-                    "pre-fit per-project ceiling. Fit from all canonical evidence "
+                    "pre-fit per-project ceiling. Fit from all eligible evidence "
                     "ignores this ceiling and lets the one-page fitter determine "
                     "the final retained bullet count."
                 ),
@@ -4196,7 +4202,7 @@ elif page == "Application Sessions":
             ):
                 st.caption(
                     "Bullet limit is disabled in this mode. All available "
-                    "truthful canonical bullets enter fitting; the fitter then "
+                    "truthful eligible Base/Library bullets enter fitting; the fitter then "
                     "compacts or removes lower-value evidence only when needed."
                 )
             if phase9f_f_active and phase9f_f_generation_settings_locked:
@@ -4463,7 +4469,6 @@ elif page == "Application Sessions":
                     st.session_state[
                         f"low_confidence_project_selection_preview_{current_application_id}"
                     ] = deepcopy(project_selection_preview)
-
                     preview_low = project_selection_preview.get(
                         "low_confidence_selection", {}
                     ) or {}
@@ -4679,6 +4684,37 @@ elif page == "Application Sessions":
                     )
                     low_confidence_project_selection_ready = True
 
+            # V2.7: preview only, anchored to frozen sources for confirmed
+            # Phase 9F-F execution. Fallback non-F sessions are explicitly
+            # labelled as provisional, not authoritative saved decisions.
+            if phase9e_ready and not lock_projects and not project_controls_disabled:
+                from tailoring.phase9f_pre_generation_combined_ui_v2_7 import (
+                    render_combined_evidence_preview,
+                )
+                if phase9f_f_active:
+                    from tailoring.phase9f_project_bullet_sources_v2_3 import (
+                        _bound_candidate_sources,
+                    )
+                    v27_candidates, v27_source_note = _bound_candidate_sources(
+                        phase9f_f_execution,
+                        phase9e_context.get("decision") if isinstance(phase9e_context, dict) else None,
+                    )
+                else:
+                    v27_candidates = preview_candidates if 'preview_candidates' in locals() else None
+                    v27_source_note = "Provisional current-session evidence (not a frozen Phase 9F receipt)"
+                if isinstance(v27_candidates, list) and v27_candidates:
+                    render_combined_evidence_preview(
+                        st, application_id=int(current_application_id),
+                        candidates=v27_candidates,
+                        stable_analysis=report.get("stable_analysis", {}),
+                        selected_count=max_projects,
+                        allocation_mode=bullet_allocation_mode,
+                        max_bullets_per_project=max_bullets,
+                        source_note=v27_source_note,
+                    )
+                elif phase9f_f_active:
+                    st.caption("V2.7 combined evidence preview withheld: " + v27_source_note)
+
             if st.button(
                 generation_plan["button_label"],
                 type="primary",
@@ -4834,6 +4870,7 @@ elif page == "Application Sessions":
                         if str(value).strip()
                     ]
                     generation_settings = {
+                        "bullet_source_policy_version": COMBINED_BULLET_POLICY_VERSION,
                         "max_projects": max_projects,
                         "max_bullets": max_bullets,
                         "bullet_allocation_mode": bullet_allocation_mode,
@@ -7311,6 +7348,7 @@ elif page == "Application Sessions":
                     from tailoring.project_selection_explainer_ui import render_project_selection_explainer
                     render_project_selection_explainer(
                         st, project_result, application_id=int(current_application_id),
+                        stable_analysis=(report.get("stable_analysis") if isinstance(report, dict) else None),
                         phase9f_execution=(phase9f_f_execution if phase9f_f_active else None),
                         current_phase9e_decision=(
                             phase9e_context.get("decision")

@@ -115,7 +115,7 @@ class AllCanonicalBeforeFittingTests(unittest.TestCase):
 
     def test_ui_keeps_prefer_available_as_default(self) -> None:
         app = (ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('"Fit from all canonical evidence"', app)
+        self.assertIn('"Fit from all eligible evidence"', app)
         self.assertIn('"prefer_available_evidence"', app)
         self.assertRegex(
             app,

@@ -515,6 +515,16 @@ def approve_tailoring_generation(
             "This Phase 9F generation is incomplete or has not produced a "
             "one-page deterministic fit, so it cannot be approved."
         )
+    # The final approval authority must also enforce the native Base floor.
+    # UI controls alone are not an approval security boundary. Historical
+    # non-normal generations retain their existing lifecycle contract.
+    if (get_phase9f_normal_generation_lifecycle(state).get('lifecycle_version')
+            == PHASE9F_F_NORMAL_LIFECYCLE_VERSION):
+        from tailoring.phase9f_v361_approval_floor import verify_current_phase9f_floor
+        floor = verify_current_phase9f_floor(int(application_id), str(generation_id), state)
+        if floor.get('ready') is not True:
+            raise ValueError('Phase 9F Base no-regression approval hold: '
+                             + str(floor.get('reason') or 'Unknown reason'))
 
     # Existing pre-Phase-7 generations may not have a metadata row yet.
     record_generation_metadata(

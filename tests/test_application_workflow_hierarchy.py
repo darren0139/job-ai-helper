@@ -146,8 +146,19 @@ _render_result(st.session_state['result'])
             self.assertIn('Initial Job Match', [m.label for m in app.metric])
             self.assertIn('Final Job Match', [m.label for m in app.metric])
             text = [m.value for m in app.markdown]
-            self.assertIn('#### Initial vs Final', text)
-            self.assertEqual('#### Selected Base vs Final' in text, second)
+            from tailoring.phase9f_explainer_stage_v2_1 import document_phase8_comparison_sections
+            sections = document_phase8_comparison_sections(result)
+            expected = ["#### " + label for label, _ in sections]
+            # Compare the exact saved-document section labels, including
+            # combined Initial / Selected Base labels. A missing section must
+            # still fail instead of being silently accepted.
+            self.assertTrue(expected)
+            rendered = [value for value in text
+                        if value.startswith("#### ") and value.endswith(" vs Final")]
+            self.assertEqual(rendered, expected)
+            self.assertEqual(len(rendered), len(set(rendered)))
+            if not second:
+                self.assertLessEqual(len(rendered), 1)  # Same-source receipt collapses
             self.assertEqual(text.count('### Step 6 — Final Résumé Analysis / Phase8'), 1)
             self.assertLess(text.index('### Step 6 — Final Résumé Analysis / Phase8'), text.index('### Step 7 — Analysis comparison'))
             self.assertFalse(any('Baseline before fitting' in value for value in text))

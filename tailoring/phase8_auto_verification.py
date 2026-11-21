@@ -22,6 +22,9 @@ def phase8_verification_is_current(
         return False
     if not isinstance(generation_state.get("fit_result"), dict):
         return False
+    if ((generation_state.get('generation_settings') or {}).get('phase9f_f_normal_lifecycle')
+            and not isinstance(verification.get('document_analysis'), dict)):
+        return False  # A legacy profile comparison is not a document-grounded certificate.
     if not document_artifact_is_current(verification, generation_state):
         return False
     if str(verification.get("phase8_version") or "").strip() != PHASE8_VERIFICATION_VERSION:
@@ -54,6 +57,9 @@ def phase8_verification_refresh_reason(
         return "generation_missing"
     if not isinstance(generation_state.get("fit_result"), dict):
         return "fit_missing"
+    if ((generation_state.get('generation_settings') or {}).get('phase9f_f_normal_lifecycle')
+            and not isinstance(verification.get('document_analysis'), dict)):
+        return 'legacy_profile_only_requires_new_selected_base_docx_verification'
     if not document_artifact_is_current(verification, generation_state):
         return 'actual_final_document_changed_or_unavailable'
     if str(verification.get("phase8_version") or "").strip() != PHASE8_VERIFICATION_VERSION:
