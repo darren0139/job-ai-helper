@@ -1,0 +1,329 @@
+{
+  "cases": [
+    {
+      "id": "V01-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-recovery",
+      "category": "recovery",
+      "jd_text": "Recovery engineer. Responsibilities: Exercise disaster recovery playbooks.",
+      "jd_sha256": "2413c24160729a158fc43cdbffd1af6a0b2c926c868b2f8fc6955825299fbe07",
+      "requirements": [
+        {
+          "id": "val_recovery",
+          "text": "Exercise disaster recovery playbooks",
+          "importance": "core"
+        }
+      ],
+      "base": "Rehearsed disaster recovery playbooks with recovery time measurements.",
+      "library": "Updated office seating charts.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_recovery"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V01-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-recovery",
+      "category": "recovery",
+      "jd_text": "Recovery engineer. Responsibilities: Exercise disaster recovery playbooks.",
+      "jd_sha256": "2413c24160729a158fc43cdbffd1af6a0b2c926c868b2f8fc6955825299fbe07",
+      "requirements": [
+        {
+          "id": "val_recovery",
+          "text": "Exercise disaster recovery playbooks",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in exercise disaster recovery playbooks.",
+      "library": "Rehearsed disaster recovery playbooks with recovery time measurements.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_recovery"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V02-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-compiler",
+      "category": "compiler",
+      "jd_text": "Compiler engineer. Responsibilities: Optimize compiler register allocation.",
+      "jd_sha256": "b4ec15b737489673dda85b2b5204716e34832666af3ff7dc8573429bec7ea83e",
+      "requirements": [
+        {
+          "id": "val_compiler",
+          "text": "Optimize compiler register allocation",
+          "importance": "core"
+        }
+      ],
+      "base": "Optimized compiler register allocation to reduce spill traffic.",
+      "library": "Catalogued conference presentations.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_compiler"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V02-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-compiler",
+      "category": "compiler",
+      "jd_text": "Compiler engineer. Responsibilities: Optimize compiler register allocation.",
+      "jd_sha256": "b4ec15b737489673dda85b2b5204716e34832666af3ff7dc8573429bec7ea83e",
+      "requirements": [
+        {
+          "id": "val_compiler",
+          "text": "Optimize compiler register allocation",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in optimize compiler register allocation.",
+      "library": "Optimized compiler register allocation to reduce spill traffic.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_compiler"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V03-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-networking",
+      "category": "networking",
+      "jd_text": "Networking engineer. Responsibilities: Diagnose packet loss in network routing.",
+      "jd_sha256": "e40db14338224901945df2335628ce65956b07f030473511a192684d666684a1",
+      "requirements": [
+        {
+          "id": "val_networking",
+          "text": "Diagnose packet loss in network routing",
+          "importance": "core"
+        }
+      ],
+      "base": "Diagnosed packet loss in network routing using captured traces.",
+      "library": "Prepared expense summaries.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_networking"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V03-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-networking",
+      "category": "networking",
+      "jd_text": "Networking engineer. Responsibilities: Diagnose packet loss in network routing.",
+      "jd_sha256": "e40db14338224901945df2335628ce65956b07f030473511a192684d666684a1",
+      "requirements": [
+        {
+          "id": "val_networking",
+          "text": "Diagnose packet loss in network routing",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in diagnose packet loss in network routing.",
+      "library": "Diagnosed packet loss in network routing using captured traces.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_networking"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V04-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-accessibility",
+      "category": "accessibility",
+      "jd_text": "Accessibility engineer. Responsibilities: Audit screen reader accessibility.",
+      "jd_sha256": "81506c573f457640a3c7a7154842ecad870867df24681a89f39cbbde57a67be8",
+      "requirements": [
+        {
+          "id": "val_accessibility",
+          "text": "Audit screen reader accessibility",
+          "importance": "core"
+        }
+      ],
+      "base": "Audited screen reader accessibility across checkout flows.",
+      "library": "Selected deployment mascots.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_accessibility"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V04-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-accessibility",
+      "category": "accessibility",
+      "jd_text": "Accessibility engineer. Responsibilities: Audit screen reader accessibility.",
+      "jd_sha256": "81506c573f457640a3c7a7154842ecad870867df24681a89f39cbbde57a67be8",
+      "requirements": [
+        {
+          "id": "val_accessibility",
+          "text": "Audit screen reader accessibility",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in audit screen reader accessibility.",
+      "library": "Audited screen reader accessibility across checkout flows.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_accessibility"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V05-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-storage",
+      "category": "storage",
+      "jd_text": "Storage engineer. Responsibilities: Implement backup restoration procedures.",
+      "jd_sha256": "4fa865993cf897f5c28cb3ae517a1228aa1d09722822c040781981413b0ff1e8",
+      "requirements": [
+        {
+          "id": "val_storage",
+          "text": "Implement backup restoration procedures",
+          "importance": "core"
+        }
+      ],
+      "base": "Implemented backup restoration procedures for damaged volumes.",
+      "library": "Designed launch posters.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_storage"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V05-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-storage",
+      "category": "storage",
+      "jd_text": "Storage engineer. Responsibilities: Implement backup restoration procedures.",
+      "jd_sha256": "4fa865993cf897f5c28cb3ae517a1228aa1d09722822c040781981413b0ff1e8",
+      "requirements": [
+        {
+          "id": "val_storage",
+          "text": "Implement backup restoration procedures",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in implement backup restoration procedures.",
+      "library": "Implemented backup restoration procedures for damaged volumes.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_storage"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V06-1",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-telemetry",
+      "category": "telemetry",
+      "jd_text": "Telemetry engineer. Responsibilities: Configure OpenTelemetry trace collection.",
+      "jd_sha256": "849d1ed35ff2ee5e96867e554d2b7fd88fb546b963c65e04ec3f2d6173bd734e",
+      "requirements": [
+        {
+          "id": "val_telemetry",
+          "text": "Configure OpenTelemetry trace collection",
+          "importance": "core"
+        }
+      ],
+      "base": "Configured OpenTelemetry trace collection across payment services.",
+      "library": "Maintained meeting calendars.",
+      "expected": "Base stronger",
+      "expected_coverage": [
+        "val_telemetry"
+      ],
+      "rationale": "Completed relevant work versus unrelated completed work.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    },
+    {
+      "id": "V06-2",
+      "dataset": "synthetic",
+      "jd_id": "VALIDATION-telemetry",
+      "category": "telemetry",
+      "jd_text": "Telemetry engineer. Responsibilities: Configure OpenTelemetry trace collection.",
+      "jd_sha256": "849d1ed35ff2ee5e96867e554d2b7fd88fb546b963c65e04ec3f2d6173bd734e",
+      "requirements": [
+        {
+          "id": "val_telemetry",
+          "text": "Configure OpenTelemetry trace collection",
+          "importance": "core"
+        }
+      ],
+      "base": "Interested in configure OpenTelemetry trace collection.",
+      "library": "Configured OpenTelemetry trace collection across payment services.",
+      "expected": "Library stronger",
+      "expected_coverage": [
+        "val_telemetry"
+      ],
+      "rationale": "Interest is not a completed capability claim.",
+      "negative_control": "Unrelated work/interest must not establish requirement support.",
+      "split": "fresh_validation",
+      "source": {
+        "kind": "synthetic novel-family validation; frozen after fixes, before evaluation; not independent real-world labels"
+      }
+    }
+  ],
+  "policy": "Do not tune the implementation after inspecting these outcomes within this checkpoint."
+}

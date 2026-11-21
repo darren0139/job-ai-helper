@@ -2388,6 +2388,10 @@ CATEGORY_OPTIONS = [
 
 
 with st.sidebar:
+    with st.expander("Capture", expanded=False):
+        st.divider()
+        from tailoring.ui_review_capture_ui import render_ui_review_capture
+        render_ui_review_capture()
     st.header("Navigation")
 
     if st.session_state.get("navigation_page") == "Global Blueprints":
@@ -2415,6 +2419,7 @@ with st.sidebar:
             "Capability Discovery",
             "Job Market Insights",
             "Taxonomy Maintenance",
+            "Bullet-Choice Benchmark Lab",
         ],
         key="navigation_page",
         label_visibility="collapsed",
@@ -7913,6 +7918,11 @@ elif page == "Application Sessions":
                     "silently create or apply bullet rewrites."
                 )
 
+                # Select the after-fit optimizer before the action it controls.
+                # mark_fit_request snapshots this value on each successful fit.
+                from tailoring.phase9f_automatic_bestof_v30_ui import render_optimizer_mode_selector
+                render_optimizer_mode_selector(st, int(current_application_id))
+
                 if st.button(
                     "Generate and Fit Tailored Resume DOCX",
                     type="primary",
@@ -7973,6 +7983,11 @@ elif page == "Application Sessions":
                                     current_application_id,
                                     generation,
                                 )
+                                # One automatic actual-DOCX A/B trial after the
+                                # existing explicit Build and Fit action.
+                                if (generation.get("fit_result") or {}).get("fit_one_page") is True:
+                                    from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
+                                    mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
                                 st.session_state[f"phase7_flash_{current_application_id}"] = (
                                     "Built or restored the exact deterministic fit "
                                     "for the selected normal generation. Changed fit "
@@ -8026,6 +8041,9 @@ elif page == "Application Sessions":
                                 current_application_id,
                                 generation,
                             )
+                            if (generation.get("fit_result") or {}).get("fit_one_page") is True:
+                                from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
+                                mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
                             st.session_state[f"phase7_flash_{current_application_id}"] = (
                                 "Built the deterministic fitted draft. Preview and "
                                 "approval remain in the normal Application Session "
@@ -8243,6 +8261,8 @@ elif page == "Application Sessions":
                         )
 
                         if fit_result["fit_one_page"] is True:
+                            from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
+                            mark_fit_request(st, int(current_application_id), generation_id)
                             st.success("Tailored resume copy generated and fits within one page.")
                         elif fit_result["fit_one_page"] is False:
                             st.warning(fit_result["note"])
@@ -8467,6 +8487,30 @@ elif page == "Application Sessions":
 
                 # Phase 8 V2.4: read-only audit of actual saved fitted DOCX,
                 # against immutable Phase 9F Base + Evidence Library sources.
+                if st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}") or st.checkbox(
+                    "Open Best-of résumé comparison", value=False,
+                    key=f"phase9f_open_bestof_{int(current_application_id)}_{score_preferred_generation_id}",
+                ):
+                    from tailoring.phase9f_automatic_bestof_v30_ui import render_automatic_bestof
+                    render_automatic_bestof(
+                        st,
+                        application_id=int(current_application_id),
+                        generation_id=str(
+                            st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}")
+                            or score_preferred_generation_id
+                        ),
+                        projects=project_result if isinstance(project_result, dict) else None,
+                        fit=(score_session_fit_result if score_session_fit_result.get("docx_path")
+                             else score_approved_fit_result if score_approved_fit_result.get("docx_path")
+                             else None),
+                        baseline_report=report,
+                        raw_jd_text=score_phase8_raw_jd_text,
+                        execution=phase9f_f_execution if phase9f_f_active else None,
+                        decision=(phase9e_context.get("decision")
+                                  if isinstance(phase9e_context, dict) else None),
+                        repo_root=Path.cwd(),
+                    )
+
                 from tailoring.phase9f_final_evidence_comparison_v2_4 import (
                     render_final_evidence_audit,
                 )
@@ -9092,6 +9136,10 @@ elif page == "Capability Discovery":
     render_capability_discovery_review()
 elif page == "Taxonomy Maintenance":
     render_taxonomy_maintenance()
+
+elif page == "Bullet-Choice Benchmark Lab":
+    from tailoring.bullet_choice_lab_ui import render_page as render_bullet_choice_lab
+    render_bullet_choice_lab(st)
 
 elif page == "Blueprint Library":
     st.divider()

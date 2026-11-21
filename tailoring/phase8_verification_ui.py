@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 import streamlit as st
-from tailoring.session_table_ui_v2 import render_session_dataframe
+from tailoring.phase8_row_ui import render_phase8_rows
 
 from database.tailoring_generation_control import (
     get_application_generation_control,
@@ -84,14 +84,14 @@ def _render_document_comparison(analysis, label):
     cols[0].metric(label.split(' vs ')[0], summary['initial_score'])
     cols[1].metric('Final', summary['tailored_score'])
     cols[2].metric('Job Match Δ', summary['score_delta'])
-    render_session_dataframe(st, [{
+    render_phase8_rows(st, [{
         'Requirement ID': row['requirement_id'], 'Requirement': row.get('requirement_text'),
         'Importance': row.get('importance'), 'Match transition': row.get('match_transition'),
         'Classification': row.get('classification'),
         'Contribution Δ': row.get('score_contribution_delta'),
         'Baseline evidence': _evidence_summary(row.get('initial') or {}),
         'Final evidence': _evidence_summary(row.get('tailored') or {}),
-    } for row in analysis.get('requirements', [])], hide_index=True, width='stretch')
+    } for row in analysis.get('requirements', [])])
     with st.expander(label + ' diagnostics'):
         if st.checkbox('Load comparison diagnostics (large)', value=False,
                        key='session_v2_comparison_diag_' + label):
@@ -100,7 +100,12 @@ def _render_document_comparison(analysis, label):
 
 def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initial") -> None:
     if result.get('document_analysis'):
+        selected_only = (result.get('starting_document_contract') or {}).get('mode') == 'selected_base_docx_only'
         st.markdown('### Step 6 — Final Résumé Analysis / Phase8')
+        if selected_only:
+            st.info('This Tailor Resume handoff has a frozen actual Selected Base DOCX and a fitted final DOCX. '
+                    'There is no separately uploaded Initial DOCX. The document comparison below is '
+                    'Selected Base vs Final, not Initial vs Final.')
         st.caption('Phase 8 evaluates the actual final document. Available Profile/Evidence alone receives no document credit.')
         final = (result.get('job_match_ab') or {}).get('tailored') or {}
         cols = st.columns(4)
@@ -108,7 +113,7 @@ def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initia
         for col, label, key in zip(cols, ('Job Match', 'Required/Core', 'Preferred', 'Evidence strength'),
                 ('deterministic_alignment_score', 'required_core_coverage_score', 'preferred_coverage_score', 'evidence_strength_score')):
             col.metric(label, native.get(key, 'Unavailable'))
-        render_session_dataframe(st, _snapshot_rows(final), hide_index=True, width='stretch')
+        render_phase8_rows(st, _snapshot_rows(final))
         # Initial explainability already appears in Step 1. Reuse the existing
         # native arithmetic formatter for Final alone, without a duplicate
         # initial/before-fitting panel in document sessions.
@@ -167,9 +172,9 @@ def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initia
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
         from tailoring.phase9f_explainer_clarity_v2_2 import compact_snapshot_rows
-        render_session_dataframe(st, compact_snapshot_rows(initial), hide_index=True, width="stretch")
+        render_phase8_rows(st, compact_snapshot_rows(initial))
         with st.expander("Detailed Selected Base/Saved Baseline requirement provenance", expanded=False):
-            render_session_dataframe(st, _snapshot_rows(initial), hide_index=True, width="stretch")
+            render_phase8_rows(st, _snapshot_rows(initial))
     with tailored_tab:
         counts = tailored.get("match_counts") or {}
         cols = st.columns(4)
@@ -178,9 +183,9 @@ def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initia
         cols[2].metric("Transferable", counts.get("transferable", 0))
         cols[3].metric("Weak / none", f"{counts.get('weak', 0)} / {counts.get('none', 0)}")
         from tailoring.phase9f_explainer_clarity_v2_2 import compact_snapshot_rows
-        render_session_dataframe(st, compact_snapshot_rows(tailored), hide_index=True, width="stretch")
+        render_phase8_rows(st, compact_snapshot_rows(tailored))
         with st.expander("Detailed Tailored requirement provenance", expanded=False):
-            render_session_dataframe(st, _snapshot_rows(tailored), hide_index=True, width="stretch")
+            render_phase8_rows(st, _snapshot_rows(tailored))
     with comparison_tab:
         score_cols = st.columns(4)
         score_cols[0].metric(baseline_name + " score", summary.get("initial_score", 0))
@@ -228,10 +233,10 @@ def _render_job_match_ab(result: dict[str, Any], *, baseline_mode: str = "initia
             )
         from tailoring.phase9f_explainer_clarity_v2_2 import compact_comparison_rows
         st.caption(f"{baseline_name} is the saved pre-tailoring source; Tailored is the verified Phase 8 fitted document. Matching scores mean no measured coverage improvement, even if wording changed.")
-        render_session_dataframe(st, compact_comparison_rows(rows, baseline_name), hide_index=True, width="stretch")
+        render_phase8_rows(st, compact_comparison_rows(rows, baseline_name))
         with st.expander("Full requirement IDs, provenance and point contributions", expanded=False):
-            render_session_dataframe(st, rows, hide_index=True, width="stretch")
-        with st.expander("A/B taxonomy and resolver diagnostics"):
+            render_phase8_rows(st, rows)
+        with st.expander("Résumé comparison taxonomy and resolver diagnostics"):
             st.json(
                 [
                     {
@@ -281,27 +286,144 @@ def _phase9f_execution_uses_legacy_private_stages(
     )
 
 
+
+
+def _render_final_improvement_verdict_v1(result: dict[str, Any], *, baseline_mode: str) -> None:
+    """Read-only verdict from the saved Phase 8 native A/B receipts."""
+    from tailoring.phase8_final_improvement_verdict_v1 import build_final_improvement_verdict
+
+    audit = build_final_improvement_verdict(result, baseline_mode=baseline_mode)
+    base_only = (result.get("starting_document_contract") or {}).get("mode") == "selected_base_docx_only"
+    st.markdown("### Final check — Tailored vs Selected Base" if base_only
+                else "### Final check — Tailored vs Initial and Selected Base")
+    st.caption(
+        "Uses saved Phase 8 Job Match evidence for each baseline under the same JD "
+        "and scorer. It does not rescore, approve, or modify the final DOCX."
+    )
+    status = audit.get("status")
+    if status == "improved_vs_both" and base_only:
+        st.success("Verified improvement against the frozen Selected Base DOCX. The final document scored higher "
+                   "and preserved Required/Core strength.")
+    elif status == "improved_vs_both":
+        st.success("Verified improvement against both Initial and Selected Base: higher Job Match score "
+                   "for the actual final document, with no Required/Core evidence regression.")
+    elif status == "required_core_regression":
+        st.warning("Required/Core evidence regressed in at least one baseline comparison. "
+                   "The final résumé cannot be certified as improved.")
+    elif status == "worse_against_a_baseline":
+        st.warning("The final résumé scores lower than the verified Selected Base." if base_only
+                   else "The final résumé scores lower than at least one verified baseline.")
+    elif status == "unchanged_vs_both":
+        st.info("Final and Selected Base have equal Job Match scores." if base_only
+                else "Final and both baselines have equal Job Match scores.")
+    elif status == "not_improved_vs_both":
+        st.info("Review the verified Selected Base score difference below." if base_only
+                else "Final did not score higher than both baselines. Review the separate deltas below.")
+    elif status == "partial_comparison_only":
+        st.info("Partial comparison only. An actual-document or second baseline receipt is missing; "
+                "overall résumé improvement is not certified.")
+    else:
+        st.warning("Final improvement cannot be verified safely from the saved evidence receipts.")
+
+    rows = []
+    for name in (("Selected Base",) if base_only else ("Initial", "Selected Base")):
+        comp = (audit.get("comparisons") or {}).get(name) or {}
+        rows.append({
+            "Baseline": name,
+            "Verified": bool(comp.get("verified")),
+            "Baseline Job Match": comp.get("before_score") if comp.get("verified") else None,
+            "Final Job Match": comp.get("after_score") if comp.get("verified") else None,
+            "Score delta": comp.get("delta") if comp.get("verified") else None,
+            "Required/Core regressions": len(comp.get("hard_regressions") or []),
+            "Assessment": comp.get("assessment") or "unavailable",
+            "Basis": ("Frozen Selected Base DOCX" if base_only and comp.get("verified") else
+                      comp.get("alias_of") or comp.get("reason") or "Independent saved receipt"),
+        })
+    render_phase8_rows(st, rows)
+    with st.expander("Final comparison evidence and limitations", expanded=False):
+        st.caption("Only document-grounded final DOCX comparisons can earn the full improved verdict. "
+                   "Legacy reconstructed-profile comparisons remain diagnostic.")
+        for reason in audit.get("reasons") or []:
+            st.write("- " + str(reason))
+        for name, comp in (audit.get("comparisons") or {}).items():
+            regressions = comp.get("hard_regressions") or []
+            if regressions:
+                st.write("**" + str(name) + ": Required/Core evidence regressions**")
+                render_phase8_rows(st, regressions)
+
+
+def _phase8_score_banner(result: dict[str, Any]) -> tuple[str, str]:
+    """Describe displayed native scores, without changing the saved Phase 8 verdict.
+
+    Historical receipts can say 'maintained' when the native score declined.
+    A banner must not imply approval or infer hard coverage from a total score.
+    """
+    import math
+
+    verdict = str(result.get("verdict") or "review_required")
+    message = str(result.get("verdict_message") or "").strip()
+    comparison = result.get("comparison") or {}
+    if verdict == "invalid_canonical_mismatch":
+        return "error", message or "Canonical requirement identity is invalid."
+    if not result.get("comparison_valid", True) or not isinstance(comparison, dict):
+        return "warning", "Native Job Match comparison is unavailable or incompatible; approval is not inferred."
+    if comparison.get("canonical_requirement_ids_stable") is False:
+        return "warning", "Canonical requirements changed; score comparisons cannot be trusted."
+    try:
+        values = [comparison[key] for key in ("before_score", "after_score")]
+        if any(isinstance(value, bool) for value in values):
+            raise ValueError("boolean score")
+        before, after = (float(value) for value in values)
+        if not all(math.isfinite(value) and value.is_integer() for value in (before, after)):
+            raise ValueError("non-integer score")
+        before, after = int(before), int(after)
+        delta = after - before
+        if "score_delta" in comparison:
+            saved_delta = comparison["score_delta"]
+            if isinstance(saved_delta, bool) or float(saved_delta) != delta:
+                raise ValueError("inconsistent saved delta")
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return "warning", "Native Job Match values are missing or inconsistent; verify the saved receipt."
+
+    hard_regressed = bool(comparison.get("important_regressions")) or verdict == "regression_detected"
+    if hard_regressed:
+        return "warning", (
+            "Required/Core evidence regressed. Review the individual requirements before approval."
+        )
+    if delta < 0:
+        hard_note = (
+            "No individual Required/Core regression was recorded. "
+            if comparison.get("important_regressions") == [] else
+            "Required/Core evidence needs separate verification. "
+        )
+        return "warning", (
+            f"Job Match decreased from {before} to {after} ({delta:+d} points). "
+            + hard_note + "This does not authorize approval."
+        )
+    if verdict == "improved" and delta > 0:
+        return "success", message or f"Job Match improved from {before} to {after}."
+    if verdict == "maintained" and delta == 0:
+        return "info", message or f"Job Match remained {after}."
+    if verdict in {"improved", "maintained"}:
+        return "warning", (
+            f"Job Match changed from {before} to {after} ({delta:+d} points), "
+            "but the saved verdict disagrees. Review before approval."
+        )
+    return "warning", message or "Phase 8 evidence requires review before approval."
+
 def _render_result(result: dict[str, Any]) -> None:
     from tailoring.phase9f_explainer_stage_v2_1 import phase8_baseline_mode
     baseline_mode = phase8_baseline_mode(result)
     comparison = result.get("comparison", {}) or {}
     lineage = result.get("claim_lineage", {}) or {}
 
-    verdict = str(result.get("verdict") or "review_required")
-    message = str(result.get("verdict_message") or "")
-    if verdict == "invalid_canonical_mismatch":
-        st.error(message)
-    elif verdict == "improved":
-        st.success(message)
-    elif verdict == "maintained":
-        st.info(message)
-    else:
-        st.warning(message)
+    banner_kind, banner_text = _phase8_score_banner(result)
+    getattr(st, banner_kind)(banner_text)
 
     comparison_valid = bool(result.get("comparison_valid", True))
     metric1, metric2, metric3, metric4 = st.columns(4)
     metric1.metric(
-        "Initial Job Match" if result.get('document_analysis') else
+        ("Selected Base Job Match" if (result.get('starting_document_contract') or {}).get('mode') == 'selected_base_docx_only' else "Initial Job Match") if result.get('document_analysis') else
         "Selected Base Job Match" if baseline_mode == "selected_base" else "Before score",
         comparison.get("before_score", 0),
     )
@@ -315,7 +437,7 @@ def _render_result(result: dict[str, Any]) -> None:
         ),
     )
     metric3.metric(
-        "Initial → Final Required/Core Δ" if result.get('document_analysis') else "Required/Core Δ",
+        "Required/Core Δ",
         (
             comparison.get("required_core_coverage_delta", 0)
             if comparison_valid
@@ -350,21 +472,16 @@ def _render_result(result: dict[str, Any]) -> None:
         reconciliation.get("newly_supported_requirements", []) or []
     )
     if reconciled_rows:
-        st.info(
-            "Phase 8 confirmed "
-            f"{len(reconciled_rows)} initially reported evidence drop(s) "
-            "were false alarms because the supporting final evidence is "
-            "still present and verified."
+        st.warning(
+            f"Phase 8 reconciled {len(reconciled_rows)} requirement match(es) using saved generation mappings. "
+            "This is not independent proof that the exact JD activity was performed. "
+            "Review each evidence snippet, especially deployment/configuration claims, before relying on the reconciled score."
         )
         with st.expander(
             "Final evidence reconciliation",
             expanded=False,
         ):
-            render_session_dataframe(st,
-                reconciled_rows,
-                hide_index=True,
-                width="stretch",
-            )
+            render_phase8_rows(st, reconciled_rows, label='Final evidence reconciliation')
     if newly_supported_rows:
         st.info(
             "Phase 8 confirmed "
@@ -375,11 +492,7 @@ def _render_result(result: dict[str, Any]) -> None:
             "New final evidence matches",
             expanded=False,
         ):
-            render_session_dataframe(st,
-                newly_supported_rows,
-                hide_index=True,
-                width="stretch",
-            )
+            render_phase8_rows(st, newly_supported_rows, label='New final evidence matches')
     if unresolved_rows:
         st.warning(
             f"{len(unresolved_rows)} regression(s) could not be reconciled "
@@ -404,10 +517,10 @@ def _render_result(result: dict[str, Any]) -> None:
             )
             if added:
                 st.write("**Added after reconstruction**")
-                render_session_dataframe(st, added, hide_index=True, width="stretch")
+                render_phase8_rows(st, added)
             if removed:
                 st.write("**Missing after reconstruction**")
-                render_session_dataframe(st, removed, hide_index=True, width="stretch")
+                render_phase8_rows(st, removed)
 
     if result.get("blueprint_ready"):
         st.success(
@@ -436,13 +549,13 @@ def _render_result(result: dict[str, Any]) -> None:
             f"Improved requirements ({len(improved)})",
             expanded=False,
         ):
-            render_session_dataframe(st, improved, hide_index=True, width="stretch")
+            render_phase8_rows(st, improved)
     if regressed:
         with st.expander(
             f"Regressed requirements ({len(regressed)})",
             expanded=True,
         ):
-            render_session_dataframe(st, regressed, hide_index=True, width="stretch")
+            render_phase8_rows(st, regressed)
 
     bullet_risks = (
         lineage.get("project_bullet_review_risks", []) or []
@@ -455,18 +568,54 @@ def _render_result(result: dict[str, Any]) -> None:
         ):
             if bullet_risks:
                 st.write("**Project bullets needing review**")
-                render_session_dataframe(st,
-                    bullet_risks,
-                    hide_index=True,
-                    width="stretch",
-                )
+                render_phase8_rows(st, bullet_risks, label='Project bullets needing review')
             if skill_risks:
                 st.write("**Skills needing review**")
-                render_session_dataframe(st,
-                    skill_risks,
-                    hide_index=True,
-                    width="stretch",
-                )
+                render_phase8_rows(st, skill_risks, label='Skills needing review')
+
+    # V3.6.1: transparent read-only Initial AND Selected Base approval floor.
+    # The authoritative approval function also recomputes actual DOCX bytes.
+    from tailoring.phase9f_v361_approval_floor import assess_phase9f_approval_floor
+    doc = result.get('document_analysis') or {}
+    floor_preview = assess_phase9f_approval_floor(
+        result, generation_id=str(result.get('generation_id') or ''),
+        docx_sha256=str(doc.get('final_document_sha256') or ''),
+    )
+    st.markdown('#### Base no-regression approval floor')
+    if floor_preview.get('ready'):
+        if len(floor_preview['comparisons']) == 1:
+            baseline_name = next(iter(floor_preview['comparisons']))
+            st.success(f'The existing fitted résumé meets the {baseline_name} score and preserves Required/Core strength.')
+        else:
+            st.success('The existing fitted résumé meets both starting-résumé scores and preserves Required/Core strength.')
+        render_phase8_rows(st, [{
+            'Baseline': name,
+            'Before': comparison['before'],
+            'Existing fitted résumé': comparison['after'],
+            'Job Match Δ': comparison['delta'],
+            'Required/Core losses': len(comparison.get('hard_regressions') or []),
+        } for name, comparison in floor_preview['comparisons'].items()])
+    else:
+        hold = str(floor_preview.get('reason') or 'Unknown verification hold')
+        st.warning('No-regression NOT certified: '+hold)
+        if hold == 'Missing Phase 8 actual fitted DOCX analysis receipt':
+            st.caption('Next check: open/download the Phase 8 Verification JSON and look for '
+                       '`document_analysis.final_document_sha256`. This saved result does not '
+                       'establish an actual-document baseline; inspecting selection receipts cannot create one. '
+                       'A new authorized Phase 8 verification may require valid frozen starting documents.')
+        elif 'hash' in hold.lower() or 'digest' in hold.lower():
+            st.caption('Next check: compare the saved fitted generation ID, its SHA-256, and the Phase 8 '
+                       'receipt. Do not overwrite the original DOCX or bypass the approval hold. '
+                       'This UI checks receipt consistency; the approval action separately hashes the actual file.')
+        elif 'Initial:' in hold or 'Selected Base:' in hold or 'Selected Base identity' in hold:
+            st.caption('Next check: inspect the native Initial and Selected Base comparison receipts in '
+                       'Phase 8. A score copied from a project-only proxy cannot certify the missing baseline.')
+        else:
+            st.caption('Next check: inspect the Phase 8 Verification JSON and verification-manager status. '
+                       'The application cannot infer missing authority from a high proxy score.')
+    st.caption('Receipt preview only. For current Phase 9F normal generations, approval independently rechecks the saved fitted DOCX bytes and current Phase 8 verification.')
+
+    _render_final_improvement_verdict_v1(result, baseline_mode=baseline_mode)
 
     with st.expander("Phase 8 technical details", expanded=False):
         if st.checkbox("Load Phase 8 diagnostic JSON (large)", value=False,
@@ -602,7 +751,8 @@ def render_phase8_verification(
             )
             return {"cache_status": phase9f_result.get("cache_status")}
 
-        if phase9f_execution:
+        if (phase9f_execution or
+                (selected.get('generation_settings') or {}).get('phase9f_f_normal_lifecycle')):
             from database.phase9f_tailoring_execution_manager import (
                 run_or_reuse_phase9f_normal_generation_phase8,
             )

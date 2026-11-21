@@ -6,6 +6,7 @@ import html
 import io
 
 from typing import Any
+from tailoring.phase8_row_ui import render_phase8_rows
 from tailoring.score_component_tables_ui import render_component_tables
 
 import streamlit as st
@@ -61,22 +62,11 @@ def _requirement_math_table(
     ]
 
 
-def _compact_requirement_text(
-    value: object,
-    *,
-    limit: int = 96,
-) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: max(1, limit - 1)].rstrip() + "…"
-
-
 def _jd_score_map_table(receipt: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "#": int(row.get("index", 0) or 0),
-            "JD requirement": _compact_requirement_text(row.get("requirement", "")),
+            "JD requirement": row.get("requirement", ""),
             "Importance": row.get("importance", ""),
             "Match": row.get("match_label", ""),
             "Max pts": round(float(row.get("max_final_points", 0.0)), 3),
@@ -399,10 +389,8 @@ def _render_score_receipt_legacy(
             "requirement also receives an equal share of the Evidence Strength "
             "maximum."
         )
-        st.dataframe(
+        render_phase8_rows(st,
             _score_pool_table(receipt),
-            hide_index=True,
-            width="stretch",
         )
 
         if not receipt.get("maximum_score_parity", False):
@@ -420,15 +408,8 @@ def _render_score_receipt_legacy(
                 f"{float(receipt.get('maximum_score', 0.0)):.2f}/100 ✓"
             )
 
-        st.dataframe(
+        render_phase8_rows(st,
             _jd_score_map_table(receipt),
-            hide_index=True,
-            width="stretch",
-        )
-        st.caption(
-            "Long requirement text is shortened only in this on-screen table. "
-            "Use the full-text view or downloads below for the complete canonical "
-            "JD wording."
         )
         st.caption(
             "Atomic children share their parent's importance weight, so splitting "
@@ -481,10 +462,8 @@ def _render_score_receipt_legacy(
                 "If you do not have it, treat the requirement as a possible learning "
                 "target rather than adding an unsupported claim."
             )
-            st.dataframe(
+            render_phase8_rows(st,
                 opportunities,
-                hide_index=True,
-                width="stretch",
             )
         else:
             st.caption(
@@ -492,10 +471,8 @@ def _render_score_receipt_legacy(
             )
 
     with st.expander("Show requirement-level math", expanded=False):
-        st.dataframe(
+        render_phase8_rows(st,
             _requirement_math_table(breakdown),
-            hide_index=True,
-            width="stretch",
         )
 
 
@@ -506,7 +483,7 @@ def _render_score_receipt(
     receipt = build_score_receipt(breakdown)
     render_component_tables(
         st, receipt, breakdown=breakdown, key_prefix=key_prefix,
-        origin=f"phase8_{key_prefix}",
+        origin=f"phase8_{key_prefix}", wrap_rows=True,
     )
     if st.checkbox("Show original Phase 8 receipts and exports",
                    key=f"{key_prefix}_phase8_advanced_receipts_v1"):
@@ -517,8 +494,7 @@ def _render_breakdown(label: str, breakdown: dict[str, Any]) -> None:
     scorer_score = int(breakdown.get("scorer_score", 0) or 0)
     reconstructed = int(breakdown.get("reconstructed_score", 0) or 0)
     st.markdown(f"**{label}: {scorer_score}/100**")
-    from tailoring.session_table_ui_v2 import render_session_dataframe
-    render_session_dataframe(st, _component_table(breakdown), hide_index=True, width="stretch")
+    render_phase8_rows(st, _component_table(breakdown))
     _render_score_receipt(
         breakdown,
         key_prefix="".join(
@@ -552,7 +528,7 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
     changed = payload.get("changed_requirements", []) or []
     if changed:
         st.markdown("#### What changed")
-        st.dataframe(
+        render_phase8_rows(st,
             [
                 {
                     "Requirement": row.get("requirement", ""),
@@ -566,8 +542,6 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
                 }
                 for row in changed
             ],
-            hide_index=True,
-            width="stretch",
         )
     else:
         st.caption("No requirement label changed after fitting.")
@@ -578,15 +552,13 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
             "Required/Core and Preferred coverage are weighted separately, then "
             "Evidence Strength contributes 10%."
         )
-        st.dataframe(
+        render_phase8_rows(st,
             [
                 {"Match label": label.title(), "Match value": value}
                 for label, value in (after.get("match_values", {}) or {}).items()
             ],
-            hide_index=True,
-            width="stretch",
         )
-        st.dataframe(
+        render_phase8_rows(st,
             [
                 {
                     "Importance": label.replace("_", " ").title(),
@@ -594,14 +566,12 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
                 }
                 for label, weight in (after.get("importance_weights", {}) or {}).items()
             ],
-            hide_index=True,
-            width="stretch",
         )
         st.caption(str(after.get("formula") or ""))
 
     all_rows = payload.get("requirement_changes", []) or []
     with st.expander(f"All scored requirements ({len(all_rows)})", expanded=False):
-        st.dataframe(
+        render_phase8_rows(st,
             [
                 {
                     "Requirement ID": row.get("requirement_id", ""),
@@ -617,14 +587,12 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
                 }
                 for row in all_rows
             ],
-            hide_index=True,
-            width="stretch",
         )
 
     reconciled = payload.get("reconciled_requirements", []) or []
     with st.expander("Advanced Phase 8 reconciliation diagnostics", expanded=False):
         if reconciled:
-            st.dataframe(
+            render_phase8_rows(st,
                 [
                     {
                         "Requirement": row.get("requirement", ""),
@@ -635,8 +603,6 @@ def render_phase8_score_explainability(result: dict[str, Any], *, baseline_label
                     }
                     for row in reconciled
                 ],
-                hide_index=True,
-                width="stretch",
             )
         else:
             st.caption("No raw-after labels needed reconciliation for this snapshot.")

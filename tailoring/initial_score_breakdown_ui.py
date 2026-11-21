@@ -48,7 +48,7 @@ def _score_map_csv(receipt: dict[str, Any]) -> str:
     return buffer.getvalue()
 
 
-def render_initial_score_math(st: Any, view: dict[str, Any]) -> None:
+def render_initial_score_math(st: Any, view: dict[str, Any], *, key_prefix: str = "initial_job_match") -> None:
     """Component tables for the already-saved, parity-validated Initial score."""
     from tailoring.score_component_tables_ui import render_component_tables
 
@@ -80,11 +80,11 @@ def render_initial_score_math(st: Any, view: dict[str, Any]) -> None:
         )
         render_component_tables(
             st, receipt, breakdown=receipt.get("_source_breakdown"),
-            key_prefix="initial_job_match", origin=str(view.get("provenance") or "initial_saved_analysis"),
+            key_prefix=key_prefix, origin=str(view.get("provenance") or "initial_saved_analysis"),
             legacy_csv=_score_map_csv(receipt),
         )
 
-        if st.checkbox("Show advanced original score map", key="initial_score_advanced_map_v1"):
+        if st.checkbox("Show advanced original score map", key=f"{key_prefix}_advanced_map_v1"):
             st.dataframe(
                 [
                     {"Pool": row["label"], "Requirements": row["requirement_count"],
@@ -123,5 +123,5 @@ def render_initial_score_math(st: Any, view: dict[str, Any]) -> None:
                 "Download initial JD score map (CSV)",
                 data=_score_map_csv(receipt).encode("utf-8-sig"),
                 file_name="initial_job_match_score_map.csv", mime="text/csv",
-                on_click="ignore",
+                on_click="ignore", key=f"{key_prefix}_legacy_score_map_csv",
             )

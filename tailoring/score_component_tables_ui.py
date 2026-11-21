@@ -9,6 +9,7 @@ import io
 import json
 import math
 from typing import Any
+from tailoring.phase8_row_ui import render_phase8_rows
 from tailoring.session_table_ui_v2 import render_session_table
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
@@ -273,7 +274,7 @@ def _native_category_points_label(receipt: dict[str, Any], component: dict[str, 
 
 def render_component_tables(
     st: Any, receipt: dict[str, Any], *, breakdown: dict[str, Any] | None = None,
-    key_prefix: str, origin: str, legacy_csv: str | bytes | None = None,
+    key_prefix: str, origin: str, legacy_csv: str | bytes | None = None, wrap_rows: bool = False,
 ) -> bool:
     """Reusable Streamlit presentation, parity gated and free of scorer calls."""
     try:
@@ -282,6 +283,13 @@ def render_component_tables(
         st.warning(f"Component tables unavailable: native saved score receipt did not reconcile ({type(exc).__name__}).")
         return False
     exports = component_exports(tables, legacy_csv=legacy_csv)
+
+    def display_rows(rows, kind, title):
+        if wrap_rows:
+            render_phase8_rows(st, rows, label=title)
+        else:
+            render_session_table(st, rows, key=f"{key_prefix}_{kind}")
+
     st.markdown("#### Score components and contribution tables")
     st.caption(
         "These four tables use one saved, parity-verified native scoring receipt. "
@@ -304,7 +312,7 @@ def render_component_tables(
                 f"{receipt['subtotal_before_rounding']:.4f} /100 "
                 f"→ saved rounded Job Match {receipt['stored_scorer_score']}/100."
             )
-            render_session_table(st, _overall_display_rows(tables[kind]), key=f"{key_prefix}_overall")
+            display_rows(_overall_display_rows(tables[kind]), kind, title)
             st.caption("The saved rounded score is authoritative; it is not an ATS acceptance probability.")
         else:
             category_label = _native_category_points_label(receipt, component)
@@ -340,7 +348,7 @@ def render_component_tables(
                     "Reference allocation (pts)": round(sum(row["coverage_reference_points"] for row in tables[kind]), 3),
                     "Requirement ID": "",
                 })
-                render_session_table(st, display, key=f"{key_prefix}_{kind}")
+                display_rows(display, kind, title)
                 st.caption("The TOTAL row sums the native requirement-level coverage contributions.")
             else:
                 if tables["evidence_detail"] == "native_proportional_allocation":
@@ -363,7 +371,7 @@ def render_component_tables(
                     "Evidence contribution (pts)": round(sum(row["evidence_earned_points"] for row in tables[kind]), 3),
                     "Requirement ID": "",
                 })
-                render_session_table(st, display, key=f"{key_prefix}_{kind}")
+                display_rows(display, kind, title)
                 st.caption("The TOTAL row reconciles to the saved evidence component, not an invented evidence score.")
         st.download_button(
             f"Export {title} (CSV)", data=exports[filename],

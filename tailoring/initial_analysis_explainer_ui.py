@@ -22,8 +22,18 @@ def _evidence(row):
                       for e in row.get("evidence", []) if isinstance(e, dict))
 
 
-def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
+def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True, widget_namespace=""):
     native = view["stable_analysis"]
+    # The same native receipt can appear at multiple UI locations in one Streamlit
+    # rerun. Distinguish the location *and* immutable receipt identity so that
+    # downloadable tables and controls never share widget keys.
+    import hashlib
+    receipt_key = hashlib.sha256((
+        str(widget_namespace or "default") + ":" +
+        str(view.get("provenance") or "") + ":" +
+        str(native.get("input_fingerprint") or "") + ":" +
+        str(view.get("identity") or "")
+    ).encode("utf-8")).hexdigest()[:16]
     st.caption(view["currentness"] + " · The saved result is shown without recomputation.")
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Job Match", "Required/core", "Preferred", "Evidence strength"),
@@ -32,7 +42,7 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     if score_value(native) is None:
         st.caption(unavailable_score_reason(native))
     st.caption("Job Match is out of 100; Required/core, Preferred and Evidence strength are component percentages.")
-    render_initial_score_math(st, view)
+    render_initial_score_math(st, view, key_prefix="analysis_receipt_" + receipt_key)
     if show_taxonomy:
         taxonomy = render_jd_taxonomy_status(st, raw_jd_text=view["raw_jd_text"], stable_analysis=native,
                                             job_id=view["identity"].get("discovered_job_id"))
@@ -66,13 +76,7 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     # the interactive dataframe canvas (which can render as a black rectangle).
     # Keep historical full table default for compatibility; users can switch.
     import csv
-    import hashlib
     import io
-    receipt_key = hashlib.sha256((
-        str(view.get("provenance") or "") + ":" +
-        str(native.get("input_fingerprint") or "") + ":" +
-        str(view.get("identity") or "")
-    ).encode("utf-8")).hexdigest()[:16]
     # session_tables_v2_initial: one shared mode for the Application page.
     from tailoring.session_table_ui_v2 import render_session_table
     render_session_table(st, display, key="receipt_" + receipt_key, page_size=40)
@@ -105,7 +109,8 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
             diagnostics["native_validation_warnings"] = native.get("validation_warnings", [])
             st.json(diagnostics)
             st.download_button("Download analysis report", json.dumps(diagnostics, indent=2, default=str),
-                               file_name="initial_analysis.json", mime="application/json", on_click="ignore")
+                               file_name="initial_analysis.json", mime="application/json", on_click="ignore",
+                               key="analysis_receipt_diagnostics_download_" + receipt_key)
         else:
             st.caption("Full diagnostics are loaded on demand to keep this page responsive.")
 
@@ -114,7 +119,8 @@ def render_job_finder_explainer(st, snapshot, raw_jd_text, *, taxonomy=None):
     try:
         # Job Finder already displays this JD's status above the saved score.
         render_analysis_receipt(st, job_finder_receipt(snapshot, raw_jd_text),
-                                taxonomy=taxonomy, show_taxonomy=False)
+                                taxonomy=taxonomy, show_taxonomy=False,
+                                widget_namespace="job_finder_match")
     except (ValueError, KeyError, TypeError) as exc:
         st.warning("Saved analysis unavailable — " + str(exc))
 
@@ -141,7 +147,8 @@ def render_application_initial_analysis(st, application_id, *, resume_only=False
         if initial["provenance"] in {"EXACT_SAVED_REUSE", "FRESH_ANALYSIS"}:
             st.caption("Analysis origin: " + {"EXACT_SAVED_REUSE": "Reused exact saved analysis",
                                             "FRESH_ANALYSIS": "Fresh analysis"}[initial["provenance"]])
-        render_analysis_receipt(st, initial)
+        render_analysis_receipt(st, initial,
+                                widget_namespace=f"application_initial_{int(application_id)}")
     if not show_comparison:
         return
     render_initial_tailored_comparison(st, application_id, initial=initial, resume_only=resume_only)
@@ -163,7 +170,8 @@ def render_selected_base_analysis(st, effective_report):
                     raw_jd_text=effective_report['raw_jd_text'], provenance='SELECTED_DOCUMENT_RECEIPT',
                     identity=selected['starting_context'])
                 view['document_analysis'] = selected['document_analysis']
-                render_analysis_receipt(st, view, show_taxonomy=False)
+                render_analysis_receipt(st, view, show_taxonomy=False,
+                                        widget_namespace="selected_base_explicit_docx")
         return selected
     except (ValueError, KeyError, TypeError) as exc:
         st.warning('Selected Base Analysis unavailable — ' + str(exc))
@@ -235,11 +243,13 @@ def render_discovery_history(st, application_id):
         if historical['provenance'] == 'JOB_FINDER_INITIAL_MATCH':
             with st.expander('Discovery Match'):
                 st.caption('Candidate Profile & Evidence match · This is not the selected résumé document score.')
-                render_analysis_receipt(st, historical, show_taxonomy=False)
+                render_analysis_receipt(st, historical, show_taxonomy=False,
+                                        widget_namespace="historical_discovery_match")
         elif not historical.get('document_grounded'):
             with st.expander('Discovery / historical match'):
                 st.caption('Historical provenance · Document grounding is not established.')
-                render_analysis_receipt(st, historical, show_taxonomy=False)
+                render_analysis_receipt(st, historical, show_taxonomy=False,
+                                        widget_namespace="historical_reconstructed_profile")
     except (ValueError, KeyError, TypeError, sqlite3.Error, OSError):
         pass
 
