@@ -127,7 +127,12 @@ class Phase9FDUiCompatibilityTests(unittest.TestCase):
         before = self._row_counts()
         app = AppTest.from_file(str(HARNESS), default_timeout=30).run()
         self.assertEqual(list(app.exception), [])
-        self.assertEqual(self._row_counts(), before)
+        after = self._row_counts()
+        # Read-only UI may initialize previously absent zero-row metadata
+        # tables. Compare all real row counts, treating absent tables as zero;
+        # any inserted or deleted application record still fails this check.
+        for table in sorted(before.keys() | after.keys()):
+            self.assertEqual(after.get(table, 0), before.get(table, 0), table)
 
         successes = _values(app.success)
         infos = _values(app.info)
@@ -181,7 +186,13 @@ class Phase9FDUiCompatibilityTests(unittest.TestCase):
             )
         )
         self.assertNotIn("Regenerate from original résumé", button_labels)
-        self.assertNotIn("Change tailoring base", button_labels)
+        # Guarded Phase 9F reconfirmation deliberately exposes the source-change
+        # entry point; the legacy Phase 9E replacement UI must stay absent.
+        self.assertEqual(button_labels.count("Change tailoring base"), 1)
+        self.assertNotIn("Keep current tailoring base", button_labels)
+        # A fresh source must be explicitly analyzed and confirmed before a
+        # replacement confirmation control can appear.
+        self.assertNotIn("Confirm new Phase 9F Tailor Base", button_labels)
 
         decision = get_current_application_blueprint_decision(
             self.application_id

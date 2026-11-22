@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +14,10 @@ class Phase8VisualLabelsTest(unittest.TestCase):
             'Initial': baseline, 'Selected Base': {**baseline, 'alias_of': 'Initial'},
         }}
         st = MagicMock()
-        st.expander.return_value = nullcontext()
+        evidence = MagicMock()
+        policy = MagicMock()
+        st.expander.return_value = evidence
+        evidence.expander.return_value = policy
         result = {'starting_document_contract': {'mode': 'selected_base_docx_only'}}
         with patch('tailoring.phase8_verification_ui.st', st), patch(
             'tailoring.phase8_final_improvement_verdict_v1.build_final_improvement_verdict', return_value=audit,
@@ -26,6 +28,10 @@ class Phase8VisualLabelsTest(unittest.TestCase):
         rows = table.call_args.args[1]
         self.assertEqual([row['Baseline'] for row in rows], ['Selected Base'])
         self.assertEqual(rows[0]['Basis'], 'Frozen Selected Base DOCX')
+        # Evidence must be written inside its own expander, not to the page.
+        evidence.write.assert_called()
+        evidence.expander.assert_called_once_with('Verification policy help', expanded=False)
+        policy.caption.assert_called_once()
 
     def test_rows_keep_full_text_and_escape_saved_content(self):
         st = MagicMock()

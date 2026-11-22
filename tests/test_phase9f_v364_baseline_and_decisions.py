@@ -71,15 +71,20 @@ class BaselineFloor(unittest.TestCase):
             mock_verifications.get_tailoring_verification_approval_gate=lambda *_args: {'ready': True}
             mock_verifications.get_latest_tailoring_verification=lambda *_args: copy.deepcopy(item)
             fake_execution=types.ModuleType('database.phase9f_tailoring_execution_manager')
-            fake_execution.get_phase9f_tailoring_execution=lambda *_args: {'source_artifact':{'sha256':'a'*64}}
+            requested_generations=[]
+            def execution_source_mismatch(*_args, **kwargs):
+                requested_generations.append(kwargs.get('generation_id'))
+                return {'source_artifact':{'sha256':'a'*64}}
+            fake_execution.get_phase9f_tailoring_execution=execution_source_mismatch
             with patch.dict(sys.modules,{'database.tailoring_verification_manager':mock_verifications,
                                          'database.phase9f_tailoring_execution_manager':fake_execution}):
                 got=verify_current_phase9f_floor(156,GEN,{'fit_result':{'fit_one_page':True,'docx_path':str(docx)}})
                 self.assertFalse(got['ready'])
                 self.assertIn('source binding',got['reason'])
-                fake_execution.get_phase9f_tailoring_execution=lambda *_args: {'source_artifact':{'sha256':SOURCE}}
+                fake_execution.get_phase9f_tailoring_execution=lambda *_args, **_kwargs: {'source_artifact':{'sha256':SOURCE}}
                 got=verify_current_phase9f_floor(156,GEN,{'fit_result':{'fit_one_page':True,'docx_path':str(docx)}})
                 self.assertTrue(got['ready'])
+                self.assertEqual(requested_generations, [GEN])
 
     def test_missing_original_bytes_and_tampering_fail_closed(self):
         for artifact in ({}, {'artifact_bytes':b'docx','artifact_type':'docx','sha256':'a'*64,'byte_size':4},

@@ -140,10 +140,14 @@ class DecisionExplorer(unittest.TestCase):
         )
         self.assertEqual(ui.filters['Show bullets'], [ALL, CHANGES, INCLUDED])
         labels = [label for label, _ in ui.expander_args]
-        self.assertTrue(any('Base bullet' in label for label in labels))
-        self.assertTrue(any('Library bullet' in label for label in labels))
+        self.assertTrue(any('Supporting evidence & match details' in label for label in labels))
         rendered = ' '.join(ui.logs)
+        # The primary multi-project layout uses side-by-side source cards;
+        # Base/Library are headings, not the legacy per-bullet expanders.
+        self.assertIn('##### Base Resume', rendered)
+        self.assertIn('##### Evidence Library', rendered)
         self.assertIn(bullet, rendered)
+        self.assertIn('Added Python unit tests.', rendered)
         self.assertIn('Optimized alternative 31', rendered)
         self.assertEqual(rendered.count('Native per-bullet impact is unknown'), 1)
         self.assertNotIn('A/B', rendered)

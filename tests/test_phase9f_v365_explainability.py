@@ -100,6 +100,10 @@ class FakeCtx:
     def __init__(self,owner,label):self.owner=owner;self.label=label
     def __enter__(self):self.owner.active.append(self.label);return self
     def __exit__(self,*args):self.owner.active.pop();return False
+    def __getattr__(self, name):
+        # Native Streamlit containers expose the same text and widget methods.
+        # Return calls to the parent recording fixture, preserving expander scope.
+        return getattr(self.owner, name)
 
 class FakeStreamlit:
     def __init__(self):self.session_state={};self.logs=[];self.expander_args=[];self.active=[]
@@ -111,6 +115,10 @@ class FakeStreamlit:
     def divider(self,*args,**kwargs):pass
     def expander(self,label,**kwargs):self.expander_args.append((label,kwargs));return FakeCtx(self,label)
     def selectbox(self,label,options,**kwargs):return list(options)[0]
+    def checkbox(self,label,*,key,value=False,on_change=None,args=(),**kwargs):
+        # Simulate native checkbox ownership across reruns. The navigation
+        # helper persists view preferences separately from business state.
+        return self.session_state.setdefault(key, value)
     def radio(self,label,options,**kwargs):return list(options)[0]
     def container(self, **kwargs): return FakeCtx(self, "comparison")
     def table(self,*args,**kwargs): self.logs.append(str(args))

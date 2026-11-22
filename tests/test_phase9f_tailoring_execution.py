@@ -291,8 +291,43 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             ),
         }
 
+    def _seed_historical_preapproval_phase8_fixture(self, application_id: int,
+                                                    generation_id: str) -> None:
+        """Model an already-approved historical F draft in a disposable DB.
+
+        New direct approval must reject this pre-normal Phase 9F lifecycle.
+        These three legacy Phase 8 reconciliation tests cover historical rows
+        that were approved *before* the guarded-normal policy was introduced.
+        The setup writes a synthetic historical status, never a live approval.
+        """
+        with self.assertRaisesRegex(ValueError, "guarded normal lifecycle"):
+            approve_tailoring_generation(application_id, generation_id)
+        connection = tailoring_version_manager._connect()
+        try:
+            cursor = connection.execute(
+                "UPDATE application_tailoring_generation_meta "
+                "SET status='approved', approved_at='synthetic-historical-fixture' "
+                "WHERE application_id=? AND generation_id=? AND status='draft'",
+                (int(application_id), str(generation_id)),
+            )
+            self.assertEqual(cursor.rowcount, 1, 'Expected one disposable draft')
+            connection.execute(
+                "INSERT INTO application_tailoring_preferences "
+                "(application_id, approved_generation_id, lock_projects, lock_skills, updated_at) "
+                "VALUES (?, ?, 0, 0, 'synthetic-historical-fixture') "
+                "ON CONFLICT(application_id) DO UPDATE SET "
+                "approved_generation_id=excluded.approved_generation_id, "
+                "lock_projects=0, lock_skills=0, updated_at=excluded.updated_at",
+                (int(application_id), str(generation_id)),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        saved = execution_manager.get_tailoring_generation(application_id, generation_id)
+        self.assertEqual(saved['status'], 'approved')
+
     def _create_waiting_for_phase8(self) -> tuple[dict, list[dict], list[dict]]:
-        """Create one approved F draft using only deterministic/local writers."""
+        """Create one historical approved F draft using disposable local writers."""
         state = self._session("minor")
         application_id = state["application_id"]
         self._add_evidence(1)
@@ -310,7 +345,8 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
                 fit_writer=self._fit_writer(fit_calls),
             )
         self.assertEqual(created["execution"]["status"], "waiting_for_approval")
-        approve_tailoring_generation(application_id, created["execution"]["generation_id"])
+        self._seed_historical_preapproval_phase8_fixture(
+            application_id, created["execution"]["generation_id"])
         execution = execution_manager.reconcile_phase9f_tailoring_approval(
             application_id=application_id
         )
@@ -1375,7 +1411,8 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
                 execution_manager.run_or_reuse_phase9f_tailoring_phase8(
                     application_id=app_id
                 )
-            approve_tailoring_generation(app_id, created["execution"]["generation_id"])
+            self._seed_historical_preapproval_phase8_fixture(
+                app_id, created["execution"]["generation_id"])
             execution_manager.reconcile_phase9f_tailoring_approval(application_id=app_id)
             baseline = execution_manager._prepare_frozen_phase8_context(
                 execution_manager.get_phase9f_tailoring_execution(app_id)
