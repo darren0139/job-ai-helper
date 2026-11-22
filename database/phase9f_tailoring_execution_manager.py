@@ -271,6 +271,8 @@ def init_phase9f_tailoring_execution_schema() -> None:
                 "ALTER TABLE phase9f_tailoring_executions "
                 "ADD COLUMN source_artifact_json TEXT NOT NULL DEFAULT '{}'"
             )
+        from database.phase9f_session_revision import ensure_tables
+        ensure_tables(connection)
         connection.commit()
     except Exception:
         connection.rollback()
@@ -403,7 +405,7 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def get_phase9f_tailoring_execution(application_id: int) -> dict[str, Any] | None:
+def get_phase9f_tailoring_execution(application_id: int, *, generation_id: str | None = None) -> dict[str, Any] | None:
     """Read F state without applying migrations or writing rows."""
     connection = _connect_read_only()
     if connection is None:
@@ -411,10 +413,8 @@ def get_phase9f_tailoring_execution(application_id: int) -> dict[str, Any] | Non
     try:
         if not _table_exists(connection, "phase9f_tailoring_executions"):
             return None
-        row = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE application_id=?",
-            (int(application_id),),
-        ).fetchone()
+        from database.phase9f_session_revision import active_execution_row
+        row = active_execution_row(connection, int(application_id), generation_id=generation_id)
         if row is None:
             return None
         execution = _row_to_execution(row)
@@ -473,6 +473,8 @@ def delete_phase9f_tailoring_execution(application_id: int) -> None:
             "DELETE FROM phase9f_tailoring_executions WHERE application_id=?",
             (int(application_id),),
         )
+        if _table_exists(connection, 'phase9f_execution_revisions'):
+            connection.execute('DELETE FROM phase9f_execution_revisions WHERE application_id=?', (int(application_id),))
         connection.commit()
     except Exception:
         connection.rollback()
@@ -743,10 +745,11 @@ def _start_or_reuse_execution(
     connection = _connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
-        existing = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE application_id=?",
-            (application_id,),
-        ).fetchone()
+        from database.phase9f_session_revision import active_execution_row, confirmation_row
+        existing = active_execution_row(connection, application_id)
+        confirmation = confirmation_row(connection, application_id)
+        is_revision = connection.execute('SELECT 1 FROM phase9f_confirmation_revisions WHERE confirmation_id=?', (confirmation['confirmation_id'],)).fetchone() is not None
+        table = 'phase9f_execution_revisions' if is_revision else 'phase9f_tailoring_executions'
         now = _now()
         if existing is not None:
             execution = _row_to_execution(existing)
@@ -761,8 +764,8 @@ def _start_or_reuse_execution(
         scope = prepared["scope"]
         section_scope = prepared["section_scope"]
         connection.execute(
-            """
-            INSERT INTO phase9f_tailoring_executions (
+            f"""
+            INSERT INTO {table} (
                 execution_id, execution_fingerprint, application_id,
                 execution_version, identity_policy_version,
                 confirmation_id, confirmation_fingerprint,
@@ -830,7 +833,7 @@ def _start_or_reuse_execution(
         )
         connection.commit()
         row = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE execution_id=?",
+            f"SELECT * FROM {table} WHERE execution_id=?",
             (prepared["execution_id"],),
         ).fetchone()
         return {**_row_to_execution(row), "cache_status": "created"}
@@ -930,8 +933,10 @@ def _update_execution(
     connection = _connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        from database.phase9f_session_revision import execution_table
+        table = execution_table(connection, execution_id)
         row = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE execution_id=?",
+            f"SELECT * FROM {table} WHERE execution_id=?",
             (execution_id,),
         ).fetchone()
         if row is None:
@@ -945,8 +950,8 @@ def _update_execution(
         error_message = str(last_error) if last_error else ""
         verification = phase8_verification or {}
         connection.execute(
-            """
-            UPDATE phase9f_tailoring_executions
+            f"""
+            UPDATE {table}
             SET status=?, current_stage=?, stage_outputs_json=COALESCE(?, stage_outputs_json),
                 generation_id=COALESCE(?, generation_id),
                 phase8_verification_id=COALESCE(?, phase8_verification_id),
@@ -986,7 +991,7 @@ def _update_execution(
         )
         connection.commit()
         updated = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE execution_id=?",
+            f"SELECT * FROM {table} WHERE execution_id=?",
             (execution_id,),
         ).fetchone()
         return _row_to_execution(updated)
@@ -1734,8 +1739,10 @@ def _begin_retry_attempt(
     connection = _connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        from database.phase9f_session_revision import execution_table
+        table = execution_table(connection, execution['execution_id'])
         row = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE execution_id=?",
+            f"SELECT * FROM {table} WHERE execution_id=?",
             (execution["execution_id"],),
         ).fetchone()
         if row is None:
@@ -1747,8 +1754,8 @@ def _begin_retry_attempt(
         attempt = int(current["attempt_count"]) + 1
         now = _now()
         connection.execute(
-            """
-            UPDATE phase9f_tailoring_executions
+            f"""
+            UPDATE {table}
             SET status='preparing', current_stage='source_preparation',
                 attempt_count=?, last_error_code=NULL, last_error_message=NULL,
                 updated_at=?
@@ -1774,7 +1781,7 @@ def _begin_retry_attempt(
         )
         connection.commit()
         updated = connection.execute(
-            "SELECT * FROM phase9f_tailoring_executions WHERE execution_id=?",
+            f"SELECT * FROM {table} WHERE execution_id=?",
             (current["execution_id"],),
         ).fetchone()
         return _row_to_execution(updated)

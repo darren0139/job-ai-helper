@@ -234,6 +234,8 @@ def init_phase9f_application_confirmation_schema() -> None:
             );
             """
         )
+        from database.phase9f_session_revision import ensure_tables
+        ensure_tables(connection)
         connection.commit()
     finally:
         connection.close()
@@ -272,7 +274,7 @@ def _row_to_confirmation(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def get_phase9f_application_confirmation(
-    application_id: int,
+    application_id: int, *, confirmation_id: str | None = None,
 ) -> dict[str, Any] | None:
     connection = _connect()
     try:
@@ -286,14 +288,8 @@ def get_phase9f_application_confirmation(
         ).fetchone()
         if table_exists is None:
             return None
-        row = connection.execute(
-            """
-            SELECT * FROM phase9f_application_confirmations
-            WHERE application_id = ?
-            LIMIT 1
-            """,
-            (int(application_id),),
-        ).fetchone()
+        from database.phase9f_session_revision import confirmation_row
+        row = confirmation_row(connection, int(application_id), confirmation_id=confirmation_id)
         return _row_to_confirmation(row) if row is not None else None
     finally:
         connection.close()
@@ -430,6 +426,7 @@ def confirm_phase9f_application_session(
     actor_label: str = "Local user",
     existing_application_id: int | None = None,
     discovered_job_id: int | None = None,
+    reconfirm_confirmation_id: str | None = None,
 ) -> dict[str, Any]:
     """Atomically create and exactly configure one existing Application Session."""
     prepared = prepare_phase9f_d_confirmation(
@@ -442,6 +439,18 @@ def confirm_phase9f_application_session(
         ),
         confirmed_intensity=confirmed_intensity,
     )
+    revision = reconfirm_confirmation_id is not None
+    if revision:
+        if existing_application_id is None or not reconfirm_confirmation_id:
+            raise Phase9FDConfirmationError("A current confirmation and application are required.", code="reconfirmation_missing_parent")
+        if confirmed_intensity not in {"minor", "full"}:
+            raise Phase9FDConfirmationError("A new source generation requires Minor or Full tailoring.", code="reconfirmation_intensity_invalid")
+        from database.phase9f_session_revision import VERSION
+        prepared["confirmation_content_identity"]["session_reconfirmation"] = {
+            "policy_version": VERSION, "previous_confirmation_id": reconfirm_confirmation_id,
+        }
+        prepared["confirmation_content_fingerprint"] = fingerprint_value(prepared["confirmation_content_identity"])
+    confirmation_table = "phase9f_confirmation_revisions" if revision else "phase9f_application_confirmations"
     operation_key = build_confirmation_operation_key(
         confirmation_content_fingerprint=prepared[
             "confirmation_content_fingerprint"
@@ -454,7 +463,35 @@ def confirm_phase9f_application_session(
     try:
         connection.execute("BEGIN IMMEDIATE")
         binding = None
-        if existing_application_id is not None:
+        previous = None
+        if revision:
+            from database.phase9f_session_revision import confirmation_row
+            previous = confirmation_row(connection, int(existing_application_id))
+            if previous is None or previous['confirmation_id'] != reconfirm_confirmation_id:
+                raise Phase9FDConfirmationError("Source confirmation changed; review it again.", code="reconfirmation_stale")
+            target = connection.execute('SELECT * FROM applications WHERE id=?', (int(existing_application_id),)).fetchone()
+            if target is None:
+                raise Phase9FDConfirmationError('Application missing.', code='existing_application_missing')
+            binding = _safe_json(target['entry_binding_json']) if 'entry_binding_json' in target.keys() else None
+            if binding:
+                _validate_entry_binding(connection, binding)
+            else:
+                binding = None
+            from database.phase9f_session_revision import active_execution_row
+            active_execution = active_execution_row(connection, int(existing_application_id))
+            if active_execution is not None:
+                outputs = _safe_json(active_execution['stage_outputs_json'])
+                requested = any(isinstance(v,dict) and v.get('status')=='requested' for v in outputs.values())
+                if active_execution['status']=='running' or requested:
+                    raise Phase9FDConfirmationError('Finish or reconcile the in-progress Phase 9F attempt before changing source.', code='reconfirmation_execution_busy')
+            prior = _row_to_confirmation(previous)['confirmation_snapshot']
+            prior_jd = prior['phase9f_a_snapshot']
+            if any(phase9f_a_snapshot.get(k) != prior_jd.get(k) for k in ('raw_jd_sha256','canonical_requirement_fingerprint','canonical_jd_id','source_version_id')):
+                raise Phase9FDConfirmationError("Reconfirmation must preserve the exact JD and importance.", code="reconfirmation_jd_mismatch")
+            if prepared['selected_candidate']['normalized_source_fingerprint'] == prior['selected_candidate']['normalized_source_fingerprint']:
+                raise Phase9FDConfirmationError("Choose a different immutable starting source.", code="reconfirmation_same_source")
+            application_id = int(existing_application_id)
+        if existing_application_id is not None and not revision:
             target = connection.execute("SELECT * FROM applications WHERE id=?", (int(existing_application_id),)).fetchone()
             if target is None:
                 raise Phase9FDConfirmationError("Application missing.", code="existing_application_missing")
@@ -486,8 +523,8 @@ def confirm_phase9f_application_session(
                     raise Phase9FDConfirmationError("Initial Analysis ownership differs.", code="existing_application_initial_mismatch")
                 _validate_entry_binding(connection, binding)
         existing = connection.execute(
-            """
-            SELECT * FROM phase9f_application_confirmations
+            f"""
+            SELECT * FROM {confirmation_table}
             WHERE confirmation_operation_key = ?
             LIMIT 1
             """,
@@ -537,13 +574,14 @@ def confirm_phase9f_application_session(
             or selected.get("source_display_name")
             or "Immutable starting source"
         )
-        if binding is None:
+        if binding is None and not revision:
             application_id = db_manager.insert_application_session_with_connection(
                 connection, resume_filename=resume_filename, report=baseline, created_at=now,
             )
         else:
             application_id = int(existing_application_id)
-            baseline.setdefault("meta", {})["initial_analysis_reference"] = deepcopy(binding)
+            if binding is not None:
+                baseline.setdefault("meta", {})["initial_analysis_reference"] = deepcopy(binding)
             # Phase 9F-B remains the starting-source receipt, not a replacement
             # for the historical Job Finder initial match.
             connection.execute("UPDATE applications SET resume_filename=?, job_title=?, company=? WHERE id=?",
@@ -565,7 +603,11 @@ def confirm_phase9f_application_session(
             application_id=application_id,
             persisted_exact_jd=persisted_exact_jd_snapshot,
             linked_at=now,
+            **({"reuse_existing_link": True} if revision else {}),
         )
+        if revision:
+            linked_exact_jd['source_application_link'] = dict(connection.execute(
+                'SELECT application_id, job_description_id, source_version_id, linked_at, updated_at FROM application_job_links WHERE application_id=?', (application_id,)).fetchone())
         phase9e_decision = build_exact_phase9e_decision(
             application_id=application_id,
             linked_exact_jd=linked_exact_jd,
@@ -630,6 +672,7 @@ def confirm_phase9f_application_session(
             decision=phase9e_decision,
             actor_label=actor_label,
             created_at=now,
+            previous_decision_id=previous['phase9e_decision_id'] if revision else "",
         )
 
         semantic_identity = {
@@ -684,8 +727,8 @@ def confirm_phase9f_application_session(
             }
         persisted_jd = prepared["persisted_exact_jd"]
         connection.execute(
-            """
-            INSERT INTO phase9f_application_confirmations (
+            f"""
+            INSERT INTO {confirmation_table} (
                 confirmation_id, confirmation_fingerprint, application_id,
                 phase9f_d_version, identity_policy_version,
                 confirmation_content_fingerprint, application_intent_id,
@@ -749,6 +792,12 @@ def confirm_phase9f_application_session(
                 now,
             ),
         )
+        if revision:
+            connection.execute("""INSERT INTO phase9f_active_revision
+                (application_id, confirmation_id, previous_confirmation_id, policy_version)
+                VALUES (?, ?, ?, ?) ON CONFLICT(application_id) DO UPDATE SET
+                confirmation_id=excluded.confirmation_id, previous_confirmation_id=excluded.previous_confirmation_id,
+                policy_version=excluded.policy_version""", (application_id, confirmation_id, reconfirm_confirmation_id, VERSION))
         confirmation_event = _insert_confirmation_event(
             connection,
             confirmation_id=confirmation_id,
@@ -759,8 +808,8 @@ def confirm_phase9f_application_session(
         )
         connection.commit()
         row = connection.execute(
-            """
-            SELECT * FROM phase9f_application_confirmations
+            f"""
+            SELECT * FROM {confirmation_table}
             WHERE confirmation_id = ?
             """,
             (confirmation_id,),
@@ -795,6 +844,8 @@ def delete_phase9f_application_confirmation(application_id: int) -> None:
             "DELETE FROM phase9f_application_confirmations WHERE application_id = ?",
             (int(application_id),),
         )
+        for table in ('phase9f_confirmation_revisions', 'phase9f_active_revision'):
+            connection.execute(f'DELETE FROM {table} WHERE application_id=?', (int(application_id),))
         connection.commit()
     finally:
         connection.close()

@@ -19,48 +19,51 @@ render_compact_decision_explorer(st,calc=st.session_state.calc,result={},proposa
 
 
 class PairPlacement(unittest.TestCase):
+    def all_projects(self, app):
+        next(x for x in app.button if x.label=='Select all').click().run()
+        self.assertFalse(app.exception,list(app.exception));return app
+
     def test_one_visible_pair_before_ranking_and_detailed_inspector(self):
-        app=app_for().run(timeout=30)
-        self.assertFalse(app.exception,list(app.exception))
+        app=self.all_projects(app_for().run(timeout=30))
         text=[x.value for x in app.markdown]
-        pair=text.index('### Compare Base vs Library')
+        pair=text.index('### Bullet Choices & Base vs Library')
         ranking=text.index('#### JD Bullet Relevance Ranking')
-        why=text.index('#### Why was this wording selected?')
-        estimate=next(i for i,v in enumerate(text) if v=='#### JD Relevance Comparison')
+        why=text.index('**What Best-of actually did**')
+        estimate=text.index('##### JD requirements & keyword evidence')
         detail=text.index('#### Inspect project bullets & Base/Library decisions')
         self.assertLess(pair,estimate);self.assertLess(estimate,why);self.assertLess(why,ranking);self.assertLess(ranking,detail)
-        self.assertEqual(text.count('### Compare Base vs Library'),1)
-        self.assertTrue(any('Estimated JD relevance' in x.value for x in app.info))
-        keys=[x.key for x in app.selectbox if x.key]
+        self.assertEqual(text.count('### Bullet Choices & Base vs Library'),1)
+        keys=[x.key for x in [*app.checkbox,*app.radio,*app.selectbox] if x.key]
         self.assertEqual(len(keys),len(set(keys)))
         self.assertTrue(any(k.startswith('bullet_inspector_156_placement_b4') for k in keys))
 
     def test_pair_selection_and_inspector_preserve_receipt_bytes(self):
         app=app_for();original=deepcopy(app.session_state['calc']);app.run(timeout=30)
-        next(x for x in app.selectbox if x.label=='Comparison project').set_value('Tool').run()
+        app=self.all_projects(app)
+        for choice in app.radio:
+            if choice.label.startswith('Evidence Library wording — Tool'):
+                choice.set_value('Built Python APIs for reporting').run()
+                break
         self.assertFalse(app.exception,list(app.exception))
         self.assertEqual(app.session_state['calc'],original)
-        self.assertTrue(any('saved optimized combination' in x.value for x in app.info))
+        self.assertTrue(any('included in both versions' in x.value or 'tested alternative' in x.value for x in app.markdown))
 
     def test_unavailable_receipt_keeps_top_panel_unknown_not_selected(self):
         _,_,calc=multi_fixture();calc['status']='unavailable'
-        app=app_for(calc).run(timeout=30)
-        self.assertFalse(app.exception,list(app.exception))
-        self.assertTrue(any('Selection rationale unavailable' in x.value for x in app.info))
-        self.assertEqual(sum(x.value=='### Compare Base vs Library' for x in app.markdown),1)
+        app=self.all_projects(app_for(calc).run(timeout=30))
+        self.assertTrue(any('Saved membership unavailable' in x.value for x in app.caption))
+        self.assertEqual(sum(x.value=='### Bullet Choices & Base vs Library' for x in app.markdown),1)
 
     def test_no_related_pair_keeps_reason_visible_without_inventing_preference(self):
         _,_,calc=multi_fixture()
         for row in calc['rows']:row['saved_jd_ids']=[]
-        # Tool's distinct wordings have no shared traceable requirement;
-        # retain the existing B4 pairing decision and show its limitation.
-        app=app_for(calc).run(timeout=30)
-        next(x for x in app.selectbox if x.label=='Comparison project').set_value('Tool').run()
-        self.assertFalse(app.exception,list(app.exception))
+        app=self.all_projects(app_for(calc).run(timeout=30))
         text=[x.value for x in app.markdown]
-        self.assertLess(text.index('#### Why was this wording selected?'),text.index('#### JD Bullet Relevance Ranking'))
-        self.assertTrue(any('Pair-level estimated relevance is unavailable' in x.value for x in app.caption))
-        self.assertTrue(any('individual selection cause' in x.value for x in app.caption))
+        self.assertLess(text.index('**What Best-of actually did**'),text.index('#### JD Bullet Relevance Ranking'))
+        self.assertTrue(any('not a recorded replacement contest' in x.value for x in app.caption))
+        self.assertTrue(any(x.label.startswith('Evidence Library wording — Tool') for x in app.radio))
+        self.assertTrue(any('Individual cause not recorded' in x.value for x in app.caption))
+        self.assertFalse(any('historical winner' in x.value for x in app.info))
 
 
 if __name__=='__main__':unittest.main()

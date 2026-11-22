@@ -163,7 +163,7 @@ def verify_current_phase9f_floor(application_id: int, generation_id: str,
     source_contract = (result or {}).get('starting_document_contract') or {}
     if source_contract.get('mode') == 'selected_base_docx_only':
         from database.phase9f_tailoring_execution_manager import get_phase9f_tailoring_execution
-        execution = get_phase9f_tailoring_execution(int(application_id))
+        execution = get_phase9f_tailoring_execution(int(application_id), generation_id=generation_id)
         saved_source_sha = ((execution or {}).get('source_artifact') or {}).get('sha256')
         if (not isinstance(saved_source_sha, str)
                 or saved_source_sha != source_contract.get('selected_base_docx_sha256')):

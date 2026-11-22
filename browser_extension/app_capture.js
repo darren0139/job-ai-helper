@@ -1,7 +1,7 @@
 /* Capture runs in the existing tab. Frames and object URLs stay in this browser. */
 (() => {
   const PANEL = '#job-ai-helper-capture';
-  const MAX_SCROLL_HEIGHT = 30000;
+  const MAX_SCROLL_HEIGHT = 45000;
   const MAX_CHUNK_PIXELS = 16_000_000;
   const MAX_TOTAL_PIXELS = 80_000_000;
   const MIN_FRAME_INTERVAL_MS = 575;
@@ -186,47 +186,151 @@
     return images;
   }
 
-  async function runCapture(runtime, panel, button) {
-    const status = panel.querySelector('#job-ai-capture-status');
-    const downloads = panel.querySelector('#job-ai-capture-downloads');
-    const main = document.querySelector('[data-testid="stMain"]');
-    const area = panel.querySelector('#job-ai-capture-area').value;
-    const includeSidebar = panel.querySelector('#job-ai-capture-sidebar').checked;
-    const header = area === 'full' ? document.querySelector('[data-testid="stHeader"]') : null;
-    const readFrame = createFrameReader(runtime, panel);
-    if (!main) {
-      status.textContent = 'The Streamlit main panel could not be found.';
-      return;
+  // Package the existing stitching output; no network or server upload is used.
+  const session = { captures: [], errors: [] };
+  const encoder = new TextEncoder();
+  function sectionRanges(height, size = 1800, overlap = 80) {
+    const ranges = [];
+    if (height < 1 || size < 1500 || size > 2000 || overlap < 0 || overlap >= size) throw new Error('Invalid section geometry.');
+    for (let top = 0; top < height;) {
+      const end = Math.min(height, top + size);
+      ranges.push([top, end]);
+      if (end === height) break;
+      top = end - overlap;
     }
-    for (const link of downloads.querySelectorAll('a')) URL.revokeObjectURL(link.href);
-    downloads.replaceChildren();
+    return ranges;
+  }
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (const value of bytes) {
+      crc ^= value;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  async function zipFiles(files) {
+    const parts = [], directory = []; let offset = 0;
+    for (const [path, blob] of files) {
+      const name = encoder.encode(path), bytes = new Uint8Array(await blob.arrayBuffer());
+      const local = new Uint8Array(30 + name.length), head = new DataView(local.buffer);
+      const crc = crc32(bytes);
+      head.setUint32(0, 0x04034b50, true); head.setUint16(4, 20, true); head.setUint16(6, 0x800, true);
+      head.setUint32(14, crc, true); head.setUint32(18, bytes.length, true); head.setUint32(22, bytes.length, true);
+      head.setUint16(26, name.length, true); local.set(name, 30);
+      const central = new Uint8Array(46 + name.length), ch = new DataView(central.buffer);
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x800, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, bytes.length, true); ch.setUint32(24, bytes.length, true);
+      ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true); central.set(name, 46);
+      parts.push(local, bytes); directory.push(central); offset += local.length + bytes.length;
+    }
+    const size = directory.reduce((n, part) => n + part.length, 0);
+    const end = new Uint8Array(22), tail = new DataView(end.buffer);
+    tail.setUint32(0, 0x06054b50, true); tail.setUint16(8, files.length, true); tail.setUint16(10, files.length, true);
+    tail.setUint32(12, size, true); tail.setUint32(16, offset, true);
+    return new Blob([...parts, ...directory, end], { type: 'application/zip' });
+  }
+  async function hash(blob) {
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  async function decode(blob) {
+    const url = URL.createObjectURL(blob);
+    try { return await loadImage(url); } finally { URL.revokeObjectURL(url); }
+  }
+  async function mergeParts(blobs) {
+    const images = await Promise.all(blobs.map(decode));
+    const width = images[0].naturalWidth, height = images.reduce((n, image) => n + image.naturalHeight, 0);
+    if (images.some(image => image.naturalWidth !== width) || width * height > MAX_TOTAL_PIXELS) throw new Error('Full-resolution image exceeds the safe pixel bound.');
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    let y = 0; for (const image of images) { canvas.getContext('2d').drawImage(image, 0, y); y += image.naturalHeight; }
+    return canvas;
+  }
+  async function packageImage(canvas) {
+    const width = canvas.width, height = canvas.height, files = [], sections = [];
+    const full = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Full PNG encoding failed.')), 'image/png'));
+    files.push(['full.png', full]);
+    for (const [i, [top, bottom]] of sectionRanges(height).entries()) {
+      const part = canvasFor(width, bottom - top);
+      part.getContext('2d').drawImage(canvas, 0, top, width, bottom - top, 0, 0, width, bottom - top);
+      const blob = await png(part), name = `sections/${String(i + 1).padStart(3, '0')}.png`;
+      files.push([name, blob]); sections.push({ name, coordinates: [0, top, width, bottom], sha256: await hash(blob) });
+    }
+    canvas.width = 0; canvas.height = 0;
+    return { files, dimensions: [width, height], sha256: await hash(full), sections };
+  }
+  async function captureImages(main, readFrame, includeSidebar, area) {
+    if (area !== 'full') return mergeParts(await visiblePng(main, readFrame, includeSidebar));
+    const mainCanvas = await mergeParts(await fullPngs(main, readFrame, false));
+    if (!includeSidebar) return mainCanvas;
+    const sidebar = document.querySelector('[data-testid="stSidebarContent"]');
+    if (!sidebar || sidebar.clientWidth === 0) return mainCanvas;
+    const sidebarCanvas = await restoreAfterCapture(sidebar, null, { style: {} },
+      async () => mergeParts(await fullPngs(sidebar, readFrame, false)));
+    const left = Math.round(viewport(main).x * (mainCanvas.width / main.clientWidth));
+    const width = mainCanvas.width + left, height = Math.max(mainCanvas.height, sidebarCanvas.height);
+    if (width * height > MAX_TOTAL_PIXELS) throw new Error('Combined main/sidebar image exceeds the safe pixel bound.');
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');ctx.fillStyle = getComputedStyle(main).backgroundColor;ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(mainCanvas, left, 0);ctx.drawImage(sidebarCanvas, Math.max(0,left-sidebarCanvas.width), 0);
+    mainCanvas.width = sidebarCanvas.width = 0;
+    return canvas;
+  }
+  function downloadable(parent, blob, name, text) {
+    const link = document.createElement('a');link.href = URL.createObjectURL(blob);link.download = name;link.textContent = text;
+    parent.append(link);setTimeout(() => URL.revokeObjectURL(link.href), 30 * 60 * 1000);return link;
+  }
+  async function exportSession(panel) {
+    const files = [], captures = [];
+    for (const [i, entry] of session.captures.entries()) {
+      const directory = `${String(i+1).padStart(2, '0')}_${entry.name.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'View'}`;
+      for (const [name, blob] of entry.files) files.push([`JobAIHelper_UI_Review/${directory}/${name}`, blob]);
+      const { files: ignored, ...metadata } = entry;captures.push({ ...metadata, directory, sequence: i+1 });
+    }
+    const manifest = { schema_version: 1, mode: 'extension-current-tab', captures, errors: session.errors };
+    files.push(['JobAIHelper_UI_Review/manifest.json', new Blob([JSON.stringify(manifest, null, 2)])]);
+    files.push(['JobAIHelper_UI_Review/README.md', new Blob(['Current-tab extension capture. Original full.png pixels are preserved. Numbered sections overlap by 80 pixels and retain original width. Coordinates are [left, top, right, bottom]. Main and sidebar are captured independently and composed once; sidebar is not repeated. Expanded content is captured; collapsed and virtualized hidden content is not expanded. Captures remain local in this tab until downloaded or the tab is closed. Review for private content before sharing. No database or résumé document files are included.'])]);
+    const zip = await zipFiles(files), parent = panel.querySelector('#job-ai-capture-export-link');parent.replaceChildren();
+    downloadable(parent, zip, 'JobAIHelper_Current_Tab_UI_Review.zip', 'Download This Tab Review ZIP');
+  }
+  function unpin(nodes) {
+    const changed=[];
+    for (const element of nodes) {
+      if (!['sticky','fixed'].includes(getComputedStyle(element).position)) continue;
+      changed.push([element, element.getAttribute('style')]);element.style.setProperty('position','static','important');
+    }
+    return () => {for (const [element,style] of changed) {if (style === null) element.removeAttribute('style');else element.setAttribute('style',style);}};
+  }
+  async function runCapture(runtime, panel, button) {
+    const status = panel.querySelector('#job-ai-capture-status'), downloads = panel.querySelector('#job-ai-capture-downloads');
+    const main = document.querySelector('[data-testid="stMain"]');
+    const area = panel.querySelector('#job-ai-capture-area').value, includeSidebar = panel.querySelector('#job-ai-capture-sidebar').checked;
+    if (!main) { status.textContent = 'The Streamlit main panel could not be found.';return; }
+    if (session.captures.length >= 20) { status.textContent = '20 captures collected; export before reloading this tab.';return; }
+    const name = panel.querySelector('#job-ai-capture-name')?.value.slice(0, 120) || 'Application view';
+    let frames = 0;const reader = createFrameReader(runtime, panel), readFrame = async () => {frames++;return reader();};
+    const header = document.querySelector('[data-testid="stHeader"]');
+    const hidden = [...document.querySelectorAll('[data-testid="stExpander"]')].filter(e => /extension pairing|api key|session secret/i.test(e.querySelector('summary')?.innerText || ''));
+    const styles = hidden.map(e => [e, e.style.visibility]);hidden.forEach(e => e.style.visibility = 'hidden');
+    const restorePinned = area === 'full' ? unpin(document.querySelectorAll('[data-testid="stMain"] *, [data-testid="stSidebarContent"] *')) : () => {};
     button.disabled = true;
     try {
-      const images = await restoreAfterCapture(main, header, panel,
-        () => area === 'full' ? fullPngs(main, readFrame, includeSidebar)
-          : visiblePng(main, readFrame, includeSidebar));
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      for (const [index, blob] of images.entries()) {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        const url = link.href;
-        setTimeout(() => URL.revokeObjectURL(url), 30 * 60 * 1000);
-        link.download = `job-ai-helper-${timestamp}-${index + 1}.png`;
-        link.textContent = images.length === 1 ? 'Download PNG' : `Download PNG part ${index + 1}`;
-        const li = document.createElement('li');
-        li.append(link);
-        downloads.append(li);
-      }
-      status.textContent = images.length === 1 ? 'PNG ready to download.' : `${images.length} PNG parts ready to download in order.`;
-    } catch (error) {
-      status.textContent = error.message || 'Capture failed.';
-    } finally {
-      button.disabled = false;
-    }
+      const scrollBefore = main.scrollTop;
+      const output = await restoreAfterCapture(main, header, panel, async () => packageImage(await captureImages(main, readFrame, includeSidebar, area)));
+      if (main.scrollTop !== scrollBefore) throw new Error('Scroll restoration failed; capture was not accepted.');
+      if (session.captures.reduce((n,e)=>n+e.files.reduce((s,f)=>s+f[1].size,0),0)+output.files.reduce((n,f)=>n+f[1].size,0)>180000000) throw new Error('Review image byte bound exceeded.');
+      const entry = { id: crypto.randomUUID(), name, timestamp: new Date().toISOString(), ...output, status:'success', mode:area,
+        frames, scroll_restored:true, source: location.origin+location.pathname, sidebar:includeSidebar,
+        state:{headings:[...document.querySelectorAll('h1,h2,h3,h4')].map(e=>e.innerText).slice(0,40),
+          selectors:[...document.querySelectorAll('[data-testid="stSelectbox"]')].map(e=>e.innerText).filter(t=>/project|wording|Bullet to explain/i.test(t)).slice(0,15)} };
+      session.captures.push(entry);
+      const li = document.createElement('li');downloadable(li, output.files[0][1], `capture-${session.captures.length}-full.png`, `${session.captures.length}. ${name} · full PNG`);downloads.append(li);
+      panel.querySelector('#job-ai-capture-export').disabled = false;
+      status.textContent = `Captured ${output.dimensions.join(' × ')} pixels, ${output.sections.length} readable sections. Scroll restored. Export ZIP to include every capture.`;
+    } catch (error) { session.errors.push({name,status:'failed',error:error.message});status.textContent = error.message || 'Capture failed.'; }
+    finally { restorePinned();styles.forEach(([e,v])=>e.style.visibility=v);button.disabled = false; }
   }
 
   if (typeof module !== 'undefined') {
-    module.exports = { nextSlice, restoreAfterCapture, fullPngs, visiblePng };
+    module.exports = { nextSlice, restoreAfterCapture, fullPngs, visiblePng, sectionRanges, zipFiles, crc32, packageImage, unpin };
     return;
   }
   const runtime = (globalThis.browser || globalThis.chrome).runtime;
@@ -238,6 +342,8 @@
     button.disabled = false;
     panel.querySelector('#job-ai-capture-status').textContent =
       'Open the Job AI Helper toolbar extension once on this tab to grant capture access. Then return here.';
+    const exportButton = panel.querySelector('#job-ai-capture-export');
+    if (exportButton) { exportButton.disabled = !session.captures.length;exportButton.addEventListener('click', (event) => { if(event.isTrusted) void exportSession(panel).catch(e => {panel.querySelector('#job-ai-capture-status').textContent='ZIP export failed: '+e.message;}); }); }
     button.addEventListener('click', (event) => {
       if (event.isTrusted) void runCapture(runtime, panel, button);
     });

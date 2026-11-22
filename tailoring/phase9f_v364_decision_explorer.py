@@ -202,7 +202,7 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
         st.caption('The mathematical selector compared whole résumés by saved JD coverage, terminology and '
                    'overlap, changes to existing wording, and word cost in that order.')
 
-    from tailoring.phase9f_wording_explanation_ui import render_why_slate
+    from tailoring.phase9f_wording_explanation_ui import render_why_slate, render_primary_bullet_explanation
     # Reuse B3's exact evidence/currentness preparation and B4's existing component.
     # Keep the established key so detailed-inspector callbacks target this one panel.
     from tailoring.phase9f_bullet_inspector import inspector_evidence
@@ -211,12 +211,14 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
         calc=calc, audit=audit, result=result, baseline_report=baseline_report or {},
         raw_jd_text=raw_jd_text, projects=projects)
     render_why_slate(st, info, calc if pair_recorded else {'status':'unavailable'})
+    explanation_catalog = (pair_catalog if not (baseline_report or {}).get('raw_jd_text')
+                           or baseline_report['raw_jd_text']==raw_jd_text else {})
     if pair_rows:
         render_pair_comparison(st, ranked=pair_rows, recorded=pair_recorded, calc=calc,
             audit=audit, proposal=proposal, result=result, catalog=pair_catalog,
             projects=projects, jd=raw_jd_text, report=baseline_report or {},
             key=f'bullet_inspector_{application_id}_{context}_b4', project='All projects',
-            offline_trial=offline_trial)
+            offline_trial=offline_trial, show_standalone=False, primary=True)
 
     rows = calc.get('rows') or []
     receipt_scope = dict(trial=offline_trial, bonus=offline_bonus, audit=audit, catalog=catalog,

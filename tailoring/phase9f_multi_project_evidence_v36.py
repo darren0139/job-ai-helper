@@ -7,6 +7,24 @@ from __future__ import annotations
 from typing import Any
 
 
+def project_checkboxes(st, names, *, key, default=(), actions=False):
+    """Shared, inspection-only checkbox pattern with durable scoped identities."""
+    from hashlib import sha256
+    from tailoring.phase9f_navigation_state import navigation_checkbox, STATE_KEY
+    keys = {name:key+'_project_'+sha256(name.encode('utf-8')).hexdigest()[:16] for name in names}
+    def set_all(value):
+        preferences = dict(st.session_state.get(STATE_KEY) or {})
+        for widget_key in keys.values():
+            st.session_state[widget_key] = value
+            preferences[widget_key] = {'scope':'', 'value':value}
+        st.session_state[STATE_KEY] = preferences
+    if actions:
+        left, right = st.columns(2)
+        left.button('Select all', key=key+'_all', on_click=set_all, args=(True,))
+        right.button('Clear all', key=key+'_none', on_click=set_all, args=(False,))
+    return [name for name in names if navigation_checkbox(st, name, key=keys[name], value=name in default)]
+
+
 def comparison_rows(final_audit:dict)->list[dict]:
     """Pure table rows; read-only and deterministic from verified DOCX audit."""
     if not isinstance(final_audit,dict) or final_audit.get('verified') is not True:
@@ -39,12 +57,7 @@ def render_multi_project_evidence(st:Any,*,application_id:int,generation_id:str,
     # Native keyed checkboxes toggle directly on the first click.
     from hashlib import sha256
     key=f'phase9f_v36_multi_projects_{int(application_id)}_{generation_id}'
-    wanted=[]
-    for row in rows:
-        name=row['Project']
-        row_key=key+'_project_'+sha256(name.encode('utf-8')).hexdigest()[:16]
-        if st.checkbox(name, key=row_key):
-            wanted.append(name)
+    wanted=project_checkboxes(st, [row['Project'] for row in rows], key=key)
     # Legacy read-only summary state is retained for compatibility; it is not
     # fed back into checkbox inputs or used to override widget-owned state.
     st.session_state[key]=wanted

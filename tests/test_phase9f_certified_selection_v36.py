@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from tests.test_phase9f_jd_relevance_optimizer_v35 import stronger_library_fixture
-from tests.test_phase9f_evidence_optimizer_v33 import fixture as ncs_fixture, evaluator as ncs_evaluator
+from tests.phase9f_public_optimizer_fixture import fixture as ncs_fixture, evaluator as ncs_evaluator
 from tests.test_phase9f_v34_candidate_identity_fix import fixture as v34_identity_fixture
 from tailoring.phase9f_certified_selection_v36 import (
     build_certified_optimization, selected_base_floor_gate, VERSION,
@@ -151,9 +151,9 @@ class MultiProjectTable(unittest.TestCase):
                 self.session_state={};self.headings=[];self.entries=[];self.checkbox_keys=[]
             def markdown(self,s):self.headings.append(s)
             def caption(self,s):self.entries.append(s)
-            def checkbox(self,label,*,key):
+            def checkbox(self,label,*,key,value=False,on_change=None,args=(),**kwargs):
                 self.checkbox_keys.append(key)
-                return self.session_state.setdefault(key,False)
+                return self.session_state.setdefault(key,value)
             def columns(self,widths):return [self._Column(self) for _ in (range(widths) if isinstance(widths,int) else widths)]
             class _Column:
                 def __init__(self,owner):self.owner=owner

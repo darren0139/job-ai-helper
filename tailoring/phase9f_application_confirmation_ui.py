@@ -7,6 +7,8 @@ from typing import Any, Callable
 
 import streamlit as st
 
+from tailoring.phase9f_navigation_state import navigation_selectbox
+
 from database.db_manager import get_application_by_id, list_job_finder_application_bindings
 from database.jd_library_manager import (
     get_exact_job_description_version,
@@ -194,7 +196,7 @@ def render_phase9f_application_confirmation(
             _clean(row.get("normalized_source_fingerprint")): row
             for row in candidates
         }
-        selected_fingerprint = st.selectbox(
+        selected_fingerprint = navigation_selectbox(st,
             "Starting source",
             list(candidate_by_fingerprint),
             index=0,
@@ -202,6 +204,7 @@ def render_phase9f_application_confirmation(
                 candidate_by_fingerprint[value]
             ),
             key=f"phase9f_d_source_{ranking_fingerprint[:16]}",
+            scope=ranking_fingerprint,
         )
         selected = candidate_by_fingerprint[selected_fingerprint]
         selected_is_winner = (
@@ -233,12 +236,13 @@ def render_phase9f_application_confirmation(
             if selected_is_winner and recommended_intensity in INTENSITY_LABELS
             else None
         )
-        selected_label = st.selectbox(
+        selected_label = navigation_selectbox(st,
             "Tailoring intensity",
             options,
             index=default_index,
             placeholder="Choose Reuse, Minor, or Full",
             key=intensity_key,
+            scope=ranking_fingerprint,
         )
         confirmed_intensity = LABEL_TO_INTENSITY.get(selected_label or "", "")
         if selected_is_winner and exact_reuse.get("eligible") is True and (
@@ -257,11 +261,12 @@ def render_phase9f_application_confirmation(
         options = [None, *[row["application_id"] for row in handoffs]]
         labels = {row["application_id"]: f"Application #{row['application_id']} · {row['session_name']}" for row in handoffs}
         current_id = st.session_state.get("current_application_id")
-        target_id = st.selectbox(
+        target_id = navigation_selectbox(st,
             "Application Session to configure", options,
             index=options.index(current_id) if current_id in options else 0,
             format_func=lambda value: labels.get(value, "Create a new Application Session"),
             key=f"phase9f_d_target_{ranking_fingerprint}",
+            scope=ranking_fingerprint,
         )
         target_binding = next((row["binding"] for row in handoffs if row["application_id"] == target_id), None)
         if st.button(
@@ -323,3 +328,90 @@ def render_phase9f_application_confirmation(
                 st.rerun()
             except Exception as exc:
                 st.error(f"Could not create the Application Session: {exc}")
+
+
+def render_phase9f_source_revision(*, application_id: int) -> None:
+    """Explicit fresh source confirmation; never invokes legacy Phase 9E bind."""
+    from database.phase9f_application_confirmation_manager import get_phase9f_application_confirmation
+    from database.global_master_resume_manager import get_current_global_master_resume, get_global_master_resume_artifact
+    from database.global_blueprint_manager import list_active_global_blueprints_read_only
+    from tailoring.phase9f_starting_source_ranking import rank_starting_resume_sources
+    from tailoring.phase9f_tailoring_intensity import recommend_tailoring_intensity
+    from database.phase9f_tailoring_execution_manager import prepare_or_reuse_phase9f_tailoring_execution
+    current = get_phase9f_application_confirmation(application_id)
+    if not current:
+        st.error('A guarded Phase 9F confirmation is required.')
+        return
+    prefix = f"phase9f_reconfirm_{application_id}_{current['confirmation_id']}"
+    if st.button('Change tailoring base', key=prefix+'_open'):
+        st.session_state[prefix+'_editing'] = True
+    if st.session_state.get(prefix+'_editing'):
+        st.subheader('New generation — confirm a different Tailor Base')
+        st.caption(f'Application #{application_id} stays the same. Earlier frozen generations, documents and verification remain historical. No approval occurs here.')
+        if st.button('Analyze available immutable bases', key=prefix+'_analyze'):
+            try:
+                exact=current['confirmation_snapshot']['phase9f_a_snapshot']
+                master=get_current_global_master_resume()
+                ranking=rank_starting_resume_sources(exact_jd=exact,current_base_resume=master,
+                    current_base_artifact=get_global_master_resume_artifact(master['master_version_id']) if master else None,
+                    global_blueprints=list_active_global_blueprints_read_only())
+                recommendation=recommend_tailoring_intensity(ranking,expected_ranking_input_fingerprint=ranking['ranking_input_fingerprint'])
+                st.session_state[prefix+'_scope']=(ranking,recommendation)
+            except (ValueError,RuntimeError) as exc:
+                st.error('Current source analysis unavailable: '+str(exc))
+        scope=st.session_state.get(prefix+'_scope')
+        if scope:
+            ranking,recommendation=scope
+            old=current['confirmation_snapshot']['selected_candidate']['normalized_source_fingerprint']
+            candidates=[r for r in ranking.get('ranked_candidates',[]) if r['normalized_source_fingerprint']!=old]
+            if not candidates:
+                st.info('No different eligible immutable base is currently available. Register a verified source before retrying.')
+            else:
+                selected=st.selectbox('Tailor Base for the NEW generation',candidates,format_func=_candidate_label,key=prefix+'_choice')
+                _render_selected_metrics(selected)
+                identity=selected['normalized_source_fingerprint']
+                intensity=st.radio('New generation tailoring intensity',['full','minor'],format_func=str.title,key=prefix+'_'+identity+'_intensity')
+                ack=st.checkbox('I confirm this exact Tailor Base for a NEW guarded Phase 9F generation; earlier generations remain unchanged.',key=prefix+'_'+identity+'_'+intensity+'_ack')
+                if st.button('Confirm new Phase 9F Tailor Base',disabled=not ack,key=prefix+'_confirm',type='primary'):
+                    try:
+                        result=confirm_phase9f_application_session(
+                            phase9f_a_snapshot=current['confirmation_snapshot']['phase9f_a_snapshot'],
+                            persisted_exact_jd_snapshot=current['confirmation_snapshot']['persisted_exact_jd_snapshot'],
+                            ranking_result=ranking,phase9f_c_recommendation=recommendation,
+                            confirmed_normalized_source_fingerprint=identity,confirmed_intensity=intensity,
+                            application_intent_id=prefix,existing_application_id=application_id,
+                            reconfirm_confirmation_id=current['confirmation_id'])
+                        prepare_or_reuse_phase9f_tailoring_execution(application_id=application_id)
+                        application=get_application_by_id(application_id)
+                        st.session_state['latest_report']=application['report']
+                        st.session_state['resume_filename']=application['resume_filename']
+                        st.session_state['flash_message']='Fresh Phase 9F source confirmed for this same application. Generate a new draft below; fit, verification and explicit approval are still required.'
+                        st.rerun()
+                    except Exception as exc:
+                        st.error('Guarded source reconfirmation stopped: '+str(exc))
+    _render_phase9f_generation_sources(application_id)
+
+
+def _render_phase9f_generation_sources(application_id: int) -> None:
+    """Read-only generation/source history; selecting history never changes scope."""
+    from database.tailoring_generation_control import list_tailoring_generations
+    from database.phase9f_tailoring_execution_manager import get_phase9f_tailoring_execution
+    from database.phase9f_application_confirmation_manager import get_phase9f_application_confirmation
+    generations=list_tailoring_generations(application_id)
+    if not generations:
+        return
+    panel=st.expander('Frozen generation sources (read-only)',key=f'phase9f_frozen_sources_{application_id}')
+    with panel:
+        chosen=panel.selectbox('Inspect frozen generation',generations,
+            format_func=lambda r:r['generation_id'][:8]+' · '+r['status'],key=f'phase9f_frozen_generation_{application_id}')
+        execution=get_phase9f_tailoring_execution(application_id,generation_id=chosen['generation_id'])
+        if not execution:
+            panel.caption('This historical generation has no matching Phase 9F execution identity.')
+            return
+        confirmation=get_phase9f_application_confirmation(application_id,confirmation_id=execution['confirmation_id'])
+        source=confirmation['confirmation_snapshot']['selected_candidate']
+        panel.write('**Frozen source:** '+source['source_display_name'])
+        panel.caption('Generation '+chosen['generation_id']+' · confirmation '+confirmation['confirmation_id']+' · execution '+execution['execution_id'])
+        panel.write('Frozen source Job Match: '+str(source['deterministic_alignment_score']))
+        panel.caption('Source DOCX SHA-256: '+str(execution['source_artifact'].get('sha256') or 'Unavailable'))
+        panel.caption('Historical view only. The active Tailor Base and approval evidence are not changed.')

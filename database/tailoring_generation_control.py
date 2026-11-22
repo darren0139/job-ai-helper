@@ -510,6 +510,48 @@ def approve_tailoring_generation(
     state = get_tailoring_generation(application_id, generation_id)
     if state is None:
         raise ValueError("Tailoring generation was not found.")
+    decision_fingerprint = str(state.get("phase9e_decision_fingerprint") or "")
+    lifecycle = get_phase9f_normal_generation_lifecycle(state)
+    is_normal_phase9f = (
+        lifecycle.get("lifecycle_version") == PHASE9F_F_NORMAL_LIFECYCLE_VERSION
+    )
+    if state.get("generation_kind") == "phase9f_f_tailoring" and not decision_fingerprint:
+        raise ValueError(
+            "Phase 9F source decision identity is missing; legacy approval is forbidden."
+        )
+    # An exact Phase 9F application must not fall back to unguarded legacy
+    # approval just because a generation's Phase 9E fingerprint is missing,
+    # stale, or borrowed from an unrelated legacy decision. Legacy-only
+    # applications still retain their existing approval contract.
+    exact_d = False
+    if decision_fingerprint or not is_normal_phase9f:
+        from database.phase9f_session_revision import (
+            active_execution_row, phase9f_application_owns_generation,
+        )
+        probe = _connect()
+        try:
+            exact_d = phase9f_application_owns_generation(
+                probe, int(application_id), decision_fingerprint
+            )
+            if exact_d and not is_normal_phase9f:
+                # A Phase 9F-confirmed version without its normal lifecycle
+                # must be rejected immediately. There is no valid normal
+                # generation binding to resolve once that proof is missing.
+                raise ValueError(
+                    "Exact Phase 9F source generations require the guarded normal lifecycle; "
+                    "legacy approval is forbidden."
+                )
+            if exact_d:
+                frozen_execution = active_execution_row(
+                    probe, int(application_id), generation_id=str(generation_id)
+                )
+                if (frozen_execution is None
+                        or frozen_execution["phase9e_decision_fingerprint"] != decision_fingerprint):
+                    raise ValueError(
+                        "Phase 9F approval requires an execution bound to this exact frozen generation."
+                    )
+        finally:
+            probe.close()
     if not is_phase9f_normal_generation_approvable(state):
         raise ValueError(
             "This Phase 9F generation is incomplete or has not produced a "

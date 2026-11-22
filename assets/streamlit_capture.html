@@ -1,15 +1,14 @@
-<details id="job-ai-helper-capture">
-  <summary>Capture</summary>
-  <p>Save the current application view as a PNG.</p>
+<div id="job-ai-helper-capture">
+  <p><strong>Capture this browser tab</strong></p>
+  <p>Uses the installed Job AI Helper extension. Keeps this tab, selected application and expanded content. No new window.</p>
   <label for="job-ai-capture-area">Capture area</label>
-  <select id="job-ai-capture-area">
-    <option value="visible">Visible area</option>
-    <option value="full">Full scrollable main panel</option>
-  </select>
-  <p><label><input id="job-ai-capture-sidebar" type="checkbox"> Include visible sidebar</label></p>
-  <button id="job-ai-capture-start" type="button" disabled>Capture</button>
-  <p id="job-ai-capture-status" role="status" aria-live="polite">
-    Load or reload the Job AI Helper browser extension, then refresh this page.
-  </p>
+  <select id="job-ai-capture-area"><option value="full">Full page</option><option value="visible">Visible area</option></select>
+  <p><label><input id="job-ai-capture-sidebar" type="checkbox" checked> Include sidebar</label></p>
+  <label for="job-ai-capture-name">Capture name</label>
+  <input id="job-ai-capture-name" maxlength="120" value="Application view">
+  <button id="job-ai-capture-start" type="button" disabled>Capture This Tab — Full Page</button>
+  <p id="job-ai-capture-status" role="status" aria-live="polite">Extension required: reload the local Job AI Helper extension, refresh this tab, then click its toolbar icon once to grant active-tab access.</p>
   <ul id="job-ai-capture-downloads"></ul>
-</details>
+  <button id="job-ai-capture-export" type="button" disabled>Export This Tab Review ZIP</button>
+  <div id="job-ai-capture-export-link"></div>
+</div>

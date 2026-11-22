@@ -1164,10 +1164,13 @@ def render_phase9e_blueprint_selection(
             actor_label=actor_label,
         )
         if phase9f_d_execution_state(current) is not None:
-            # The exact saved B ranking remains inspectable after binding;
-            # never recompute or offer a second source mutation here.
+            # Phase 9E replacement would create a legacy generation outside the
+            # normal Phase 9F approval floor. Keep the frozen handoff intact until
+            # a versioned Phase 9F reconfirmation contract is available.
             from tailoring.phase9f_session_handoff import render_phase9f_source_comparison
             render_phase9f_source_comparison(st, application_id)
+            from tailoring.phase9f_application_confirmation_ui import render_phase9f_source_revision
+            render_phase9f_source_revision(application_id=application_id)
             _render_decision_history(application_id)
             return generation_context
         if not changing_source:
@@ -1375,6 +1378,17 @@ def render_phase9e_blueprint_selection(
     )
 
     selection_widget_key = f"phase9e_selection_{application_id}"
+    # A newly registered immutable source must not retain the old option label
+    # or confirmation through a widget with the same generic 'base_resume' ID.
+    import hashlib
+    options_scope = hashlib.sha256(json.dumps([
+        (base_resume_starting_snapshot or {}).get('source_identity'), options,
+    ],sort_keys=True,default=str).encode()).hexdigest()
+    options_scope_key = selection_widget_key+'_options_scope'
+    if st.session_state.get(options_scope_key) not in (None, options_scope):
+        st.session_state.pop(selection_widget_key,None)
+        st.session_state.pop(f'phase9e_scope_replacement_ack_{application_id}',None)
+    st.session_state[options_scope_key] = options_scope
     if active_current and selection_widget_key not in st.session_state:
         current_selection = (current or {}).get("selection") or {}
         current_source = _clean(current_selection.get("selected_source"))
@@ -1509,6 +1523,11 @@ def render_phase9e_blueprint_selection(
             st.error(str(exc))
 
     if preview is not None and not preview_matches_current:
+        ack_scope_key=f'phase9e_replacement_ack_scope_{application_id}'
+        ack_scope=_clean(preview.get('decision_fingerprint'))
+        if st.session_state.get(ack_scope_key) not in (None,ack_scope):
+            st.session_state.pop(f'phase9e_scope_replacement_ack_{application_id}',None)
+        st.session_state[ack_scope_key]=ack_scope
         replacement_confirmed = st.checkbox(
             "I confirm replacing the current application scope. Any prior approved "
             "generation and Phase 8 verification will remain historical and inspectable.",

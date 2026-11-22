@@ -533,26 +533,46 @@ origin UUIDs need not match the Gecko add-on ID. Ordinary webpage origins are
 rejected; empty Origin remains supported for authenticated local diagnostics.
 All existing automation safety boundaries and zero model-call behavior remain.
 
-### Capture the open Job AI Helper tab
+### Capture this tab (extension implementation; installed-browser acceptance pending)
 
-1. Build and reload the extension using the instructions above. Use Firefox 126+
-   or Chromium. Open Job AI Helper at `http://localhost` or `http://127.0.0.1`.
-2. Refresh the app once to load the Capture control and extension content script.
-3. Open the Job AI Helper toolbar extension on this tab, then close the popup.
-   The toolbar invocation grants the existing `activeTab` permission.
-4. Open **Capture** in the sidebar. Choose **Visible area** or **Full scrollable
-   main panel**, optionally include the visible sidebar, then click **Capture**.
-5. Download the PNG or the numbered PNG parts. Keep the tab active and the
-   viewport stable during full capture.
+The sidebar default is **UI Review Capture → Capture This Tab — Full Page**.
+The controlled Firefox window remains an explicitly separate alternative.
+Capture never opens another browser or navigates the current tab. It uses the
+existing local-only content script, background sender validation and `activeTab`
+grant; no new permissions, bridge or upload API is added.
 
-Capture crops browser screenshots, skips overlap between scroll positions, and
-restores the original scroll position on completion or failure. For a full capture,
-the visible sidebar appears beside the opening viewport. Very long panels are
-split into bounded PNGs. Only rendered rows and expanded details are captured.
-Images stay in browser memory and local downloads. This feature uses no bridge
-or Streamlit widget callback.
+Owner installation/reload steps:
 
-See the browser requirements for
-[`tabs.captureVisibleTab`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/captureVisibleTab).
-The standalone `capture_streamlit_scroll_stitched_v2.py` remains available as a
-separate-window fallback.
+1. Build with `python scripts/build_browser_extension.py --target all`.
+2. Firefox: `about:debugging` → This Firefox → Load Temporary Add-on →
+   `dist/browser_extension/firefox/manifest.json`. If this ID is already loaded,
+   use Reload for that temporary add-on. Ordinary Firefox permanent installation
+   requires Mozilla signing; do not disable signature security. Temporary add-ons
+   expire on Firefox restart. No owner extension is installed/replaced by Codex.
+3. Chromium: `chrome://extensions` → Developer mode → Load unpacked →
+   `dist/browser_extension/chrome`, or Reload the existing development extension.
+4. Refresh the existing local Job AI Helper tab once after installation so the
+   new content script loads. Subsequent captures do not reload or navigate it.
+5. Click the extension toolbar icon on this tab once, close the popup, then open
+   sidebar Capture → UI Review Capture. Keep the tab active during capture.
+6. Name the state, click **Capture This Tab — Full Page**, then navigate/expand
+   the next state in the same tab and capture again. Select Visible area only
+   for a viewport capture (the Full Page action follows the selected area).
+7. Click **Export This Tab Review ZIP**, then **Download This Tab Review ZIP**.
+   Each capture includes one original `full.png`, full-width overlapping 1800px
+   sections and SHA-256/coordinate metadata. No downsampling is used.
+
+Main content and the scrollable sidebar are stitched independently and composed
+once. Scroll positions restore even on failure. Layout/zoom/tab changes fail
+closed. Only rendered, expanded content is captured; hidden virtualized rows
+need table exports. Header and secret/pairing panels are hidden temporarily.
+Limits: 45,000 CSS px per panel, 80 million output pixels, 20 views/180 MB per
+in-tab collection. Refreshing/closing the tab discards undownloaded captures.
+ZIPs/images stay in this tab's memory and local downloads. Review private text
+before sharing. No databases, résumé documents or session secrets are packaged.
+
+**Validation scope:** Node and mock-frame browser controls exercise geometry,
+PNG/section/ZIP integrity and restoration. They do not prove installed Firefox
+permissions or the exact owner workflow. Do not claim real current-tab support
+until the built extension has been exercised in the owner's existing Firefox
+App156 tab, with two captures, complete vertical coverage and restored scroll.

@@ -164,7 +164,7 @@ class BestOfRelease(unittest.TestCase):
             st = MagicMock()
             st.session_state = {}
             st.button.return_value = False
-            st.expander.return_value = nullcontext()
+            st.expander.return_value = MagicMock()
             st.spinner.return_value = nullcontext()
             generation = {'generation_id': 'gen156', 'fit_result': fit}
             with (
@@ -205,7 +205,10 @@ class BestOfRelease(unittest.TestCase):
             # B4 selects string project names and integer bullet indices.
             # An unconstrained MagicMock is neither kind of selected option.
             st.selectbox.side_effect = _selected_option
-            st.expander.return_value = nullcontext()
+            st.radio.side_effect = _selected_option
+            # Streamlit returns one container per requested column.
+            st.columns.side_effect = lambda spec, **_: [MagicMock() for _ in range(spec if isinstance(spec,int) else len(spec))]
+            st.expander.return_value = MagicMock()
             st.spinner.return_value = nullcontext()
             with (
                 patch('tailoring.phase9f_project_bullet_sources_v2_3._bound_candidate_sources',

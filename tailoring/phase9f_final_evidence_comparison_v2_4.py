@@ -268,7 +268,9 @@ def render_final_evidence_audit(
     decision: dict[str, Any] | None, generation_id: str, repo_root: Path,
 ) -> bool:
     """A compact after-fit receipt, not another place to choose résumé bullets."""
-    with st.expander("Fitting and source audit (advanced)", expanded=False):
+    with st.expander("Fitting and source audit (advanced)", expanded=False,
+                     key=f'phase9f_final_source_audit_{application_id}_{generation_id}',
+                     on_change='rerun'):
         from tailoring.phase9f_project_bullet_sources_v2_3 import _bound_candidate_sources
         candidates, msg = _bound_candidate_sources(execution, decision)
         if candidates is None:

@@ -2394,7 +2394,6 @@ with st.sidebar:
     with st.expander("Capture", expanded=False):
         st.markdown("**Job Capture**")
         st.caption("Existing extension capture and JD inbox remain unchanged.")
-        st.html(Path(__file__).resolve().parent / "assets" / "streamlit_capture.html")
         st.divider()
         from tailoring.ui_review_capture_ui import render_ui_review_capture
         render_ui_review_capture()
@@ -8525,10 +8524,16 @@ elif page == "Application Sessions":
 
                 # Phase 8 V2.4: read-only audit of actual saved fitted DOCX,
                 # against immutable Phase 9F Base + Evidence Library sources.
-                if st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}") or st.checkbox(
-                    "Open Best-of résumé comparison", value=False,
+                from tailoring.phase9f_navigation_state import navigation_checkbox
+                # Always mount the view control, including a pending-fit rerun.
+                # Short-circuiting skipped its widget and Streamlit discarded it.
+                bestof_visible = navigation_checkbox(
+                    st, "Open Best-of résumé comparison", value=False,
                     key=f"phase9f_open_bestof_{int(current_application_id)}_{score_preferred_generation_id}",
-                ):
+                )
+                if st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}") or bestof_visible:
+                    st.caption("Best-of reads its saved trial receipts. A starting-document comparison missing from that trial "
+                               "does not invalidate the separately bound Phase 8 verification above; the receipts are not interchangeable.")
                     from tailoring.phase9f_automatic_bestof_v30_ui import render_automatic_bestof
                     render_automatic_bestof(
                         st,

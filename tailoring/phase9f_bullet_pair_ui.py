@@ -175,8 +175,12 @@ def _proxy(st, *, base, library, calc, proposal, audit, projects, jd, key, recor
 
 
 def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, result,
-                           catalog, projects, jd, report, key, project='All projects', offline_trial=None):
+                           catalog, projects, jd, report, key, project='All projects', offline_trial=None,
+                           show_standalone=True, primary=False):
     """One local panel; no optimization or native rendering on passive display."""
+    if primary:
+        return _render_multi_project_comparison(st, ranked=ranked, recorded=recorded,
+            catalog=catalog, result=result, key=key, jd=jd, report=report)
     st.markdown('<span id="'+anchor_id(key)+'"></span>', unsafe_allow_html=True)
     st.markdown('### Compare Base vs Library')
     st.caption('Compare exact source wordings and recorded evidence in one place. A shared requirement establishes '
@@ -197,9 +201,10 @@ def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, resul
     from tailoring.phase9f_wording_explanation_ui import render_source_wordings
     source_catalog = catalog if not report.get('raw_jd_text') or report['raw_jd_text']==jd else {}
     if not source_catalog:st.caption('Standalone estimate unavailable: no compatible readable JD requirement context.')
-    render_source_wordings(st, scope=scope, catalog=source_catalog, recorded=recorded,
-        proposal=proposal, key=key+'_'+sha256(chosen_project.encode()).hexdigest()[:12])
-    st.markdown('#### Strict saved-evidence Base/Library pair')
+    if show_standalone:
+        render_source_wordings(st, scope=scope, catalog=source_catalog, recorded=recorded,
+            proposal=proposal, key=key+'_'+sha256(chosen_project.encode()).hexdigest()[:12])
+    st.markdown('#### Base and Library wordings')
     bases = [r for r in scope if 'Selected Base' in r['sources']]
     project_key = key+'_'+sha256(chosen_project.encode()).hexdigest()[:12]
     requested_library = None
@@ -217,13 +222,25 @@ def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, resul
     base = bases[chosen]
     libraries = related_libraries(scope, base)
     if not libraries:
-        _card(st, 'Base Resume bullet', base, recorded, proposal)
-        st.info('No related Library alternative is established by exact wording or traceable shared JD evidence. '
-                'Other same-project Library bullets remain available in the inspector; they are not silently paired.')
-        st.markdown('#### JD Relevance Comparison')
-        st.caption('Pair-level estimated relevance is unavailable because a grounded competing pair has not been established.')
-        st.markdown('#### Why was this wording selected?')
-        st.caption('Only the recorded membership shown above is available. An individual selection cause and native replacement impact were not measured.')
+        st.caption('Not a recorded head-to-head decision. These are source wordings from the same project; they may describe different work.')
+        from tailoring.phase9f_wording_explanation_ui import render_bullet_choice_card
+        available=[r for r in scope if 'Evidence Library' in r['sources']]
+        library=None
+        if available:
+            alternative=st.selectbox('Other Library source wording',range(len(available)),
+                format_func=lambda i:available[i]['bullet'],key=project_key+'_unpaired_library')
+            library=available[alternative]
+        st.markdown('<style>@media(max-width:800px){.st-key-'+project_key+'_unpaired_cards [data-testid="stHorizontalBlock"]{flex-direction:column!important}.st-key-'+project_key+'_unpaired_cards [data-testid="stColumn"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}}</style>',unsafe_allow_html=True)
+        with st.container(key=project_key+'_unpaired_cards'):
+            left,right=st.columns(2,gap='large') if library else (st,None)
+        left.markdown('##### Base Resume wording')
+        render_bullet_choice_card(left,row=base,catalog=source_catalog,recorded=recorded,
+            incumbent_retained=result.get('status')=='verified' and result.get('winner')=='existing_final')
+        if library:
+            right.markdown('##### Library source wording')
+            render_bullet_choice_card(right,row=library,catalog=source_catalog,recorded=recorded,
+                incumbent_retained=result.get('status')=='verified' and result.get('winner')=='existing_final')
+        st.info('No related Library alternative is established by exact wording or traceable shared JD evidence. These individual JD-fit summaries do not assert a replacement pair or source winner.')
         return
     pair_key = project_key+'_'+sha256(base['bullet'].encode()).hexdigest()[:12]
     if requested_library:
@@ -331,3 +348,54 @@ def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, resul
     with st.expander('Optional mathematical counterfactual', expanded=False):
         _proxy(st, base=base, library=library, calc=calc, proposal=proposal, audit=audit,
                projects=projects, jd=jd, key=pair_key, recorded=recorded)
+
+
+def _render_multi_project_comparison(st, *, ranked, recorded, catalog, result, key, jd, report):
+    """Primary presentation of B4; the detailed inspector retains strict pairs."""
+    from tailoring.phase9f_multi_project_evidence_v36 import project_checkboxes
+    from tailoring.phase9f_wording_explanation_ui import render_wording_comparison
+    st.markdown('### Bullet Choices & Base vs Library')
+    names=list(dict.fromkeys(r['project'] for r in ranked))
+    if not names:
+        st.caption('No eligible saved source wording is available.');return
+    # Bind view preferences to exact evidence, not a dataframe index/order.
+    scope=sha256(json.dumps([(r['project'],r['bullet'],r['sources']) for r in ranked],sort_keys=True).encode()).hexdigest()[:16]
+    key=key+'_'+scope
+    with st.container(border=True):
+        st.markdown('#### Projects to inspect')
+        st.caption('Choose any number. Each checked project remains visible below.')
+        selected=project_checkboxes(st,names,key=key,default=names[:1],actions=True)
+        st.caption(f'{len(selected)} of {len(names)} selected')
+    if not selected:st.info('Select one or more projects to inspect.');return
+    source_catalog=catalog if not report.get('raw_jd_text') or report['raw_jd_text']==jd else {}
+    def choose(label, candidates, widget_key):
+        if not candidates:return None
+        by_text={r['bullet']:r for r in candidates}
+        durable=widget_key+'_remembered'
+        def remember():st.session_state[durable]=st.session_state[widget_key]
+        if st.session_state.get(widget_key) not in by_text:
+            remembered=st.session_state.get(durable)
+            st.session_state[widget_key]=remembered if remembered in by_text else next(iter(by_text))
+        def short(text):
+            row=by_text[text]
+            membership=('Both' if row.get('in_actual_a') and row.get('in_proposed_b') else 'Incumbent only' if row.get('in_actual_a') else 'Alternative only' if row.get('in_proposed_b') else 'Outside both') if recorded else 'Unknown membership'
+            return membership+' · '+text
+        choice=st.radio(label,list(by_text),format_func=short,key=widget_key,on_change=remember)
+        remember();return by_text[choice]
+    for name in selected:
+        st.markdown('#### '+name)
+        st.caption('Same-project source wordings are assessed independently; this is not a recorded replacement contest.')
+        rows=[r for r in ranked if r['project']==name]
+        project_key=key+'_'+sha256(name.encode()).hexdigest()[:12]
+        bases=[r for r in rows if 'Selected Base' in r['sources']]
+        libraries=[r for r in rows if 'Evidence Library' in r['sources']]
+        # Changed wording first is a presentation default, never a new ranking.
+        bases.sort(key=lambda r:not(recorded and r.get('in_actual_a')!=r.get('in_proposed_b')))
+        base=choose('Base Resume wording — '+name,bases,project_key+'_base_choice')
+        library=choose('Evidence Library wording — '+name,libraries,project_key+'_library_choice')
+        if base is None and library is None:
+            current=next((r for r in rows if 'Current final' in r['sources']),None)
+            if current is None:st.caption('No available source wording.');continue
+            library=current
+        render_wording_comparison(st,base=base,library=library,catalog=source_catalog,
+            recorded=recorded,result=result,key=project_key)

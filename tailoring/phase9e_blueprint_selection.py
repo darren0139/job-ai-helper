@@ -1508,6 +1508,30 @@ def _build_phase9e_starting_analysis(
     return output, keyword_match, local_scope
 
 
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=32)
+def _cached_profile_starting_analysis(serialized_inputs: str):
+    # Only immutable in-memory profile inputs. File/document authority is never
+    # cached here. Copies at the boundary prevent a caller altering other views.
+    payload = json.loads(serialized_inputs)
+    return _build_phase9e_starting_analysis(starting_snapshot=payload['source'],
+        jd=payload['jd'], preferred_requirements=payload['overrides'])
+
+
+def _reusable_starting_analysis(starting_snapshot, jd, overrides):
+    if starting_snapshot.get('document_report_snapshot') or starting_snapshot.get('document_analysis_mode'):
+        return _build_phase9e_starting_analysis(starting_snapshot=starting_snapshot,
+            jd=jd, preferred_requirements=overrides)
+    from tailoring.job_match_ab_analysis import current_ab_identity
+    key = canonical_json({'source': starting_snapshot, 'jd': jd,
+        'overrides': overrides, 'scoring_identity': current_ab_identity(jd.get('raw_text') or ''),
+        'evidence_policy': PHASE9E_EVIDENCE_SELECTION_POLICY_VERSION,
+        'implementation_id': id(_build_phase9e_starting_analysis)})
+    return deepcopy(_cached_profile_starting_analysis(key))
+
 def evaluate_starting_snapshot(
     starting_snapshot: dict[str, Any],
     jd: dict[str, Any],
@@ -1517,11 +1541,7 @@ def evaluate_starting_snapshot(
     """Evaluate a frozen starting source using the current stable scorer."""
     validate_exact_jd_snapshot(jd)
     overrides = normalise_requirement_override_lines(preferred_requirements)
-    analysis, keyword_match, local_scope = _build_phase9e_starting_analysis(
-        starting_snapshot=starting_snapshot,
-        jd=jd,
-        preferred_requirements=overrides,
-    )
+    analysis, keyword_match, local_scope = _reusable_starting_analysis(starting_snapshot, jd, overrides)
     result_rows = [
         deepcopy(row)
         for row in analysis.get("canonical_requirements", [])

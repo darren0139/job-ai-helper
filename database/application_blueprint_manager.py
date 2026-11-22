@@ -540,6 +540,7 @@ def persist_exact_phase9f_d_binding_with_connection(
     decision: dict[str, Any],
     actor_label: str,
     created_at: str,
+    previous_decision_id: str = "",
 ) -> dict[str, Any]:
     """Persist one new exact Phase 9F-D binding without committing."""
     verify_decision_integrity(decision)
@@ -549,6 +550,10 @@ def persist_exact_phase9f_d_binding_with_connection(
         raise Phase9EDecisionError(
             "The exact Phase 9F-D binding version is unsupported."
         )
+    if previous_decision_id:
+        active = connection.execute('SELECT current_decision_id FROM application_blueprint_binding_state WHERE application_id=?', (int(decision['application_id']),)).fetchone()
+        if active is None or active['current_decision_id'] != previous_decision_id:
+            raise Phase9EDecisionError('The active source decision changed before reconfirmation.')
     semantic = decision["semantic_identity"]
     selection = decision["selection"]
     selected = selection.get("selected_blueprint") or {}
@@ -611,12 +616,12 @@ def persist_exact_phase9f_d_binding_with_connection(
     )
     application_id = int(decision["application_id"])
     connection.execute(
-        """
+        ("""
         INSERT INTO application_blueprint_binding_state (
             application_id, current_decision_id,
             current_decision_fingerprint, updated_at
         ) VALUES (?, ?, ?, ?)
-        """,
+        """ + (" ON CONFLICT(application_id) DO UPDATE SET current_decision_id=excluded.current_decision_id, current_decision_fingerprint=excluded.current_decision_fingerprint, updated_at=excluded.updated_at" if previous_decision_id else "")),
         (
             application_id,
             decision["decision_id"],
@@ -629,7 +634,7 @@ def persist_exact_phase9f_d_binding_with_connection(
         event_type="phase9f_d_exact_source_bound",
         application_id=application_id,
         decision=decision,
-        previous_decision_id="",
+        previous_decision_id=previous_decision_id,
         actor_label=actor_label,
         created_at=str(created_at),
         event_details={
@@ -641,13 +646,13 @@ def persist_exact_phase9f_d_binding_with_connection(
         },
     )
     connection.execute(
-        """
+        ("""
         INSERT INTO application_blueprint_scope_activation_state (
             application_id, active_decision_id,
             active_decision_fingerprint, confirmation_event_id,
             compatibility_policy_version, activated_at
         ) VALUES (?, ?, ?, ?, ?, ?)
-        """,
+        """ + (" ON CONFLICT(application_id) DO UPDATE SET active_decision_id=excluded.active_decision_id, active_decision_fingerprint=excluded.active_decision_fingerprint, confirmation_event_id=excluded.confirmation_event_id, compatibility_policy_version=excluded.compatibility_policy_version, activated_at=excluded.activated_at" if previous_decision_id else "")),
         (
             application_id,
             decision["decision_id"],
@@ -676,6 +681,10 @@ def evaluate_and_bind_application_blueprint(
         raise Phase9EDecisionError(
             "Replacing the current application scope requires explicit confirmation."
         )
+    # A Phase 9F application cannot downgrade into the legacy Phase 9E lifecycle.
+    from database.phase9f_application_confirmation_manager import get_phase9f_application_confirmation
+    if get_phase9f_application_confirmation(int(application_id)) is not None:
+        raise Phase9EDecisionError("Use a fresh guarded Phase 9F source reconfirmation for this Application Session.")
     init_global_blueprint_registry()
     init_application_blueprint_decisions()
     signature_connection = _connect()
@@ -698,6 +707,25 @@ def evaluate_and_bind_application_blueprint(
     connection = _connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        # A Phase 9F confirmation can be created between the optimistic
+        # preflight and this write transaction. The legacy Phase 9E source
+        # replacement must therefore re-check the boundary under the write
+        # lock, including a dangling active revision pointer.
+        for guarded_table in (
+            "phase9f_application_confirmations",
+            "phase9f_confirmation_revisions",
+            "phase9f_active_revision",
+        ):
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (guarded_table,),
+            ).fetchone() and connection.execute(
+                f"SELECT 1 FROM {guarded_table} WHERE application_id=? LIMIT 1",
+                (int(application_id),),
+            ).fetchone():
+                raise Phase9EDecisionError(
+                    "Use a fresh guarded Phase 9F source reconfirmation for this Application Session."
+                )
         after_signature = _database_context_signature(connection, application_id)
         if before_signature != after_signature:
             raise Phase9EDecisionError(

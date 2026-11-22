@@ -135,3 +135,40 @@ test('both manifests use local content scripts and the existing activeTab grant'
     assert.deepEqual(manifest.content_scripts[0].js, ['app_capture.js']);
   }
 });
+
+
+test('readable section ranges preserve full vertical coverage without resizing', () => {
+  const {sectionRanges} = require('../app_capture.js');
+  for (const height of [500,1800,1801,31148,45000]) {
+    let end=0;
+    for (const [top,bottom] of sectionRanges(height)) {
+      assert.ok(top<=end);assert.ok(bottom>top);assert.ok(bottom-top<=1800);end=bottom;
+    }
+    assert.equal(end,height);
+  }
+  assert.throws(()=>sectionRanges(0),/geometry/);
+});
+
+test('ZIP contains UTF8 names, CRCs, original bytes and readable-section files', async () => {
+  const {zipFiles,crc32} = require('../app_capture.js');
+  const items=[['review/full.png',new Blob([new Uint8Array([137,80,78,71])])],['review/sections/001.png',new Blob(['crop'])],['review/manifest.json',new Blob(['{"captures":2}'])]];
+  const bytes=new Uint8Array(await (await zipFiles(items)).arrayBuffer());let offset=0;
+  for (const [name,blob] of items) {
+    const h=new DataView(bytes.buffer,offset);assert.equal(h.getUint32(0,true),0x04034b50);
+    const size=h.getUint32(18,true),n=h.getUint16(26,true),start=offset+30+n;
+    assert.equal(new TextDecoder().decode(bytes.slice(offset+30,start)),name);
+    const content=bytes.slice(start,start+size);assert.deepEqual(content,new Uint8Array(await blob.arrayBuffer()));
+    assert.equal(h.getUint32(14,true),crc32(content));offset=start+size;
+  }
+  assert.equal(new DataView(bytes.buffer,offset).getUint32(0,true),0x02014b50);
+  const end=new DataView(bytes.buffer,bytes.length-22);assert.equal(end.getUint32(0,true),0x06054b50);assert.equal(end.getUint16(10,true),items.length);
+});
+
+
+test('sticky capture layout restores exact original inline styles', () => {
+  const {unpin} = require('../app_capture.js');
+  const node={value:'color:red',computed:'sticky',getAttribute(){return this.value;},style:{setProperty(){node.value='position:static!important';}},setAttribute(_name,value){this.value=value;},removeAttribute(){this.value=null;}};
+  globalThis.getComputedStyle = element => ({position:element.computed});
+  try {const restore=unpin([node]);assert.equal(node.value,'position:static!important');restore();assert.equal(node.value,'color:red');}
+  finally {delete globalThis.getComputedStyle;}
+});

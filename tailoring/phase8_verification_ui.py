@@ -340,16 +340,25 @@ def _render_final_improvement_verdict_v1(result: dict[str, Any], *, baseline_mod
                       comp.get("alias_of") or comp.get("reason") or "Independent saved receipt"),
         })
     render_phase8_rows(st, rows)
-    with st.expander("Final comparison evidence and limitations", expanded=False):
-        st.caption("Only document-grounded final DOCX comparisons can earn the full improved verdict. "
-                   "Legacy reconstructed-profile comparisons remain diagnostic.")
+    evidence = st.expander("Final comparison evidence and limitations", expanded=False)
+    with evidence:
+        if base_only and (audit.get('comparisons') or {}).get('Selected Base', {}).get('verified'):
+            comparison = audit['comparisons']['Selected Base']
+            evidence.write(f"Verified frozen Selected Base {comparison['before_score']:g} → actual Final "
+                     f"{comparison['after_score']:g}; "
+                     f"{len(comparison.get('hard_regressions') or [])} Required/Core regressions. "
+                     "Approval remains a separate explicit action.")
+        policy = evidence.expander('Verification policy help', expanded=False)
+        with policy:
+            policy.caption("Only document-grounded final DOCX comparisons can earn the full improved verdict. "
+                       "Legacy reconstructed-profile comparisons remain diagnostic.")
         for reason in audit.get("reasons") or []:
-            st.write("- " + str(reason))
+            evidence.write("- " + str(reason))
         for name, comp in (audit.get("comparisons") or {}).items():
             regressions = comp.get("hard_regressions") or []
             if regressions:
-                st.write("**" + str(name) + ": Required/Core evidence regressions**")
-                render_phase8_rows(st, regressions)
+                evidence.write("**" + str(name) + ": Required/Core evidence regressions**")
+                render_phase8_rows(evidence, regressions)
 
 
 def _phase8_score_banner(result: dict[str, Any]) -> tuple[str, str]:

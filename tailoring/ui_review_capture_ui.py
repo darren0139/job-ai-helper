@@ -1,4 +1,4 @@
-"""Controller sidebar for a separate session-owned Firefox window."""
+"""Current-page DOM review capture with an optional controlled Firefox fallback."""
 import uuid
 import streamlit as st
 from browser_integration.ui_review_capture import CaptureSession
@@ -10,6 +10,9 @@ def _sessions():return {}
 
 def render_ui_review_capture():
     st.markdown('**UI Review Capture**')
+    from browser_integration.dom_review_capture import render_dom_review_capture
+    render_dom_review_capture()
+    st.markdown('**Alternative: controlled Firefox window**')
     st.caption('Controls a NEW Firefox window, not your personal tab. Navigate and expand content there; return here to capture it. No extension required. End closes that window; collected images remain available until this controller session is discarded.')
     identity=st.session_state.setdefault('ui_review_capture_id',uuid.uuid4().hex)
     sessions=_sessions()

@@ -873,6 +873,7 @@ def link_exact_job_description_with_connection(
     application_id: int,
     persisted_exact_jd: dict[str, Any],
     linked_at: str,
+    reuse_existing_link: bool = False,
 ) -> None:
     """Validate and link one already-persisted exact JD without committing."""
     if not isinstance(persisted_exact_jd, dict):
@@ -910,6 +911,11 @@ def link_exact_job_description_with_connection(
         raise ValueError(
             "The exact persisted JD changed after Phase 9F-A preparation."
         )
+    if reuse_existing_link:
+        existing = connection.execute('SELECT job_description_id, source_version_id FROM application_job_links WHERE application_id=?', (int(application_id),)).fetchone()
+        if existing is None or int(existing['job_description_id']) != job_id or str(existing['source_version_id']) != version_id:
+            raise ValueError('The existing application JD link differs; source reconfirmation cannot replace it.')
+        return
     connection.execute(
         """
         INSERT INTO application_job_links (

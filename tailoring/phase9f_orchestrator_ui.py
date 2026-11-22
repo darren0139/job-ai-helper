@@ -7,6 +7,10 @@ from typing import Any
 
 import streamlit as st
 
+from tailoring.phase9f_navigation_state import (
+    navigation_checkbox, navigation_selectbox, navigation_text,
+)
+
 from analyzer import extract_jd_profile
 
 from database.browser_capture_manager import (
@@ -453,7 +457,7 @@ def render_phase9f_jd_intake() -> None:
         "Analyse and optionally save an exact job description before deciding "
         "whether to start an application."
     )
-    source_label = st.selectbox(
+    source_label = navigation_selectbox(st,
         "Job-description source",
         list(SOURCE_LABELS),
         key="phase9f_jd_source_mode",
@@ -467,10 +471,11 @@ def render_phase9f_jd_intake() -> None:
     selected_saved: dict[str, Any] | None = None
 
     if source_type == "pasted":
-        raw_text = st.text_area(
+        raw_text = navigation_text(st,
             "Paste job description",
             height=280,
             key="phase9f_pasted_jd_text",
+            multiline=True,
             placeholder="Paste the complete job description here...",
         )
     elif source_type == "uploaded":
@@ -602,14 +607,15 @@ def render_phase9f_jd_intake() -> None:
         if not jobs:
             st.info("No saved JDs are available yet.")
         else:
-            selected_job = st.selectbox(
+            selected_job = navigation_selectbox(st,
                 "Saved job",
                 jobs,
                 format_func=_saved_job_label,
                 key="phase9f_saved_jd",
+                identity=_saved_jd_record_id_for_label,
             )
             library_jd_id = int(selected_job[0])
-            show_archived_versions = st.checkbox(
+            show_archived_versions = navigation_checkbox(st,
                 "Show archived exact versions",
                 value=False,
                 key="phase9f_show_archived_jd_versions",
@@ -627,11 +633,13 @@ def render_phase9f_jd_intake() -> None:
                     "The selected saved JD has no selectable exact source version."
                 )
             else:
-                selected_version = st.selectbox(
+                selected_version = navigation_selectbox(st,
                     "Exact version",
                     versions,
                     format_func=_version_label,
                     key="phase9f_saved_jd_version",
+                    scope=str(library_jd_id),
+                    identity=lambda row: str(row.get("source_version_id") or ""),
                 )
                 saved_source_version_id = str(
                     selected_version.get("source_version_id") or ""
@@ -846,18 +854,19 @@ def render_phase9f_jd_intake() -> None:
 
     if source_type in {"pasted", "uploaded"}:
         with st.expander("Optional JD metadata", expanded=False):
-            company = st.text_input("Company", key="phase9f_jd_company")
-            title = st.text_input(
+            company = navigation_text(st, "Company", key="phase9f_jd_company")
+            title = navigation_text(st,
                 "Job title / Role", key="phase9f_jd_title"
             )
-            location = st.text_input("Location", key="phase9f_jd_location")
-            source_url = st.text_input("Source URL", key="phase9f_jd_source_url")
+            location = navigation_text(st, "Location", key="phase9f_jd_location")
+            source_url = navigation_text(st, "Source URL", key="phase9f_jd_source_url")
 
     with st.expander("Optional JD requirement overrides", expanded=False):
-        preferred_requirement_input = st.text_area(
+        preferred_requirement_input = navigation_text(st,
             PREFERRED_REQUIREMENTS_LABEL,
             height=120,
             key="phase9f_jd_preferred_requirements",
+            multiline=True,
             placeholder=(
                 "Paste one full requirement per line, ideally using the "
                 "exact wording from the JD."

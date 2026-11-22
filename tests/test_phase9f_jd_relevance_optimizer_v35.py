@@ -11,7 +11,7 @@ from tailoring.phase9f_jd_relevance_optimizer_v35 import (
     VERSION, MAX_TRIALS, build_jd_relevance_optimization)
 from tailoring.phase9f_verified_best_of_v291 import build_candidate_scoring_state
 from tailoring.phase9f_automatic_bestof_v30 import evaluate_auto
-from tests.test_phase9f_evidence_optimizer_v33 import fixture as v33_fixture, evaluator as v33_evaluator
+from tests.phase9f_public_optimizer_fixture import fixture as v33_fixture, evaluator as v33_evaluator
 from tests.test_phase9f_v34_candidate_identity_fix import fixture as v34_identity_fixture
 
 
