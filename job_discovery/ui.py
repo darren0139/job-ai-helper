@@ -13,7 +13,7 @@ from database.job_match_manager import (
 from database.job_discovery_manager import (
     delete_hide_rule,
     delete_target_company,
-    export_target_company_registry,
+    export_effective_target_company_registry,
     preview_target_company_registry_import,
     import_target_company_registry,
     load_singapore_target_company_registry,
@@ -24,6 +24,7 @@ from database.job_discovery_manager import (
     mark_expired_jobs,
     list_discovered_jobs,
     list_hide_rules,
+    list_effective_target_companies,
     list_target_companies,
     set_hide_rule_enabled,
     set_target_company_enabled,
@@ -131,14 +132,23 @@ def _safe_timestamp(value: Any) -> float:
 )
 def _cached_query_jobs_v16(
     active_query: str,
+    source_scope: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    """Cache the expensive 10k-row local index scan across page reruns."""
+    """Cache the source-scoped 10k-row local index scan across page reruns."""
     query = str(active_query or "").strip()
     if not query:
         return []
 
+    scope = tuple(
+        dict.fromkeys(
+            str(source or "").strip()
+            for source in source_scope
+            if str(source or "").strip()
+        )
+    )
     all_jobs = list_discovered_jobs(
-        limit=10000
+        sources=list(scope) if scope else None,
+        limit=10000,
     )
     return [
         job
@@ -283,8 +293,9 @@ def _render_target_registry_portability() -> None:
 
     st.markdown("##### Registry backup and transfer")
     st.caption(
-        "SQLite holds your active targets. Download JSON for a backup or transfer. "
-        "Imports merge targets and keep companies missing from the file."
+        "Bundled Singapore starter targets are active defaults immediately. "
+        "SQLite stores only your overrides and custom targets. Downloads include "
+        "the effective active registry; imports remain explicit, merge-safe backups."
     )
     receipt = st.session_state.pop("job_finder_registry_import_receipt_v1", None)
     if receipt:
@@ -294,7 +305,7 @@ def _render_target_registry_portability() -> None:
         )
     st.download_button(
         "Download target registry",
-        data=json.dumps(export_target_company_registry(), ensure_ascii=False, indent=2) + "\n",
+        data=json.dumps(export_effective_target_company_registry(), ensure_ascii=False, indent=2) + "\n",
         file_name="job_finder_target_registry.json",
         mime="application/json",
         key="job_finder_registry_download_v1",
@@ -316,34 +327,61 @@ def _render_target_registry_portability() -> None:
                 key="job_finder_registry_import_v1",
             )
 
-    with st.expander("Singapore starter targets", expanded=False):
+    with st.expander("Singapore starter targets — active defaults", expanded=False):
         st.caption(
-            "A bundled starter list of 18 ATS targets for software / CS job discovery. "
-            "It is not automatically synchronized with employers. "
-            "Review, disable, or delete targets normally after importing."
+            "These 18 portable ATS targets are available automatically without a database import. "
+            "Matching saved overrides take precedence, and custom saved targets are added alongside them."
         )
         try:
             starter = load_singapore_target_company_registry()
         except (ValueError, OSError) as exc:
             st.error(f"Starter registry could not be loaded. {exc}")
         else:
-            _render_target_registry_import(
-                starter,
-                label="Load Singapore starter targets",
-                key="job_finder_registry_starter_import_v1",
+            st.dataframe(
+                [
+                    {
+                        "Company": row["company_name"],
+                        "Provider": ATS_PROVIDER_LABELS.get(row["ats_provider"], row["ats_provider"]),
+                        "Identifier": row["ats_identifier"],
+                        "Enabled": "Yes" if row["enabled"] else "No",
+                        "Careers URL": row["careers_url"],
+                    }
+                    for row in starter["targets"]
+                ],
+                width="stretch",
+                hide_index=True,
             )
 
 
 def _render_target_company_registry() -> None:
     targets = list_target_companies(include_disabled=True)
+    effective_targets = list_effective_target_companies(include_disabled=True)
 
     st.markdown("#### Target companies")
     st.caption(
-        "Save each ATS company once. Enabled targets are used automatically when you refresh "
-        "Greenhouse, Lever, Ashby, or SmartRecruiters."
+        "Bundled Singapore targets are active defaults immediately. Save a matching target to "
+        "override/disable it, or save a new company to add a persistent custom target."
     )
     _render_target_registry_portability()
 
+    st.markdown("##### Effective targets")
+    effective_rows = [
+        {
+            "Company": str(target.get("company_name") or ""),
+            "Provider": ATS_PROVIDER_LABELS.get(
+                str(target.get("ats_provider") or ""),
+                str(target.get("ats_provider") or ""),
+            ),
+            "Identifier": str(target.get("ats_identifier") or ""),
+            "Enabled": "Yes" if target.get("enabled") else "No",
+            "Origin": "Saved override/custom" if target.get("origin") == "live" else "Built-in default",
+            "Careers URL": str(target.get("careers_url") or ""),
+        }
+        for target in effective_targets
+    ]
+    st.dataframe(effective_rows, width="stretch", hide_index=True)
+
+    st.markdown("##### Saved overrides and custom targets")
     if targets:
         display_rows = [
             {
@@ -360,7 +398,7 @@ def _render_target_company_registry() -> None:
         ]
         st.dataframe(display_rows, width="stretch", hide_index=True)
     else:
-        st.info("No ATS target companies saved yet.")
+        st.info("No saved overrides or custom ATS targets yet. Built-in starter targets remain active.")
 
     with st.form("job_finder_target_company_form", clear_on_submit=True):
         form_col1, form_col2 = st.columns(2)
@@ -550,7 +588,8 @@ def render_job_finder() -> None:
         default=["mycareersfuture", "careers_gov", "staffie"],
         format_func=lambda value: SOURCE_LABELS.get(value, value),
         key="job_finder_refresh_sources_v124",
-        help="Search fetches from these providers. ATS providers use saved company targets.",
+        help=("Search fetches from these providers and keeps results within the submitted "
+              "source scope. ATS providers use active defaults plus saved overrides/custom targets."),
     )
     st.caption(
         "FastJobs and WorkJio use browser capture. Open a job normally and "
@@ -577,10 +616,25 @@ def render_job_finder() -> None:
         st.session_state.pop("_job_finder_match_state_cache_v15", None)
         if cleaned_query:
             st.session_state["job_finder_active_query_v123"] = cleaned_query
+            active_sources = list(dict.fromkeys(str(source) for source in refresh_sources))
+            st.session_state["job_finder_active_sources_v126"] = active_sources
+            if active_sources:
+                current_result_sources = list(
+                    st.session_state.get("job_finder_filter_sources_v123", []) or []
+                )
+                st.session_state["job_finder_filter_sources_v123"] = [
+                    source for source in current_result_sources if source in active_sources
+                ]
         else:
             st.session_state.pop("job_finder_active_query_v123", None)
+            st.session_state.pop("job_finder_active_sources_v126", None)
 
     active_query = str(st.session_state.get("job_finder_active_query_v123") or "").strip()
+    active_source_scope = tuple(
+        source
+        for source in st.session_state.get("job_finder_active_sources_v126", [])
+        if str(source) in SOURCE_LABELS
+    )
     if active_query and query_input.strip() and query_input.strip() != active_query:
         st.caption(
             f'Results are still for **"{active_query}"**. Press Search to apply the edited query.'
@@ -624,7 +678,7 @@ def render_job_finder() -> None:
             "block this direct HTTP client; open a job normally and use the "
             "Job AI Helper browser extension to capture it into Job Finder."
         )
-        enabled_targets = list_target_companies(include_disabled=False)
+        enabled_targets = list_effective_target_companies(include_disabled=False)
         eligible_targets = [
             target
             for target in enabled_targets
@@ -773,7 +827,7 @@ def render_job_finder() -> None:
         refresh_feedback_slot.info(started_message)
         st.toast("Job source refresh started.", icon="🔄")
 
-        enabled_targets = list_target_companies(include_disabled=False)
+        enabled_targets = list_effective_target_companies(include_disabled=False)
         saved_by_provider = {
             str(target.get("ats_provider") or "")
             for target in enabled_targets
@@ -908,7 +962,8 @@ def render_job_finder() -> None:
     # Query results are stable across Previous/Next reruns. Cache the
     # expensive 10k-row local index scan briefly; source refresh invalidates it.
     query_jobs = _cached_query_jobs_v16(
-        active_query
+        active_query,
+        active_source_scope,
     )
 
     st.divider()
@@ -1009,7 +1064,11 @@ def render_job_finder() -> None:
         )
         selected_sources = st.multiselect(
             "Filter results by source",
-            options=list(SOURCE_LABELS),
+            options=[
+                source
+                for source in SOURCE_LABELS
+                if not active_source_scope or source in active_source_scope
+            ],
             format_func=lambda value: (
                 f"{SOURCE_LABELS.get(value, value)} "
                 f"({source_count_map.get(value, 0)})"

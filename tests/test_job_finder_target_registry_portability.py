@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from database import job_discovery_manager as manager
+from job_discovery import pipeline
 
 
 def target(name="Example", provider="lever", identifier="example", enabled=True, url=""):
@@ -189,6 +190,74 @@ class TargetRegistryPortabilityTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 manager.import_target_company_registry(payload(target(identifier="a"), target(identifier="b")))
         self.assertEqual(self.rows(), before)
+
+    def test_effective_defaults_are_active_without_database_writes(self):
+        effective = manager.list_effective_target_companies(include_disabled=True)
+        self.assertEqual(len(effective), 18)
+        counts = {
+            provider: sum(1 for row in effective if row["ats_provider"] == provider)
+            for provider in ("ashby", "greenhouse", "lever", "smartrecruiters")
+        }
+        self.assertEqual(
+            counts,
+            {"ashby": 5, "greenhouse": 8, "lever": 3, "smartrecruiters": 2},
+        )
+        ncs = next(row for row in effective if row["company_name"] == "NCS")
+        self.assertEqual((ncs["ats_provider"], ncs["ats_identifier"]), ("smartrecruiters", "NCS3"))
+        self.assertEqual(ncs["origin"], "starter")
+        self.assertFalse(self.db_path.exists())
+        exported = manager.export_effective_target_company_registry()
+        self.assertEqual(len(exported["targets"]), 18)
+        self.assertFalse(self.db_path.exists())
+
+    def test_live_disable_override_wins_over_starter_default(self):
+        manager.upsert_target_company(
+            company_name="NCS", ats_provider="smartrecruiters",
+            ats_identifier="NCS3", enabled=False,
+        )
+        enabled = manager.list_effective_target_companies(provider="smartrecruiters")
+        self.assertEqual({row["ats_identifier"] for row in enabled}, {"DeliveryHero"})
+        all_targets = manager.list_effective_target_companies(
+            include_disabled=True, provider="smartrecruiters"
+        )
+        ncs = next(row for row in all_targets if row["ats_identifier"] == "NCS3")
+        self.assertFalse(ncs["enabled"])
+        self.assertEqual(ncs["origin"], "live")
+
+    def test_custom_live_target_is_added_alongside_starter_defaults(self):
+        manager.upsert_target_company(
+            company_name="Future Co", ats_provider="lever",
+            ats_identifier="futureco", enabled=True,
+        )
+        effective = manager.list_effective_target_companies(include_disabled=True)
+        self.assertEqual(len(effective), 19)
+        future = next(row for row in effective if row["ats_identifier"] == "futureco")
+        self.assertEqual(future["company_name"], "Future Co")
+        self.assertEqual(future["origin"], "live")
+        self.assertEqual(len(manager.list_target_companies(include_disabled=True)), 1)
+
+    def test_importing_starter_registry_does_not_duplicate_effective_targets(self):
+        starter = manager.load_singapore_target_company_registry()
+        self.assertEqual(manager.import_target_company_registry(starter)["new_count"], 18)
+        effective = manager.list_effective_target_companies(include_disabled=True)
+        self.assertEqual(len(effective), 18)
+        self.assertEqual(len(manager.list_target_companies(include_disabled=True)), 18)
+
+    def test_pipeline_uses_effective_starter_targets_without_import(self):
+        expected = {
+            "ashby": {"airwallex", "mobbin.com", "bjakcareer", "exa", "fireworks"},
+            "greenhouse": {
+                "temus", "simplifynext", "okx", "encora10",
+                "metabittechnologyllc", "grasshopperasia", "reolink", "drweng",
+            },
+            "lever": {"csit", "palantir", "funxyz"},
+            "smartrecruiters": {"NCS3", "DeliveryHero"},
+        }
+        for provider, identifiers in expected.items():
+            with self.subTest(provider=provider):
+                resolved = pipeline._targets({}, provider, None)
+                self.assertEqual({row["identifier"] for row in resolved}, identifiers)
+        self.assertFalse(self.db_path.exists())
 
     def test_seed_has_exact_requested_targets_and_validates_without_writing(self):
         raw = json.loads(manager.SINGAPORE_TARGET_REGISTRY_PATH.read_text(encoding="utf-8"))

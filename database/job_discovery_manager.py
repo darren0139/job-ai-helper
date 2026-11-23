@@ -866,6 +866,86 @@ def load_singapore_target_company_registry() -> dict[str, Any]:
     return {"schema_version": TARGET_REGISTRY_SCHEMA_VERSION, "targets": targets}
 
 
+def _read_live_target_companies_read_only() -> list[dict[str, Any]]:
+    """Read live overrides/custom targets without creating or mutating SQLite."""
+    if not DB_PATH.exists():
+        return []
+    connection = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='job_discovery_target_companies'"
+        ).fetchone()
+        if table is None:
+            return []
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM job_discovery_target_companies
+            ORDER BY company_name COLLATE NOCASE, ats_provider, ats_identifier
+            """
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["enabled"] = bool(item.get("enabled"))
+            result.append(item)
+        return result
+    finally:
+        connection.close()
+
+
+def list_effective_target_companies(
+    *,
+    include_disabled: bool = False,
+    provider: str | None = None,
+) -> list[dict[str, Any]]:
+    """Merge portable starter defaults with live SQLite overrides/custom targets.
+
+    Reading effective targets is deliberately non-mutating: starter targets are
+    immediately usable on a fresh database, while a matching live row wins and
+    can override metadata or disable the starter identity.
+    """
+    provider_filter = _validate_ats_provider(provider) if provider else None
+    starter = load_singapore_target_company_registry()
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for target in starter["targets"]:
+        item = dict(target)
+        item["id"] = None
+        item["origin"] = "starter"
+        merged[(item["ats_provider"], item["ats_identifier"])] = item
+
+    for row in _read_live_target_companies_read_only():
+        item = dict(row)
+        item["enabled"] = bool(item.get("enabled"))
+        item["origin"] = "live"
+        merged[(str(item["ats_provider"]), str(item["ats_identifier"]))] = item
+
+    targets = list(merged.values())
+    if provider_filter:
+        targets = [
+            target for target in targets
+            if str(target.get("ats_provider") or "") == provider_filter
+        ]
+    if not include_disabled:
+        targets = [target for target in targets if bool(target.get("enabled"))]
+    return sorted(targets, key=_target_registry_order)
+
+
+def export_effective_target_company_registry() -> dict[str, Any]:
+    """Export the active effective registry without database metadata."""
+    targets = [
+        _portable_target(row)
+        for row in list_effective_target_companies(include_disabled=True)
+    ]
+    return {
+        "schema_version": TARGET_REGISTRY_SCHEMA_VERSION,
+        "targets": sorted(targets, key=_target_registry_order),
+    }
+
+
 def _target_registry_preview(
     targets: list[dict[str, Any]],
     existing: Iterable[dict[str, Any]],
