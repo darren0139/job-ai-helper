@@ -61,6 +61,7 @@ class JobFinderSearchRefreshTests(unittest.TestCase):
             init_job_match_schema=Mock(),
             mark_expired_jobs=Mock(),
             list_target_companies=Mock(return_value=[]),
+            list_effective_target_companies=Mock(return_value=[]),
             _render_target_company_registry=Mock(),
             refresh_job_sources=refresh,
             _cached_query_jobs_v16=cached,
@@ -83,7 +84,7 @@ class JobFinderSearchRefreshTests(unittest.TestCase):
             ["mycareersfuture", "careers_gov", "staffie"],
         )
         self.assertEqual([c[0] for c in events.mock_calls], ["fetch", "invalidate", "read"])
-        cached.assert_called_once_with("retail")
+        cached.assert_called_once_with("retail", ("mycareersfuture", "careers_gov", "staffie"))
         self.assertEqual(st.session_state["job_finder_page_v15"], 1)
         options = next(c.kwargs["options"] for c in st.multiselect.call_args_list
                        if c.args[0] == "Sources to search")
@@ -106,7 +107,7 @@ class JobFinderSearchRefreshTests(unittest.TestCase):
             "job_finder_active_query_v123": "retail",
         })
         refresh.assert_not_called()
-        cached.assert_called_once_with("retail")
+        cached.assert_called_once_with("retail", ())
 
     def test_blank_search_does_not_fetch(self):
         _, refresh, cached, _ = self.render(query=" ")
@@ -116,14 +117,14 @@ class JobFinderSearchRefreshTests(unittest.TestCase):
     def test_no_sources_keeps_local_search_available(self):
         _, refresh, cached, _ = self.render(sources=[])
         refresh.assert_not_called()
-        cached.assert_called_once_with("retail")
+        cached.assert_called_once_with("retail", ())
 
     def test_manual_refresh_still_uses_shared_pipeline(self):
         _, refresh, cached, _ = self.render(clicked=False, advanced=True,
                                           manual_refresh=True, sources=["staffie"],
                                           state={"job_finder_active_query_v123": "retail"})
         refresh.assert_called_once()
-        cached.assert_called_once_with("retail")
+        cached.assert_called_once_with("retail", ())
 
     def test_source_failure_is_visible_and_index_is_still_read(self):
         st, refresh, cached, _ = self.render(summaries=[{
@@ -131,7 +132,51 @@ class JobFinderSearchRefreshTests(unittest.TestCase):
         }])
         refresh.assert_called_once()
         st.warning.assert_called_once_with("staffie: Source unavailable")
-        cached.assert_called_once_with("retail")
+        cached.assert_called_once_with("retail", ("mycareersfuture", "careers_gov", "staffie"))
+
+    def test_selected_source_scope_is_saved_and_applied_to_result_query(self):
+        st, refresh, cached, _ = self.render(sources=["greenhouse"])
+        self.assertEqual(refresh.call_args.kwargs["selected_sources"], ["greenhouse"])
+        self.assertEqual(st.session_state["job_finder_active_sources_v126"], ["greenhouse"])
+        cached.assert_called_once_with("retail", ("greenhouse",))
+
+    def test_refresh_failure_does_not_widen_selected_source_scope(self):
+        st, refresh, cached, _ = self.render(
+            sources=["greenhouse"],
+            summaries=[{
+                "source_key": "greenhouse:test",
+                "status": "error",
+                "error": "Source unavailable",
+            }],
+        )
+        refresh.assert_called_once()
+        st.warning.assert_called_once_with("greenhouse:test: Source unavailable")
+        cached.assert_called_once_with("retail", ("greenhouse",))
+
+    def test_cached_query_reader_passes_source_scope_to_database(self):
+        path = Path("job_discovery/ui.py")
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_cached_query_jobs_v16"
+        )
+        fake_st = MagicMock()
+        fake_st.cache_data.return_value = lambda func: func
+        list_jobs = Mock(return_value=[{
+            "title": "Software Engineer",
+            "company": "Example",
+            "description": "software",
+        }])
+        namespace = {
+            "st": fake_st,
+            "Any": object,
+            "list_discovered_jobs": list_jobs,
+            "matches_query": lambda *args: True,
+        }
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), namespace)
+        result = namespace["_cached_query_jobs_v16"]("software", ("greenhouse",))
+        self.assertEqual(len(result), 1)
+        list_jobs.assert_called_once_with(sources=["greenhouse"], limit=10000)
 
 
 if __name__ == "__main__":

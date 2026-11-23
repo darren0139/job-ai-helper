@@ -8,7 +8,7 @@ from typing import Any, Callable
 from database.job_discovery_manager import (
     get_latest_successful_discovery_run,
     list_discovered_jobs_by_scope,
-    list_target_companies,
+    list_effective_target_companies,
     mark_expired_jobs,
     mark_missing_jobs_removed,
     record_discovery_run,
@@ -50,7 +50,7 @@ def _targets(
             if str(value).strip()
         ]
 
-    saved_targets = list_target_companies(include_disabled=False, provider=key)
+    saved_targets = list_effective_target_companies(include_disabled=False, provider=key)
     if saved_targets:
         requested = {
             str(value or "").strip().casefold()
@@ -74,7 +74,7 @@ def _targets(
 
     # If this provider exists in the registry but every target is disabled, respect
     # that state rather than silently reactivating legacy V1 config entries.
-    registry_rows = list_target_companies(include_disabled=True, provider=key)
+    registry_rows = list_effective_target_companies(include_disabled=True, provider=key)
     if registry_rows:
         return []
 
