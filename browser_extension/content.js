@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const CONTENT_VERSION = "browser-content-v4.3";
+  const CONTENT_VERSION = "browser-content-v4.4";
   if (self.__JOB_AI_HELPER_CONTENT_VERSION__ === CONTENT_VERSION) return;
   self.__JOB_AI_HELPER_CONTENT_VERSION__ = CONTENT_VERSION;
   self.__JOB_AI_HELPER_CONTENT_V2__ = true;
@@ -352,6 +352,7 @@
         host: location.hostname,
         document_title: document.title,
         source_type: "browser_extension",
+        capture_mode: "automatic",
         site_adapter: adapter.id,
         site_adapter_version: adapter.version || "",
       },
@@ -382,6 +383,71 @@
         capture_quality_reason: quality.reason,
       },
     };
+  }
+
+  function normalizeSelectedJobText(value) {
+    return String(value || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  function selectedJobTextQuality(text, availabilityStatus) {
+    if (availabilityStatus === "unavailable") {
+      return {
+        status: "unavailable",
+        reason: "The source site reports that the job is no longer available.",
+      };
+    }
+
+    const wordCount = String(text || "")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    if (String(text || "").length < 120 || wordCount < 20) {
+      return {
+        status: "needs_review",
+        reason:
+          "Highlighted JD text is too short. Select the meaningful job-description region before saving.",
+      };
+    }
+
+    return { status: "accepted", reason: "" };
+  }
+
+  function extractSelectedJobText() {
+    const selectedText = normalizeSelectedJobText(
+      window.getSelection?.().toString() || ""
+    );
+    if (!selectedText) {
+      throw new Error(
+        "Highlight the job-description text on the page before using manual selection."
+      );
+    }
+
+    const capture = extractJobPage();
+    const quality = selectedJobTextQuality(
+      selectedText,
+      capture?.job?.availability_status || "available"
+    );
+    const wordCount = selectedText.split(/\s+/).filter(Boolean).length;
+
+    capture.source.capture_mode = "user_selection";
+    capture.capture.selected_text = selectedText;
+    capture.capture.selection_character_count = selectedText.length;
+    capture.capture.selection_word_count = wordCount;
+    capture.job.jd_text = selectedText;
+    capture.job.jd_character_count = selectedText.length;
+    capture.job.posting_notes = [];
+    capture.job.discarded_tracking_tags = [];
+    capture.job.cleaning_strategy = "user_selection_v1";
+    capture.job.cleaning_confidence = "user_confirmed";
+    capture.job.capture_quality = quality.status;
+    capture.job.capture_quality_reason = quality.reason;
+
+    return capture;
   }
 
   async function extractJobPageWhenReady() {
@@ -609,6 +675,10 @@
             sendResponse({ ok: false, error: String(error?.message || error) })
           );
         return true;
+      }
+      if (message?.type === "JOB_AI_EXTRACT_SELECTION") {
+        sendResponse({ ok: true, data: extractSelectedJobText() });
+        return;
       }
       if (message?.type === "JOB_AI_SCAN_FIELDS") {
         sendResponse({ ok: true, data: scanFields() });

@@ -124,9 +124,15 @@ def canonicalize_browser_source_url(value: str) -> str:
     )
 
 
-def _capture_hash(source_url: str, jd_text: str) -> str:
+def _capture_hash(
+    source_url: str,
+    jd_text: str,
+    capture_mode: str = "automatic",
+) -> str:
     canonical_url = canonicalize_browser_source_url(source_url)
     material = f"{canonical_url}\n{_normalise_capture_text(jd_text)}"
+    if capture_mode == "user_selection":
+        material = f"user_selection\n{material}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -168,6 +174,7 @@ def init_browser_capture_schema() -> None:
                 extraction_strategy TEXT,
                 extraction_confidence TEXT,
                 captured_at TEXT,
+                capture_mode TEXT NOT NULL DEFAULT 'automatic',
                 first_received_at TEXT NOT NULL,
                 last_received_at TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
@@ -193,6 +200,12 @@ def init_browser_capture_schema() -> None:
             "browser_job_captures",
             "canonical_source_url",
             "TEXT",
+        )
+        _ensure_column(
+            connection,
+            "browser_job_captures",
+            "capture_mode",
+            "TEXT NOT NULL DEFAULT 'automatic'",
         )
 
         existing_urls = connection.execute(
@@ -251,6 +264,9 @@ def _validated_capture(payload: dict[str, Any]) -> dict[str, Any]:
 
     source_url = str(source.get("url") or "").strip()
     jd_text = str(job.get("jd_text") or "").strip()
+    capture_mode = str(source.get("capture_mode") or "automatic").strip().casefold()
+    if capture_mode not in {"automatic", "user_selection"}:
+        raise ValueError("Browser capture source.capture_mode is unsupported.")
 
     if not source_url:
         raise ValueError("Browser capture source.url cannot be empty.")
@@ -296,6 +312,7 @@ def _validated_capture(payload: dict[str, Any]) -> dict[str, Any]:
             for item in discarded_tracking_tags
             if str(item).strip()
         ],
+        "capture_mode": capture_mode,
         "extraction_strategy": str(job.get("cleaning_strategy") or "").strip(),
         "extraction_confidence": str(job.get("cleaning_confidence") or "").strip(),
         "captured_at": str(source.get("captured_at") or "").strip(),
@@ -311,16 +328,24 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
     canonical_source_url = canonicalize_browser_source_url(
         item["source_url"]
     )
-    digest = _capture_hash(canonical_source_url, item["jd_text"])
     # Keep source-based capture identity and the complete incoming payload.
     # Generic automatic captures also feed the queue/tailoring handoff, even
     # when they are intentionally not eligible for Job Finder promotion.
-    mode = str(
-        (payload.get("source") or {}).get("capture_mode")
-        or payload.get("capture_mode") or "automatic"
-    ).strip().casefold()
+    mode = str(item.get("capture_mode") or "automatic").strip().casefold()
+
+    # Manual selections must coexist with automatic captures for the same URL/text,
+    # while automatic identity remains based on the original source JD text.
+    digest = _capture_hash(
+        canonical_source_url,
+        item["jd_text"],
+        mode,
+    )
+
     if mode == "automatic":
-        receipt = select_structural_jd_text(item["jd_text"], job_title=item["job_title"])
+        receipt = select_structural_jd_text(
+            item["jd_text"],
+            job_title=item["job_title"],
+        )
         previous = item["payload"].get(PROVENANCE_KEY)
         owned = (
             isinstance(previous, dict)
@@ -331,7 +356,9 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
         item["payload"] = deepcopy(item["payload"])
         if owned:
             if "source_provenance_value" in previous:
-                receipt["source_provenance_value"] = deepcopy(previous["source_provenance_value"])
+                receipt["source_provenance_value"] = deepcopy(
+                    previous["source_provenance_value"]
+                )
         elif PROVENANCE_KEY in item["payload"]:
             receipt["source_provenance_value"] = item["payload"][PROVENANCE_KEY]
         item["payload"][PROVENANCE_KEY] = receipt
@@ -391,13 +418,14 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 extraction_strategy,
                 extraction_confidence,
                 captured_at,
+                capture_mode,
                 first_received_at,
                 last_received_at,
                 payload_json,
                 posting_notes_json,
                 discarded_tracking_tags_json
             )
-            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(capture_hash) DO UPDATE SET
                 canonical_source_url = excluded.canonical_source_url,
                 document_title = excluded.document_title,
@@ -412,6 +440,7 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 extraction_strategy = excluded.extraction_strategy,
                 extraction_confidence = excluded.extraction_confidence,
                 captured_at = excluded.captured_at,
+                capture_mode = excluded.capture_mode,
                 status = 'pending',
                 last_received_at = excluded.last_received_at,
                 payload_json = excluded.payload_json,
@@ -434,6 +463,7 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 item["extraction_strategy"],
                 item["extraction_confidence"],
                 item["captured_at"],
+                item["capture_mode"],
                 now,
                 now,
                 json.dumps(item["payload"], ensure_ascii=False),
@@ -452,9 +482,10 @@ def save_browser_job_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 last_received_at = ?
             WHERE canonical_source_url = ?
               AND capture_hash <> ?
+              AND capture_mode = ?
               AND status = 'pending'
             """,
-            (now, canonical_source_url, digest),
+            (now, canonical_source_url, digest, item["capture_mode"]),
         )
         connection.commit()
 

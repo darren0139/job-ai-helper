@@ -578,3 +578,23 @@ AMO, not the local unsigned ZIP.
 
 After the first signed submission, increment the extension version for each
 new signed update.
+
+## v4.4 manual highlighted JD selection
+
+The current-tab workflow now has a separate **Extract highlighted JD text** action.
+Highlight the meaningful job-description region in the page first, then use that
+action to create a `capture_mode="user_selection"` artifact.
+
+Manual selections are intentionally different from automatic captures:
+
+- the selected text becomes the Browser JD Queue / Tailor Resume analysis text;
+- the complete visible browser page remains preserved for diagnostics;
+- FastJobs/WorkJio manual selections are **withheld from automatic Job Finder indexing**;
+- automatic and manual captures from the same source URL remain separate pending artifacts;
+- for supported FastJobs/WorkJio captures, the Browser JD Queue exposes an explicit
+  **Promote selection to Job Finder** action if the user deliberately wants the
+  selected text to become the Job Finder description.
+
+Automatic FastJobs/WorkJio captures continue through the normal structural text
+selector and Job Finder ingestion path. Manual selection never silently replaces
+that canonical description.

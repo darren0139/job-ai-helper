@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import streamlit as st
 
 from browser_integration.streamlit_runtime import (
@@ -15,12 +17,28 @@ from database.browser_capture_manager import (
     clear_pending_browser_job_captures,
     list_browser_job_captures,
 )
+from job_discovery.browser_capture_ingest import (
+    ingest_browser_capture_to_job_finder,
+)
 
 
 def _capture_label(item: dict) -> str:
     title = str(item.get("job_title") or "Untitled job").strip()
     company = str(item.get("company") or "Unknown company").strip()
     return f"#{item.get('id')} — {title} — {company}"
+
+
+def _capture_mode(item: dict) -> str:
+    value = str(item.get("capture_mode") or "automatic").strip().casefold()
+    return value or "automatic"
+
+
+def _saved_capture_payload(item: dict) -> dict:
+    try:
+        value = json.loads(str(item.get("payload_json") or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _render_browser_bridge_status() -> None:
@@ -124,6 +142,11 @@ def render_browser_capture_inbox() -> None:
             "Job": str(item.get("job_title") or "Untitled job"),
             "Company": str(item.get("company") or "Unknown company"),
             "Site": str(item.get("source_host") or ""),
+            "Mode": (
+                "Manual selection"
+                if _capture_mode(item) == "user_selection"
+                else "Automatic"
+            ),
             "Extraction": str(item.get("extraction_strategy") or "unknown"),
             "Captured": str(
                 item.get("captured_at")
@@ -169,6 +192,44 @@ def render_browser_capture_inbox() -> None:
     source_url = str(item.get("source_url") or "").strip()
     if source_url:
         st.write(f"**Source URL:** {source_url}")
+
+    capture_mode = _capture_mode(item)
+    if capture_mode == "user_selection":
+        st.warning(
+            "Manual selection: this capture is withheld from automatic Job Finder indexing. "
+            "Use it in Tailor Resume as an explicit analysis override, "
+            "or deliberately promote it below for supported sources."
+        )
+        site_adapter = str(item.get("site_adapter") or "").strip().casefold()
+        if site_adapter in {"fastjobs", "workjio"}:
+            if st.button(
+                "Promote selection to Job Finder",
+                key=f"browser_jd_promote_selection_{selected_id}",
+            ):
+                payload = _saved_capture_payload(item)
+                if not payload:
+                    st.error("Stored browser capture payload could not be read.")
+                else:
+                    receipt = ingest_browser_capture_to_job_finder(
+                        payload,
+                        item,
+                        allow_user_selection=True,
+                    )
+                    if receipt.get("status") == "indexed":
+                        st.success(
+                            "Manual selection promoted to Job Finder by explicit action."
+                        )
+                        st.json(receipt)
+                    else:
+                        st.warning(
+                            "Manual selection was not promoted to Job Finder."
+                        )
+                        st.json(receipt)
+        else:
+            st.caption(
+                "This source has no automatic Job Finder promotion path; the "
+                "manual selection remains a Browser JD Queue/Tailor Resume artifact."
+            )
 
     st.text_area(
         "Clean JD text",
