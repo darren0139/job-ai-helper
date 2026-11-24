@@ -1,6 +1,9 @@
 """Passive Streamlit presentation of frozen analysis receipts."""
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
 from analysis_stability.requirement_presentation import score_text, score_value, unavailable_score_reason
 
@@ -24,6 +27,11 @@ def _evidence(row):
 
 def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     native = view["stable_analysis"]
+    receipt_key = hashlib.sha256((
+        str(view.get("provenance") or "") + ":" +
+        str(native.get("input_fingerprint") or "") + ":" +
+        str(view.get("identity") or "")
+    ).encode("utf-8")).hexdigest()[:16]
     st.caption(view["currentness"] + " · The saved result is shown without recomputation.")
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Job Match", "Required/core", "Preferred", "Evidence strength"),
@@ -32,7 +40,11 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     if score_value(native) is None:
         st.caption(unavailable_score_reason(native))
     st.caption("Job Match is out of 100; Required/core, Preferred and Evidence strength are component percentages.")
-    render_initial_score_math(st, view)
+    render_initial_score_math(
+        st,
+        view,
+        key_prefix=f"initial_job_match_{receipt_key}",
+    )
     if show_taxonomy:
         taxonomy = render_jd_taxonomy_status(st, raw_jd_text=view["raw_jd_text"], stable_analysis=native,
                                             job_id=view["identity"].get("discovered_job_id"))
@@ -65,14 +77,6 @@ def render_analysis_receipt(st, view, *, taxonomy=None, show_taxonomy=True):
     # lightweight_receipt_pagination_v1: Optional static paginated table avoids
     # the interactive dataframe canvas (which can render as a black rectangle).
     # Keep historical full table default for compatibility; users can switch.
-    import csv
-    import hashlib
-    import io
-    receipt_key = hashlib.sha256((
-        str(view.get("provenance") or "") + ":" +
-        str(native.get("input_fingerprint") or "") + ":" +
-        str(view.get("identity") or "")
-    ).encode("utf-8")).hexdigest()[:16]
     # session_tables_v2_initial: one shared mode for the Application page.
     from tailoring.session_table_ui_v2 import render_session_table
     render_session_table(st, display, key="receipt_" + receipt_key, page_size=40)
