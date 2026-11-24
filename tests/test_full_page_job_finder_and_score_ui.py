@@ -48,8 +48,11 @@ class FullPageAndSessionControlsTests(unittest.TestCase):
         self.assertIn('Which JD requirements make up the 100 points?', old)
         self.assertIn('Show requirement-level math', old)
         initial = (ROOT / "tailoring/initial_analysis_explainer_ui.py").read_text(encoding="utf-8")
-        self.assertIn('render_initial_score_math(st, view)', initial)
-        self.assertIn('Exact historical score contributions are unavailable', (ROOT / "tailoring/initial_score_breakdown_ui.py").read_text(encoding="utf-8"))
+        score_ui = (ROOT / "tailoring/initial_score_breakdown_ui.py").read_text(encoding="utf-8")
+        self.assertIn('key_prefix=f"initial_job_match_{receipt_key}"', initial)
+        self.assertIn('key=f"{key_prefix}_advanced_map_v1"', score_ui)
+        self.assertIn('key=f"{key_prefix}_legacy_score_map_csv"', score_ui)
+        self.assertIn('Exact historical score contributions are unavailable', score_ui)
 
 
 if __name__ == "__main__":

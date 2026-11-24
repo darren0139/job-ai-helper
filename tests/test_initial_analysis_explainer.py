@@ -78,6 +78,43 @@ render_analysis_receipt(st,st.session_state['receipt'])
         self.assertTrue(all(gaps['Evidence']=='direct'))
         self.assertFalse(any('Global' in m.label for m in app.metric))
 
+    def test_two_saved_analysis_receipts_have_distinct_streamlit_widget_keys(self):
+        from streamlit.testing.v1 import AppTest
+
+        native = analysis()
+        first = explainer.build_analysis_receipt(
+            native,
+            raw_jd_text="A fixed exact job description",
+            provenance="FRESH_ANALYSIS",
+            identity={"application_id": 7, "analysis_id": "resume-initial"},
+        )
+        second = explainer.build_analysis_receipt(
+            native,
+            raw_jd_text="A fixed exact job description",
+            provenance="JOB_FINDER_INITIAL_MATCH",
+            identity={"application_id": 7, "saved_snapshot_id": 42},
+        )
+        app = AppTest.from_string("""
+import streamlit as st
+from tailoring.initial_analysis_explainer_ui import render_analysis_receipt
+
+render_analysis_receipt(
+    st,
+    st.session_state["first_receipt"],
+    show_taxonomy=False,
+)
+render_analysis_receipt(
+    st,
+    st.session_state["second_receipt"],
+    show_taxonomy=False,
+)
+""", default_timeout=30)
+        app.session_state["first_receipt"] = first
+        app.session_state["second_receipt"] = second
+        app.run()
+
+        self.assertFalse(app.exception)
+
     def test_all_frozen_34_and_18_controls_preserve_native_semantics(self):
         fixtures=Path(__file__).resolve().parent/'fixtures'
         controls=json.loads((fixtures/'initial_analysis_controls.json').read_text(encoding='utf-8'))
