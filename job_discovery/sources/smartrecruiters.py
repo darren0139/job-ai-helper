@@ -38,6 +38,17 @@ class SmartRecruitersSource(JobSource):
         return ", ".join(part for part in parts if part)
 
     @staticmethod
+    def _section_body(value: Any) -> Any:
+        """Return the actual SmartRecruiters section body, not dict repr text."""
+        if isinstance(value, dict):
+            for key in ("text", "value", "description", "content"):
+                candidate = value.get(key)
+                if candidate not in (None, ""):
+                    return candidate
+            return ""
+        return value
+
+    @staticmethod
     def _raw_payload(row: dict[str, Any]) -> dict[str, Any]:
         raw = row.get("raw_payload_json")
         if isinstance(raw, dict):
@@ -128,10 +139,13 @@ class SmartRecruitersSource(JobSource):
             sections = {}
         description = join_sections(
             [
-                ("", sections.get("companyDescription")),
-                ("Job description", sections.get("jobDescription")),
-                ("Qualifications", sections.get("qualifications")),
-                ("Additional information", sections.get("additionalInformation")),
+                ("", self._section_body(sections.get("companyDescription"))),
+                ("Job description", self._section_body(sections.get("jobDescription"))),
+                ("Qualifications", self._section_body(sections.get("qualifications"))),
+                (
+                    "Additional information",
+                    self._section_body(sections.get("additionalInformation")),
+                ),
             ]
         )
         if not description:

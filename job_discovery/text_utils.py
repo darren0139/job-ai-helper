@@ -37,9 +37,21 @@ class _VisibleTextParser(HTMLParser):
             self.parts.append(data)
 
 
+_SOURCE_TEXT_TRANSLATION = str.maketrans({
+    "\u00a0": " ",  # no-break space
+    "\u202f": " ",  # narrow no-break space
+    "\u2007": " ",  # figure space
+    "\u200b": "",   # zero-width space
+    "\u2060": "",   # word joiner
+    "\ufeff": "",   # BOM / zero-width no-break space
+    "\u00ad": "",   # soft hyphen
+})
+
+
 def compact_text(value: Any) -> str:
-    text = html.unescape(str(value or "")).replace("\u00a0", " ")
-    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.replace("\r\n", "\n").split("\n")]
+    text = html.unescape(str(value or "")).translate(_SOURCE_TEXT_TRANSLATION)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.split("\n")]
     return "\n".join(line for line in lines if line).strip()
 
 
