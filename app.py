@@ -3371,7 +3371,8 @@ elif page == "Application Sessions":
             from tailoring.phase9f_explainer_stage_v2_1 import confirmed_phase9f_session
             if (not (report.get("meta") or {}).get("document_analysis")
                     and confirmed_phase9f_session(int(current_application_id))):
-                st.subheader("Step 1 — Selected Base Résumé Analysis")
+                st.subheader("Step 1 — Historical Selected Base Résumé Analysis")
+                st.caption("Frozen confirmation-time score. The current actual-document baseline is shown in Phase 8; it may differ under a newer scoring policy or evidence authority.")
                 from tailoring.phase9f_session_handoff import render_phase9f_selected_source_analysis
                 render_phase9f_selected_source_analysis(st, int(current_application_id))
             else:
@@ -3467,7 +3468,7 @@ elif page == "Application Sessions":
                 if bound_view:
                     bound = bound_view["selected"]
                     st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
-                    st.metric("Confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
+                    st.metric("Historical confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
                     st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
                 else:
                     st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
@@ -8697,6 +8698,7 @@ elif page == "Application Sessions":
                     "application_id": current_application_id,
                     "baseline_report": report,
                     "raw_jd_text": score_phase8_raw_jd_text,
+                    "historical_baseline_report": persisted_application_report,
                     "phase9f_execution": (
                         phase9f_f_execution
                         if phase9f_f_active
@@ -9079,6 +9081,7 @@ elif page == "Application Sessions":
                         "application_id": current_application_id,
                         "baseline_report": report,
                         "raw_jd_text": phase8_raw_jd_text,
+                        "historical_baseline_report": persisted_application_report,
                         "phase9f_execution": (
                             phase9f_f_execution
                             if phase9f_f_active
