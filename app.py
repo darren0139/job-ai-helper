@@ -2403,6 +2403,7 @@ CATEGORY_OPTIONS = [
 
 
 
+active_score_projection = None  # B2.16c: ephemeral display only; never session or DB authority.
 with st.sidebar:
     with st.expander("Capture", expanded=False):
         st.markdown("**Job Capture**")
@@ -2567,6 +2568,19 @@ with st.sidebar:
         application_session_limit = -1 if show_all_application_sessions else int(application_session_display)
         recent_applications = get_recent_applications(limit=application_session_limit)
         current_application_id = st.session_state.get("current_application_id")
+        from tailoring.phase9f_current_score_v312b216c import load_active_score, sidebar_score_label
+        # Validate only the loaded workspace, not every historical sidebar row.
+        score_display_diagnostics = {}
+        if current_application_id is not None:
+            try:
+                active_score_projection = load_active_score(int(current_application_id),
+                    get_resume_workspace_context(int(current_application_id)), score_display_diagnostics)
+            except Exception:
+                active_score_projection = None
+                score_display_diagnostics['reason'] = 'Current workspace could not be validated.'
+        st.caption("The active session shows its verified fitted score when current; other sessions show saved scores. Draft verification is not approval.")
+        if current_application_id is not None and not active_score_projection and score_display_diagnostics.get('reason'):
+            st.caption('Active score: ' + score_display_diagnostics['reason'])
 
         if show_all_application_sessions:
             st.caption(f"Showing all {len(recent_applications)} stored application sessions.")
@@ -2585,10 +2599,8 @@ with st.sidebar:
                 if has_report:
                     display_name = session_name or job_title or f"Application {app_id}"
 
-                    if score is not None:
-                        label = f"{display_name} — {score}/100"
-                    else:
-                        label = display_name
+                    score_label_v312b216c = sidebar_score_label(score, active_score_projection if is_current else None)
+                    label = f"{display_name} — {score_label_v312b216c}" if score_label_v312b216c else display_name
 
                     if is_current:
                         label = f"✅ {label}"
@@ -3371,10 +3383,17 @@ elif page == "Application Sessions":
             from tailoring.phase9f_explainer_stage_v2_1 import confirmed_phase9f_session
             if (not (report.get("meta") or {}).get("document_analysis")
                     and confirmed_phase9f_session(int(current_application_id))):
-                st.subheader("Step 1 — Historical Selected Base Résumé Analysis")
-                st.caption("Frozen confirmation-time score. The current actual-document baseline is shown in Phase 8; it may differ under a newer scoring policy or evidence authority.")
                 from tailoring.phase9f_session_handoff import render_phase9f_selected_source_analysis
-                render_phase9f_selected_source_analysis(st, int(current_application_id))
+                if active_score_projection and active_score_projection['application_id'] == int(current_application_id):
+                    from tailoring.phase9f_current_score_v312b216c import render_current_base
+                    st.subheader("Step 1 — Selected Base Résumé Analysis")
+                    render_current_base(st, active_score_projection)
+                    with st.expander("Historical Selected Base confirmation and requirement evidence"):
+                        render_phase9f_selected_source_analysis(st, int(current_application_id))
+                else:
+                    st.subheader("Step 1 — Historical Selected Base Résumé Analysis")
+                    st.caption("Frozen confirmation-time score. No matching current fitted-document verification is available to this display yet; inspect Phase 8 when available.")
+                    render_phase9f_selected_source_analysis(st, int(current_application_id))
             else:
                 st.subheader("Step 1 — Initial Résumé Analysis")
                 from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis
@@ -3452,31 +3471,42 @@ elif page == "Application Sessions":
                     selected_report = build_effective_tailoring_report(source_comparison_report, selected_decision)
                 except (ValueError, KeyError, TypeError) as exc:
                     st.caption("Selected receipt unavailable — " + str(exc))
-            if (selected_decision.get("current_scope_status") == "current" and isinstance(selected_report, dict)
-                    and (selected_report.get("meta") or {}).get("document_analysis")):
-                from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
-                render_selected_base_analysis(st, selected_report)
-            else:
-                # Phase 9F-D already saved a truthful exact-JD starting-source
-                # score, even when no uploaded-document receipt was established.
-                from tailoring.phase9f_session_handoff import load_confirmed_source_view
-                try:
-                    bound_view = load_confirmed_source_view(int(current_application_id))
-                except (ValueError, KeyError, TypeError) as exc:
-                    st.warning("Confirmed starting-source receipt unavailable — " + str(exc))
-                    bound_view = None
-                if bound_view:
-                    bound = bound_view["selected"]
-                    st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
-                    st.metric("Historical confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
-                    st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
+            step4_current_score = (active_score_projection if active_score_projection
+                and active_score_projection['application_id'] == int(current_application_id)
+                and selected_decision.get('current_scope_status') == 'current'
+                and selected_decision.get('scope_activation_status') == 'active'
+                and selected_decision.get('decision_fingerprint') == active_score_projection['decision_fingerprint'] else None)
+            if step4_current_score:
+                from tailoring.phase9f_current_score_v312b216c import render_current_base
+                render_current_base(st, step4_current_score)
+            # Preserve the previous source/evidence view, including its original scores.
+            from contextlib import nullcontext
+            with (st.expander("Historical / original Selected Base analysis") if step4_current_score else nullcontext()):
+                if (selected_decision.get("current_scope_status") == "current" and isinstance(selected_report, dict)
+                        and (selected_report.get("meta") or {}).get("document_analysis")):
+                    from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
+                    render_selected_base_analysis(st, selected_report)
                 else:
-                    st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
-            # Read the confirmed Phase 9F-B receipt and saved Phase 8 result only.
-            # This is distinct from a frozen Initial Resume Analysis.
-            from tailoring.phase9f_base_vs_tailored_explainer import render_selected_base_vs_tailored
-            # Step 4 shows the source analysis; the saved delta belongs in Phase 8.
-            render_selected_base_vs_tailored(st, int(current_application_id), preview_only=True)
+                    # Phase 9F-D already saved a truthful exact-JD starting-source
+                    # score, even when no uploaded-document receipt was established.
+                    from tailoring.phase9f_session_handoff import load_confirmed_source_view
+                    try:
+                        bound_view = load_confirmed_source_view(int(current_application_id))
+                    except (ValueError, KeyError, TypeError) as exc:
+                        st.warning("Confirmed starting-source receipt unavailable — " + str(exc))
+                        bound_view = None
+                    if bound_view:
+                        bound = bound_view["selected"]
+                        st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
+                        st.metric("Historical confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
+                        st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
+                    else:
+                        st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
+                # Read the confirmed Phase 9F-B receipt and saved Phase 8 result only.
+                # This is distinct from a frozen Initial Resume Analysis.
+                from tailoring.phase9f_base_vs_tailored_explainer import render_selected_base_vs_tailored
+                # Step 4 shows the source analysis; the saved delta belongs in Phase 8.
+                render_selected_base_vs_tailored(st, int(current_application_id), preview_only=True)
             st.subheader("Step 5 — Tailor résumé")
             if (
                 phase9e_context.get("status")

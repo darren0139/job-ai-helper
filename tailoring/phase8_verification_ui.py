@@ -733,6 +733,7 @@ def render_phase8_verification(
         key=f"phase8_generation_{application_id}",
     )
     selected = by_id[selected_id]
+    st.caption("Phase 8 inspects the fitted version selected here. For supported Phase 9F sessions, Step 1, Step 4 and the sidebar use the active workspace draft or current approved résumé, not an alternate inspected version.")
 
     status_col, pages_col, cost_col = st.columns(3)
     status_col.metric(
