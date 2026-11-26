@@ -2,6 +2,7 @@
 from contextlib import closing
 from copy import deepcopy
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -40,6 +41,53 @@ class ExactJDStorageTests(unittest.TestCase):
                                ('application_job_links', 'job_description_id')]:
                 c.execute(f'UPDATE {table} SET source_version_id=? WHERE {key}=?', (legacy_id, job_id))
         return job_id, legacy_id
+
+    def test_first_version_table_migration_preserves_existing_legacy_link(self):
+        # Phase 9D/9E fixtures have a canonical row and a link table but no
+        # version table yet. The pre-migration link already owns its ID.
+        job_id, legacy_id = self.seed_legacy()
+        with closing(manager._connect()) as c, c:
+            links_before = manager.get_application_job_links()
+            c.execute("DROP TABLE job_description_versions")
+            c.execute("DROP TABLE job_description_version_availability")
+        manager.init_jd_library()
+        self.assertEqual(manager.get_application_job_links(), links_before)
+        self.assertEqual(manager.get_job_description_by_id(job_id)['source_version_id'], legacy_id)
+        versions = manager.get_job_description_versions(job_id)
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0]['source_version_id'], legacy_id)
+        self.assertEqual(versions[0]['raw_text'], OLD)
+        self.assertEqual(versions[0]['jd_profile'], PROFILE)
+        # Use the same relational join as Phase 9E context validation.
+        with closing(manager._connect()) as c:
+            row = c.execute("""SELECT version.raw_text, version.jd_profile_json
+                FROM application_job_links AS link
+                JOIN job_descriptions AS job ON job.id = link.job_description_id
+                JOIN job_description_versions AS version
+                  ON version.job_description_id = link.job_description_id
+                 AND version.source_version_id = link.source_version_id
+                WHERE link.application_id = ?""", (91,)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['raw_text'], OLD)
+        self.assertEqual(json.loads(row['jd_profile_json']), PROFILE)
+        manager.init_jd_library()
+        self.assertEqual(manager.get_job_description_versions(job_id), versions)
+        self.assertEqual(manager.get_application_job_links(), links_before)
+        new = manager.save_job_description_to_library(raw_text=NEW, jd_profile=PROFILE_NEW)
+        self.assertEqual(new['source_version_id'], exact_source_version_id(NEW))
+        manager.init_jd_library()
+        self.assertEqual(manager.get_application_job_links(), links_before)
+        self.assertEqual(len(manager.get_job_description_versions(job_id)), 2)
+
+    def test_missing_historical_version_in_existing_table_is_not_guessed(self):
+        job_id, legacy_id = self.seed_legacy()
+        with closing(manager._connect()) as c, c:
+            c.execute("DELETE FROM job_description_versions WHERE job_description_id=?", (job_id,))
+        links_before = manager.get_application_job_links()
+        manager.init_jd_library()
+        self.assertEqual(manager.get_application_job_links(), links_before)
+        self.assertEqual(manager.get_job_description_by_id(job_id)['source_version_id'], exact_source_version_id(OLD))
+        self.assertNotIn(legacy_id, {v['source_version_id'] for v in manager.get_job_description_versions(job_id)})
 
     def test_legacy_collision_creates_new_version_and_restart_preserves_both(self):
         self.assertEqual(source_version_id(OLD), source_version_id(NEW))

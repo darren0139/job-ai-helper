@@ -295,6 +295,7 @@ def _backfill_legacy_rows(
     cursor: sqlite3.Cursor,
     *,
     migrate_legacy_application_links: bool,
+    migrate_legacy_version_table: bool,
 ) -> None:
     """Convert legacy rows while keeping the link table authoritative.
 
@@ -358,6 +359,12 @@ def _backfill_legacy_rows(
                 (row_id, stored_id),
             ).fetchone()
             if existing is not None and str(existing["raw_text"]) == raw_text:
+                source_id = stored_id
+            elif existing is None and migrate_legacy_version_table:
+                # First-time version-table migration: the canonical row is the
+                # legacy source of truth. Preserve its reproducible ID so an
+                # existing application link still resolves to the same posting.
+                # Do not reconstruct missing historical versions on a modern DB.
                 source_id = stored_id
             else:
                 source_id = _resolve_write_version_id(cursor, target_id, raw_text)
@@ -553,10 +560,12 @@ def init_jd_library(*, db_path=None) -> None:
             cursor,
             "application_job_links",
         )
+        had_version_table = _table_exists(cursor, "job_description_versions")
         _create_schema(cursor)
         _backfill_legacy_rows(
             cursor,
             migrate_legacy_application_links=not had_application_job_links,
+            migrate_legacy_version_table=not had_version_table,
         )
         _repair_missing_version_identity_profiles(cursor)
         cursor.execute(
