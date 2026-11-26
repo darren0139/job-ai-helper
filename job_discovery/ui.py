@@ -70,6 +70,9 @@ from job_discovery.view_performance import (
     match_state_cache_key,
 )
 from job_discovery.text_utils import matches_query
+from job_discovery.tailor_resume_handoff import (
+    apply_job_finder_tailor_resume_handoff,
+)
 from tailoring.session_table_ui_v2 import (
     render_cross_page_table, render_cross_page_table_controls,
 )
@@ -251,11 +254,16 @@ def _handoff_to_new_application(job: dict[str, Any], snapshot_id: int | None = N
         job.get("source_url") or job.get("apply_url") or ""
     )
     st.session_state[f"jd_preferred_requirements_{next_suffix}"] = ""
-    st.session_state["_pending_navigation_page"] = "Application Sessions"
+    apply_job_finder_tailor_resume_handoff(
+        st.session_state,
+        application_id=application_id,
+        job=job,
+    )
     st.session_state["flash_message"] = (
         f"Created application session #{application_id} from Job Finder. "
-        "The initial Job Match is saved. Open Tailor Resume with the same JD "
-        "and select this application when confirming the starting source."
+        "The Profile & Evidence score is preserved as Discovery Match. "
+        "Tailor Resume is prefilled with the exact cleaned JD and will use the "
+        "current Phase 9F workflow to compare the Base Resume and active Blueprints."
     )
     st.rerun()
 
@@ -2320,7 +2328,7 @@ def render_job_finder() -> None:
             )
             with action_col1:
                 if st.button(
-                    "Use in new Application Session",
+                    "Tailor this job",
                     key=f"job_finder_use_v16_{selected_job_id}",
                     width="stretch",
                     disabled=not bool(snapshot) or len(str(job.get("description") or "").strip()) < 100,

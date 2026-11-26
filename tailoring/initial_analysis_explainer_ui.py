@@ -233,12 +233,85 @@ def render_initial_tailored_comparison(st, application_id, *, initial=None, resu
             st.warning("Saved final comparison unavailable — " + str(exc))
 
 
+def _discovery_source_currentness(view):
+    """Compare a frozen Application receipt with the current discovered JD read-only."""
+    identity = view.get("identity") if isinstance(view, dict) else {}
+    identity = identity if isinstance(identity, dict) else {}
+    try:
+        discovered_job_id = int(identity.get("discovered_job_id") or 0)
+    except (TypeError, ValueError):
+        discovered_job_id = 0
+    frozen_jd = str(
+        (view.get("raw_jd_text") if isinstance(view, dict) else "") or ""
+    )
+    if discovered_job_id <= 0 or not frozen_jd:
+        return {"status": "unavailable", "current_content_hash": ""}
+
+    try:
+        path = Path(db_manager.DB_PATH).resolve()
+        with closing(
+            sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        ) as conn:
+            conn.row_factory = sqlite3.Row
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='table' AND name='discovered_jobs'"
+            ).fetchone()
+            if table is None:
+                return {
+                    "status": "unavailable",
+                    "current_content_hash": "",
+                }
+            row = conn.execute(
+                "SELECT description, content_hash "
+                "FROM discovered_jobs WHERE id=?",
+                (discovered_job_id,),
+            ).fetchone()
+    except (sqlite3.Error, OSError):
+        return {"status": "unavailable", "current_content_hash": ""}
+
+    if row is None:
+        return {"status": "unavailable", "current_content_hash": ""}
+
+    current_jd = str(row["description"] or "")
+    if not current_jd:
+        return {"status": "unavailable", "current_content_hash": ""}
+
+    return {
+        "status": "unchanged" if current_jd == frozen_jd else "changed",
+        "current_content_hash": str(row["content_hash"] or ""),
+    }
+
+
 def render_discovery_history(st, application_id):
     try:
         historical = load_application_initial(application_id)
         if historical['provenance'] == 'JOB_FINDER_INITIAL_MATCH':
-            with st.expander('Discovery Match'):
-                st.caption('Candidate Profile & Evidence match · This is not the selected résumé document score.')
+            with st.expander('Historical Discovery Match'):
+                source_state = _discovery_source_currentness(historical)
+                if source_state["status"] == "changed":
+                    st.warning(
+                        "Historical Discovery Match — this Application Session "
+                        "was created from an earlier version of the discovered "
+                        "job description. The current Job Finder source JD has "
+                        "changed. This frozen receipt will not be rewritten."
+                    )
+                elif source_state["status"] == "unchanged":
+                    st.caption(
+                        "Historical Discovery Match — frozen when this "
+                        "Application Session was created. The current Job Finder "
+                        "source JD still matches this receipt."
+                    )
+                else:
+                    st.caption(
+                        "Historical Discovery Match — frozen when this "
+                        "Application Session was created. Current source-JD "
+                        "comparison is unavailable."
+                    )
+                st.caption(
+                    "Candidate Profile & Evidence match · This is not the "
+                    "selected résumé document score."
+                )
                 render_analysis_receipt(st, historical, show_taxonomy=False)
         elif not historical.get('document_grounded'):
             with st.expander('Discovery / historical match'):

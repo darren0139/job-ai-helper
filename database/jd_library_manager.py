@@ -17,7 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rag.jd_identity import build_job_identity, normalize_field
+from rag.jd_identity import (build_job_identity, normalize_field,
+                             exact_source_version_id, source_version_matches)
 
 
 DB_PATH = Path("data/applications.db")
@@ -232,6 +233,20 @@ def _create_schema(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _resolve_write_version_id(cursor: sqlite3.Cursor, job_id: int, raw_text: str) -> str:
+    """Reuse immutable exact text, including legacy IDs; never alias unequal text."""
+    rows = cursor.execute(
+        """SELECT source_version_id FROM job_description_versions
+           WHERE job_description_id = ? AND raw_text = ?
+           ORDER BY id ASC""", (job_id, raw_text),
+    ).fetchall()
+    for row in rows:
+        version_id = str(row["source_version_id"])
+        if source_version_matches(raw_text, version_id):
+            return version_id
+    return exact_source_version_id(raw_text)
+
+
 def _upsert_version(
     cursor: sqlite3.Cursor,
     *,
@@ -243,13 +258,16 @@ def _upsert_version(
 ) -> bool:
     cursor.execute(
         """
-        SELECT 1
+        SELECT raw_text
         FROM job_description_versions
         WHERE job_description_id = ? AND source_version_id = ?
         """,
         (job_description_id, source_version_id),
     )
-    existed = cursor.fetchone() is not None
+    existing = cursor.fetchone()
+    existed = existing is not None
+    if existed and str(existing["raw_text"]) != raw_text:
+        raise ValueError("JD version ID collision: refusing to overwrite immutable text.")
 
     cursor.execute(
         """
@@ -331,6 +349,27 @@ def _backfill_legacy_rows(
             target_id = int(existing["id"]) if existing else row_id
             canonical_owner[canonical_id] = target_id
 
+        # Startup must not replace an already-persisted exact ID with a
+        # normalized ID. Legacy migration may still use its original ID.
+        stored_id = str(row["source_version_id"] or "")
+        if target_id == row_id and stored_id and source_version_matches(raw_text, stored_id):
+            existing = cursor.execute(
+                "SELECT raw_text FROM job_description_versions WHERE job_description_id=? AND source_version_id=?",
+                (row_id, stored_id),
+            ).fetchone()
+            if existing is not None and str(existing["raw_text"]) == raw_text:
+                source_id = stored_id
+            else:
+                source_id = _resolve_write_version_id(cursor, target_id, raw_text)
+        else:
+            # Preserve the historical normalized ID when it is unoccupied;
+            # split legacy collisions rather than dropping a distinct posting.
+            existing = cursor.execute(
+                "SELECT raw_text FROM job_description_versions WHERE job_description_id=? AND source_version_id=?",
+                (target_id, source_id),
+            ).fetchone()
+            if existing is not None and str(existing["raw_text"]) != raw_text:
+                source_id = _resolve_write_version_id(cursor, target_id, raw_text)
         _upsert_version(
             cursor,
             job_description_id=target_id,
@@ -461,6 +500,15 @@ def _repair_missing_version_identity_profiles(
             profile.get("company") or profile.get("company_name") or ""
         ).strip()
 
+        # A valid historical profile is immutable even if a later posting
+        # uses different casing or punctuation for the same canonical job.
+        if all(key in profile for key in ("job_title", "company", "location")) and profile_title and profile_company:
+            prior = build_job_identity(company=profile_company, title=profile_title,
+                                       location=_extract_location(profile, ""), raw_jd_text="")
+            current = build_job_identity(company=str(row["company"] or ""), title=str(row["title"] or ""),
+                                         location=str(row["location"] or ""), raw_jd_text="")
+            if prior.canonical_jd_id == current.canonical_jd_id:
+                continue
         resolved_title = str(
             row["title"] or profile_title or "Untitled Job"
         ).strip()
@@ -666,8 +714,10 @@ def save_or_link_job_description_for_application(
     profile_json = _json_dumps(resolved_profile)
     cleaned_source_url = str(source_url or "").strip()
 
+    version_id = exact_source_version_id(cleaned_text)
     connection = _connect()
     try:
+        connection.execute("BEGIN IMMEDIATE")
         cursor = connection.cursor()
 
         cursor.execute(
@@ -720,7 +770,7 @@ def save_or_link_job_description_for_application(
                     cleaned_text,
                     profile_json,
                     identity.canonical_jd_id,
-                    identity.source_version_id,
+                    version_id,
                     identity.company_normalized,
                     identity.title_normalized,
                     identity.location_normalized,
@@ -736,10 +786,11 @@ def save_or_link_job_description_for_application(
             job_id = int(canonical_row["id"])
             canonical_id = str(canonical_row["canonical_jd_id"])
 
+        version_id = _resolve_write_version_id(cursor, job_id, cleaned_text)
         created_new_version = _upsert_version(
             cursor,
             job_description_id=job_id,
-            source_version_id=identity.source_version_id,
+            source_version_id=version_id,
             raw_text=cleaned_text,
             jd_profile_json=profile_json,
             created_at=now,
@@ -798,7 +849,7 @@ def save_or_link_job_description_for_application(
                 (
                     cleaned_text,
                     profile_json,
-                    identity.source_version_id,
+                    version_id,
                     now,
                     now,
                     job_id,
@@ -824,7 +875,7 @@ def save_or_link_job_description_for_application(
             (
                 application_id,
                 job_id,
-                identity.source_version_id,
+                version_id,
                 now,
                 now,
             ),
@@ -838,7 +889,7 @@ def save_or_link_job_description_for_application(
         return {
             "job_description_id": job_id,
             "canonical_jd_id": canonical_id,
-            "source_version_id": identity.source_version_id,
+            "source_version_id": version_id,
             "created_new_job": created_new_job,
             "created_new_version": created_new_version,
             "created_new_link": created_new_link,
@@ -1040,8 +1091,10 @@ def save_job_description_to_library(
     profile_json = _json_dumps(profile)
     now = _now()
 
+    version_id = exact_source_version_id(cleaned_text)
     connection = _connect(db_path)
     try:
+        connection.execute("BEGIN IMMEDIATE")
         cursor = connection.cursor()
         canonical_row = _find_compatible_canonical_row(
             cursor,
@@ -1070,7 +1123,7 @@ def save_job_description_to_library(
                     cleaned_text,
                     profile_json,
                     identity.canonical_jd_id,
-                    identity.source_version_id,
+                    version_id,
                     identity.company_normalized,
                     identity.title_normalized,
                     identity.location_normalized,
@@ -1084,10 +1137,11 @@ def save_job_description_to_library(
         else:
             job_id = int(canonical_row["id"])
 
+        version_id = _resolve_write_version_id(cursor, job_id, cleaned_text)
         created_new_version = _upsert_version(
             cursor,
             job_description_id=job_id,
-            source_version_id=identity.source_version_id,
+            source_version_id=version_id,
             raw_text=cleaned_text,
             jd_profile_json=profile_json,
             created_at=now,
@@ -1122,7 +1176,7 @@ def save_job_description_to_library(
                 (
                     cleaned_text,
                     profile_json,
-                    identity.source_version_id,
+                    version_id,
                     now,
                     now,
                     job_id,
@@ -1132,7 +1186,7 @@ def save_job_description_to_library(
         return {
             "job_description_id": job_id,
             "canonical_jd_id": identity.canonical_jd_id,
-            "source_version_id": identity.source_version_id,
+            "source_version_id": version_id,
             "created_new_job": created_new_job,
             "created_new_version": created_new_version,
             "created_new_link": False,
@@ -1236,7 +1290,7 @@ def get_exact_job_description_for_application(
     )
     linked_version = str(row["linked_source_version_id"] or "")
     stored_canonical_id = str(row["canonical_jd_id"] or "")
-    if identity.source_version_id != linked_version:
+    if not source_version_matches(raw_text, linked_version):
         raise ValueError(
             "The linked JD source-version identity does not reproduce from its text."
         )
@@ -1997,6 +2051,36 @@ def delete_unlinked_saved_job_description(jd_id: int) -> dict[str, Any]:
         connection.close()
 
 
+def find_exact_saved_jd_by_raw_text(raw_text: str, *, title: str = "", company: str = "", location: str = "") -> dict[str, Any] | None:
+    """Find an available authoritative version; ambiguous identities require fresh intake."""
+    text = str(raw_text or "").strip()
+    if not text:
+        return None
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT v.job_description_id, v.source_version_id, v.jd_profile_json
+               FROM job_description_versions v
+               LEFT JOIN job_description_version_availability a
+                 ON a.job_description_id=v.job_description_id AND a.source_version_id=v.source_version_id
+               WHERE v.raw_text=? AND COALESCE(a.availability_status, 'available')='available'
+               ORDER BY v.id ASC""", (text,),
+        ).fetchall()
+    finally:
+        connection.close()
+    matches = []
+    for row in rows:
+        profile = _safe_json_loads(row["jd_profile_json"])
+        if any(normalize_field(value) != normalize_field(str(profile.get(key) or ""))
+               for key, value in (("job_title", title), ("company", company), ("location", location)) if str(value or "").strip()):
+            continue
+        matches.append(row)
+    if len({int(row["job_description_id"]) for row in matches}) != 1:
+        return None
+    row = matches[0]
+    return get_exact_job_description_version(int(row["job_description_id"]), str(row["source_version_id"]))
+
+
 def get_exact_job_description_version(
     jd_id: int,
     source_version_id: str,
@@ -2055,7 +2139,7 @@ def get_exact_job_description_version(
     )
     stored_version = str(row["source_version_id"] or "")
     stored_canonical = str(row["canonical_jd_id"] or "")
-    if identity.source_version_id != stored_version:
+    if not source_version_matches(raw_text, stored_version):
         raise ValueError(
             "The saved JD source-version identity does not reproduce from its text."
         )

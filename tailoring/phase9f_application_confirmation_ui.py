@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from typing import Any, Callable
 
 import streamlit as st
@@ -20,6 +21,7 @@ from tailoring.phase9f_application_confirmation import (
     Phase9FDConfirmationError,
 )
 from tailoring.phase9f_jd_intake import build_saved_exact_jd_snapshot
+from tailoring.phase9f_pre_d_diagnostics import build_pre_d_mismatch_diagnostics
 
 
 INTENSITY_LABELS = {
@@ -72,14 +74,6 @@ def prepare_persisted_exact_jd_for_confirmation(
         )
         library_jd_id = int(receipt.get("job_description_id") or 0)
         version_id = _clean(receipt.get("source_version_id"))
-        if receipt.get("needs_chroma_index"):
-            try:
-                receipt["chroma_indexed_chunk_count"] = int(
-                    index_fn(library_jd_id)
-                )
-                receipt["chroma_indexing_occurred"] = True
-            except Exception as exc:  # JD persistence remains authoritative
-                receipt["chroma_indexing_error"] = str(exc)
         exact = get_exact_job_description_version(library_jd_id, version_id)
 
     if exact is None:
@@ -103,10 +97,29 @@ def prepare_persisted_exact_jd_for_confirmation(
         or persisted.get("jd_profile")
         != phase9f_a_snapshot.get("jd_profile")
     ):
-        raise Phase9FDConfirmationError(
+        error = Phase9FDConfirmationError(
             "PRE-D persisted a JD that differs from the analyzed Phase 9F-A snapshot.",
             code="pre_d_exact_jd_mismatch",
         )
+        try:
+            error.pre_d_diagnostics = build_pre_d_mismatch_diagnostics(
+                phase9f_a_snapshot, exact, persisted, receipt
+            )
+        except Exception as diagnostic_error:
+            error.pre_d_diagnostics = {
+                "error_code": "pre_d_exact_jd_mismatch",
+                "confirmation_blocked": True,
+                "diagnostic_error_type": type(diagnostic_error).__name__,
+            }
+        raise error
+    if receipt.get("needs_chroma_index"):
+        try:
+            receipt["chroma_indexed_chunk_count"] = int(
+                index_fn(library_jd_id)
+            )
+            receipt["chroma_indexing_occurred"] = True
+        except Exception as exc:  # JD persistence remains authoritative
+            receipt["chroma_indexing_error"] = str(exc)
     receipt["job_description_id"] = int(persisted["library_jd_id"])
     receipt["source_version_id"] = persisted["source_version_id"]
     receipt["exact_existing_version_reused"] = not bool(
@@ -323,3 +336,17 @@ def render_phase9f_application_confirmation(
                 st.rerun()
             except Exception as exc:
                 st.error(f"Could not create the Application Session: {exc}")
+                diagnostics = getattr(exc, "pre_d_diagnostics", None)
+                if isinstance(diagnostics, dict):
+                    with st.expander("PRE-D exact JD mismatch diagnostics", expanded=True):
+                        st.caption("JD-only comparison. Confirmation is still blocked. "
+                                   "Review the report before sharing; it contains differing JD profile values.")
+                        st.json(diagnostics)
+                        st.download_button(
+                            "Download PRE-D mismatch diagnostics JSON",
+                            data=json.dumps(diagnostics, ensure_ascii=False, indent=2, default=str),
+                            file_name="phase9f_pre_d_mismatch_" + ranking_fingerprint[:16] + ".json",
+                            mime="application/json",
+                            key="phase9f_pre_d_diagnostics_" + ranking_fingerprint[:16],
+                            on_click="ignore",
+                        )

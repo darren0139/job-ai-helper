@@ -60,6 +60,16 @@ def source_version_id(raw_jd_text: str) -> str:
     return _sha256_id("jdv", normalize_jd_text(raw_jd_text))
 
 
+def exact_source_version_id(raw_jd_text: str) -> str:
+    """Immutable version ID for the exact stored text (no normalization)."""
+    return _sha256_id("jdv_exact", raw_jd_text, length=64)
+
+
+def source_version_matches(raw_jd_text: str, version_id: str) -> bool:
+    """Read historical normalized IDs as well as new exact IDs."""
+    return version_id in (source_version_id(raw_jd_text), exact_source_version_id(raw_jd_text))
+
+
 def canonical_job_id(
     *,
     company: str,
