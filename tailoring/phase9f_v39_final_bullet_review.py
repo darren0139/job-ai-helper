@@ -153,7 +153,7 @@ def explain_pair(*, final: dict, ranked: list[dict], proposal: dict) -> dict:
 
 
 def _show_panel(st: Any, *, title: str, row: dict | None, proposal: dict,
-                project: str, catalog: dict) -> None:
+                project: str, catalog: dict, optimizer_proposal: dict | None = None) -> None:
     # Keep the V3.9 selected-final-only model; source panels are read-only.
     with st.container(border=True):
         st.markdown('##### '+title)
@@ -169,8 +169,16 @@ def _show_panel(st: Any, *, title: str, row: dict | None, proposal: dict,
             st.caption(f"{len(scored['saved_jd_ids'])} distinct saved JD requirements. Not a native per-bullet Job Match score.")
             if float(scored['standalone_weighted_points']) == 0.0:
                 st.caption('0.000 means no saved linked-JD points for this wording, not a judgement that the work is worthless.')
-            if scored.get('marginal_in_proposal_points') is not None:
-                st.caption(f"Marginal points in proposed slate: {scored['marginal_in_proposal_points']:.3f} (not the final-document impact).")
+            marginal = scored.get('marginal_in_proposal_points')
+            # Proposal marginal remains separate, and only if the caller has
+            # already verified its scope and its standalone score agrees.
+            old = scored_wording(optimizer_proposal, project, wording) if optimizer_proposal else None
+            if (marginal is None and old is not None
+                    and old.get('standalone_weighted_points') == scored.get('standalone_weighted_points')
+                    and sorted(old.get('saved_jd_ids') or []) == sorted(scored['saved_jd_ids'])):
+                marginal = old.get('marginal_in_proposal_points')
+            if marginal is not None:
+                st.caption(f"Marginal points in proposed slate: {marginal:.3f} (not the final-document impact).")
         else:
             st.caption('Weighted JD score unavailable for this exact wording or generation.')
         from tailoring.phase9f_wording_explanation_ui import wording_facts
@@ -276,13 +284,30 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
                                   ranked: list[dict], catalog: dict,
                                   application_id: int, context: str,
                                   repo_root: Path | None = None,
-                                  prefit_receipt: dict | None = None) -> bool:
+                                  prefit_receipt: dict | None = None,
+                                  independent_scores: dict | None = None) -> bool:
     """Project selectors list ONLY the bytes of the verified chosen DOCX."""
     chosen = chosen_document(audit, result, repo_root=repo_root)
     if chosen['status'] == 'unavailable':
         st.warning('Final bullet inspection withheld: '+chosen['reason'])
         return False
     st.markdown('### Bullet Choices & Base vs Library')
+    score_context = proposal
+    if independent_scores is not None:
+        # Never substitute stale proposal scores when the current scope fails.
+        if independent_scores.get('status') == 'available':
+            scope = independent_scores.get('scope') or {}
+            if (not isinstance(scope, dict) or not scope.get('generation_id')
+                    or not scope.get('a_docx_sha256') or not scope.get('raw_jd_sha256')
+                    or scope.get('generation_id') != audit.get('generation_id')
+                    or scope.get('a_docx_sha256') != audit.get('docx_sha256')):
+                independent_scores = {'status': 'unavailable', 'reason': 'Independent score receipt does not match the fitted generation.'}
+        score_context = {'v38_bullet_score_receipt': independent_scores}
+        if independent_scores.get('status') == 'available':
+            st.caption('JD points: independent saved-link coverage from this fitted generation and exact JD. '
+                       'No optimizer challenger is required; these are not native Job Match points.')
+        else:
+            st.caption('JD points unavailable: '+str(independent_scores.get('reason') or 'Independent score inputs unavailable.'))
     if chosen['role'] == 'fitted':
         valid_removals = [r for r in (prefit_receipt or {}).get('removals', []) if isinstance(r, dict)] if isinstance(prefit_receipt, dict) and prefit_receipt.get('version') == 'phase9f-v39-pre-fit-dedupe-v1' else []
         if valid_removals:
@@ -296,7 +321,7 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
         else:
             st.warning('The existing fitted document is still selected. A tested Best-of alternative is not an applied removal.')
         proposal_removed = [row for row in ranked if row.get('in_actual_a') is True and row.get('in_proposed_b') is False]
-        if result.get('status') == 'verified' and proposal_removed:
+        if result.get('status') == 'verified' and proposal and proposal_removed:
             st.caption('Excluded only in the tested alternative (NOT removed from your fitted document):')
             for row in proposal_removed:
                 st.write('• '+str(row['project'])+' — '+str(row['bullet']))
@@ -331,7 +356,7 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
         labels = {}
         for option in options:
             word = option['bullet']
-            score = scored_wording(proposal, project, word)
+            score = scored_wording(score_context, project, word)
             points = f" · JD {score['standalone_weighted_points']:.3f} pts" if score is not None else ' · JD points unavailable'
             labels[word] = word + points
         # Exact wording identity survives hiding/reopening a checked project.
@@ -345,22 +370,22 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
                                  format_func=labels.__getitem__, key=widget)
         st.session_state[remembered] = selected_word
         selected = options[wordings.index(selected_word)]
-        relation = explain_pair(final=selected, ranked=ranked, proposal=proposal)
+        relation = explain_pair(final=selected, ranked=ranked, proposal=score_context)
         st.caption(relation['reason'])
         base, lib = st.columns(2)
         with base:
-            _show_panel(st, title='Base Resume', row=relation['base'], proposal=proposal,
-                        project=project, catalog=catalog)
+            _show_panel(st, title='Base Resume', row=relation['base'], proposal=score_context,
+                        project=project, catalog=catalog, optimizer_proposal=proposal)
         with lib:
-            _show_panel(st, title='Evidence Library', row=relation['library'], proposal=proposal,
-                        project=project, catalog=catalog)
+            _show_panel(st, title='Evidence Library', row=relation['library'], proposal=score_context,
+                        project=project, catalog=catalog, optimizer_proposal=proposal)
         selected_prefit=_verified_prefit_pair(selected=selected,chosen=chosen,receipt=prefit_receipt)
         st.markdown('**Automatic selection outcome**')
         st.caption('Selected wording: '+selected['bullet'])
         if selected_prefit is not None:
             base_pts=float(selected_prefit['removed_saved_evidence_points']) if 'Base Resume' in selected_prefit.get('removed_sources',[]) else float(selected_prefit['retained_saved_evidence_points'])
             library_pts=float(selected_prefit['retained_saved_evidence_points']) if 'Evidence Library' in selected_prefit.get('retained_sources',[]) else float(selected_prefit['removed_saved_evidence_points'])
-            st.success('Verified pre-fit deduplication: Base '+f'{base_pts:.3f}'+' vs Library '+f'{library_pts:.3f}'+' saved JD points. '+str(selected_prefit.get('selection_reason') or 'Saved selection reason unavailable')+'.')
+            st.success('Verified pre-fit deduplication: Base '+f'{base_pts:.3f}'+' vs Library '+f'{library_pts:.3f}'+' saved pre-fit evidence points. '+str(selected_prefit.get('selection_reason') or 'Saved selection reason unavailable')+'.')
             st.caption('Removed from actual fitted DOCX: '+str(selected_prefit['removed']))
             st.caption('Source choice followed the recorded deterministic rule; this is NOT proof of a higher native per-bullet score.')
         counterpart = relation['library'] if relation['source'] == 'base' else relation['base'] if relation['source'] == 'library' else None

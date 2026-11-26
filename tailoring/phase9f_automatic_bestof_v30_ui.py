@@ -100,7 +100,8 @@ def _source_comparison_rows(proposal: dict, jd_labels: dict | None = None) -> li
 
 def _render_source_comparison(st: Any, *, application_id: int, context: str,
                               run_mode: str, result: dict, audit: dict,
-                              projects: dict | None = None) -> None:
+                              projects: dict | None = None,
+                              independent_scores: dict | None = None) -> None:
     """Make provenance and collective selection visible even for no challenger."""
     import json
     proposal = result.get('proposal') if isinstance(result.get('proposal'), dict) else {}
@@ -156,6 +157,7 @@ def _render_source_comparison(st: Any, *, application_id: int, context: str,
         'original_actual_a': original,
         'candidate_wording_diagnostics': _source_comparison_rows(exported_proposal, jd_labels),
         'existing_fitting_audit': audit,
+        'independent_bullet_scores': independent_scores,
         'proposal': exported_proposal,
         'actual_a_vs_starting': result.get('a_vs_starting'),
         'v35_trial_receipts': result.get('v35_trial_receipts') or [],
@@ -438,6 +440,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         result=selected_base_floor_gate(result,result.get('a_vs_starting'))
     saved_proposal = result.get('proposal') or {}
     has_selection_receipt = run_mode in ('v35-relevance','v37-same-work') or saved_proposal.get('source_comparison')
+    from tailoring.phase9f_independent_bullet_scores_v312b214b import build_independent_bullet_scores
+    independent_scores = build_independent_bullet_scores(audit, projects, baseline_report, raw_jd_text)
     if has_selection_receipt:
         from tailoring.phase9f_v363_selection_receipts import build_bullet_selection_calculation
         from tailoring.phase9f_v364_decision_explorer import render_compact_decision_explorer
@@ -447,8 +451,21 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                                          projects=projects, application_id=int(application_id),
                                          context=context, baseline_report=baseline_report, raw_jd_text=raw_jd_text,
                                          offline_trial=trusted_offline_trial, offline_bonus=trusted_offline_bonus,
-                                         repo_root=repo_root)
-    elif trusted_offline_trial is not None or trusted_offline_bonus is not None:
+                                         repo_root=repo_root, independent_scores=independent_scores)
+    elif independent_scores.get('status') == 'available':
+        # V2.6, older receipts and not-yet-run trials still have a verified
+        # fitted source audit. Display standalone points without a proposal.
+        from tailoring.phase9f_bullet_inspector import inspector_evidence
+        from tailoring.phase9f_v39_final_bullet_review import render_verified_final_bullets
+        rows, _, catalog = inspector_evidence(calc={}, audit=audit, result={},
+            baseline_report=baseline_report, raw_jd_text=raw_jd_text, projects=projects)
+        render_verified_final_bullets(st, audit=audit, result=result, proposal={},
+            ranked=rows, catalog=catalog, application_id=int(application_id), context=context,
+            repo_root=repo_root, prefit_receipt=projects.get('_v39_auto_dedupe'),
+            independent_scores=independent_scores)
+    else:
+        st.caption('JD points unavailable: '+str(independent_scores.get('reason') or 'Independent score inputs unavailable.'))
+    if not has_selection_receipt and (trusted_offline_trial is not None or trusted_offline_bonus is not None):
         from tailoring.phase9f_v364_decision_explorer import _render_offline_receipts
         from tailoring.phase9f_v365_jd_evidence import requirement_catalog
 
@@ -534,7 +551,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                    resume_terms(starting.get('reason') or 'This generation has no independent native-document receipt.'))
     with st.expander('Advanced fitting and optimizer receipt', expanded=False):
         _render_source_comparison(st, application_id=application_id, context=context,
-                                  run_mode=run_mode, result=result, audit=audit, projects=projects)
+                                  run_mode=run_mode, result=result, audit=audit, projects=projects,
+                                  independent_scores=independent_scores)
 
 
 def freeze_reviewed_slate(proposal: dict) -> tuple[dict | None, str]:
