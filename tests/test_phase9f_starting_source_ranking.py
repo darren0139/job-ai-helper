@@ -251,10 +251,11 @@ def resolved_blueprint_provenance(
     }
 
 
-def make_base(*, strong: bool, display_name: str = "Base Resume") -> tuple[dict, dict]:
+def make_base(*, strong: bool, display_name: str = "Base Resume", artifact_bytes: bytes | None = None) -> tuple[dict, dict]:
     profile = resume_profile(strong=strong, marker="Base")
     text = resume_text(profile)
-    artifact_bytes = b"synthetic-base-resume-docx"
+    if artifact_bytes is None:
+        artifact_bytes = b"synthetic-base-resume-docx"
     artifact_sha = hashlib.sha256(artifact_bytes).hexdigest()
     semantic = {
         "format_version": BASE_RESUME_FORMAT_VERSION,
