@@ -16,6 +16,9 @@ from typing import Callable
 
 from tailoring.phase9f_auto_optimize_v31 import build_flexible_optimization
 from tailoring.phase9f_evidence_optimizer_v33 import _metadata, overlap
+from tailoring.phase9f_large_pool_v312b214b2 import prepare_sources, bounded_local_slates
+from tailoring.phase9f_joint_resume_optimizer_v2_6 import MAX_POOL_PER_PROJECT
+from functools import lru_cache
 from tailoring.phase9f_joint_resume_optimizer_v2_6 import _get_rank, _key, _points
 
 VERSION = 'phase9f-jd-relevance-v3.5-v1'
@@ -67,7 +70,7 @@ def build_jd_relevance_optimization(audit: dict, projects: dict, *,
     """
     if isinstance(max_trials, bool) or not isinstance(max_trials, int) or not 1 <= max_trials <= MAX_TRIALS:
         return _hold('Invalid bounded native trial count.')
-    source = build_flexible_optimization(audit, projects, evaluator=evaluator)
+    source = prepare_sources(audit, projects, evaluator=evaluator, legacy_builder=build_flexible_optimization)
     if source.get('status') == 'withheld':
         return _hold(str(source.get('reason') or 'Frozen source evaluation withheld.'), source)
     comp = source.get('source_comparison')
@@ -134,35 +137,51 @@ def build_jd_relevance_optimization(audit: dict, projects: dict, *,
         baseline_ids.update(*(set(cands[i]['saved_jd_ids']) for i in base))
         # Local subsets: high JD coverage and specificity, compactness and
         # baseline identity all receive representation in the cross-project beam.
-        slates = []
-        for count in range(max(1, len(base)-1), min(len(cands), MAX_LOCAL_BULLETS, len(base)+2) + 1):
-            for combo in combinations(range(len(cands)), count):
-                chosen = [cands[i] for i in combo]
-                ids = {rid for c in chosen for rid in c['saved_jd_ids']}
-                words = sum(int(c['word_count']) for c in chosen)
-                terms = frozenset(t for c in chosen for t in c['v35_jd_term_hits'])
-                corroboration = sum(max((float(c['v35_link_corroboration']) for c in chosen
-                    if rid in c['saved_jd_ids']), default=0.0) for rid in ids)
-                overlaps = sum(1 for a, b in combinations(chosen, 2)
-                    if set(a['saved_jd_ids']) & set(b['saved_jd_ids']) and overlap(a['text'], b['text']) >= .46)
-                lex = sum(token_weight[t] for t in terms)
-                # Scores are deliberately advisory and non-ATS; distinct saved
-                # JD IDs dominate a small bounded lexical/overlap tie-break.
-                quality = round(lex + 1.5 * corroboration - 3.25 * overlaps, 4)
-                edits = len(set(combo) ^ set(base))
-                library = sum('Evidence Library' in c['source_labels'] and
-                              'Selected Base' not in c['source_labels'] for c in chosen)
-                slates.append({'ix':combo, 'ids':frozenset(ids), 'words':words,
-                    'terms':terms, 'corrob':corroboration, 'overlaps':overlaps,
-                    'quality':quality, 'edits':edits, 'library':library,
-                    'count':count})
+        counts = range(max(1, len(base)-1), min(len(cands), MAX_LOCAL_BULLETS, len(base)+2) + 1)
+        pair_overlap = lru_cache(maxsize=8192)(overlap) if len(cands) > MAX_POOL_PER_PROJECT else overlap
+        def score(combo):
+            chosen = [cands[i] for i in combo]
+            ids = {rid for c in chosen for rid in c['saved_jd_ids']}
+            words = sum(int(c['word_count']) for c in chosen)
+            terms = frozenset(t for c in chosen for t in c['v35_jd_term_hits'])
+            corroboration = sum(max((float(c['v35_link_corroboration']) for c in chosen
+                if rid in c['saved_jd_ids']), default=0.0) for rid in ids)
+            overlaps = sum(1 for a, b in combinations(chosen, 2)
+                if set(a['saved_jd_ids']) & set(b['saved_jd_ids']) and pair_overlap(a['text'], b['text']) >= .46)
+            lex = sum(token_weight[t] for t in terms)
+            # Scores are deliberately advisory and non-ATS; distinct saved
+            # JD IDs dominate a small bounded lexical/overlap tie-break.
+            quality = round(lex + 1.5 * corroboration - 3.25 * overlaps, 4)
+            edits = len(set(combo) ^ set(base))
+            library = sum('Evidence Library' in c['source_labels'] and
+                          'Selected Base' not in c['source_labels'] for c in chosen)
+            return {'ix':combo, 'ids':frozenset(ids), 'words':words,
+                'terms':terms, 'corrob':corroboration, 'overlaps':overlaps,
+                'quality':quality, 'edits':edits, 'library':library,
+                'count':len(combo)}
         local = lambda s: (-_points(set(s['ids']), weights), -s['quality'],
                            s['overlaps'], s['edits'], s['words'], -s['library'], s['ix'])
+        space = lambda s: (s['words'], -_points(set(s['ids']),weights), -s['quality'],s['ix'])
+        stability = lambda s: (s['edits'], -s['quality'],s['words'],s['ix'])
+        if len(cands) > MAX_POOL_PER_PROJECT:
+            slates, receipt = bounded_local_slates(cands, base, counts, score, local, space, stability)
+            group['large_pool_search'] = receipt
+        else:
+            slates = [score(combo) for count in counts for combo in combinations(range(len(cands)), count)]
         by_quality = sorted(slates, key=local)[:42]
         by_space = sorted(slates, key=lambda s: (s['words'], -_points(set(s['ids']),weights),
                                                        -s['quality'],s['ix']))[:15]
         by_stability = sorted(slates, key=lambda s: (s['edits'], -s['quality'],s['words'],s['ix']))[:15]
-        kept = {s['ix']:s for s in by_quality+by_space+by_stability}
+        if len(cands) > MAX_POOL_PER_PROJECT:
+            # Preserve some low-frequency link states in the actual retained
+            # local shortlist, not only the expansion beam. No static top-N
+            # source filter: candidates outside these slates remain auditable.
+            freq = Counter(r for c in cands for r in c['saved_jd_ids'])
+            by_rare = sorted(slates, key=lambda s: (-sum(1/freq[r] for r in sorted(s['ids'])), local(s)))[:12]
+            retained = by_quality[:36]+by_space[:12]+by_stability[:12]+by_rare
+        else:
+            retained = by_quality+by_space+by_stability
+        kept = {s['ix']:s for s in retained}
         basekey = tuple(sorted(base))
         if basekey not in kept:
             kept[basekey] = next(s for s in slates if s['ix'] == basekey)
