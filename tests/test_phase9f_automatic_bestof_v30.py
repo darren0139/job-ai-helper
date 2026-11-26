@@ -165,7 +165,7 @@ class ExplicitActionIntegration(unittest.TestCase):
         st=UI();st.session_state={}
         mark_fit_request(st,20,'g_123')
         expected={'phase9f_auto_bestof_pending_20':'g_123',
-                  'phase9f_auto_bestof_run_mode_20':{'generation_id':'g_123','mode':'v35-relevance'}}
+                  'phase9f_auto_bestof_run_mode_20':{'generation_id':'g_123','mode':'v37-same-work'}}
         self.assertEqual(st.session_state,expected)
         mark_fit_request(st,20,'')
         self.assertEqual(st.session_state,expected)

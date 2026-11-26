@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION, EXPECTED_JD_INPUT_FINGERPRINT
+
 import unittest
 
 from analysis_stability.stable_evidence_scoring import (
@@ -87,7 +89,8 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
             ),
         )
         rows = result["canonical_requirements"]
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
+        self.assertEqual(result["scoring_version"], EXPECTED_SCORING_VERSION)
         self.assertEqual(
             [row["requirement_id"] for row in rows],
             ["req_fa2df5ec2bec", "req_e234b59a39a9", "req_d548c5b83fa6"],
@@ -105,7 +108,7 @@ class SharedStableScoringRegressionTests(unittest.TestCase):
         # All requirement, evidence and score assertions above remain unchanged.
         self.assertEqual(
             result["input_fingerprint"],
-            "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
+            EXPECTED_JD_INPUT_FINGERPRINT,
         )
 
     def test_phase8_representative_output_and_fingerprint_are_unchanged(self):

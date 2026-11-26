@@ -1087,9 +1087,17 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
             completed["current_stage"],
             "normal_phase8_verified_and_approved",
         )
+        self.assertEqual(completed["generation_id"], "")
         self.assertEqual(
-            completed["generation_id"],
+            completed["stage_outputs"]["normal_phase8"]["generation_id"],
             fitted["generation"]["generation_id"],
+        )
+        persisted = execution_manager.get_phase9f_tailoring_execution(application_id)
+        self.assertEqual(persisted["generation_id"], "")
+        self.assertTrue(execution_manager.is_phase9f_normal_lifecycle_execution(persisted))
+        self.assertEqual(
+            execution_manager.reconcile_phase9f_tailoring_approval(application_id=application_id),
+            persisted,
         )
         self.assertEqual(len(project_calls), 2)
         self.assertEqual(len(fit_calls), 1)
@@ -1166,7 +1174,8 @@ class Phase9FTailoringExecutionTests(unittest.TestCase):
         final_verification = get_latest_tailoring_verification(application_id, generation_id)
         self.assertEqual(completed["status"], "completed")
         self.assertEqual(completed["current_stage"], "normal_phase8_verified_and_approved")
-        self.assertEqual(completed["generation_id"], generation_id)
+        self.assertEqual(completed["generation_id"], "")
+        self.assertEqual(completed["stage_outputs"]["normal_phase8"]["generation_id"], generation_id)
         self.assertTrue(execution_manager.get_tailoring_verification_approval_gate(application_id, generation_id)["ready"])
         self.assertTrue(final_verification["blueprint_ready"])
         self.assertEqual(final_verification["job_match_ab"], verified["verification"]["job_match_ab"])

@@ -164,7 +164,7 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
                                      audit: dict, projects: dict, application_id: int,
                                      context: str, baseline_report: dict | None = None,
                                      raw_jd_text: str = '', offline_trial: dict | None = None,
-                                     offline_bonus: dict | None = None) -> None:
+                                     offline_bonus: dict | None = None, repo_root=None) -> None:
     st.markdown('### Decision Explorer')
     info = decision_summary(calc, result)
     catalog = requirement_catalog(baseline_report, projects)
@@ -206,19 +206,38 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
     # Reuse B3's exact evidence/currentness preparation and B4's existing component.
     # Keep the established key so detailed-inspector callbacks target this one panel.
     from tailoring.phase9f_bullet_inspector import inspector_evidence
-    from tailoring.phase9f_bullet_pair_ui import render_pair_comparison
+    from tailoring.phase9f_v39_final_bullet_review import render_verified_final_bullets
     pair_rows, pair_recorded, pair_catalog = inspector_evidence(
         calc=calc, audit=audit, result=result, baseline_report=baseline_report or {},
         raw_jd_text=raw_jd_text, projects=projects)
     render_why_slate(st, info, calc if pair_recorded else {'status':'unavailable'})
-    explanation_catalog = (pair_catalog if not (baseline_report or {}).get('raw_jd_text')
-                           or baseline_report['raw_jd_text']==raw_jd_text else {})
-    if pair_rows:
-        render_pair_comparison(st, ranked=pair_rows, recorded=pair_recorded, calc=calc,
-            audit=audit, proposal=proposal, result=result, catalog=pair_catalog,
-            projects=projects, jd=raw_jd_text, report=baseline_report or {},
-            key=f'bullet_inspector_{application_id}_{context}_b4', project='All projects',
-            offline_trial=offline_trial, show_standalone=False, primary=True)
+    # Never display saved JD points when the proposal/JD source receipt is stale.
+    final_view_available = render_verified_final_bullets(st, audit=audit, result=result,
+        proposal=(proposal if pair_recorded else {}),
+        ranked=pair_rows, catalog=pair_catalog, application_id=application_id,
+        context=context, repo_root=repo_root,
+        prefit_receipt=((projects or {}).get('_v39_auto_dedupe') if isinstance(projects, dict) else None))
+
+    # Only the verified final view is primary. Retain the source-only inspector
+    # as an explicit diagnostic, or fallback if no chosen DOCX is verified.
+    source_key = f'bullet_inspector_{application_id}_{context}_b4'
+    show_source = not final_view_available
+    if pair_rows and final_view_available:
+        toggle = source_key+'_advanced_open'
+        if st.session_state.get(source_key+'_request'):
+            st.session_state[toggle] = True
+        show_source = st.checkbox('Inspect other source wordings (advanced)', key=toggle)
+    if pair_rows and show_source:
+        from tailoring.phase9f_bullet_pair_ui import render_pair_comparison
+        render_pair_comparison(
+            st, ranked=pair_rows, recorded=pair_recorded,
+            calc=(calc if pair_recorded else {'status': 'unavailable'}),
+            audit=audit, proposal=(proposal if pair_recorded else {}),
+            result=result, catalog=pair_catalog, projects=projects,
+            jd=raw_jd_text, report=(baseline_report or {}),
+            key=f'bullet_inspector_{application_id}_{context}_b4',
+            primary=True, application_id=application_id,
+        )
 
     rows = calc.get('rows') or []
     receipt_scope = dict(trial=offline_trial, bonus=offline_bonus, audit=audit, catalog=catalog,

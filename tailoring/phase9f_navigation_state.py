@@ -47,6 +47,12 @@ def navigation_selectbox(st: Any, label: str, options: Any, *, key: str,
         state[key] = matches[0]
     elif key in state:
         del state[key]
+    # Streamlit rejects a second widget default when the selected value was
+    # already restored into Session State. Keep the caller's index only on
+    # genuinely fresh/unset widgets (including invalidated ranking scopes).
+    kwargs = dict(kwargs)
+    if key in state:
+        kwargs.pop("index", None)
     selected = st.selectbox(
         label, options, key=key, on_change=_remember,
         args=(state, key, scope, identity), **kwargs,

@@ -172,7 +172,7 @@ class UIContract(unittest.TestCase):
     def test_manual_retry_only_on_user_click_with_full_guarded_runner(self):
         ui=Path(__file__).resolve().parents[1]/'tailoring'/'phase9f_automatic_bestof_v30_ui.py'
         body=ui.read_text(encoding='utf-8')
-        self.assertIn("result.get('status')=='withheld' and run_mode in ('v33-evidence','v35-relevance')",body)
+        self.assertIn("result.get('status')=='withheld' and run_mode in ('v33-evidence','v35-relevance','v37-same-work')",body)
         self.assertIn('Retry native comparison using the existing fitted résumé',body)
         self.assertIn('retry=evaluate_auto(audit=audit,projects=projects,fit=fit,',body)
         self.assertIn("'verification_stage': result.get('verification_stage') or ''",body)

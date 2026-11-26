@@ -404,7 +404,13 @@ def _render_phase9f_generation_sources(application_id: int) -> None:
     with panel:
         chosen=panel.selectbox('Inspect frozen generation',generations,
             format_func=lambda r:r['generation_id'][:8]+' · '+r['status'],key=f'phase9f_frozen_generation_{application_id}')
-        execution=get_phase9f_tailoring_execution(application_id,generation_id=chosen['generation_id'])
+        # phase9f-v39-history-inspection-crash-guard-v1
+        try:
+            execution=get_phase9f_tailoring_execution(application_id,generation_id=chosen['generation_id'])
+        except ValueError as exc:
+            panel.warning("Historical generation unavailable: " + str(exc))
+            panel.caption("The saved generation/execution binding needs review. This read-only history panel cannot repair or approve it.")
+            return
         if not execution:
             panel.caption('This historical generation has no matching Phase 9F execution identity.')
             return

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION
+
 import copy
 import unittest
 
@@ -63,7 +65,7 @@ class ResumeEvidenceStructuralHeadingTests(unittest.TestCase):
     def test_scoring_version_bumped(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            EXPECTED_SCORING_VERSION,
         )
 
     def test_structural_headings_are_not_evidence_rows(self):

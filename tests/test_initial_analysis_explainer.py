@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import historical_receipt_policy
+
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -45,7 +47,7 @@ class InitialAnalysisFormatterTests(unittest.TestCase):
         st.columns.return_value=[Mock() for _ in range(4)]
         st.expander.return_value.__enter__=Mock()
         st.expander.return_value.__exit__=Mock(return_value=False)
-        with patch('tailoring.initial_analysis_explainer_ui.render_jd_taxonomy_status') as render_taxonomy:
+        with historical_receipt_policy(bundle), patch('tailoring.initial_analysis_explainer_ui.render_jd_taxonomy_status') as render_taxonomy:
             render_job_finder_explainer(st, {'id':1,'discovered_job_id':163,'stable_analysis':native},
                 job['frozen_inputs']['raw_jd_text'], taxonomy=reviewed)
         render_taxonomy.assert_not_called()
@@ -60,8 +62,9 @@ class InitialAnalysisFormatterTests(unittest.TestCase):
         fixture=Path(__file__).resolve().parent/'fixtures'/'per_jd_scoring_audit.json'
         bundle=json.loads(fixture.read_text(encoding='utf-8'))
         job=next(j for j in bundle['snapshot']['audit']['corpus']['jobs'] if j['job_id']==163)
-        view=explainer.build_analysis_receipt(job['baseline_stable_analysis'],raw_jd_text=job['frozen_inputs']['raw_jd_text'],
-            provenance='JOB_FINDER_INITIAL_MATCH',identity={'discovered_job_id':163})
+        with historical_receipt_policy(bundle):
+            view=explainer.build_analysis_receipt(job['baseline_stable_analysis'],raw_jd_text=job['frozen_inputs']['raw_jd_text'],
+                provenance='JOB_FINDER_INITIAL_MATCH',identity={'discovered_job_id':163})
         app=AppTest.from_string('''
 import streamlit as st
 from tailoring.initial_analysis_explainer_ui import render_analysis_receipt
@@ -69,7 +72,7 @@ render_analysis_receipt(st,st.session_state['receipt'])
 ''',default_timeout=30)
         app.session_state['receipt']=view
         app.session_state['tm_coverage_receipt']=bundle
-        with patch('taxonomy_discovery.coverage_presentation.maintenance.currentness',return_value={'current':True,'blockers':[]}):
+        with historical_receipt_policy(bundle), patch('taxonomy_discovery.coverage_presentation.maintenance.currentness',return_value={'current':True,'blockers':[]}):
             app.run()
         self.assertFalse(app.exception)
         table=next(frame.value for frame in app.dataframe if 'Analysis status' in frame.value.columns)

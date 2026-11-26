@@ -1,4 +1,6 @@
 """Native 30-job frozen receipts; no provider/research/lifecycle changes."""
+
+from tests.b213_policy_support import historical_receipt_policy, EXPECTED_SCORING_VERSION, ACTIVE, LEGACY
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -29,7 +31,8 @@ class PerJDTaxonomyTests(unittest.TestCase):
         job = self.job(jid)
         args = {"job_id":jid,"raw_jd_text":job["frozen_inputs"]["raw_jd_text"],"stable_analysis":job["baseline_stable_analysis"]}
         args.update(changes)
-        return coverage.jd_coverage(self.receipt["snapshot"], self.receipt["plan"], **args)
+        with historical_receipt_policy(self.receipt):
+            return coverage.jd_coverage(self.receipt["snapshot"], self.receipt["plan"], **args)
 
     def test_global_is_global_and_preserved(self):
         v = coverage.confirmed_coverage(self.receipt["snapshot"],self.receipt["plan"])
@@ -50,10 +53,33 @@ class PerJDTaxonomyTests(unittest.TestCase):
                 r['knowledge_status']='TECHNOLOGY_IDENTITY_RESOLVED'
             rows.append(r)
         stable['canonical_requirements']=rows
+        # These rows are explicitly synthetic live-analysis fixtures, not saved receipts.
+        stable['scoring_version']=EXPECTED_SCORING_VERSION
         raw='\n'.join(r['text'] for r in rows)
         stable['jd_fingerprint']=current_ab_identity(raw)['jd_fingerprint']
         stable['canonical_requirement_fingerprint']=canonical_requirement_scope_fingerprint(rows)
         return raw,stable
+
+    def test_frozen_receipt_policy_is_not_silently_promoted(self):
+        from job_discovery.matching import current_match_versions
+        job = self.job(566)
+        stable = job["baseline_stable_analysis"]
+        before = deepcopy(stable)
+        self.assertEqual(stable["scoring_version"], LEGACY)
+        self.assertEqual(current_match_versions()["scoring_version"], EXPECTED_SCORING_VERSION)
+        if EXPECTED_SCORING_VERSION == ACTIVE:
+            with self.assertRaisesRegex(ValueError, "Stale/incompatible analysis: scoring_version"):
+                coverage.jd_coverage(None, None, raw_jd_text=job["frozen_inputs"]["raw_jd_text"], stable_analysis=stable)
+        else:
+            view = coverage.jd_coverage(None, None, raw_jd_text=job["frozen_inputs"]["raw_jd_text"], stable_analysis=stable)
+            self.assertGreater(view["capability_resolved"], 0)
+        self.assertEqual(stable, before)
+        with historical_receipt_policy(self.receipt):
+            view = coverage.jd_coverage(None, None, raw_jd_text=job["frozen_inputs"]["raw_jd_text"], stable_analysis=stable)
+            self.assertGreater(view["capability_resolved"], 0)
+        from job_discovery import matching
+        self.assertEqual(matching.current_match_versions()["scoring_version"], EXPECTED_SCORING_VERSION)
+        self.assertEqual(stable, before)
 
     def test_live_without_review_is_available_and_occurrences_exclude_unknowns(self):
         for resolved,other,identities in ((8,12,0),(11,11,0),(7,14,0),(5,20,1)):
@@ -224,7 +250,7 @@ render_jd_taxonomy_status(st,raw_jd_text=j["frozen_inputs"]["raw_jd_text"],stabl
 '''
         app=AppTest.from_string(code,default_timeout=30)
         app.session_state["tm_coverage_receipt"]=self.receipt;app.session_state["job"]=job
-        with patch.object(governed_research,"execute_plan") as research,patch.object(governed_publication,"publish_approved_change") as publish,patch.object(taxonomy_addressability,"classify") as classify:
+        with historical_receipt_policy(self.receipt), patch.object(governed_research,"execute_plan") as research,patch.object(governed_publication,"publish_approved_change") as publish,patch.object(taxonomy_addressability,"classify") as classify:
             for _ in range(2): app.run();self.assertEqual(list(app.exception),[])
             metrics={m.label:m.value for m in app.metric}
             self.assertEqual(metrics["This JD's confirmed taxonomy coverage"],"100.00%")
@@ -239,6 +265,7 @@ class ScoringEligibilityAuditTests(unittest.TestCase):
 
     def setUp(self):
         self.receipt=deepcopy(self.native)
+        self.enterContext(historical_receipt_policy(self.receipt))
         current=patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]})
         current.start();self.addCleanup(current.stop)
     def test_receipts_reproduce_every_production_score_and_do_not_mutate(self):

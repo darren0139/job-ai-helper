@@ -352,6 +352,18 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
                         'verification_stage':stage,'guarded_review':checked}
         stage='compare_native_a_and_b'
         compared=compare_document_candidates(candidate_a=a,candidate_b=b)
+        # V3.7 may prefer a simpler B on an *exact native score tie* only
+        # after both actual documents have been scored and all requirement
+        # strengths are non-regressed. This is not automatic approval.
+        if (guarded_floor_binding is None and compared.get('status')=='verified'
+                and compared.get('winner')=='existing_final'
+                and compared.get('delta')==0 and not compared.get('hard_regressed_ids')):
+            from tailoring.phase9f_same_work_selection_v37 import verified_tie_dedupe
+            if verified_tie_dedupe(audit=audit,proposal=proposal,
+                                   original_score=a,alternative_score=b):
+                compared.update(winner='optimized_candidate',
+                    same_work_verified_tie_break='nonregressed_simplification_v37',
+                    reason='Verified native scores tie; the proposed résumé removes same-work repetition without losing any measured JD requirement strength. The candidate remains unapproved and requires the existing Selected Base floor.')
         if guarded_floor_binding is not None and compared.get('status')=='verified':
             compared.update(winner='existing_final',guarded_review=checked,
                             reason='Verified challenger available for explicit review. The existing fitted résumé remains selected.')

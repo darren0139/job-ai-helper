@@ -1310,6 +1310,9 @@ def delete_application_generation_control(
         (int(application_id),),
     )
     preferences_deleted = max(0, int(cursor.rowcount or 0))
+    # Additional display-only Best-of review state must not outlive the application.
+    from database.phase9f_bestof_review_state import delete_bestof_display_receipts
+    delete_bestof_display_receipts(int(application_id), connection=connection)
     connection.commit()
     connection.close()
     return {

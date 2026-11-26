@@ -35,18 +35,18 @@ class FakeStreamlit:
 class ConfigTests(unittest.TestCase):
     def test_default_and_legacy_checked_migration(self):
         st=FakeStreamlit()
-        self.assertEqual(render_optimizer_mode_selector(st,40),'v35-relevance')
-        self.assertEqual(st.session_state['phase9f_bestof_next_mode_40'],'v35-relevance')
+        self.assertEqual(render_optimizer_mode_selector(st,40),'v37-same-work')
+        self.assertEqual(st.session_state['phase9f_bestof_next_mode_40'],'v37-same-work')
         old=FakeStreamlit({'phase9f_v31_flexible_mode_41':True})
-        self.assertEqual(render_optimizer_mode_selector(old,41),'v35-relevance')
-        self.assertEqual(old.session_state['phase9f_bestof_next_mode_41'],'v35-relevance')
+        self.assertEqual(render_optimizer_mode_selector(old,41),'v37-same-work')
+        self.assertEqual(old.session_state['phase9f_bestof_next_mode_41'],'v37-same-work')
 
     def test_mode_is_snapshotted_at_successful_fit_and_unaffected_by_later_change(self):
         st=FakeStreamlit({'phase9f_bestof_next_mode_3':'v31-flexible'})
         mark_fit_request(st,3,'g-one')
         st.session_state['phase9f_bestof_next_mode_3']='v26-fixed'
         self.assertEqual(st.session_state['phase9f_auto_bestof_run_mode_3'],
-                         {'generation_id':'g-one','mode':'v35-relevance'})
+                         {'generation_id':'g-one','mode':'v37-same-work'})
         mark_fit_request(st,3,'g-two')
         self.assertEqual(st.session_state['phase9f_auto_bestof_run_mode_3'],
                          {'generation_id':'g-two','mode':'v26-fixed'})

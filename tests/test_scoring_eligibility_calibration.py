@@ -1,4 +1,6 @@
 """Native receipts and local UI only; no production eligibility changes."""
+
+from tests.b213_policy_support import historical_receipt_policy
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -19,6 +21,7 @@ class AnalyzedJobsSummaryTests(unittest.TestCase):
         cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
 
     def setUp(self):
+        self.enterContext(historical_receipt_policy(self.bundle))
         self.current=patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]})
         self.current.start();self.addCleanup(self.current.stop)
 
@@ -121,7 +124,7 @@ class CalibrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}):
+        with historical_receipt_policy(cls.bundle), patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}):
             cls.result=calibration.build_calibration(cls.bundle["snapshot"],cls.bundle["plan"])
 
     def test_all_34_receipts_are_retained_with_six_condition_review(self):
@@ -165,7 +168,7 @@ class CalibrationTests(unittest.TestCase):
 
     def test_preview_is_bounded_zero_exclusions_and_immutable(self):
         before=deepcopy(self.bundle)
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
+        with historical_receipt_policy(self.bundle), patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
             block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \
             patch.object(coverage.maintenance,"publish_validated",side_effect=AssertionError("Publish")):
@@ -181,7 +184,7 @@ class FinalAdjudicationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bundle=json.loads(FIXTURE.read_text(encoding="utf-8"))
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
+        with historical_receipt_policy(cls.bundle), patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
             patch.object(calibration.audit,"counterfactual",side_effect=AssertionError("No speculative preview")):
             cls.result=calibration.build_adjudication(cls.bundle["snapshot"],cls.bundle["plan"])
 
@@ -243,7 +246,7 @@ class FinalAdjudicationTests(unittest.TestCase):
 
     def test_read_only_final_build_never_runs_unproven_preview(self):
         before=deepcopy(self.bundle)
-        with patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
+        with historical_receipt_policy(self.bundle), patch.object(coverage.maintenance,"currentness",return_value={"current":True,"blockers":[]}), \
             patch.object(calibration.audit,"counterfactual",side_effect=AssertionError("Unproven preview")), \
             block_external_network_allow_loopback(), \
             patch.object(coverage.maintenance,"execute_research",side_effect=AssertionError("Research")), \

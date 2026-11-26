@@ -38,8 +38,9 @@ class WordingPresentation(unittest.TestCase):
         testing=next(q for q in f['requirements'] if 'acceptance testing' in q['text'])
         self.assertIn('integration testing',testing['reason']);self.assertIn('UAT',testing['reason'])
         database=next(q for q in f['requirements'] if 'database' in q['text'])
-        self.assertFalse(database['supported']);self.assertEqual(database['kind'],'Not matched')
+        self.assertFalse(database['supported']);self.assertEqual(database['kind'],'Not established')
         self.assertFalse(database['phrases'])
+        self.assertFalse(any('Added' in x for x in f['limits']))
         f=self.facts('Implemented database access with PostgREST and Row-Level Security policies.')
         self.assertTrue(f['phrases']['database'])
 
@@ -53,29 +54,34 @@ class WordingPresentation(unittest.TestCase):
 
 
 class MultiProjectUI(unittest.TestCase):
-    def test_all_clear_uncheck_and_independent_wording_persist(self):
-        app=app_for().run(timeout=30);self.assertFalse(app.exception,list(app.exception))
-        checks=[x for x in app.checkbox if '_b4_' in (x.key or '') and '_project_' in x.key]
-        self.assertEqual(len(checks),2)
-        next(x for x in app.button if x.label=='Select all').click().run()
+    def test_only_final_docx_project_and_bullet_can_be_selected(self):
+        app=app_for().run(timeout=30)
         self.assertFalse(app.exception,list(app.exception))
-        self.assertTrue(all(x.value for x in app.checkbox if '_b4_' in (x.key or '') and '_project_' in x.key))
-        self.assertTrue(any(TESTING==v.value for v in app.markdown))
-        self.assertTrue(any(REMOVED==v.value for v in app.markdown))
-        next(x for x in app.checkbox if x.label=='Synthetic Query').uncheck().run()
-        self.assertTrue(next(x for x in app.checkbox if x.label=='Synthetic Testing').value)
-        next(x for x in app.checkbox if x.label=='Synthetic Query').check().run()
+        projects=[x for x in app.checkbox if x.label in ('Synthetic Query','Synthetic Testing')]
+        self.assertEqual([x.label for x in projects],['Synthetic Query','Synthetic Testing'])
+        self.assertFalse(any(x.label=='Final résumé project' for x in app.selectbox))
+        self.assertTrue(any(x.label=='Select one final résumé bullet' for x in app.radio))
+        self.assertFalse(any('Base Resume wording' in x.label or 'Evidence Library wording' in x.label for x in app.radio))
+        self.assertEqual({x.label for x in app.button if x.label in ('Select all','Clear all')},{'Select all','Clear all'})
+        next(x for x in projects if x.label=='Synthetic Testing').check().run()
         self.assertFalse(app.exception,list(app.exception))
-        next(x for x in app.button if x.label=='Clear all').click().run()
-        self.assertFalse(any(x.value for x in app.checkbox if '_b4_' in (x.key or '') and '_project_' in x.key))
+        radios=[x for x in app.radio if x.label=='Select one final résumé bullet']
+        self.assertEqual(len(radios),2)
+        self.assertEqual(radios[1].value,TESTING)
+        self.assertEqual(radios[1].options,[TESTING+' · JD points unavailable'])
+        self.assertEqual(radios[0].value,REMOVED)
+        self.assertFalse(any(x.label=='Source wording to explain' for x in app.selectbox))
 
-    def test_evidence_is_inside_its_own_expander_receipts_unchanged(self):
+    def test_final_bullet_two_panels_and_jd_evidence_do_not_mutate_receipts(self):
         data=fixture();original=deepcopy(data);app=app_for(data).run(timeout=30)
-        next(x for x in app.button if x.label=='Select all').click().run()
-        for panel in app.expander:
-            if panel.label=='Supporting evidence & match details':
-                self.assertTrue(list(panel.markdown),panel.label)
-                self.assertTrue(any(v.value in (TESTING,REMOVED) or 'Built database' in v.value for v in panel.markdown))
+        self.assertFalse(app.exception,list(app.exception))
+        texts=[x.value for x in app.markdown]
+        self.assertIn('##### Base Resume', texts)
+        self.assertIn('##### Evidence Library', texts)
+        self.assertIn('**:green[Strengths]**', texts)
+        self.assertIn('**:red[Weaknesses / limits]**', texts)
+        self.assertTrue(any('JD requirements & keyword evidence' in x.value for x in app.markdown))
+        self.assertTrue(any('Keyword comparison at a glance' in x.value for x in app.markdown))
         self.assertFalse(any(x.label=='Comparison project' for x in app.selectbox))
         self.assertFalse(any(x.label=='Bullet explanation project' for x in app.selectbox))
         for k,v in original.items():self.assertEqual(app.session_state[k],v)

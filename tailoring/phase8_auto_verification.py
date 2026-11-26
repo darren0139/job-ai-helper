@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from tailoring.phase8_verification import (
     PHASE8_PREAPPROVAL_GATE_VERSION,
     PHASE8_VERIFICATION_VERSION,
@@ -12,6 +13,21 @@ from tailoring.phase8_verification import (
 from tailoring.job_match_ab_analysis import inspect_job_match_ab_lifecycle
 
 PHASE8_AUTO_VERIFY_VERSION = "phase8-auto-verify-v1"
+
+
+def _matches_active_scoring_policy(verification: dict[str, Any]) -> bool:
+    """When the A1.7 scorer policy is active, refuse old-policy Phase 8 receipts.
+
+    A1.8 enables that policy by default; an explicit legacy startup rollback
+    retains the earlier historical receipt and snapshot compatibility rules.
+    """
+    if not SCORING_VERSION.endswith("-v312a17-fullstack-single-row"):
+        return True
+    after = verification.get("after_stable_analysis")
+    if not isinstance(after, dict):
+        return False
+    version = str(after.get("scoring_version") or "")
+    return version == SCORING_VERSION or version.startswith(SCORING_VERSION + "+")
 
 
 def phase8_verification_is_current(
@@ -33,6 +49,8 @@ def phase8_verification_is_current(
         str(verification.get("approval_gate_version") or "").strip()
         != PHASE8_PREAPPROVAL_GATE_VERSION
     ):
+        return False
+    if not _matches_active_scoring_policy(verification):
         return False
     expected = build_phase8_generation_snapshot_fingerprint(generation_state)
     actual = str(
@@ -69,6 +87,8 @@ def phase8_verification_refresh_reason(
         != PHASE8_PREAPPROVAL_GATE_VERSION
     ):
         return "approval_gate_version_mismatch"
+    if not _matches_active_scoring_policy(verification):
+        return "scoring_policy_changed_requires_fresh_verification"
     expected = build_phase8_generation_snapshot_fingerprint(generation_state)
     actual = str(
         verification.get("verified_generation_snapshot_fingerprint") or ""

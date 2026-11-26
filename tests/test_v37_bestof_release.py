@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
+import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
@@ -27,6 +28,25 @@ def _selected_option(_label, options, *, index=0, **_kwargs):
 
 
 class BestOfRelease(unittest.TestCase):
+    def setUp(self):
+        # These release tests use a synthetic Application 156/gen156. The real
+        # display-receipt SQLite database must never be read or mutated by them.
+        # A fresh DB per test also prevents one mock optimizer result from
+        # suppressing another test's explicit comparison/review action.
+        temp = TemporaryDirectory(prefix='v37_bestof_release_receipts_')
+        self.addCleanup(temp.cleanup)
+        db_path = Path(temp.name) / 'bestof_review.sqlite3'
+
+        def connect_display_receipts():
+            connection = sqlite3.connect(db_path)
+            connection.row_factory = sqlite3.Row
+            return connection
+
+        isolated = patch('database.phase9f_bestof_review_state._connect',
+                         side_effect=connect_display_receipts)
+        isolated.start()
+        self.addCleanup(isolated.stop)
+
     def test_selectbox_stub_preserves_project_values_and_bullet_indices(self):
         st = MagicMock()
         st.selectbox.side_effect = _selected_option
@@ -162,7 +182,8 @@ class BestOfRelease(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             root, projects, candidates, fit, source = fixture(temporary)
             st = MagicMock()
-            st.session_state = {}
+            # The manual existing-fit trial is V3.5-only; Main now defaults to V3.7.
+            st.session_state = {'phase9f_bestof_next_mode_156': 'v35-relevance'}
             st.button.return_value = False
             st.expander.return_value = MagicMock()
             st.spinner.return_value = nullcontext()
@@ -200,7 +221,8 @@ class BestOfRelease(unittest.TestCase):
             result = {'status': 'needs_review', 'proposal': proposal, 'winner': 'existing_final'}
             generation = {'generation_id': 'gen156', 'fit_result': fit}
             st = MagicMock()
-            st.session_state = {}
+            # The manual existing-fit trial is V3.5-only; Main now defaults to V3.7.
+            st.session_state = {'phase9f_bestof_next_mode_156': 'v35-relevance'}
             st.checkbox.return_value = True
             # B4 selects string project names and integer bullet indices.
             # An unconstrained MagicMock is neither kind of selected option.

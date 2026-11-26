@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,7 +24,7 @@ class Phase9ETailoringBaseVisualPreviewTests(unittest.TestCase):
     def test_ui_only_upgrade_keeps_scoring_identity(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            EXPECTED_SCORING_VERSION,
         )
         self.assertEqual(
             PHASE9E_TAILORING_BASE_VISUAL_PREVIEW_VERSION,

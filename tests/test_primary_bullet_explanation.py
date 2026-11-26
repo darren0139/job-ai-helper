@@ -1,4 +1,8 @@
-"""Synthetic presentation controls, not private Application156 source data."""
+"""V3.9: only verified document bullets are selectable in primary review.
+
+All source options remain available for diagnostic computation, but they are
+not independently selectable as a purported Base-vs-Library contest.
+"""
 from copy import deepcopy
 import unittest
 from streamlit.testing.v1 import AppTest
@@ -23,7 +27,7 @@ def fixture():
                  saved_jd_ids=['testing'], in_actual_a=True, in_proposed_b=True, words=len(TESTING.split())),
             dict(project='Synthetic Query', bullet=OTHER, sources=['Selected Base','Current final'],
                  saved_jd_ids=['database'], in_actual_a=True, in_proposed_b=True, words=len(OTHER.split()))]
-    audit = {'verified':True, 'docx_sha256':'a'*64, 'projects':[]}
+    audit = {'verified':True, 'docx_sha256':'a'*64, 'generation_id':'gen', 'projects':[]}
     for project in ('Synthetic Query','Synthetic Testing'):
         scope = [r for r in rows if r['project']==project]
         audit['projects'].append({'project':project, **{field:[{'text':r['bullet']} for r in scope if tag in r['sources']]
@@ -47,58 +51,53 @@ render_compact_decision_explorer(st,calc=st.session_state.calc,result=st.session
  proposal={},audit=st.session_state.audit,projects={},application_id=156,context='primary-test',
  baseline_report=st.session_state.report,raw_jd_text=st.session_state.jd)
 ''')
-    for k,v in data.items():app.session_state[k]=v
+    for key, value in data.items():
+        app.session_state[key] = value
     return app
 
 
-class PrimaryExplanation(unittest.TestCase):
-    def all_projects(self, app):
-        next(v for v in app.button if v.label=='Select all').click().run()
+class FinalOnlyExplanation(unittest.TestCase):
+    def test_first_selector_is_actual_docx_not_source_pool(self):
+        app = app_for().run(timeout=30)
         self.assertFalse(app.exception,list(app.exception))
-        return app
+        text = [v.value for v in app.markdown]
+        self.assertIn('### Bullet Choices & Base vs Library',text)
+        self.assertTrue(any(v.label == 'Select one final résumé bullet' for v in app.radio))
+        self.assertFalse(any('Base Resume wording' in v.label or 'Related Evidence Library wording' in v.label for v in app.radio))
+        self.assertFalse(any(v.label == 'Source wording to explain' for v in app.selectbox))
+        self.assertTrue(any('existing fitted document is still selected' in v.value for v in app.warning))
 
-    def test_removed_wording_has_substantive_explanation_before_pair_and_ranking(self):
-        app=self.all_projects(app_for().run(timeout=30))
-        text=[v.value for v in app.markdown]
-        primary=text.index('### Bullet Choices & Base vs Library')
-        ranking=text.index('#### JD Bullet Relevance Ranking')
-        self.assertLess(primary,text.index('##### JD requirements & keyword evidence'))
-        self.assertLess(text.index('**What Best-of actually did**'),ranking)
-        self.assertIn(REMOVED,text)
-        self.assertTrue(any(DB in t for t in text[primary:ranking]))
-        self.assertTrue(any('removed only from the tested alternative' in t for t in text))
-        self.assertTrue(any('remains in the chosen résumé' in t for t in text))
-        self.assertEqual(text.count('### Bullet Choices & Base vs Library'),1)
-        self.assertFalse(any(v.label=='Source wording to explain' for v in app.selectbox))
+    def test_two_read_only_source_panels_remain(self):
+        app = app_for().run(timeout=30)
+        self.assertFalse(app.exception,list(app.exception))
+        text = [v.value for v in app.markdown]
+        self.assertIn('##### Base Resume',text)
+        self.assertIn('##### Evidence Library',text)
+        self.assertIn('**:green[Strengths]**',text)
+        self.assertIn('**:red[Weaknesses / limits]**',text)
+        self.assertTrue(any('score unavailable' in v.value.lower() for v in app.caption))
 
-    def test_testing_wording_needs_no_base_or_valid_pair(self):
-        app=self.all_projects(app_for().run(timeout=30))
-        text=[v.value for v in app.markdown]
-        self.assertIn(TESTING,text)
-        self.assertTrue(any(QA in t for t in text))
-        self.assertTrue(any('integration testing' in t and 'UAT' in t for t in text))
-        self.assertTrue(any('included in both versions' in t for t in text))
-        self.assertTrue(any('weak' in v.value and '2/5' in v.value for v in app.caption))
-        self.assertTrue(any('Native bullet impact' in v.value and 'unmeasured' in v.value for v in app.caption))
+    def test_only_fitted_membership_when_not_adopted(self):
+        app=app_for().run(timeout=30)
+        self.assertFalse(app.exception,list(app.exception))
+        self.assertTrue(any('not an applied removal' in v.value for v in app.warning))
+        self.assertFalse(any('Removed from the selected verified challenger' in v.value for v in app.markdown))
 
-    def test_unavailable_selection_and_stale_jd_fail_closed(self):
-        data=fixture();data['calc']['status']='unavailable';data['report']['raw_jd_text']='Different frozen JD'
-        app=self.all_projects(app_for(data).run(timeout=30))
-        self.assertTrue(any('Saved membership unavailable' in v.value for v in app.caption))
-        self.assertIn('Saved selection membership unavailable.',[v.value for v in app.markdown])
-        self.assertFalse(any('Explicit wording · partial evidence' in v.value for v in app.markdown))
-        self.assertFalse(any('included in both versions' in v.value for v in app.markdown))
-
-    def test_read_only_controls_preserve_receipt_and_stable_unique_keys(self):
+    def test_no_readonly_controls_mutate_the_underlying_receipt(self):
         data=fixture();original=deepcopy(data)
-        app=self.all_projects(app_for(data).run(timeout=30))
-        next(v for v in app.checkbox if v.label=='Synthetic Query').uncheck().run()
-        next(v for v in app.checkbox if v.label=='Synthetic Query').check().run()
+        app=app_for(data).run(timeout=30)
+        self.assertFalse(app.exception,list(app.exception))
+        choices=[v for v in app.checkbox if v.label in ('Synthetic Query','Synthetic Testing')]
+        self.assertEqual([v.label for v in choices],['Synthetic Query','Synthetic Testing'])
+        next(v for v in choices if v.label=='Synthetic Testing').check().run()
+        self.assertEqual(len([v for v in app.radio if v.label=='Select one final résumé bullet']),2)
+        next(v for v in app.button if v.label=='Clear all').click().run()
+        self.assertFalse(any(v.label=='Select one final résumé bullet' for v in app.radio))
+        next(v for v in app.button if v.label=='Select all').click().run()
+        self.assertEqual(len([v for v in app.radio if v.label=='Select one final résumé bullet']),2)
         self.assertFalse(app.exception,list(app.exception))
         for key,value in original.items():self.assertEqual(app.session_state[key],value)
         keys=[v.key for v in [*app.checkbox,*app.radio,*app.selectbox,*app.button] if v.key]
         self.assertEqual(len(keys),len(set(keys)))
-        self.assertTrue(any('Individual cause not recorded' in v.value for v in app.caption))
-
 
 if __name__=='__main__':unittest.main()

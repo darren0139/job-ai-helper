@@ -426,7 +426,9 @@ class Phase8VerificationTests(unittest.TestCase):
         )
 
     def test_cached_draft_readiness_refreshes_after_approval(self):
+        # Synthetic current verification; stale receipts have separate rejection tests.
         cached = {
+            "after_stable_analysis": {"scoring_version": SCORING_VERSION},
             "generation_status": "draft",
             "fit_one_page": True,
             "page_count": 1,

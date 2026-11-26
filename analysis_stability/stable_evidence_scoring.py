@@ -18,7 +18,9 @@ The AI may still extract the JD and match rows, but this module owns:
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any
@@ -37,6 +39,7 @@ from analysis_stability.jd_section_inference import (
     JD_STRUCTURE_INFERENCE_VERSION,
     infer_semantic_list_heading,
 )
+from tailoring.fullstack_direct_evidence_v312a14 import independent_fullstack_implementation
 from tailoring.capability_taxonomy import (
     evaluate_capability_evidence,
     evaluate_evidence,
@@ -56,8 +59,38 @@ from taxonomy_discovery.technology_registry import get_default_registry
 # corrected parser.  No global switch and no change to accepted review hashes.
 _REVIEW419_LEGACY_PARSER = ContextVar("review419_legacy_jd_parser", default=False)
 
+# Candidate-only research scope. Normal application scoring is unchanged.
+_V312A14_NATIVE_REPLAY_SCOPE = ContextVar("v312a14_native_replay_scope", default=False)
+
+
+@contextmanager
+def temporary_v312a14_candidate_scope():
+    """Enable candidate rows for ONE explicit, in-process native replay."""
+    token = _V312A14_NATIVE_REPLAY_SCOPE.set(True)
+    try:
+        yield
+    finally:
+        _V312A14_NATIVE_REPLAY_SCOPE.reset(token)
+
+# A1.8 rollout: the previously validated A1.7 policy is ON by default.
+# Operators can temporarily select the previous scoring behavior at startup via
+# JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY=legacy.
+# The startup setting is read ONCE so a session cannot mix scoring identities.
+# A new scoring version is not needed: the actual active scoring algorithm is
+# unchanged from A1.7, only its default activation state changed.
+_V312A17_POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
+_V312A17_POLICY_TOKEN = "v312a17_fullstack_single_row"
+_V312A17_RUNTIME_ACTIVE = (
+    os.environ.get(_V312A17_POLICY_ENV, _V312A17_POLICY_TOKEN).strip() == _V312A17_POLICY_TOKEN
+)
+_V312A17_POLICY_VERSION = "v312a17-fullstack-positive-single-row-v1"
+
 # Requirement recognition is part of snapshot/A-B reproducibility identity.
-SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
+_BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
+SCORING_VERSION = (
+    _BASE_SCORING_VERSION + "-v312a17-fullstack-single-row"
+    if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION
+)
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
@@ -4111,6 +4144,81 @@ def _apply_capability_none_recovery(
 
     return output, audit_rows
 
+def _apply_v312a14_fullstack_candidate(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_index: list[dict[str, str]],
+    raw_resume_text: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Experimental, conservative preferred full-stack project-bullet reselection.
+
+    No extra evidence rows, no model calls, no scores changed by this helper.
+    A separate scoped build_stable_analysis call must explicitly use it.
+    """
+    output = deepcopy(rows)
+    audit = []
+    raw_normalised = " ".join(str(raw_resume_text or "").split()).casefold()
+    if not raw_normalised:
+        return output, audit
+    taxonomy = get_default_taxonomy()
+    for row in output:
+        if (
+            row.get("capability_id") != "fullstack.integration"
+            or row.get("capability_resolution_source") != "canonical_taxonomy"
+            or row.get("importance") != "preferred"
+            or row.get("score_eligible") is not True
+            or row.get("explicit_only_requirement") is True
+            or row.get("match_label") != "transferable"
+            or row.get("match_source") != "present"
+        ):
+            continue
+        focus = _normalise_basic(row.get("atomic_focus") or row.get("text"))
+        if not all(word in focus.split() for word in ("frontend", "backend", "web", "applic", "develop")):
+            # The normal stemmer uses applic/develop, but preserve false negatives
+            # for other requirement wording instead of broadening this experiment.
+            if not ("frontend" in focus and "backend" in focus and "web" in focus
+                    and "application" in focus and "development" in focus):
+                continue
+        for evidence in evidence_index:
+            if (evidence.get("section") != "projects"
+                    or not re.fullmatch(r"resume_profile\.projects\[\d+\]\.bullets\[\d+\]", str(evidence.get("source") or ""))):
+                continue
+            sentence = " ".join(str(evidence.get("text") or "").split())
+            if not sentence or sentence.casefold() not in raw_normalised:
+                continue
+            if not independent_fullstack_implementation(sentence):
+                continue
+            if not _evidence_source_is_requirement_compatible(row, evidence):
+                continue
+            decision = evaluate_capability_evidence("fullstack.integration", row, sentence, taxonomy)
+            if decision.get("capability_id") != "fullstack.integration" or decision.get("label") != "direct":
+                continue
+            prior_label = row["match_label"]
+            prior_evidence = deepcopy(row.get("evidence", []))
+            row["match_label"] = "direct"
+            row["match_value"] = MATCH_VALUES["direct"]
+            row["evidence_strength"] = 5
+            row["match_source"] = "v312a14_experimental_fullstack_single_row"
+            selected = {**deepcopy(evidence),
+                        "reason": "Experimental native replay: one fitted project bullet independently supports application implementation",
+                        "capability_evidence_reason": str(decision.get("reason") or "")}
+            row["evidence"] = [selected]
+            receipt = {
+                "requirement_id": row.get("requirement_id"),
+                "policy_version": "v312a14-fullstack-positive-single-row-experiment-v1",
+                "previous_match_label": prior_label,
+                "previous_evidence": prior_evidence,
+                "selected_source": evidence.get("source"),
+                "selected_evidence_id": evidence.get("evidence_id"),
+                "taxonomy_reason": str(decision.get("reason") or ""),
+                "combined_evidence_rows": False,
+            }
+            row["v312a14_candidate_audit"] = deepcopy(receipt)
+            audit.append(receipt)
+            break
+    return output, audit
+
+
 def _best_resume_evidence(
     requirement: dict[str, Any],
     matched_term: str,
@@ -4927,6 +5035,36 @@ def build_stable_analysis(
             acronym_map=canonical["acronym_map"],
         )
     )
+    experimental_audit = []
+    if (_V312A14_NATIVE_REPLAY_SCOPE.get() or _V312A17_RUNTIME_ACTIVE) and retrieval_mode_override == "lexical":
+        taxonomy_validated, experimental_audit = _apply_v312a14_fullstack_candidate(
+            taxonomy_validated,
+            evidence_index=evidence_index,
+            raw_resume_text=raw_resume_text,
+        )
+        # Under explicit startup activation this becomes a versioned production
+        # policy, not an experimental replay label. Keep one selected evidence row.
+        if _V312A17_RUNTIME_ACTIVE and not _V312A14_NATIVE_REPLAY_SCOPE.get():
+            for row in taxonomy_validated:
+                previous = row.pop("v312a14_candidate_audit", None)
+                if previous is None:
+                    continue
+                row["match_source"] = "v312a17_fullstack_single_row"
+                evidence = row.get("evidence") or []
+                if len(evidence) == 1:
+                    evidence[0]["reason"] = (
+                        "Verified single project bullet independently supports "
+                        "full-stack application implementation"
+                    )
+                receipt = {
+                    **previous,
+                    "policy_version": _V312A17_POLICY_VERSION,
+                }
+                row["v312a17_policy_audit"] = receipt
+            experimental_audit = [
+                {**receipt, "policy_version": _V312A17_POLICY_VERSION}
+                for receipt in experimental_audit
+            ]
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:
         for warning in row.pop("validation_warnings", []) or []:
@@ -4946,6 +5084,16 @@ def build_stable_analysis(
     scope = canonical.get("effective_requirement_scope")
     scoring_version = effective_scoring_version(SCORING_VERSION, policy_identity)
     result = {
+        **({"native_fullstack_policy_v312a17": {
+            "policy_version": _V312A17_POLICY_VERSION,
+            "activation": "default_on_process_startup",
+            "selection_count": len(experimental_audit),
+            "audit": experimental_audit,
+        }} if _V312A17_RUNTIME_ACTIVE and not _V312A14_NATIVE_REPLAY_SCOPE.get() else {}),
+        **({"experimental_native_replay_v312a14": {
+            "scope": "opt_in_only", "not_a_saved_phase8_receipt": True,
+            "selection_count": len(experimental_audit), "audit": experimental_audit,
+        }} if _V312A14_NATIVE_REPLAY_SCOPE.get() else {}),
         "scoring_version": scoring_version,
         **({"matching_policy_identity": policy_identity,
             "effective_requirement_scope": canonical["effective_requirement_scope"]} if policy_identity else {}),

@@ -10,7 +10,7 @@ from copy import deepcopy
 from typing import Any
 
 POLICY_VERSION = "adaptive-project-selection-v3"
-MODES = ("legacy", "balanced", "preserve_generated", "jd_focused", "manual")
+MODES = ("legacy", "balanced", "preserve_generated", "jd_focused", "portfolio_quality", "manual")
 MAX_PROJECTS = 8
 
 
@@ -98,6 +98,9 @@ def apply_adaptive_project_selection(
 ) -> dict[str, Any] | None:
     """Filter a saved, already-generated project set; never synthesize content."""
     mode, selected_keys = normalise_adaptive_project_settings(mode, selected_keys)
+    if mode == "portfolio_quality":
+        from tailoring.portfolio_quality_v311 import optimize_portfolio_projects
+        return optimize_portfolio_projects(projects)
     if mode == "legacy" or not projects:
         return deepcopy(projects)
     pool = _generated_pool(projects)

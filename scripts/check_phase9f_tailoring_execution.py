@@ -178,6 +178,9 @@ def main() -> None:
                     ),
                 }
                 assert completed["execution"]["status"] == "completed"
+                assert completed["execution"]["generation_id"] == ""
+                assert completed["execution"]["stage_outputs"]["normal_phase8"]["generation_id"] == fitted["generation_id"]
+                assert completed["execution"]["phase8_verification_fingerprint"] == completed["verification"]["verification_fingerprint"]
                 assert completed["verification"]["blueprint_ready"] is True
                 assert completed["verification"]["generation_status"] == "approved"
 

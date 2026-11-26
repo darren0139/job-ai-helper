@@ -7400,6 +7400,7 @@ elif page == "Application Sessions":
                             "Balanced (up to 5)": "balanced",
                             "Preserve all generated projects": "preserve_generated",
                             "JD-focused": "jd_focused",
+                            "Portfolio Quality Optimization (preview)": "portfolio_quality",
                             "Manual": "manual",
                             "Keep generated selection (legacy)": "legacy",
                         }
@@ -7434,6 +7435,28 @@ elif page == "Application Sessions":
                                 selected_keys=adaptive_project_keys,
                             )
                             count_projects_fit = len(preview_projects_fit.get("recommended_projects") or [])
+                            if adaptive_projects_mode == "portfolio_quality":
+                                pq = preview_projects_fit.get("portfolio_quality_selection") or {}
+                                with st.expander("Portfolio quality — provisional project comparisons", expanded=True):
+                                    st.caption("Projects are compared using saved JD-linked evidence and document-depth estimates. "
+                                               "These are NOT independent native Job Match or one-page DOCX results. "
+                                               "Only the chosen slate enters one normal Generate & Fit attempt.")
+                                    st.write("Recommended projects: " + ", ".join(
+                                        entry["label"] for entry in generated_project_pool
+                                        if entry["key"] in set(pq.get("selected_project_ids") or [])))
+                                    st.caption(f"{pq.get('candidate_count', 0)} temporary combinations evaluated; "
+                                               f"{pq.get('hard_floor_candidate_count', 0)} retained all saved Required/Core project evidence; "
+                                               f"{pq.get('one_bullet_selected', 0)} selected projects have only one drafted bullet.")
+                                    if pq.get("top_candidates"):
+                                        st.dataframe([{
+                                            "Projects": ", ".join(entry["label"] for entry in generated_project_pool
+                                                if entry["key"] in set(item.get("selected_keys") or [])),
+                                            "Proxy utility (not native)": item.get("proxy_utility"),
+                                            "Required/Core evidence losses": item.get("hard_required_core_lost"),
+                                            "One-bullet projects": item.get("one_bullet_projects"),
+                                        } for item in pq["top_candidates"]], hide_index=True,
+                                                   use_container_width=True)
+                                    st.caption(pq.get("note") or "")
                             st.caption(
                                 f"{count_projects_fit} of {len(generated_project_pool)} "
                                 "previously generated projects enter one-page fitting. "
@@ -7960,6 +7983,49 @@ elif page == "Application Sessions":
                 from tailoring.phase9f_automatic_bestof_v30_ui import render_optimizer_mode_selector
                 render_optimizer_mode_selector(st, int(current_application_id))
 
+                # B1.2: transparent, application-local Step 3 execution receipt.
+                # The receipt lives only in Streamlit session state, never in DB.
+                v312b12_fit_trace_key = f"v312b12_fit_dispatch_{current_application_id}"
+                v312b12_fit_blockers = [
+                    reason for reason, blocked in (
+                        ("Phase 9E not ready", not phase9e_ready),
+                        ("Workspace requires edit draft", workspace_edit_required),
+                        ("Section scope has unapplied changes", update_scope_dirty),
+                        ("Phase 9F execution blocked", phase9f_f_blocked),
+                        ("Phase 9F legacy fitting settings locked", phase9f_f_fit_settings_locked),
+                        ("Adaptive skills selection invalid", not adaptive_selection_valid),
+                        ("Adaptive projects selection invalid", not adaptive_project_selection_valid),
+                    ) if blocked
+                ]
+                if v312b12_fit_blockers:
+                    st.caption("Generate & Fit unavailable: " + "; ".join(v312b12_fit_blockers))
+                v312b12_previous = st.session_state.get(v312b12_fit_trace_key)
+                if isinstance(v312b12_previous, dict):
+                    st.info(
+                        "Last Generate & Fit: " + str(v312b12_previous.get("status", "unknown"))
+                        + " | route=" + str(v312b12_previous.get("route", "unknown"))
+                        + " | mode=" + str(v312b12_previous.get("mode", "unknown"))
+                        + " | requested=" + str(v312b12_previous.get("submitted_generation_id", ""))
+                        + " | result=" + str(v312b12_previous.get("result_generation_id", ""))
+                        + " | cache=" + str(v312b12_previous.get("cache_status", ""))
+                        + " | policy=" + str(v312b12_previous.get("render_policy", ""))
+                        + " | B1 audit=" + str(v312b12_previous.get("b1_audit_present", ""))
+                        + (" | message=" + str(v312b12_previous.get("message", ""))
+                           if v312b12_previous.get("message") else "")
+                    )
+                # B1.7: the last result survives the Streamlit rerun (session only).
+                v312b17_last_key = f"v312b17_generate_fit_{current_application_id}"
+                v312b17_last = st.session_state.get(v312b17_last_key)
+                if isinstance(v312b17_last, dict) and v312b17_last.get("status") in ("completed", "failed"):
+                    st.caption(
+                        "Last Generate & Fit: " + str(v312b17_last.get("status"))
+                        + " | normal Phase 9F | "
+                        + str(v312b17_last.get("elapsed_seconds", "?")) + "s"
+                        + (" | restored generation=" + str(v312b17_last.get("generation_id", ""))
+                           if v312b17_last.get("generation_id") else "")
+                        + (" | " + str(v312b17_last.get("message"))
+                           if v312b17_last.get("message") else "")
+                    )
                 if st.button(
                     "Generate and Fit Tailored Resume DOCX",
                     type="primary",
@@ -7975,6 +8041,21 @@ elif page == "Application Sessions":
                         or not adaptive_project_selection_valid
                     ),
                 ):
+                    # This point runs only on an actual button-click event.
+                    st.session_state[v312b12_fit_trace_key] = {
+                        "status": "clicked",
+                        "route": (
+                            "normal_phase9f" if phase9f_f_active and phase9f_f_normal_lifecycle
+                            else "legacy_phase9f" if phase9f_f_active else "ordinary_fit"
+                        ),
+                        "mode": str(adaptive_projects_mode),
+                        "submitted_generation_id": str(
+                            st.session_state.get(tailored_generation_id_key) or ""
+                        ),
+                    }
+                    # B1.7: progress is attached to this click, never a background fit.
+                    v312b17_progress_status = None
+                    v312b17_progress_started = None
                     try:
                         if phase9f_f_active:
                             if phase9f_f_normal_lifecycle:
@@ -7989,33 +8070,76 @@ elif page == "Application Sessions":
                                         "Load a completed normal generation before "
                                         "running Build and Fit."
                                     )
-                                normal_fit = run_phase9f_normal_fit(
-                                    application_id=int(current_application_id),
-                                    generation_id=current_generation_id,
-                                    fit_settings={
-                                        "use_compact_before_delete": use_compact_before_delete,
-                                        "allow_bullet_fusion": allow_bullet_fusion,
-                                        "prefer_balanced_bullets": prefer_balanced_bullets,
-                                        "allow_skills_compaction": allow_skills_compaction,
-                                        "adaptive_skills_mode": adaptive_skills_mode,
-                                        "adaptive_skill_keys": adaptive_manual_keys,
-                                        **({
-                                            "adaptive_projects_mode": adaptive_projects_mode,
-                                            "adaptive_project_keys": adaptive_project_keys,
-                                        } if adaptive_projects_mode != "legacy" else {}),
-                                        "page_density_mode": page_density_mode,
-                                        "allow_margin_compaction": allow_margin_compaction,
-                                        "project_header_layout": project_header_layout,
-                                        "project_metadata_style": project_metadata_style,
-                                        "spacing_mode": spacing_mode,
-                                        "add_spacing_before_first_project": add_spacing_before_first_project,
-                                        "project_spacing_pt": project_spacing_pt,
-                                        "after_projects_spacing_pt": after_projects_spacing_pt,
-                                        "blank_lines_between_projects": blank_lines_between_projects,
-                                        "blank_lines_after_projects": blank_lines_after_projects,
-                                    },
+                                st.session_state[v312b12_fit_trace_key]["status"] = "dispatched_to_normal_fit"
+                                st.session_state[v312b12_fit_trace_key]["submitted_generation_id"] = current_generation_id
+                                # B1.7: do not claim percentage or hidden render-stage progress.
+                                import time as v312b17_time
+                                import inspect as v312b17_inspect
+                                v312b17_progress_started = v312b17_time.perf_counter()
+                                st.session_state[v312b17_last_key] = {"status": "running"}
+                                v312b17_progress_status = st.status(
+                                    "Generating and fitting your resume", state="running", expanded=True
+                                )
+                                v312b17_progress_status.write("1/3  Input validated and generation selected")
+                                v312b17_progress_status.write(
+                                    "2/3  Building, fitting and checking the one-page DOCX; "
+                                    "Word/PDF conversions may take several minutes"
+                                )
+                                v312b17_spinner_options = (
+                                    {"show_time": True}
+                                    if "show_time" in v312b17_inspect.signature(st.spinner).parameters
+                                    else {}
+                                )
+                                with v312b17_progress_status:
+                                    with st.spinner(
+                                        "One-page fitting and document verification are running...",
+                                        **v312b17_spinner_options,
+                                    ):
+                                        normal_fit = run_phase9f_normal_fit(
+                                            application_id=int(current_application_id),
+                                            generation_id=current_generation_id,
+                                            fit_settings={
+                                                "use_compact_before_delete": use_compact_before_delete,
+                                                "allow_bullet_fusion": allow_bullet_fusion,
+                                                "prefer_balanced_bullets": prefer_balanced_bullets,
+                                                "allow_skills_compaction": allow_skills_compaction,
+                                                "adaptive_skills_mode": adaptive_skills_mode,
+                                                "adaptive_skill_keys": adaptive_manual_keys,
+                                                **({
+                                                    "adaptive_projects_mode": adaptive_projects_mode,
+                                                    "adaptive_project_keys": adaptive_project_keys,
+                                                } if adaptive_projects_mode != "legacy" else {}),
+                                                "page_density_mode": page_density_mode,
+                                                "allow_margin_compaction": allow_margin_compaction,
+                                                "project_header_layout": project_header_layout,
+                                                "project_metadata_style": project_metadata_style,
+                                                "spacing_mode": spacing_mode,
+                                                "add_spacing_before_first_project": add_spacing_before_first_project,
+                                                "project_spacing_pt": project_spacing_pt,
+                                                "after_projects_spacing_pt": after_projects_spacing_pt,
+                                                "blank_lines_between_projects": blank_lines_between_projects,
+                                                "blank_lines_after_projects": blank_lines_after_projects,
+                                            },
+                                        )
+                                v312b17_progress_status.write(
+                                    "2/3  Fitting returned; restoring the saved draft"
                                 )
                                 generation = normal_fit["generation"]
+                                # Record the native fit handler response BEFORE any
+                                # other downstream action or st.rerun can fail.
+                                v312b12_fit_result = generation.get("fit_result") or {}
+                                v312b12_lifecycle = (
+                                    (generation.get("generation_settings") or {})
+                                    .get("phase9f_f_normal_lifecycle") or {}
+                                )
+                                v312b12_fit_state = v312b12_lifecycle.get("fit") or {}
+                                st.session_state[v312b12_fit_trace_key].update({
+                                    "status": "normal_fit_returned",
+                                    "result_generation_id": str(generation.get("generation_id") or ""),
+                                    "cache_status": str(normal_fit.get("cache_status") or ""),
+                                    "render_policy": str(v312b12_fit_state.get("render_policy_version") or ""),
+                                    "b1_audit_present": bool(v312b12_fit_result.get("portfolio_quality_b1_final_audit")),
+                                })
                                 restore_generation_to_session(
                                     current_application_id,
                                     generation,
@@ -8025,6 +8149,23 @@ elif page == "Application Sessions":
                                 if (generation.get("fit_result") or {}).get("fit_one_page") is True:
                                     from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
                                     mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
+                                # Mark complete only after the generation was restored and
+                                # any existing optional best-of request was registered.
+                                v312b17_elapsed = round(
+                                    v312b17_time.perf_counter() - v312b17_progress_started, 2
+                                )
+                                v312b17_progress_status.write(
+                                    "3/3  Generation restored; open Phase 8 separately for final verification"
+                                )
+                                v312b17_progress_status.update(
+                                    label="Generate & Fit completed", state="complete", expanded=False
+                                )
+                                st.session_state[v312b17_last_key] = {
+                                    "status": "completed",
+                                    "elapsed_seconds": v312b17_elapsed,
+                                    "generation_id": str(generation.get("generation_id") or ""),
+                                    "cache_status": str(normal_fit.get("cache_status") or ""),
+                                }
                                 st.session_state[f"phase7_flash_{current_application_id}"] = (
                                     "Built or restored the exact deterministic fit "
                                     "for the selected normal generation. Changed fit "
@@ -8129,6 +8270,14 @@ elif page == "Application Sessions":
                                 mode=adaptive_skills_mode,
                                 selected_keys=adaptive_manual_keys,
                             )
+                        # V3.12-B1: improve the ACTUAL Portfolio fit inputs.
+                        # Balanced and other policies retain their original path.
+                        if adaptive_projects_mode == "portfolio_quality" and not fit_lock_projects:
+                            from tailoring.portfolio_quality_v312b1 import improve_portfolio_fit_input
+                            projects_for_fit = improve_portfolio_fit_input(
+                                projects_for_fit, mode="portfolio_quality", stage="caller"
+                            )
+
                         fit_max_bullets_per_project = (
                             resolve_effective_fitting_bullet_ceiling(
                                 projects_for_fit,
@@ -8201,6 +8350,12 @@ elif page == "Application Sessions":
                             project_metadata_style=project_metadata_style,
                             generation_id=mutable_generation_id,
                         )
+
+                        # B1 readback observes the exact fitted document; it
+                        # never substitutes proxy scores for native Phase 8.
+                        if adaptive_projects_mode == "portfolio_quality" and not fit_lock_projects:
+                            from tailoring.portfolio_quality_v312b1 import audit_fitted_portfolio_docx
+                            fit_result["portfolio_quality_b1_final_audit"] = audit_fitted_portfolio_docx(fit_result)
 
                         tailored_resume_path = fit_result["docx_path"]
 
@@ -8309,12 +8464,53 @@ elif page == "Application Sessions":
                         st.rerun()
 
                     except ValueError as exc:
+                        if v312b17_progress_status is not None:
+                            v312b17_elapsed = round(
+                                v312b17_time.perf_counter() - v312b17_progress_started, 2
+                            )
+                            v312b17_progress_status.update(
+                                label="Generate & Fit failed", state="error", expanded=True
+                            )
+                            st.session_state[v312b17_last_key] = {
+                                "status": "failed", "elapsed_seconds": v312b17_elapsed,
+                                "message": type(exc).__name__ + ": " + str(exc)[:180],
+                            }
+                        st.session_state[v312b12_fit_trace_key].update({
+                            "status": "value_error_before_fit_or_during_fit",
+                            "message": str(exc)[:350],
+                        })
                         st.warning(str(exc))
                     except Exception as exc:
+                        if v312b17_progress_status is not None:
+                            v312b17_elapsed = round(
+                                v312b17_time.perf_counter() - v312b17_progress_started, 2
+                            )
+                            v312b17_progress_status.update(
+                                label="Generate & Fit failed", state="error", expanded=True
+                            )
+                            st.session_state[v312b17_last_key] = {
+                                "status": "failed", "elapsed_seconds": v312b17_elapsed,
+                                "message": type(exc).__name__ + ": " + str(exc)[:180],
+                            }
+                        st.session_state[v312b12_fit_trace_key].update({
+                            "status": "exception_before_fit_or_during_fit",
+                            "message": type(exc).__name__ + ": " + str(exc)[:350],
+                        })
                         st.error(f"Unexpected error while generating tailored resume copy: {exc}")
 
             tailored_resume_copy_path = st.session_state.get(tailored_docx_key)
             fit_result = st.session_state.get(tailored_fit_result_key)
+            # V3.9: report PRE-FIT duplicate removals against the ACTUAL saved DOCX.
+            from tailoring.phase9f_prefit_dedupe_v39 import render_v39_dedupe_receipt
+            render_v39_dedupe_receipt(
+                st, fit_result=fit_result, repo_root=Path.cwd(),
+                application_id=int(current_application_id),
+            )
+            from tailoring.phase9f_lead_intro_v310 import render_v310_lead_receipt
+            render_v310_lead_receipt(
+                st, fit_result=fit_result, repo_root=Path.cwd(),
+                application_id=int(current_application_id),
+            )
             # Show saved *post-fit* project retention separately from the
             # canonical JD ranking rendered before Build and Fit.
             if isinstance(project_result, dict) and project_result.get("recommended_projects"):
@@ -8525,11 +8721,22 @@ elif page == "Application Sessions":
                 # Phase 8 V2.4: read-only audit of actual saved fitted DOCX,
                 # against immutable Phase 9F Base + Evidence Library sources.
                 from tailoring.phase9f_navigation_state import navigation_checkbox
-                # Always mount the view control, including a pending-fit rerun.
-                # Short-circuiting skipped its widget and Streamlit discarded it.
+                from database.phase9f_bestof_review_state import has_bestof_display_receipt
+                # A fitted Best-of result is a persisted, read-only display receipt.
+                # Reopening the browser must not require Generate and Fit again.
+                pending_bestof = bool(st.session_state.get(
+                    f"phase9f_auto_bestof_pending_{int(current_application_id)}"))
+                try:
+                    saved_bestof = has_bestof_display_receipt(
+                        int(current_application_id), score_preferred_generation_id)
+                except Exception:
+                    saved_bestof = False  # Display-only store: never block fitting.
+                open_key = f"phase9f_open_bestof_{int(current_application_id)}_{score_preferred_generation_id}"
+                if pending_bestof:
+                    st.session_state[open_key] = True
                 bestof_visible = navigation_checkbox(
-                    st, "Open Best-of résumé comparison", value=False,
-                    key=f"phase9f_open_bestof_{int(current_application_id)}_{score_preferred_generation_id}",
+                    st, "Open Best-of résumé comparison",
+                    value=bool(pending_bestof or saved_bestof), key=open_key,
                 )
                 if st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}") or bestof_visible:
                     st.caption("Best-of reads its saved trial receipts. A starting-document comparison missing from that trial "

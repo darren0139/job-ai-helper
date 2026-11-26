@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+# B1.21.1: independent expected startup identity; preserve legacy opt-out.
+from os import environ as _smoke_scoring_environ
+
+_EXPECTED_SMOKE_SCORING_VERSION = (
+    "stable-evidence-v1.16-phase6d20-v312a17-fullstack-single-row"
+    if _smoke_scoring_environ.get(
+        "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY", "v312a17_fullstack_single_row"
+    ).strip() == "v312a17_fullstack_single_row"
+    else "stable-evidence-v1.16-phase6d20"
+)
+
 from analysis_stability.stable_evidence_scoring import (
     SCORING_VERSION,
     canonicalise_requirements,
@@ -46,7 +57,7 @@ Medical coverage and annual leave.
 
     filtered = result.get("filtered_section_headings", [])
     assert len(filtered) >= 4
-    assert SCORING_VERSION == "stable-evidence-v1.16-phase6d20"
+    assert SCORING_VERSION == _EXPECTED_SMOKE_SCORING_VERSION
 
     sentence_result = canonicalise_requirements(
         {},

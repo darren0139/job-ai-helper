@@ -36,12 +36,16 @@ def selection_available(calc, audit, result, report, jd):
 
 
 def related_libraries(rows, base):
-    """Same-project exact wording or grounded shared links, never proximity alone."""
-    ids = set(base.get('native_requirement_ids', ())) | set(base.get('traceable_lexical_link_ids', ()))
-    related = [r for r in rows if r['project'] == base['project'] and 'Evidence Library' in r['sources']
-               and (r['bullet'] == base['bullet'] or ids.intersection(
-                   set(r.get('native_requirement_ids', ())) | set(r.get('traceable_lexical_link_ids', ()))))]
-    return sorted(related, key=lambda r: (r['bullet'] == base['bullet'], r['bullet']))
+    """Allow only same-project, source-grounded, specifically related activity."""
+    from tailoring.phase9f_comparison_pair_guard_v37 import classify_related_pair
+    related = []
+    for row in rows:
+        if (not isinstance(row, dict) or row.get('project') != base.get('project')
+                or 'Evidence Library' not in (row.get('sources') or [])):
+            continue
+        if classify_related_pair(base, row)['eligible']:
+            related.append(row)
+    return sorted(related, key=lambda row: (row.get('bullet') == base.get('bullet'), row['bullet']))
 
 
 def selection_explanation(base, library, recorded):
@@ -174,13 +178,36 @@ def _proxy(st, *, base, library, calc, proposal, audit, projects, jd, key, recor
     st.caption('This is not a direct Base-versus-Library swap and does not explain the historical decision causally. Native impact remains unmeasured.')
 
 
+def _render_controlled_native_addition(st, *, offline_trial, audit, catalog, jd, report,
+                                       project, wordings, key):
+    """Read-only opt-in for verified additions; never implies a replacement pair."""
+    trials = native_trials(offline_trial, audit=audit, catalog=catalog, jd=jd,
+        scorer=(report.get('stable_analysis') or {}).get('scoring_version'), project=project,
+        wordings=wordings)
+    if trials and st.checkbox('Show saved controlled native trial (read-only)', key=key+'_native'):
+        st.caption('Offline controlled addition; separate from the current application recommendation or approval.')
+        for item in trials:
+            st.write(item['wording'])
+            st.write(f"{item['requirement']} ({item['importance']}) · {item['before_label']} → {item['after_label']}")
+            st.write(f"Measured native Job Match delta {item['native_delta']:+g}; {item['word_delta']:+d} words; both PDFs one page.")
+            st.caption('Baseline DOCX SHA-256 · '+item['baseline_sha256'])
+            st.caption('Trial DOCX SHA-256 · '+item['trial_sha256'])
+            st.caption('Scorer · '+str((report.get('stable_analysis') or {}).get('scoring_version'))+
+                       ' · JD SHA-256 · '+sha256(jd.encode()).hexdigest())
+            if item['hard_losses']:
+                st.warning('Recorded Required/Core evidence regression: '+'; '.join(item['hard_losses'])+
+                           '. A higher total is not a safe-challenger result.')
+            st.caption('This tests adding this exact bullet, not a Base-versus-Library swap. It does not establish a source winner.')
+
+
 def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, result,
                            catalog, projects, jd, report, key, project='All projects', offline_trial=None,
-                           show_standalone=True, primary=False):
+                            show_standalone=True, primary=False, application_id=None):
     """One local panel; no optimization or native rendering on passive display."""
     if primary:
         return _render_multi_project_comparison(st, ranked=ranked, recorded=recorded,
-            catalog=catalog, result=result, key=key, jd=jd, report=report)
+            catalog=catalog, result=result, key=key, jd=jd, report=report,
+            application_id=application_id, generation_id=(audit or {}).get('generation_id'))
     st.markdown('<span id="'+anchor_id(key)+'"></span>', unsafe_allow_html=True)
     st.markdown('### Compare Base vs Library')
     st.caption('Compare exact source wordings and recorded evidence in one place. A shared requirement establishes '
@@ -222,25 +249,18 @@ def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, resul
     base = bases[chosen]
     libraries = related_libraries(scope, base)
     if not libraries:
-        st.caption('Not a recorded head-to-head decision. These are source wordings from the same project; they may describe different work.')
+        st.info('No sufficiently related Evidence Library wording is recorded for this Base bullet. '
+                'It can be inspected on its own, but an unrelated Library bullet cannot be paired with it.')
         from tailoring.phase9f_wording_explanation_ui import render_bullet_choice_card
-        available=[r for r in scope if 'Evidence Library' in r['sources']]
-        library=None
-        if available:
-            alternative=st.selectbox('Other Library source wording',range(len(available)),
-                format_func=lambda i:available[i]['bullet'],key=project_key+'_unpaired_library')
-            library=available[alternative]
-        st.markdown('<style>@media(max-width:800px){.st-key-'+project_key+'_unpaired_cards [data-testid="stHorizontalBlock"]{flex-direction:column!important}.st-key-'+project_key+'_unpaired_cards [data-testid="stColumn"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}}</style>',unsafe_allow_html=True)
-        with st.container(key=project_key+'_unpaired_cards'):
-            left,right=st.columns(2,gap='large') if library else (st,None)
-        left.markdown('##### Base Resume wording')
-        render_bullet_choice_card(left,row=base,catalog=source_catalog,recorded=recorded,
+        st.markdown('##### Base Resume wording — individual inspection')
+        render_bullet_choice_card(st, row=base, catalog=source_catalog, recorded=recorded,
             incumbent_retained=result.get('status')=='verified' and result.get('winner')=='existing_final')
-        if library:
-            right.markdown('##### Library source wording')
-            render_bullet_choice_card(right,row=library,catalog=source_catalog,recorded=recorded,
-                incumbent_retained=result.get('status')=='verified' and result.get('winner')=='existing_final')
-        st.info('No related Library alternative is established by exact wording or traceable shared JD evidence. These individual JD-fit summaries do not assert a replacement pair or source winner.')
+        # An authenticated controlled addition is not a source replacement.
+        # Show only exact Library wordings in this project's current source scope.
+        _render_controlled_native_addition(st, offline_trial=offline_trial, audit=audit,
+            catalog=catalog, jd=jd, report=report, project=chosen_project,
+            wordings={row['bullet'] for row in scope if 'Evidence Library' in row['sources']},
+            key=project_key+'_'+sha256(base['bullet'].encode()).hexdigest()[:12]+'_unpaired')
         return
     pair_key = project_key+'_'+sha256(base['bullet'].encode()).hexdigest()[:12]
     if requested_library:
@@ -328,32 +348,23 @@ def render_pair_comparison(st, *, ranked, recorded, calc, audit, proposal, resul
                                (proposal.get('selection_receipt') or {}).get('constraints') or {}})
         else:
             st.caption(MISSING)
-    trials = native_trials(offline_trial, audit=audit, catalog=catalog, jd=jd,
-        scorer=(report.get('stable_analysis') or {}).get('scoring_version'), project=chosen_project,
-        wordings={base['bullet'], library['bullet']})
-    if trials and st.checkbox('Show saved controlled native trial (read-only)', key=pair_key+'_native'):
-        st.caption('Offline controlled addition; separate from the current application recommendation or approval.')
-        for item in trials:
-            st.write(item['wording'])
-            st.write(f"{item['requirement']} ({item['importance']}) · {item['before_label']} → {item['after_label']}")
-            st.write(f"Measured native Job Match delta {item['native_delta']:+g}; {item['word_delta']:+d} words; both PDFs one page.")
-            st.caption('Baseline DOCX SHA-256 · '+item['baseline_sha256'])
-            st.caption('Trial DOCX SHA-256 · '+item['trial_sha256'])
-            st.caption('Scorer · '+str((report.get('stable_analysis') or {}).get('scoring_version'))+
-                       ' · JD SHA-256 · '+sha256(jd.encode()).hexdigest())
-            if item['hard_losses']:
-                st.warning('Recorded Required/Core evidence regression: '+'; '.join(item['hard_losses'])+
-                           '. A higher total is not a safe-challenger result.')
-            st.caption('This tests adding this exact bullet, not a Base-versus-Library swap. It does not establish a source winner.')
+    _render_controlled_native_addition(st, offline_trial=offline_trial, audit=audit,
+        catalog=catalog, jd=jd, report=report, project=chosen_project,
+        wordings={base['bullet'], library['bullet']}, key=pair_key)
     with st.expander('Optional mathematical counterfactual', expanded=False):
         _proxy(st, base=base, library=library, calc=calc, proposal=proposal, audit=audit,
                projects=projects, jd=jd, key=pair_key, recorded=recorded)
 
 
-def _render_multi_project_comparison(st, *, ranked, recorded, catalog, result, key, jd, report):
+def _render_multi_project_comparison(st, *, ranked, recorded, catalog, result, key, jd, report,
+                                     application_id=None, generation_id=None):
     """Primary presentation of B4; the detailed inspector retains strict pairs."""
     from tailoring.phase9f_multi_project_evidence_v36 import project_checkboxes
     from tailoring.phase9f_wording_explanation_ui import render_wording_comparison
+    from database.phase9f_bestof_review_state import (
+        load_bestof_view_preferences, save_bestof_view_preferences)
+    st.markdown('<span id="'+anchor_id(key)+'"></span>', unsafe_allow_html=True)
+    request = st.session_state.pop(key+'_request', None)
     st.markdown('### Bullet Choices & Base vs Library')
     names=list(dict.fromkeys(r['project'] for r in ranked))
     if not names:
@@ -361,11 +372,36 @@ def _render_multi_project_comparison(st, *, ranked, recorded, catalog, result, k
     # Bind view preferences to exact evidence, not a dataframe index/order.
     scope=sha256(json.dumps([(r['project'],r['bullet'],r['sources']) for r in ranked],sort_keys=True).encode()).hexdigest()[:16]
     key=key+'_'+scope
+    has_frozen_view=bool(application_id and generation_id)
+    saved_choices=(load_bestof_view_preferences(application_id,generation_id,key)
+                   if has_frozen_view else {})
+    initial_projects=saved_choices.get('selected_projects')
+    initial_projects=([name for name in names if name in initial_projects]
+                      if isinstance(initial_projects,list) else names[:1])
+    selected_bullets=dict(saved_choices.get('bullet_choices') or {})
+    # Resolve requests against the current exact pool before creating any widgets.
+    requested_project = None
+    requested_bullet = None
+    if isinstance(request, dict):
+        name, wording = request.get('project'), request.get('bullet')
+        if any(r['project']==name and r['bullet']==wording and
+               {'Selected Base','Evidence Library'}.intersection(r['sources']) for r in ranked):
+            requested_project, requested_bullet = name, wording
+            from tailoring.phase9f_navigation_state import STATE_KEY
+            project_widget = key+'_project_'+sha256(name.encode('utf-8')).hexdigest()[:16]
+            st.session_state[project_widget] = True
+            prefs = dict(st.session_state.get(STATE_KEY) or {})
+            prefs[project_widget] = {'scope':'', 'value':True}
+            st.session_state[STATE_KEY] = prefs
+
     with st.container(border=True):
         st.markdown('#### Projects to inspect')
         st.caption('Choose any number. Each checked project remains visible below.')
-        selected=project_checkboxes(st,names,key=key,default=names[:1],actions=True)
+        selected=project_checkboxes(st,names,key=key,default=initial_projects,actions=True)
         st.caption(f'{len(selected)} of {len(names)} selected')
+    if has_frozen_view:
+        save_bestof_view_preferences(application_id,generation_id,key,
+            {'selected_projects':selected,'bullet_choices':selected_bullets})
     if not selected:st.info('Select one or more projects to inspect.');return
     source_catalog=catalog if not report.get('raw_jd_text') or report['raw_jd_text']==jd else {}
     def choose(label, candidates, widget_key):
@@ -375,27 +411,70 @@ def _render_multi_project_comparison(st, *, ranked, recorded, catalog, result, k
         def remember():st.session_state[durable]=st.session_state[widget_key]
         if st.session_state.get(widget_key) not in by_text:
             remembered=st.session_state.get(durable)
+            if remembered not in by_text and widget_key in selected_bullets:
+                remembered=next((text for text in by_text if
+                    sha256(text.encode('utf-8')).hexdigest()==selected_bullets[widget_key]),None)
             st.session_state[widget_key]=remembered if remembered in by_text else next(iter(by_text))
         def short(text):
             row=by_text[text]
-            membership=('Both' if row.get('in_actual_a') and row.get('in_proposed_b') else 'Incumbent only' if row.get('in_actual_a') else 'Alternative only' if row.get('in_proposed_b') else 'Outside both') if recorded else 'Unknown membership'
+            membership = ('Fitted A + proposed B' if row.get('in_actual_a') and row.get('in_proposed_b') else 'Fitted A only' if row.get('in_actual_a') else 'Proposed B only' if row.get('in_proposed_b') else 'Not in A or B') if recorded else 'Membership unverified'
             return membership+' · '+text
         choice=st.radio(label,list(by_text),format_func=short,key=widget_key,on_change=remember)
-        remember();return by_text[choice]
+        remember()
+        selected_bullets[widget_key]=sha256(choice.encode('utf-8')).hexdigest()
+        return by_text[choice]
     for name in selected:
         st.markdown('#### '+name)
-        st.caption('Same-project source wordings are assessed independently; this is not a recorded replacement contest.')
+        st.caption('Only grounded related project activities can be compared. Inspection controls never edit the résumé.')
         rows=[r for r in ranked if r['project']==name]
         project_key=key+'_'+sha256(name.encode()).hexdigest()[:12]
         bases=[r for r in rows if 'Selected Base' in r['sources']]
         libraries=[r for r in rows if 'Evidence Library' in r['sources']]
         # Changed wording first is a presentation default, never a new ranking.
         bases.sort(key=lambda r:not(recorded and r.get('in_actual_a')!=r.get('in_proposed_b')))
+        if name == requested_project:
+            matching = next((r for r in bases if r['bullet']==requested_bullet), None)
+            if matching is None:
+                matching = next((r for r in bases if any(x['bullet']==requested_bullet
+                    for x in related_libraries(rows,r))), None)
+            if matching is not None:
+                st.session_state[project_key+'_base_choice'] = matching['bullet']
+            # Exact Library selection is applied only to the appropriate control below.
         base=choose('Base Resume wording — '+name,bases,project_key+'_base_choice')
-        library=choose('Evidence Library wording — '+name,libraries,project_key+'_library_choice')
+        # This dropdown can ONLY offer a related source, never an arbitrary Library bullet.
+        related = related_libraries(rows, base) if base is not None else []
+        if name == requested_project:
+            if any(r['bullet']==requested_bullet for r in related):
+                st.session_state[project_key+'_library_choice'] = requested_bullet
+            elif any(r['bullet']==requested_bullet for r in libraries):
+                st.session_state[project_key+('_unpaired_library_choice' if base is not None else '_library_choice')] = requested_bullet
+        if related:
+            library=choose('Related Evidence Library wording — '+name,
+                related,project_key+'_library_choice')
+            from tailoring.phase9f_comparison_pair_guard_v37 import classify_related_pair
+            relation=classify_related_pair(base, library)
+            if relation['status']=='related_activity':
+                st.caption('Related project activity; not proven to be the same accomplishment.')
+        elif base is not None:
+            library=None
+            st.caption('No grounded related Library wording for this Base bullet; it is displayed independently.')
+        else:
+            library=choose('Evidence Library wording — individual inspection — '+name,
+                libraries,project_key+'_library_choice')
+        # Library bullets excluded from this pair can still be inspected on their own.
+        unpaired=[row for row in libraries if row not in related]
         if base is None and library is None:
             current=next((r for r in rows if 'Current final' in r['sources']),None)
             if current is None:st.caption('No available source wording.');continue
             library=current
         render_wording_comparison(st,base=base,library=library,catalog=source_catalog,
             recorded=recorded,result=result,key=project_key)
+        if base is not None and unpaired:
+            with st.expander('Other Library bullets — independent inspection only', expanded=False):
+                other=choose('Unpaired Evidence Library wording — '+name,
+                    unpaired,project_key+'_unpaired_library_choice')
+                if other is not None:
+                    render_wording_comparison(st, base=None, library=other, catalog=source_catalog, recorded=recorded, result=result, key=project_key + '_unpaired')
+    if has_frozen_view:
+        save_bestof_view_preferences(application_id,generation_id,key,
+            {'selected_projects':selected,'bullet_choices':selected_bullets})

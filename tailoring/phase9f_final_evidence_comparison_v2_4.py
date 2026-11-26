@@ -73,7 +73,12 @@ def _read_exact_docx_bullets(path: Path, titles: list[str]) -> tuple[dict[str, l
         stripped = raw.lstrip("•●▪‣·- \t")
         is_bullet = raw.startswith(("•", "●", "▪", "‣", "·", "- "))
         style = _key(getattr(getattr(paragraph, "style", None), "name", ""))
-        is_bullet = is_bullet or "list bullet" in style
+        # Word can render a bullet through native w:numPr numbering, with no
+        # literal bullet glyph and a custom style such as "Resume Bullet".
+        # This is readback classification only: do not change fitting receipts.
+        ppr = getattr(getattr(paragraph, "_p", None), "pPr", None)
+        has_native_numbering = ppr is not None and ppr.numPr is not None
+        is_bullet = is_bullet or "bullet" in style or has_native_numbering
         if is_bullet:
             if current is None:
                 return {}, "Fitted PROJECTS section has bullets without a verified project heading."
@@ -130,13 +135,38 @@ def _expected_final_counts(fit: dict[str, Any], titles: list[str]) -> tuple[dict
             return None, {}, "Invalid active fitting event."
         kind = _txt(event.get("change_type"))
         section = _key(event.get("section"))
+        if kind == "bullet_fusion" and section != "projects":
+            return None, {}, "Saved active bullet fusion has an invalid section."
         if section in {"skills", "layout", "education", "experience"} or kind in {"reduce_skill", "remove_skill"}:
             continue
         title = bykey.get(_key(event.get("project")))
-        if title is None or kind not in {"remove_bullet", "remove_project", "compact_rewrite", "shorten", "compact"}:
+        if title is None or kind not in {"remove_bullet", "remove_project", "compact_rewrite", "shorten", "compact", "bullet_fusion"}:
             return None, {}, "An active fitting event cannot be matched to a known project."
+        # phase9f-v39-bullet-fusion-final-evidence-audit-v1
+        # A vetted fitting fusion replaces two adjacent bullets with one.
+        # Validate its saved shape before allowing the count delta.
+        if kind == "bullet_fusion":
+            indexes = event.get("source_bullet_indexes")
+            sources = event.get("source_bullets")
+            first = indexes[0] if isinstance(indexes, list) and len(indexes) == 2 else None
+            second = indexes[1] if isinstance(indexes, list) and len(indexes) == 2 else None
+            valid_indexes = (type(first) is int and type(second) is int
+                             and first >= 0 and second == first + 1)
+            if (section not in {"", "projects"}
+                    or not valid_indexes or second >= counts[title]
+                    or type(event.get("merged_bullet_index")) is not int
+                    or event["merged_bullet_index"] != first
+                    or type(event.get("source_bullet_count")) is not int
+                    or event["source_bullet_count"] != 2
+                    or type(event.get("merged_bullet_count")) is not int
+                    or event["merged_bullet_count"] != 1
+                    or not isinstance(sources, list) or len(sources) != 2
+                    or any(not isinstance(value, str) or not _txt(value) for value in sources)
+                    or not isinstance(event.get("merged_bullet"), str)
+                    or not _txt(event["merged_bullet"])):
+                return None, {}, "Saved active bullet fusion is malformed or cannot fit the project bullet count."
         events[title].append(event)
-        if kind == "remove_bullet":
+        if kind in {"remove_bullet", "bullet_fusion"}:
             counts[title] -= 1
         if kind == "remove_project":
             return None, {}, "Project-removal evidence requires a separately verified heading-absence audit."
@@ -237,6 +267,14 @@ def build_final_evidence_audit(
                 changes.append({"action": "Removed during fitting", "text": _txt(event.get("removed_bullet")),
                                 "reason": _txt(event.get("evidence_loss_reason")) or "Saved removal reason not available",
                                 "saved_evidence_value": event.get("evidence_value")})
+            elif kind == "bullet_fusion":
+                changes.append({
+                    "action": "Fused two bullets into one during fitting",
+                    "text": _txt(event.get("merged_bullet")),
+                    "reason": "Saved fitter fusion, not a separate pre-fit deduplication or an individual JD score. Later fitting actions may further change the wording.",
+                    "saved_evidence_value": None,
+                    "source_bullets": [_txt(x) for x in event.get("source_bullets", [])],
+                })
             elif kind == "remove_project":
                 changes.append({"action": "Project removed during fitting", "text": "", "reason": "Saved project-removal event", "saved_evidence_value": None})
             elif kind in {"compact_rewrite", "shorten", "compact"}:

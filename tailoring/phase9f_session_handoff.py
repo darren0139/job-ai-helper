@@ -113,14 +113,11 @@ def render_phase9f_selected_source_analysis(st: Any, application_id: int) -> boo
             ("deterministic_alignment_score", "required_core_coverage_score",
              "preferred_coverage_score", "evidence_strength_score")):
             column.metric(label, score_text(score_value(analysis, field)))
-        rows = analysis.get("canonical_requirements") or []
-        st.dataframe([{
-            "Requirement": str(row.get("text") or ""),
-            "Importance": str(row.get("importance") or ""),
-            "Match": str(row.get("match_label") or "none"),
-            "Requirement ID": str(row.get("requirement_id") or ""),
-        } for row in rows if isinstance(row, dict)],
-            hide_index=True, width="stretch")
+        from tailoring.phase9f_v39_initial_match_evidence import render_saved_requirement_explanations
+        render_saved_requirement_explanations(
+            st, analysis,
+            origin='Frozen Phase 9F selected starting source (not an independently uploaded Initial DOCX)',
+        )
         st.caption("Frozen Phase 9F-D confirmation " + view["confirmation_id"] + ". The exact selected source, canonical rows and scores are inspected without rescoring.")
     return True
 

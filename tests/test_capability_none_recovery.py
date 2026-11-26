@@ -347,7 +347,9 @@ class CapabilityNoneRecoveryTests(unittest.TestCase):
             raw_resume_text=evidence,
         )
 
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        from analysis_stability import stable_evidence_scoring as policy
+        self.assertEqual(SCORING_VERSION, policy._BASE_SCORING_VERSION +
+                         ('-v312a17-fullstack-single-row' if policy._V312A17_RUNTIME_ACTIVE else ''))
         self.assertEqual(
             CAPABILITY_NONE_RECOVERY_POLICY_VERSION,
             "capability-single-row-none-recovery-v1.1",

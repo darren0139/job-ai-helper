@@ -789,7 +789,9 @@ All applicants will be updated on the status of their applications within 4 week
         self.assertEqual(result["verdict"], "regression_detected")
 
     def test_versions_are_bumped_for_saved_result_invalidation(self):
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        from analysis_stability import stable_evidence_scoring as policy
+        self.assertEqual(SCORING_VERSION, policy._BASE_SCORING_VERSION +
+                         ('-v312a17-fullstack-single-row' if policy._V312A17_RUNTIME_ACTIVE else ''))
         self.assertEqual(
             get_default_taxonomy().version,
             "phase6d-capability-taxonomy-v1.5",

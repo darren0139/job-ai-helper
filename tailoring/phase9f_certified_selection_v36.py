@@ -31,17 +31,20 @@ MAX_CANDIDATES = 90
 MAX_JD_TERMS = 140
 
 
-def _fallback(audit:dict, projects:dict, reason:str, *, evaluator=None) -> dict:
+def _fallback(audit:dict, projects:dict, reason:str, *, evaluator=None, same_work_guard:bool=False) -> dict:
     result = build_jd_relevance_optimization(audit, projects, evaluator=evaluator)
     result['mathematical_certificate'] = {
         'status':'not_proven', 'solver':'V3.5 bounded beam fallback',
         'reason':reason, 'claim':MODEL_REVIEW, 'native_verification_required':True,
         'optimality_gap':None,
     }
+    if same_work_guard:
+        from tailoring.phase9f_same_work_selection_v37 import vet_fallback
+        return vet_fallback(result)
     return result
 
 
-def _matrix_program(audit:dict, source:dict, projects:dict):
+def _matrix_program(audit:dict, source:dict, projects:dict, *, same_work_guard:bool=False):
     """Build exact binary ILP variables and published coefficients and constraints."""
     groups = source.get('source_comparison',{}).get('projects')
     actual = audit.get('projects')
@@ -100,7 +103,13 @@ def _matrix_program(audit:dict, source:dict, projects:dict):
         for i,j in combinations(owned,2):
             if bullets[i]['ids'] & bullets[j]['ids'] and overlap(bullets[i]['text'],bullets[j]['text'])>=.46:
                 pairs.append((i,j))
+    if same_work_guard:
+        from tailoring.phase9f_same_work_selection_v37 import conflict_indices
+        same_work_conflicts=conflict_indices(bullets,groups_of)
+    else:
+        same_work_conflicts=[]
     return {'bullets':bullets,'groups':groups_of,'weights':weights,
+        'same_work_conflicts':tuple(same_work_conflicts),
         'req_ids':req_ids,'terms':terms,'pairs':pairs,
         'baseline_indices':frozenset(baseline_indices), 'baseline_ids':frozenset(baseline_ids),
         'baseline_count':baselines,'baseline_words':word_base,'max_words':word_cap}
@@ -155,6 +164,9 @@ def _solve(model:dict, no_good:list[tuple[int,...]], *, time_limit:float, forced
                 or include not in (0, 1)):
             raise ValueError('Invalid forced bullet membership constraint')
         add({index: 1}, include, include, 'forced_bullet_membership')
+    # Opt-in V3.7 only. Historical V3.6 has an empty conflict set.
+    for i,j in model.get('same_work_conflicts', ()):
+        add({i:1,j:1},0,1,f'same_work_at_most_one:{i}:{j}')
     for k,selection in enumerate(no_good):
         chosen=set(selection)
         # Sum_{selected}(1-x)+sum_{not selected}x >=1.
@@ -299,7 +311,7 @@ def _candidate(model:dict, source:dict, solution:dict, rank:int) -> dict:
         }}
 
 
-def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_trials:int=MAX_TRIALS)->dict:
+def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_trials:int=MAX_TRIALS,same_work_guard:bool=False)->dict:
     """Exact lexicographic surrogate, fallback to bounded V3.5 when uncertified.
 
     Up to max_trials distinct exact-optimal-ranked solutions are submitted to
@@ -310,20 +322,20 @@ def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_t
             'projects':[],'mathematical_certificate':{'status':'not_proven','claim':MODEL_REVIEW}}
     frozen=build_flexible_optimization(audit,projects,evaluator=evaluator)
     if frozen.get('status')=='withheld' or not isinstance(frozen.get('source_comparison'),dict):
-        return _fallback(audit,projects,'Frozen source pool is unavailable.',evaluator=evaluator)
+        return _fallback(audit,projects,'Frozen source pool is unavailable.',evaluator=evaluator,same_work_guard=same_work_guard)
     try:
-        model=_matrix_program(audit,frozen,projects)
+        model=_matrix_program(audit,frozen,projects,same_work_guard=same_work_guard)
     except (KeyError,TypeError,ValueError,OverflowError) as exc:
-        return _fallback(audit,projects,'Exact model not applicable: '+str(exc),evaluator=evaluator)
+        return _fallback(audit,projects,'Exact model not applicable: '+str(exc),evaluator=evaluator,same_work_guard=same_work_guard)
     selections=[];certs=[];no_good=[]
     base=model['baseline_indices']
     for i in range(max_trials):
         try:
             solved=_solve(model,no_good,time_limit=SOLVER_LIMIT_SECONDS)
         except (RuntimeError,ValueError,OverflowError) as exc:
-            return _fallback(audit,projects,'Exact solver unavailable: '+str(exc),evaluator=evaluator)
+            return _fallback(audit,projects,'Exact solver unavailable: '+str(exc),evaluator=evaluator,same_work_guard=same_work_guard)
         if solved.get('status')!='optimal_proxy':
-            if i==0:return _fallback(audit,projects,'Exact solver did not prove optimality: '+str(solved.get('reason')),evaluator=evaluator)
+            if i==0:return _fallback(audit,projects,'Exact solver did not prove optimality: '+str(solved.get('reason')),evaluator=evaluator,same_work_guard=same_work_guard)
             break
         selected=solved['selected_indices']
         no_good.append(selected)
@@ -374,7 +386,7 @@ def selected_base_floor_gate(result:dict, starting:dict|None)->dict:
         return out
     out['base_floor_verdict']='not_proven'
     out['base_floor_reason']=verdict
-    out['verified_better_than_a_only']=True
+    out['verified_better_than_a_only']=(bool(result.get('delta',0)>0) if result.get('same_work_verified_tie_break') else True)
     out['winner']='existing_final'
     out['reason']=str(out.get('reason') or '')+' B is not recommended: '+verdict
     return out

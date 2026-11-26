@@ -1,4 +1,6 @@
 """Permanent identity-only production regressions; no provider or evidence calls."""
+
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION
 from copy import deepcopy
 import unittest
 import json
@@ -95,7 +97,7 @@ class ProductionTechnologyKnowledgeTests(fixtures.KnowledgePreviewTests):
 
     def test_current_analysis_identity_invalidates_old_cached_knowledge(self):
         from job_discovery.matching import current_match_versions
-        self.assertEqual(SCORING_VERSION, 'stable-evidence-v1.16-phase6d20')
+        self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
         self.assertEqual(current_match_versions()['scoring_version'], SCORING_VERSION)
         self.assertNotEqual(SCORING_VERSION, 'stable-evidence-v1.15-phase6d20')
 

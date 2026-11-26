@@ -1828,6 +1828,7 @@ def is_phase9f_normal_lifecycle_execution(
     return bool(
         isinstance(execution, dict)
         and not _legacy_private_stage_execution(execution)
+        and not _clean(execution.get("generation_id"))
         and _clean(execution.get("confirmed_intensity")).lower()
         in VALID_INTENSITIES
     )
@@ -3572,6 +3573,22 @@ def run_phase9f_normal_fit(
                 raise Phase9FFExecutionError(
                     str(exc), code="adaptive_skills_invalid", stage="normal_fit"
                 ) from exc
+    # V3.12-B1.1: the normal Phase 9F lifecycle must use the B1 fitter
+    # boundary too. Do this BEFORE hashing and testing cache reuse.
+    v312b11_normal_portfolio_fit_active = bool(
+        canonical_fit.get("adaptive_projects_mode") == "portfolio_quality"
+        and (execution.get("section_scope") or {}).get("projects_addressable")
+    )
+    if v312b11_normal_portfolio_fit_active:
+        from tailoring.portfolio_quality_v312b1 import improve_portfolio_fit_input
+        projects = improve_portfolio_fit_input(
+            projects, mode="portfolio_quality", stage="caller"
+        )
+    v312b11_effective_render_policy = (
+        PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION + "+v312b142-timing-order-fixed+v312b15-candidate-cow+v312b16-lazy-path"
+        if v312b11_normal_portfolio_fit_active
+        else PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+    )
     lifecycle = _normal_lifecycle_state(generation)
     fit_input_fingerprint = build_phase9f_normal_fit_input_fingerprint(
         lifecycle=lifecycle,
@@ -3584,11 +3601,15 @@ def run_phase9f_normal_fit(
         ),
     )
     prior_fit = lifecycle.get("fit") or {}
+    # V3.9: do not silently reuse pre-deduplication fitted documents.
+    if (prior_fit.get("status") == "completed" and
+            not isinstance((generation.get("fit_result") or {}).get("v310_lead_intro"), dict)):
+        prior_fit = {}  # Preserve old file; the existing branch creates a new fitted draft.
     if (
         prior_fit.get("status") == "completed"
         and prior_fit.get("input_fingerprint") == fit_input_fingerprint
         and prior_fit.get("render_policy_version")
-        == PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION
+        == v312b11_effective_render_policy
         and isinstance(generation.get("fit_result"), dict)
     ):
         return {
@@ -3619,7 +3640,7 @@ def run_phase9f_normal_fit(
         "fitting_search_algorithm_version": (
             PHASE6C_SEARCH_ALGORITHM_VERSION
         ),
-        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        "render_policy_version": v312b11_effective_render_policy,
     }
     target_settings["phase9f_f_normal_lifecycle"] = lifecycle
     generation_input_fingerprint = str(lifecycle.get("generation_input_fingerprint") or "")
@@ -3709,7 +3730,7 @@ def run_phase9f_normal_fit(
             "fitting_search_algorithm_version": (
                 PHASE6C_SEARCH_ALGORITHM_VERSION
             ),
-            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+            "render_policy_version": v312b11_effective_render_policy,
         }
         target_settings["phase9f_f_normal_lifecycle"] = lifecycle
         _save_normal_generation(
@@ -3763,15 +3784,97 @@ def run_phase9f_normal_fit(
             ),
         }
         try:
+            import time as _v312b141_time
+            v312b141_fit_started = _v312b141_time.perf_counter()
             fit_result = fit_writer(**_fitter_kwargs_with_prepared_input(
                 fit_writer,
                 fitter_payload,
                 prepared_input,
             ))
             fit_result = deepcopy(fit_result)
+            v312b141_incumbent_fit_elapsed = round(_v312b141_time.perf_counter()-v312b141_fit_started,3)
             fit_result["fitting_input_snapshot"] = deepcopy(
                 fitting_input_snapshot
             )
+            # B1.4: real source-grounded Portfolio reallocation with a full
+            # independent native Phase 8 gate. Never replace the incumbent if
+            # exact DOCX, one-page or Required/Core verification is unavailable.
+            v312b14_native_guarded_swap_active = bool(
+                v312b11_normal_portfolio_fit_active
+                and fit_writer is generate_tailored_resume_copy_fit_one_page
+                and isinstance(projects, dict)
+                and projects.get("portfolio_quality_b1_active")
+                    == "portfolio-quality-v312b1-fit-input-marginal-v1"
+            )
+            if v312b14_native_guarded_swap_active:
+                from tailoring.portfolio_quality_v312b141 import compare_and_select
+                from tailoring.portfolio_quality_v312b1 import audit_fitted_portfolio_docx
+                try:
+                    fit_result["portfolio_quality_b1_final_audit"] = audit_fitted_portfolio_docx(fit_result)
+                    def _v312b14_render(alternative_projects):
+                        alternative_payload = deepcopy(fitter_payload)
+                        alternative_payload["tailored_projects"] = deepcopy(alternative_projects)
+                        preparation_signature = inspect.signature(prepare_fitting_input_snapshot)
+                        alternative_input = prepare_fitting_input_snapshot(**{
+                            name: deepcopy(value)
+                            for name, value in alternative_payload.items()
+                            if name in preparation_signature.parameters
+                        })
+                        rendered = deepcopy(fit_writer(**_fitter_kwargs_with_prepared_input(
+                            fit_writer, alternative_payload, alternative_input
+                        )))
+                        snap = deepcopy(alternative_input.fitting_input_snapshot)
+                        rendered["fitting_input_snapshot"] = snap
+                        rendered["fitting_input_fingerprint"] = str(snap["fitting_input_fingerprint"])
+                        rendered["portfolio_quality_b1_final_audit"] = audit_fitted_portfolio_docx(rendered)
+                        return rendered
+                    v312b14_baseline = None
+                    def _v312b14_verify(candidate_fit):
+                        nonlocal v312b14_baseline
+                        if v312b14_baseline is None:
+                            frozen = _prepare_frozen_phase8_context(execution)
+                            baseline = frozen["baseline_report"]
+                            if not (baseline.get("meta") or {}).get("document_analysis"):
+                                from tailoring.phase9f_v364_document_reverify import build_frozen_selected_base_document_report
+                                baseline, _ = build_frozen_selected_base_document_report(
+                                    baseline_report=baseline,
+                                    jd_text=str(baseline.get("raw_jd_text") or ""),
+                                    source_artifact=artifact,
+                                )
+                            v312b14_baseline = baseline
+                        simulated_generation = deepcopy(target)
+                        simulated_generation["fit_result"] = deepcopy(candidate_fit)
+                        simulated_generation["projects"] = deepcopy(projects)
+                        simulated_generation["skills"] = deepcopy(skills)
+                        return build_phase8_verification(
+                            baseline_report=v312b14_baseline,
+                            generation_state=simulated_generation,
+                            raw_jd_text=str(v312b14_baseline.get("raw_jd_text") or ""),
+                        )
+                    chosen, b14_audit = compare_and_select(
+                        source_projects=projects, incumbent_fit=fit_result,
+                        render=_v312b14_render, verify=_v312b14_verify, limit=1,
+                    )
+                    b14_audit["incumbent_fit_elapsed_seconds"] = v312b141_incumbent_fit_elapsed
+                    b14_audit["fit_and_compare_elapsed_seconds"] = round(
+                        _v312b141_time.perf_counter()-v312b141_fit_started,3)
+                    fit_result = deepcopy(chosen)
+                    fit_result["portfolio_quality_b14_final_audit"] = b14_audit
+                    fit_result["portfolio_quality_b141_final_audit"] = deepcopy(b14_audit)
+                    if b14_audit.get("status") == "SELECTED_NATIVE_SAFE_DEPTH_IMPROVEMENT":
+                        fitting_input_snapshot = deepcopy(fit_result["fitting_input_snapshot"])
+                        fitting_input_fingerprint = str(fit_result["fitting_input_fingerprint"])
+                except Exception as b14_error:
+                    # B1.4 must never invalidate an otherwise successful incumbent.
+                    fit_result["portfolio_quality_b14_final_audit"] = {
+                        "version": "portfolio-quality-v312b14-guarded-native-cross-project-swap-v1",
+                        "status": "HOLD_INCUMBENT",
+                        "reason": "B14_EXCEPTION_" + type(b14_error).__name__,
+                        "native_score_checked": False,
+                        "required_core_checked": False,
+                        "no_approval_or_scorer_changes": True,
+                    }
+                    fit_result["portfolio_quality_b141_final_audit"] = deepcopy(fit_result["portfolio_quality_b14_final_audit"])
             fit_result["fitting_input_fingerprint"] = fitting_input_fingerprint
         except Exception:
             lifecycle["fit"] = {
@@ -3783,7 +3886,7 @@ def run_phase9f_normal_fit(
                 "fitting_search_algorithm_version": (
                     PHASE6C_SEARCH_ALGORITHM_VERSION
                 ),
-                "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+                "render_policy_version": v312b11_effective_render_policy,
             }
             target_settings["phase9f_f_normal_lifecycle"] = lifecycle
             _save_normal_generation(
@@ -3819,7 +3922,7 @@ def run_phase9f_normal_fit(
             "fitting_search_algorithm_version": (
                 PHASE6C_SEARCH_ALGORITHM_VERSION
             ),
-            "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+            "render_policy_version": v312b11_effective_render_policy,
         }
         target_settings["phase9f_f_normal_lifecycle"] = lifecycle
         _save_normal_generation(
@@ -3848,6 +3951,17 @@ def run_phase9f_normal_fit(
             code="fit_one_page_failed",
             stage="normal_fit",
         )
+    # Audit the ACTUAL fitted DOCX, not the pre-fit proxy slate.
+    # Never infer or auto-approve a native Job Match from this audit.
+    if v312b11_normal_portfolio_fit_active:
+        from tailoring.portfolio_quality_v312b1 import audit_fitted_portfolio_docx
+        fit_result["portfolio_quality_b1_final_audit"] = audit_fitted_portfolio_docx(fit_result)
+        # B1.3: final-document depth is observed from the B1 DOCX readback,
+        # not from the preview's pre-fit estimated bullet counts.
+        from tailoring.portfolio_quality_v312b13 import audit_portfolio_depth_after_fit
+        fit_result["portfolio_quality_b13_final_audit"] = audit_portfolio_depth_after_fit(
+            projects, fit_result
+        )
     lifecycle["fit"] = {
         "status": "completed",
         "input_fingerprint": fit_input_fingerprint,
@@ -3856,7 +3970,7 @@ def run_phase9f_normal_fit(
         "fitting_search_algorithm_version": (
             PHASE6C_SEARCH_ALGORITHM_VERSION
         ),
-        "render_policy_version": PHASE9F_F_NORMAL_FIT_RENDER_POLICY_VERSION,
+        "render_policy_version": v312b11_effective_render_policy,
         "fitting_input_snapshot": fitting_input_snapshot,
         "result_fingerprint": fingerprint_value(fit_result),
     }
@@ -4602,71 +4716,70 @@ def run_phase9f_tailoring_fit(
 def reconcile_phase9f_tailoring_approval(
     *, application_id: int, actor_label: str = "Local user"
 ) -> dict[str, Any] | None:
-    """Observe approval and finalize a valid pre-approval Phase 8 result."""
+    """Observe approval and finalize the exact pre-approval Phase 8 receipt."""
     execution = get_phase9f_tailoring_execution(application_id)
-    if execution is None or not execution.get("generation_id"):
-        return execution
-    generation = get_tailoring_generation(
-        application_id,
-        execution["generation_id"],
-    )
-    if generation is None or generation.get("status") != "approved":
+    if execution is None:
         return execution
 
     if is_phase9f_normal_lifecycle_execution(execution):
-        outputs = deepcopy(execution.get("stage_outputs") or {})
+        # Normal F owns frozen context, not a single generation. Resolve only
+        # the generation recorded by Phase 8; never guess from latest drafts.
+        outputs = execution.get("stage_outputs") or {}
         normal_phase8 = outputs.get("normal_phase8") or {}
         recorded_generation_id = _clean(normal_phase8.get("generation_id"))
         recorded_verification_fingerprint = _clean(
             normal_phase8.get("verification_fingerprint")
         )
+        if not recorded_generation_id or not recorded_verification_fingerprint:
+            return execution
+        generation = get_tailoring_generation(application_id, recorded_generation_id)
         if (
-            recorded_generation_id == _clean(generation.get("generation_id"))
-            and recorded_verification_fingerprint
+            generation is None
+            or _clean(generation.get("generation_id")) != recorded_generation_id
+            or generation.get("status") != "approved"
+            or not _normal_generation_matches_context(execution=execution, generation=generation)
+            or not _normal_generation_is_approvable(generation)
         ):
-            gate = get_tailoring_verification_approval_gate(
-                application_id,
-                generation["generation_id"],
-            )
-            latest = gate.get("verification") or {}
-            if (
-                gate.get("ready") is True
-                and _clean(latest.get("verification_fingerprint"))
-                == recorded_verification_fingerprint
-            ):
-                refreshed = refresh_tailoring_verification_readiness(
-                    application_id,
-                    generation["generation_id"],
-                )
-                if refreshed.get("blueprint_ready") is True:
-                    return _update_execution(
-                        execution_id=execution["execution_id"],
-                        status="completed",
-                        current_stage="normal_phase8_verified_and_approved",
-                        phase8_verification=refreshed,
-                        event_type="normal_verified_approval_observed",
-                        actor_label=actor_label,
-                        details={
-                            "generation_id": generation["generation_id"],
-                            "verification_fingerprint": refreshed.get(
-                                "verification_fingerprint"
-                            ),
-                        },
-                    )
-
-        # Compatibility path for direct/older approvals that did not have a
-        # pre-approval verification. They can still run Phase 8 afterward.
-        if execution["status"] in {"waiting_for_phase8", "completed"}:
+            return execution
+        gate = get_tailoring_verification_approval_gate(application_id, recorded_generation_id)
+        latest = gate.get("verification") or {}
+        if (
+            gate.get("ready") is not True
+            or _clean(latest.get("verification_fingerprint")) != recorded_verification_fingerprint
+        ):
+            return execution
+        if (
+            execution.get("status") == "completed"
+            and execution.get("phase8_verification_fingerprint") == recorded_verification_fingerprint
+            and latest.get("blueprint_ready") is True
+        ):
+            return execution
+        refreshed = refresh_tailoring_verification_readiness(application_id, recorded_generation_id)
+        if (
+            refreshed.get("blueprint_ready") is not True
+            or _clean(refreshed.get("verification_fingerprint")) != recorded_verification_fingerprint
+        ):
             return execution
         return _update_execution(
             execution_id=execution["execution_id"],
-            status="waiting_for_phase8",
-            current_stage="approved_changed_output",
-            event_type="existing_approval_observed",
+            status="completed",
+            current_stage="normal_phase8_verified_and_approved",
+            # Keep generation_id NULL: the receipt owns the exact generation.
+            phase8_verification=refreshed,
+            event_type="normal_verified_approval_observed",
             actor_label=actor_label,
-            details={"generation_id": execution["generation_id"]},
+            details={
+                "generation_id": recorded_generation_id,
+                "verification_fingerprint": recorded_verification_fingerprint,
+            },
         )
 
+    # Historical private-stage execution retains its original binding.
+    if not execution.get("generation_id"):
+        return execution
+    generation = get_tailoring_generation(application_id, execution["generation_id"])
+    if generation is None or generation.get("status") != "approved":
+        return execution
     if execution["status"] in {"waiting_for_phase8", "completed"}:
         return execution
     return _update_execution(
@@ -4883,7 +4996,8 @@ def run_or_reuse_phase9f_normal_generation_phase8(
         status=status,
         current_stage=current_stage,
         stage_outputs=outputs,
-        generation_id=str(generation_id),
+        # phase9f-normal-phase8-null-generation-binding-v1
+        # Generation identity is already stored in outputs["normal_phase8"].
         phase8_verification=latest,
         event_type=event_type,
         actor_label=actor_label,

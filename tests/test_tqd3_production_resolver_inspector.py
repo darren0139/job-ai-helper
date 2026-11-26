@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION
+
 import hashlib
 import json
 import sqlite3
@@ -99,7 +101,7 @@ class ResolverInspectorTests(unittest.TestCase):
         )
         self.assertEqual(
             versions["scoring_version"],
-            "stable-evidence-v1.16-phase6d20",
+            EXPECTED_SCORING_VERSION,
         )
         self.assertIs(adapter_resolver, resolve_requirement_with_production_knowledge)
         self.assertIs(inspector_resolver, resolve_requirement_with_production_knowledge)

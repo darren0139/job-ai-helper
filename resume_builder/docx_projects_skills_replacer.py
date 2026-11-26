@@ -3331,7 +3331,7 @@ def generate_tailored_resume_copy(
 #     return compacted
 
 
-def _project_reduction_quality_loss(
+def _project_reduction_quality_loss_v312b13_original(
     change: dict[str, Any],
 ) -> int:
     """Estimate evidence loss for one project fitting change."""
@@ -3366,6 +3366,14 @@ def _project_reduction_quality_loss(
         return 10000 + priority * 10
 
     return 100000
+
+def _project_reduction_quality_loss(change: dict[str, Any]) -> int:
+    original = _project_reduction_quality_loss_v312b13_original(change)
+    receipt = change.get("v312b13_depth_order") if isinstance(change, dict) else None
+    if isinstance(receipt, dict) and receipt.get("version") == "portfolio-quality-v312b13-depth-sensitive-fitting-v1":
+        return original + max(0, int(receipt.get("depth_penalty", 0) or 0))
+    return original
+
 
 def _skill_reduction_quality_loss(change: dict[str, Any]) -> int:
     """Estimate evidence loss for removing one Skills item."""
@@ -3450,7 +3458,11 @@ def _restore_whole_resume_change(
 def _whole_resume_restoration_quality_gain(change: dict[str, Any]) -> int:
     if str(change.get("section", "projects")) == "skills":
         return skill_restoration_quality_gain(change)
-    return _restoration_quality_gain(change)
+    original = _restoration_quality_gain(change)
+    receipt = change.get("v312b13_depth_order") if isinstance(change,dict) else None
+    if isinstance(receipt, dict) and receipt.get("version") == "portfolio-quality-v312b13-depth-sensitive-fitting-v1":
+        return original + 10 * max(0, int(receipt.get("depth_penalty",0) or 0))
+    return original
 
 
 
@@ -3729,6 +3741,17 @@ def prepare_fitting_input_snapshot(
         else None
     )
     working_skills = deepcopy(tailored_skills) if tailored_skills else None
+    if working_projects:
+        from tailoring.phase9f_prefit_dedupe_v39 import dedupe_prepared_projects
+        working_projects = dedupe_prepared_projects(
+            working_projects, enabled=not lock_policy["lock_projects"]
+        )
+    # V3.10: preserve one grounded project overview and order it first.
+    if working_projects:
+        from tailoring.phase9f_lead_intro_v310 import apply_lead_first_prepared
+        working_projects = apply_lead_first_prepared(
+            working_projects, enabled=not lock_policy["lock_projects"]
+        )
 
     if working_projects and not lock_policy["lock_projects"]:
         visible_projects = (
@@ -3746,6 +3769,15 @@ def prepare_fitting_input_snapshot(
                 bullet_texts=project["draft_bullets"],
             )
         working_projects["recommended_projects"] = visible_projects
+
+    # B1 repeats the conservative reduction AFTER fitter-side lead-bullet
+    # enrichment and caps. The caller's explicit policy marker is required.
+    if (isinstance(working_projects, dict) and
+            working_projects.get("portfolio_quality_b1_active") == "portfolio-quality-v312b1-fit-input-marginal-v1"):
+        from tailoring.portfolio_quality_v312b1 import improve_portfolio_fit_input
+        working_projects = improve_portfolio_fit_input(
+            working_projects, mode="portfolio_quality", stage="prepared"
+        )
 
     source_signature = source_docx_signature(saved_resume_docx_path)
     source_docx_bytes = Path(saved_resume_docx_path).read_bytes()
@@ -3987,6 +4019,8 @@ def generate_tailored_resume_copy_fit_one_page(
                 PHASE6C1_OPTIMIZATION_VERSION
             ),
             "fitting_input_snapshot": deepcopy(fitting_input_snapshot),
+            "v39_auto_dedupe": deepcopy((preparation.working_projects or {}).get("_v39_auto_dedupe") or {}),
+            "v310_lead_intro": deepcopy((preparation.working_projects or {}).get("_v310_lead_intro") or {}),
             "fitting_input_fingerprint": fitting_input_snapshot[
                 "fitting_input_fingerprint"
             ],
@@ -4444,6 +4478,8 @@ def generate_tailored_resume_copy_fit_one_page(
     def build_reduction_candidates(
         projects_state: dict[str, Any] | None,
         skills_state: dict[str, Any] | None,
+        *,
+        v312b16_lazy_path: bool = False,
     ) -> list[dict[str, Any]]:
         """Build the existing evidence-safe one-step candidates without rendering."""
         candidates: list[dict[str, Any]] = []
@@ -4516,10 +4552,25 @@ def generate_tailored_resume_copy_fit_one_page(
                 )
 
         if projects_state and not lock_policy["lock_projects"]:
-            project_reductions = build_evidence_aware_project_reductions(
-                projects_state,
-                prefer_balanced_bullets=prefer_balanced_bullets,
-            )
+            if (
+                v312b16_lazy_path
+                and isinstance(projects_state, dict)
+                and projects_state.get("portfolio_quality_b1_active")
+                    == "portfolio-quality-v312b1-fit-input-marginal-v1"
+            ):
+                # B1.6: geometry projections only in coarse-path planning.
+                from resume_builder.fitting_lazy_candidate_path_v312b16 import (
+                    lazy_project_reductions,
+                )
+                project_reductions = lazy_project_reductions(
+                    projects_state,
+                    prefer_balanced_bullets=prefer_balanced_bullets,
+                )
+            else:
+                project_reductions = build_evidence_aware_project_reductions(
+                    projects_state,
+                    prefer_balanced_bullets=prefer_balanced_bullets,
+                )
             for reduction_index, (reduced_projects, raw_change) in enumerate(
                 project_reductions,
                 start=2 + fusion_candidate_count,
@@ -4535,6 +4586,16 @@ def generate_tailored_resume_copy_fit_one_page(
                         "candidate_order": reduction_index,
                     }
                 )
+        # B1.3: depth-sensitive candidate ordering only for B1 Portfolio inputs.
+        # Existing protection tiers and rendered one-page checks remain owners.
+        v312b13_depth_aware_active = (
+            isinstance(projects_state, dict)
+            and projects_state.get("portfolio_quality_b1_active")
+                == "portfolio-quality-v312b1-fit-input-marginal-v1"
+        )
+        if v312b13_depth_aware_active:
+            from tailoring.portfolio_quality_v312b13 import prioritize_portfolio_reductions
+            candidates = prioritize_portfolio_reductions(projects_state, candidates)
         return candidates
 
     def build_safe_reduction_path(
@@ -4549,9 +4610,15 @@ def generate_tailored_resume_copy_fit_one_page(
         cumulative_changes: list[dict[str, Any]] = []
 
         while True:
+            v312b16_lazy_enabled = (
+                isinstance(current_projects, dict)
+                and current_projects.get("portfolio_quality_b1_active")
+                    == "portfolio-quality-v312b1-fit-input-marginal-v1"
+            )
             candidates = build_reduction_candidates(
                 current_projects,
                 current_skills,
+                v312b16_lazy_path=v312b16_lazy_enabled,
             )
             if not candidates:
                 break
@@ -4559,6 +4626,11 @@ def generate_tailored_resume_copy_fit_one_page(
             tier_groups = group_candidates_by_protection_tier(candidates)
             protection_tier, lowest_tier = tier_groups[0]
             next_candidate = lowest_tier[0]
+            if v312b16_lazy_enabled:
+                from resume_builder.fitting_lazy_candidate_path_v312b16 import (
+                    materialize_selected,
+                )
+                next_candidate = materialize_selected(current_projects, next_candidate)
             change = deepcopy(next_candidate["change"])
             cumulative_changes.append(change)
             current_projects = deepcopy(next_candidate["projects"])

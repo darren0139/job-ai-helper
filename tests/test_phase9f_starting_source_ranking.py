@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION, LEGACY, run_exact_legacy_case
+
 import copy
 import hashlib
 import json
@@ -589,14 +591,28 @@ class Phase9FStartingSourceRankingTests(unittest.TestCase):
             pinned.get("fixture_version"),
             "phase9f-b-ranking-identity-pinned-v11",
         )
-        self.assertEqual(
-            actual,
-            {
-                key: value
-                for key, value in pinned.items()
-                if key != "fixture_version"
-            },
-        )
+        legacy = {key: value for key, value in pinned.items() if key != "fixture_version"}
+        self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
+        if SCORING_VERSION == LEGACY:
+            self.assertEqual(actual, legacy)
+        else:
+            # An actual legacy process must reproduce the complete historical pin.
+            # The active policy has a different identity, not a different fixture.
+            run_exact_legacy_case(self)
+            self.assertEqual(result["semantic_identity"]["scoring"]["scoring_version"], EXPECTED_SCORING_VERSION)
+            self.assertEqual(actual["ranking_input_fingerprint"], fingerprint_value(result["semantic_identity"]))
+            from tailoring.phase9f_starting_source_ranking import validate_ranked_result_contract
+            validate_ranked_result_contract(result, expected_ranking_input_fingerprint=actual["ranking_input_fingerprint"])
+            self.assertNotEqual(actual["ranking_input_fingerprint"], legacy["ranking_input_fingerprint"])
+            self.assertNotEqual(actual["ranking_fingerprint"], legacy["ranking_fingerprint"])
+            def metrics(rows):
+                return [{k:v for k,v in row.items() if k != "normalized_source_fingerprint"} for row in rows]
+            self.assertEqual(metrics(actual["candidate_metrics"]), metrics(legacy["candidate_metrics"]))
+            self.assertEqual(actual["comparison_result_fingerprints"], legacy["comparison_result_fingerprints"])
+            repeated = rank_starting_resume_sources(exact_jd=make_exact_jd(),
+                current_base_resume=base, current_base_artifact=artifact, global_blueprints=[blueprint])
+            self.assertEqual(repeated["ranking_input_fingerprint"], actual["ranking_input_fingerprint"])
+            self.assertEqual(repeated["ranking_fingerprint"], actual["ranking_fingerprint"])
         self.assertEqual(
             result["recommended_source"]["source_type"],
             "global_blueprint",

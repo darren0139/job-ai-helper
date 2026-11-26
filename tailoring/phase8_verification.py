@@ -657,6 +657,14 @@ def refresh_phase8_readiness(
     if not document_artifact_is_current(result, generation_state):
         raise ValueError('Actual final document changed or is unavailable; verify it again')
 
+    # An explicitly activated A1.7 scoring policy must never refresh an old
+    # Phase 8 verification into an apparently current approval receipt.
+    if SCORING_VERSION.endswith("-v312a17-fullstack-single-row"):
+        after = result.get("after_stable_analysis")
+        recorded_version = str(after.get("scoring_version") or "") if isinstance(after, dict) else ""
+        if recorded_version != SCORING_VERSION and not recorded_version.startswith(SCORING_VERSION + "+"):
+            raise ValueError('Scoring policy changed; re-verify the fitted document under the active scoring version')
+
     status = (
         _clean(generation_state.get("status")).lower()
         or "draft"

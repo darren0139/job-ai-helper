@@ -116,7 +116,7 @@ class RelevanceSelection(unittest.TestCase):
             self.assertEqual(result[-2:],['SKILLS','Python, SQL'])
             self.assertEqual(source.read_bytes(),raw)
 
-    def test_only_v35_and_v26_are_user_facing(self):
+    def test_only_v35_v37_and_v26_are_user_facing(self):
         from tailoring.phase9f_automatic_bestof_v30_ui import (
             ACTIVE_MODES,LEGACY_MODES,render_optimizer_mode_selector,configured_mode)
         class FakeUI:
@@ -124,11 +124,14 @@ class RelevanceSelection(unittest.TestCase):
             def radio(self,label,options,**kwargs):self.options.append(tuple(options))
             def caption(self,msg):pass
         ui=FakeUI()
-        self.assertEqual(render_optimizer_mode_selector(ui,156),'v35-relevance')
-        self.assertEqual(ui.options,[('v35-relevance','v26-fixed')])
+        self.assertEqual(render_optimizer_mode_selector(ui,156),'v37-same-work')
+        self.assertEqual(ui.options,[('v35-relevance','v37-same-work','v26-fixed')])
+        self.assertEqual(ACTIVE_MODES,('v35-relevance','v37-same-work','v26-fixed'))
         self.assertEqual(set(LEGACY_MODES),{'v31-flexible','v33-evidence'})
         ui.session_state['phase9f_bestof_next_mode_156']='v33-evidence'
-        self.assertEqual(render_optimizer_mode_selector(ui,156),'v35-relevance')
+        self.assertEqual(render_optimizer_mode_selector(ui,156),'v37-same-work')
+        ui.session_state['phase9f_bestof_next_mode_156']='v35-relevance'
+        self.assertEqual(configured_mode(ui,156),'v35-relevance')
         ui.session_state['phase9f_bestof_next_mode_156']='v26-fixed'
         self.assertEqual(configured_mode(ui,156),'v26-fixed')
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from analysis_stability.stable_evidence_scoring import SCORING_VERSION
 from unittest.mock import patch
 
 from tailoring.phase8_auto_verification import (
@@ -21,6 +22,7 @@ class Phase8AutoVerificationTests(unittest.TestCase):
             "phase8_version": PHASE8_VERIFICATION_VERSION,
             "approval_gate_version": PHASE8_PREAPPROVAL_GATE_VERSION,
             "verified_generation_snapshot_fingerprint": "snap1",
+            "after_stable_analysis": {"scoring_version": SCORING_VERSION},
         }
 
     @patch(

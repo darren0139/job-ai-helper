@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION
+
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +22,7 @@ class Phase9ERegistryCurrentnessCacheTests(unittest.TestCase):
     def test_scoring_identity_is_not_changed(self):
         self.assertEqual(
             SCORING_VERSION,
-            "stable-evidence-v1.16-phase6d20",
+            EXPECTED_SCORING_VERSION,
         )
 
     def test_registry_version_changes_resolution_identity(self):

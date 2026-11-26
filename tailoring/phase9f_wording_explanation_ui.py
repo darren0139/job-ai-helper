@@ -77,7 +77,7 @@ def wording_facts(row, catalog):
         if ('deploy' in lower or 'build automation' in lower) and (phrases['ci'] or phrases['release']):
             relevant=True;quote=phrases['ci'] or phrases['release'];kind='Related tooling / delivery context'
             reason='Build/CI or product release is stated; application deployment is not established.'
-        if 'database' in lower and (phrases['database'] or re.search(r'\bAdded\b', text)):
+        if 'database' in lower and phrases['database']:
             relevant=True;quote=phrases['database'];kind='Explicit database activity' if quote else 'Not matched'
             reason='Database activity is stated; proficiency is not verified.' if quote else '“Added” is generic wording, not database evidence.'
         if 'backend' in lower and 'language' in lower and phrases['database']:
@@ -104,12 +104,32 @@ def _comparison_table(st, headings, rows):
 
 def render_wording_comparison(st, *, base, library, catalog, recorded, result, key):
     """User-facing B4 presentation; all score/evidence decisions remain existing."""
+    # Defense in depth: callers cannot force a non-related Base/Library pair.
+    # If unverified, retain Base as an independent bullet; no inferred winner.
+    if base is not None and library is not None:
+        from tailoring.phase9f_comparison_pair_guard_v37 import classify_related_pair
+        relation = classify_related_pair(base, library)
+        if not relation['eligible']:
+            st.info('These Base and Library wordings are not established as related. '
+                    'A head-to-head comparison is not permitted; inspecting Base alone.')
+            library = None
+        elif relation['status'] == 'related_activity':
+            st.caption('Related project activity, not a confirmed duplicate or source winner.')
     st.markdown('''<style>.bullet-fit-table{width:100%;overflow-x:auto;border:1px solid #56627366;border-radius:8px}
     .bullet-fit-table table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:14px}
     .bullet-fit-table th,.bullet-fit-table td{padding:12px;vertical-align:top;text-align:left;overflow-wrap:anywhere;border-bottom:1px solid #56627355}
     @media(max-width:800px){.bullet-fit-table th,.bullet-fit-table td{padding:7px;font-size:12px}}</style>''',unsafe_allow_html=True)
     rows=[r for r in (base,library) if r is not None]
     if len(rows)==2 and base['bullet']==library['bullet']:rows=[base]
+    if len(rows)==2:
+        from tailoring.phase9f_bullet_redundancy import compare_project_bullets
+        overlap_review=compare_project_bullets(base['bullet'],library['bullet'])
+        if overlap_review['status']=='likely_same_work':
+            st.warning('Possible duplicate contribution — '+overlap_review['reason']+
+                ' Compare the unique JD evidence and prefer one wording if it preserves coverage. '
+                'Historical Best-of membership is not a quality verdict.')
+        elif overlap_review['status']=='related_activity':
+            st.caption('These wordings share a broad activity; that alone does not establish duplication.')
     facts=[wording_facts(r,catalog) for r in rows]
     titles=(['Base Resume','Evidence Library'] if len(rows)==2 else
             ['Shared Base + Library wording'] if {'Selected Base','Evidence Library'}<=set(rows[0]['sources']) else
@@ -121,11 +141,20 @@ def render_wording_comparison(st, *, base, library, catalog, recorded, result, k
             card.write(row['bullet'])
             if recorded:
                 before=bool(row.get('in_actual_a'));after=bool(row.get('in_proposed_b'))
-                card.markdown('**'+('Kept in both versions' if before and after else 'Removed from alternative' if before else 'Added to alternative' if after else 'Not in either version')+'**')
+                card.markdown('**'+('Included in incumbent and alternative' if before and after else 'Removed from alternative' if before else 'Added to alternative' if after else 'Not in either version')+'**')
                 chosen=before if result.get('winner')=='existing_final' else after if result.get('winner')=='optimized_candidate' else None
                 card.caption('Incumbent: '+('included' if before else 'excluded')+' · Alternative: '+('included' if after else 'excluded')+' · Chosen résumé: '+('included' if chosen is True else 'excluded' if chosen is False else 'unavailable'))
             else:card.caption('Saved membership unavailable; no selection is inferred.')
             card.caption(str(fact['words'])+' words · provenance: '+', '.join(row['sources']))
+            from tailoring.phase9f_bullet_score_v38 import lookup_scored_wording
+            _v38_score = lookup_scored_wording(result, row.get('project'), row.get('bullet'))
+            if _v38_score is not None:
+                card.caption(f"Saved JD weighted relevance (proxy) · {_v38_score['standalone_weighted_points']:g} points")
+                _v38_marginal = _v38_score.get('marginal_in_proposal_points')
+                if _v38_marginal is not None:
+                    card.caption(f'Unique to the tested alternative · {_v38_marginal:g} weighted points')
+            else:
+                card.caption('Saved JD weighted relevance · Unavailable for this generation')
             card.markdown('**:green[Strengths]**')
             for item in fact['strengths']:card.write('+ '+item)
             card.markdown('**:red[Weaknesses / limits]**')
@@ -148,7 +177,7 @@ def render_wording_comparison(st, *, base, library, catalog, recorded, result, k
     _comparison_table(st,['Category',*titles],[['Explicit technologies',*[', '.join(f['technologies']) or 'None named' for f in facts]],
         ['Related activity phrases',*['; '.join(p for values in f['phrases'].values() for p in values) or 'None established' for f in facts]],
         ['Word count',*[str(f['words']) for f in facts]]])
-    st.markdown('##### Which wording is stronger — and why?')
+    st.markdown('##### JD relevance and wording trade-offs (estimated)')
     if len(rows)==2:
         estimate=estimate_pair(base['bullet'],library['bullet'],list(catalog.values()))
         st.write('Estimated JD relevance: '+estimate['outcome']+'. '+estimate['reason'])
@@ -165,6 +194,7 @@ def render_wording_comparison(st, *, base, library, catalog, recorded, result, k
             st.write('No overall JD-fit winner is established. Compare concrete implementation detail with team/delivery context; neither substitutes for missing named JD capabilities.')
     else:st.caption('One wording is displayed; no source winner or head-to-head competition is inferred.')
     st.markdown('**What Best-of actually did**')
+    st.caption('“Both” means present in both the incumbent and tested alternative. It does not mean these wordings were compared as mutually exclusive candidates or that retaining two was better.')
     for title,row in zip(titles,rows):
         if recorded:
             before=bool(row.get('in_actual_a'));after=bool(row.get('in_proposed_b'))
@@ -280,7 +310,7 @@ def render_bullet_choice_card(st, *, row, catalog, recorded, incumbent_retained=
     st.caption('Source: '+('Shared Base + Library wording' if {'Selected Base','Evidence Library'}<=set(row['sources']) else row.get('source_label', ', '.join(row['sources']))))
     if recorded:
         before=bool(row.get('in_actual_a'));after=bool(row.get('in_proposed_b'))
-        state='Kept in both versions' if before and after else 'Removed from alternative' if before else 'Added to alternative' if after else 'Not selected in either version'
+        state='Included in fitted A and proposed B' if before and after else 'Removed from alternative' if before else 'Added to alternative' if after else 'Not selected in either version'
         st.markdown('**'+state+'**')
         st.caption('Existing fitted résumé: '+('Included' if before else 'Not included')+' · Optimized alternative: '+('Included' if after else 'Not included'))
     else:st.caption('Saved selection membership unavailable.')

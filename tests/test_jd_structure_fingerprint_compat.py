@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.b213_policy_support import EXPECTED_SCORING_VERSION, EXPECTED_JD_INPUT_FINGERPRINT
+
 import unittest
 
 from analysis_stability.stable_evidence_scoring import (
@@ -82,10 +84,11 @@ class JDStructureFingerprintCompatibilityTests(unittest.TestCase):
         # The previous hash represented scorer v1.15 / registry v1.2.
         # Pin the existing v1.16 / v1.3 identity. Rejected parser
         # hypotheses must not silently alter production currentness.
-        self.assertEqual(SCORING_VERSION, "stable-evidence-v1.16-phase6d20")
+        self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
+        self.assertEqual(result["scoring_version"], EXPECTED_SCORING_VERSION)
         self.assertEqual(
             result["input_fingerprint"],
-            "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
+            EXPECTED_JD_INPUT_FINGERPRINT,
         )
         self.assertEqual(
             JD_STRUCTURE_INFERENCE_VERSION,
