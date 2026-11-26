@@ -10,11 +10,11 @@ from unittest.mock import patch
 POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
 TOKEN = "v312a17_fullstack_single_row"
 LEGACY = "stable-evidence-v1.16-phase6d20"
-ACTIVE = LEGACY + "-v312a17-fullstack-single-row"
+ACTIVE = LEGACY + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
 EXPECTED_SCORING_VERSION = ACTIVE if os.environ.get(POLICY_ENV, TOKEN).strip() == TOKEN else LEGACY
 EXPECTED_JD_INPUT_FINGERPRINT = {
     LEGACY: "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
-    ACTIVE: "309cdf79124d6e9521cf04f3d4054e9430fe5e63209a21c13a53c0c3e1f1ea12",
+    ACTIVE: "57057947f0f70cdcca92754722faeb5911ede61a3eb4997d0b1df085d834a101",
 }[EXPECTED_SCORING_VERSION]
 
 @contextmanager

@@ -1186,16 +1186,16 @@ def _phase9f_d_exact_binding_stale_reasons(
         "canonical_jd_id",
         "source_version_id",
         "raw_jd_sha256",
-        "canonical_requirement_fingerprint",
     ):
         if str(exact_jd.get(field) or "") != str(
             stored_jd.get(field) or ""
         ):
             return ["The application's exact JD changed."]
-    if list(exact_jd.get("canonical_requirement_ids") or []) != list(
-        stored_jd.get("canonical_requirement_ids") or []
-    ):
-        return ["The application's canonical JD scope changed."]
+    if (str(exact_jd.get("canonical_requirement_fingerprint") or "") !=
+            str(stored_jd.get("canonical_requirement_fingerprint") or "")
+            or list(exact_jd.get("canonical_requirement_ids") or []) !=
+            list(stored_jd.get("canonical_requirement_ids") or [])):
+        return ["The application's canonical JD scope changed. The exact JD text is unchanged; review the current scoring scope and explicitly reconfirm before generating or approving."]
 
     starting = decision.get("starting_snapshot") or {}
     source_identity = starting.get("source_identity") or {}

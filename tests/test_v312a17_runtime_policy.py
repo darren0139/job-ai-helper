@@ -44,7 +44,7 @@ print('A17_STARTUP_PROBE='+json.dumps({
             with self.subTest(value=value):
                 row=self._child(value)
                 self.assertTrue(row['active'])
-                self.assertEqual(row['version'], BASE + '-v312a17-fullstack-single-row')
+                self.assertEqual(row['version'], BASE + '-v312b215-jd-eligibility-v312a17-fullstack-single-row')
                 self.assertEqual(row['phase8'], row['version'])
                 self.assertFalse(row['scope'])
 
@@ -60,7 +60,7 @@ print('A17_STARTUP_PROBE='+json.dumps({
     def test_exact_startup_token_changes_phase8_and_scorer_identity(self):
         row=self._child(TOKEN)
         self.assertTrue(row['active'])
-        self.assertEqual(row['version'], BASE + '-v312a17-fullstack-single-row')
+        self.assertEqual(row['version'], BASE + '-v312b215-jd-eligibility-v312a17-fullstack-single-row')
         self.assertEqual(row['phase8'], row['version'])
         self.assertFalse(row['scope'])
 

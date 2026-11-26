@@ -15,7 +15,7 @@ class MainIntegrationContracts(unittest.TestCase):
             self.assertIs(scoring._V312A14_NATIVE_REPLAY_SCOPE.get(), False)
             self.assertEqual(scoring.SCORING_VERSION,
                              scoring._BASE_SCORING_VERSION +
-                             ('-v312a17-fullstack-single-row' if scoring._V312A17_RUNTIME_ACTIVE else ''))
+                             ('-v312b215-jd-eligibility-v312a17-fullstack-single-row' if scoring._V312A17_RUNTIME_ACTIVE else ''))
     def test_opt_in_is_temporary_and_cannot_leak_on_exception(self):
         self.assertIs(scoring._V312A14_NATIVE_REPLAY_SCOPE.get(), False)
         with self.assertRaisesRegex(RuntimeError,'isolation'):

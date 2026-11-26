@@ -14,7 +14,8 @@ from tailoring.phase8_verification import (
 )
 
 BASE = 'stable-evidence-v1.16-phase6d20'
-ACTIVE = BASE + '-v312a17-fullstack-single-row'
+PRE_B215 = BASE + '-v312a17-fullstack-single-row'
+ACTIVE = BASE + '-v312b215-jd-eligibility-v312a17-fullstack-single-row'
 
 
 class Phase8PolicyFreshness(unittest.TestCase):
@@ -41,6 +42,8 @@ class Phase8PolicyFreshness(unittest.TestCase):
             self.assertFalse(phase8_verification_is_current(self.receipt,self.generation))
             self.assertEqual(phase8_verification_refresh_reason(self.receipt,self.generation),
                              'scoring_policy_changed_requires_fresh_verification')
+            prior=deepcopy(self.receipt);prior['after_stable_analysis']['scoring_version']=PRE_B215
+            self.assertFalse(phase8_verification_is_current(prior,self.generation))
             receipt=deepcopy(self.receipt);receipt.pop('after_stable_analysis')
             self.assertFalse(phase8_verification_is_current(receipt,self.generation))
 

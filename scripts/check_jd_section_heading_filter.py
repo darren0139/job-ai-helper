@@ -6,7 +6,7 @@ from __future__ import annotations
 from os import environ as _smoke_scoring_environ
 
 _EXPECTED_SMOKE_SCORING_VERSION = (
-    "stable-evidence-v1.16-phase6d20-v312a17-fullstack-single-row"
+    "stable-evidence-v1.16-phase6d20-v312b215-jd-eligibility-v312a17-fullstack-single-row"
     if _smoke_scoring_environ.get(
         "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY", "v312a17_fullstack_single_row"
     ).strip() == "v312a17_fullstack_single_row"
