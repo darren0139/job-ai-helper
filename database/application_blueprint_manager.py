@@ -1191,11 +1191,21 @@ def _phase9f_d_exact_binding_stale_reasons(
             stored_jd.get(field) or ""
         ):
             return ["The application's exact JD changed."]
-    if (str(exact_jd.get("canonical_requirement_fingerprint") or "") !=
+    scope_changed = (str(exact_jd.get("canonical_requirement_fingerprint") or "") !=
             str(stored_jd.get("canonical_requirement_fingerprint") or "")
             or list(exact_jd.get("canonical_requirement_ids") or []) !=
-            list(stored_jd.get("canonical_requirement_ids") or [])):
-        return ["The application's canonical JD scope changed. The exact JD text is unchanged; review the current scoring scope and explicitly reconfirm before generating or approving."]
+            list(stored_jd.get("canonical_requirement_ids") or []))
+    if scope_changed:
+        # No change to the immutable D fingerprint. Only an explicit, verified
+        # acceptance can authorize the current scoring scope for this source.
+        from tailoring.phase9f_policy_adoption_v312b215c2 import read_accepted_transition
+        try:
+            accepted = read_accepted_transition(application_id=application_id, decision=decision, exact_jd=exact_jd)
+        except (ValueError, RuntimeError, KeyError, TypeError, OSError, sqlite3.Error) as exc:
+            return ["Accepted scoring policy transition is unavailable: " + str(exc)]
+        if accepted is None:
+            return ["The application's canonical JD scope changed. The exact JD text is unchanged; review the current scoring scope and explicitly reconfirm before generating or approving."]
+        decision["scoring_policy_transition"] = accepted
 
     starting = decision.get("starting_snapshot") or {}
     source_identity = starting.get("source_identity") or {}
@@ -1292,6 +1302,8 @@ def get_current_application_blueprint_decision(
             "stale" if reasons else "current"
         )
         decision["stale_reasons"] = reasons
+        if reasons:
+            decision.pop("scoring_policy_transition", None)
         return decision
 
     selection = decision.get("selection") or {}
@@ -1452,6 +1464,9 @@ def resolve_current_phase9e_generation_context(
             starting = decision.get("starting_snapshot") or {}
             report = _application_report(application_id)
             effective_report = build_effective_tailoring_report(report, decision)
+            if decision.get("scoring_policy_transition"):
+                from tailoring.phase9f_policy_adoption_v312b215c2 import current_base_report
+                effective_report = current_base_report(effective_report, decision)
             effective_report.setdefault("meta", {}).setdefault(
                 "phase9e_starting_context", {}
             )["workflow_action"] = "phase9f_f_minor_full_execution"

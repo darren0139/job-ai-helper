@@ -353,6 +353,12 @@ def build_application_workflow_overview(
         phase9e_status = "Not selected"
         next_action = "Choose and confirm a starting résumé."
 
+    if scope == "stale":
+        phase9e_status = "Historical/stale · review current scoring scope"
+        next_action = "Review the current scoring scope in Tailoring Base. Do not approve or generate until its binding is current."
+    elif phase9e_active and decision.get("scoring_policy_transition"):
+        phase9e_status = "Active · exact source + accepted scoring policy"
+
     return {
         "ui_version": PHASE9E1_WORKFLOW_UI_VERSION,
         "application_id": int(application_id),
@@ -611,6 +617,11 @@ def render_application_workflow_overview(
                 "verification."
             )
 
+    # A loaded historical draft must not override the actual currentness gate.
+    if (decision or {}).get("current_scope_status") == "stale":
+        overview["next_action"] = "Review the scoring policy transition or reconfirm the changed scope in Tailoring Base before approval or generation."
+    elif (decision or {}).get("scoring_policy_transition") and isinstance(working_generation, dict):
+        overview["next_action"] = "Review the current Phase 8 verification of the existing fitted draft before explicit approval; regenerate only if changes are desired."
     st.subheader("Workflow status")
     st.caption("Initial Résumé Analysis → Evidence available → Tailoring base decision → Selected base → Tailoring → Final Résumé Analysis → Comparison")
     with st.container(border=True):

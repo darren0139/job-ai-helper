@@ -609,7 +609,11 @@ def prepare_phase9f_tailoring_execution(
     confirmation, decision, exact_jd, application, application_report = _load_execution_inputs(
         int(application_id)
     )
-    scope = validate_minor_full_execution_scope(
+    scope_validator = validate_minor_full_execution_scope
+    if decision.get("scoring_policy_transition"):
+        from tailoring.phase9f_policy_adoption_v312b215c2 import validate_execution_scope
+        scope_validator = validate_execution_scope
+    scope = scope_validator(
         application_id=int(application_id),
         confirmation=confirmation,
         decision=decision,
@@ -622,6 +626,9 @@ def prepare_phase9f_tailoring_execution(
         application_report,
         decision,
     )
+    if decision.get("scoring_policy_transition"):
+        from tailoring.phase9f_policy_adoption_v312b215c2 import current_base_report
+        baseline_report = current_base_report(baseline_report, decision)
     evidence_snapshot = (
         deepcopy(frozen_evidence_snapshot)
         if isinstance(frozen_evidence_snapshot, dict)
@@ -1610,7 +1617,11 @@ def _prepare_frozen_phase8_context(
         _application,
         application_report,
     ) = _load_execution_inputs(int(execution["application_id"]))
-    scope = validate_minor_full_execution_scope(
+    scope_validator = validate_minor_full_execution_scope
+    if decision.get("scoring_policy_transition"):
+        from tailoring.phase9f_policy_adoption_v312b215c2 import validate_execution_scope
+        scope_validator = validate_execution_scope
+    scope = scope_validator(
         application_id=int(execution["application_id"]),
         confirmation=confirmation,
         decision=decision,

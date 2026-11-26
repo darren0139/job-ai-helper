@@ -587,6 +587,10 @@ def _show_active_binding(
         execution_stage = _clean((execution or {}).get("current_stage"))
 
         st.success("Exact Phase 9F-D Tailoring Base is bound.")
+        if current.get("scoring_policy_transition"):
+            adopted = current["scoring_policy_transition"]
+            transition = adopted["transition"]
+            st.caption(f"Updated scoring scope accepted: {transition['previous_count']} → {transition['current_count']} requirements. Original source and historical decision retained.")
         st.write(f"**Active tailoring base:** {source_label}")
         st.caption(source_details)
         st.write(

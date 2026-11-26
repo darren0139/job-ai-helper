@@ -117,7 +117,7 @@ def authenticate_final(*, generation: dict, prior: dict, snapshot_fingerprint: s
     _require((generation.get('fit_result') or {}).get('fit_one_page') is True and (generation.get('fit_result') or {}).get('page_count') == 1, 'A saved one-page fit is required.')
 
 
-def build_preview(*, transition: dict, baseline_report: dict, generation: dict, source_artifact: dict, prior: dict) -> dict:
+def build_preview(*, transition: dict, baseline_report: dict, generation: dict, source_artifact: dict, prior: dict, _return_material: bool = False) -> dict:
     """Run the existing actual-DOCX Phase 8 engine, without publishing a gate."""
     from tailoring.phase8_verification import build_phase8_verification, build_phase8_generation_snapshot_fingerprint
     from tailoring.phase9f_v364_document_reverify import build_frozen_selected_base_document_report
@@ -146,7 +146,7 @@ def build_preview(*, transition: dict, baseline_report: dict, generation: dict, 
     _require((result.get('document_analysis') or {}).get('final_document_sha256') == final_sha == _file_hash(path), 'Fitted DOCX changed during verification.')
     _require(result.get('verified_generation_snapshot_fingerprint') == snapshot, 'Native fitted snapshot identity differs.')
     # Deliberately never publish a normal verification receipt or a ready gate.
-    return {'version': VERSION, 'status': 'native_preview_completed', 'transition': deepcopy(transition),
+    preview = {'version': VERSION, 'status': 'native_preview_completed', 'transition': deepcopy(transition),
             'application_id': generation['application_id'], 'generation_id': generation['generation_id'],
             'prior_verification_id': prior.get('verification_id'), 'final_docx_sha256': final_sha,
             'selected_base_docx_sha256': contract['selected_base_docx_sha256'],
@@ -158,9 +158,20 @@ def build_preview(*, transition: dict, baseline_report: dict, generation: dict, 
             'native_job_match_ab': deepcopy(result['job_match_ab']),
             'starting_document_contract': contract, 'approval_ready': False, 'blueprint_ready': False,
             'scope_reconfirmed': False, 'saved_as_phase8': False}
+    if not _return_material:
+        return preview
+    from tailoring.phase9f_policy_adoption_v312b215c2 import BASE_FIELDS
+    # Keep the normal native receipt's genuine readiness; the public preview
+    # above intentionally remains non-persisting and never approval-ready.
+    result['starting_document_contract'] = deepcopy(contract)
+    result['verification_mode'] = 'selected_base_docx_vs_final_docx'
+    result['initial_document_status'] = 'not_available_for_handoff'
+    projection = {key: deepcopy(sealed[key]) for key in BASE_FIELDS}
+    projection['document_analysis'] = deepcopy(sealed['meta']['document_analysis'])
+    return {'preview': preview, 'native_result': result, 'current_base': projection}
 
 
-def run_transition_preview(application_id: int, generation_id: str) -> dict:
+def run_transition_preview(application_id: int, generation_id: str, *, _return_material: bool = False) -> dict:
     """Authenticate through the production readers, then recheck without writes to app records."""
     from analysis_stability.stable_evidence_scoring import SCORING_VERSION
     from database import phase9f_tailoring_execution_manager as manager
@@ -184,7 +195,12 @@ def run_transition_preview(application_id: int, generation_id: str) -> dict:
     baseline = manager.build_effective_tailoring_report(report, decision)
     prior = get_latest_tailoring_verification(int(application_id), str(generation_id))
     _require(isinstance(prior, dict), 'No prior Phase 8 actual-document receipt is available for this fit.')
-    return build_preview(transition=transition, baseline_report=baseline, generation=generation, source_artifact=source, prior=prior)
+    material = build_preview(transition=transition, baseline_report=baseline, generation=generation, source_artifact=source, prior=prior, _return_material=_return_material)
+    if _return_material:
+        from tailoring.phase9f_policy_adoption_v312b215c2 import _historical_scope
+        _historical_scope(decision=decision, exact_jd=exact_jd, confirmation=confirmation, execution=execution)
+        material.update(decision=decision, confirmation=confirmation, execution=execution, generation=generation, source=source)
+    return material
 
 
 def render_transition_preview(st, *, application_id: int, decision: dict) -> None:
@@ -201,7 +217,7 @@ def render_transition_preview(st, *, application_id: int, decision: dict) -> Non
         st.caption('Scoring-policy recheck unavailable: '+str(exc))
         return
     st.subheader('Phase 8 — Scoring policy transition recheck')
-    st.info('The exact JD is unchanged. Recheck a previously fitted résumé using the new scoring scope, without replacing the Tailoring Base. Generation and approval remain blocked until the scope is reviewed and rebound.')
+    st.info('The exact JD is unchanged. Recheck an existing fitted résumé. For supported Full tailoring, explicitly accept the new scoring scope while retaining the original Tailoring Base and documents. Approval remains separate.')
     st.caption(f"Canonical requirements: {transition['previous_count']} → {transition['current_count']}. No added or modified surviving requirements.")
     st.dataframe(transition['removed_requirements'], hide_index=True)
     try:
@@ -216,20 +232,42 @@ def render_transition_preview(st, *, application_id: int, decision: dict) -> Non
         return
     gid = st.selectbox('Existing fitted version to recheck', list(versions),
         format_func=lambda value: f"{versions[value]['status'].title()} · {value[:8]}", key=f'b215c_preview_generation_{application_id}')
+    from tailoring.phase9f_policy_adoption_v312b215c2 import accept_policy_transition, preview_identity
+    preview_key = f'b215c2_preview_{application_id}_{gid}_{transition["new_scope_fingerprint"]}_{decision["decision_fingerprint"]}'
     if st.button('Recheck existing fitted résumé under current scoring policy', key=f'b215c_preview_run_{application_id}'):
         try:
-            result = run_transition_preview(application_id, gid)
+            st.session_state[preview_key] = run_transition_preview(application_id, gid)
         except (ValueError, RuntimeError, OSError, KeyError, TypeError, sqlite3.Error) as exc:
+            st.session_state.pop(preview_key, None)
             st.error('Recheck withheld: '+str(exc))
             return
-        cmp = result['native_comparison']
-        cols = st.columns(3)
-        cols[0].metric('Selected Base Job Match', cmp['before_score'])
-        cols[1].metric('Fitted Job Match', cmp['after_score'], delta=cmp['score_delta'])
-        cols[2].metric('Required/Core delta', cmp['required_core_coverage_delta'])
-        st.caption('Native verdict: '+str(result['native_verdict'])+' · Preview only; no saved approval or binding changes.')
-        if cmp.get('important_regressions'):
-            st.warning('Required/Core regression still detected.')
-            st.dataframe(cmp['important_regressions'], hide_index=True)
-        st.download_button('Download policy transition recheck JSON', data=json.dumps(result, ensure_ascii=False, indent=2, default=str).encode('utf-8'),
-            file_name=f'phase8_policy_transition_preview_{application_id}_{gid[:8]}.json', mime='application/json', on_click='ignore', key=f'b215c_preview_download_{application_id}')
+    result = st.session_state.get(preview_key)
+    if not isinstance(result, dict) or result.get('transition') != transition:
+        return
+    cmp = result['native_comparison']
+    cols = st.columns(3)
+    cols[0].metric('Selected Base Job Match', cmp['before_score'])
+    cols[1].metric('Fitted Job Match', cmp['after_score'], delta=cmp['score_delta'])
+    cols[2].metric('Required/Core delta', cmp['required_core_coverage_delta'])
+    st.caption('Native verdict: '+str(result['native_verdict'])+' · Preview only until explicitly accepted.')
+    if cmp.get('important_regressions'):
+        st.warning('Required/Core regression still detected. Acceptance of the policy does not approve this draft.')
+        st.dataframe(cmp['important_regressions'], hide_index=True)
+    st.download_button('Download policy transition recheck JSON', data=json.dumps(result, ensure_ascii=False, indent=2, default=str).encode('utf-8'),
+        file_name=f'phase8_policy_transition_preview_{application_id}_{gid[:8]}.json', mime='application/json', on_click='ignore', key=f'b215c_preview_download_{application_id}')
+    if (decision.get('phase9f_d_execution') or {}).get('confirmed_intensity') != 'full':
+        st.caption('Durable policy acceptance is currently supported for Full tailoring only; Minor and Reuse remain subject to their normal scope confirmation.')
+        return
+    reviewed = preview_identity(result)
+    ack = st.checkbox('I accept the updated scoring requirements while retaining my exact Tailoring Base and fitted résumé.', key=f'b215c2_ack_{application_id}_{reviewed}')
+    if st.button('Accept updated scoring policy and retain existing résumé', disabled=not ack, key=f'b215c2_accept_{application_id}_{reviewed}'):
+        try:
+            with st.spinner('Revalidating exact documents and saving the policy transition...'):
+                accepted = accept_policy_transition(application_id, gid, reviewed_fingerprint=reviewed, explicitly_confirmed=ack)
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError, sqlite3.Error) as exc:
+            st.error('Policy acceptance withheld: '+str(exc))
+            return
+        st.session_state.pop(preview_key,None)
+        st.session_state[f'phase9e_flash_{application_id}'] = ('Updated scoring scope accepted. The existing fitted résumé and original source are retained. '
+            + ('Current native Phase 8 verification is saved; approval remains explicit.' if accepted['approval_floor_ready_at_acceptance'] else 'Current native verification is saved, but the approval floor is not met.'))
+        st.rerun()
