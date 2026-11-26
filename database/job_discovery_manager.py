@@ -715,6 +715,42 @@ def normalize_target_identifier(ats_provider: str, value: str) -> str:
     return raw.strip("/")
 
 
+def _upsert_target_company_row(
+    connection: sqlite3.Connection,
+    target: dict[str, Any],
+) -> int:
+    """Write through the same upsert path inside the caller's transaction."""
+    now = _now()
+    connection.execute(
+        """
+        INSERT INTO job_discovery_target_companies (
+            company_name, ats_provider, ats_identifier, careers_url,
+            enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(ats_provider, ats_identifier) DO UPDATE SET
+            company_name = excluded.company_name,
+            careers_url = excluded.careers_url,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at
+        """,
+        (
+            target["company_name"], target["ats_provider"],
+            target["ats_identifier"], target["careers_url"],
+            int(target["enabled"]), now, now,
+        ),
+    )
+    row = connection.execute(
+        """
+        SELECT id FROM job_discovery_target_companies
+        WHERE ats_provider = ? AND ats_identifier = ?
+        """,
+        (target["ats_provider"], target["ats_identifier"]),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("Target company was saved but could not be reloaded.")
+    return int(row["id"])
+
+
 def upsert_target_company(
     *,
     company_name: str,
@@ -727,50 +763,261 @@ def upsert_target_company(
     init_job_discovery_schema()
     provider = _validate_ats_provider(ats_provider)
     identifier = normalize_target_identifier(provider, ats_identifier)
-    company = str(company_name or "").strip() or identifier
     url = str(careers_url or "").strip()
     if not url and "://" in str(ats_identifier or ""):
         url = str(ats_identifier or "").strip()
-    now = _now()
-
+    target = {
+        "company_name": str(company_name or "").strip() or identifier,
+        "ats_provider": provider,
+        "ats_identifier": identifier,
+        "careers_url": url,
+        "enabled": bool(enabled),
+    }
     connection = _connect()
     try:
-        connection.execute(
-            """
-            INSERT INTO job_discovery_target_companies (
-                company_name, ats_provider, ats_identifier, careers_url,
-                enabled, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(ats_provider, ats_identifier) DO UPDATE SET
-                company_name = excluded.company_name,
-                careers_url = excluded.careers_url,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at
-            """,
-            (
-                company,
-                provider,
-                identifier,
-                url,
-                1 if enabled else 0,
-                now,
-                now,
-            ),
-        )
-        row = connection.execute(
-            """
-            SELECT id
-            FROM job_discovery_target_companies
-            WHERE ats_provider = ? AND ats_identifier = ?
-            """,
-            (provider, identifier),
-        ).fetchone()
-        connection.commit()
-        if row is None:
-            raise RuntimeError("Target company was saved but could not be reloaded.")
-        return int(row["id"])
+        with connection:
+            return _upsert_target_company_row(connection, target)
     finally:
         connection.close()
+
+
+TARGET_REGISTRY_SCHEMA_VERSION = "job-finder-target-registry-v1"
+TARGET_REGISTRY_FIELDS = (
+    "company_name", "ats_provider", "ats_identifier", "careers_url", "enabled",
+)
+SINGAPORE_TARGET_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "config" / "job_finder_targets_singapore_v1.json"
+)
+
+
+def _portable_target(row: dict[str, Any]) -> dict[str, Any]:
+    target = {field: row[field] for field in TARGET_REGISTRY_FIELDS}
+    target["enabled"] = bool(target["enabled"])
+    return target
+
+
+def _target_registry_order(target: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        target["ats_provider"],
+        target["company_name"],
+        target["ats_identifier"],
+    )
+
+
+def export_target_company_registry() -> dict[str, Any]:
+    """Export enabled and disabled runtime targets without database metadata."""
+    targets = [
+        _portable_target(row)
+        for row in list_target_companies(include_disabled=True)
+    ]
+    return {
+        "schema_version": TARGET_REGISTRY_SCHEMA_VERSION,
+        "targets": sorted(targets, key=_target_registry_order),
+    }
+
+
+def _validate_target_company_registry(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        raise ValueError("Target registry must be a JSON object.")
+    if payload.get("schema_version") != TARGET_REGISTRY_SCHEMA_VERSION:
+        raise ValueError("Unsupported target registry schema_version.")
+    if not isinstance(payload.get("targets"), list):
+        raise ValueError("Target registry targets must be a list.")
+    targets: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for index, row in enumerate(payload["targets"], start=1):
+        try:
+            if not isinstance(row, dict):
+                raise ValueError("target must be an object")
+            for field in ("ats_provider", "ats_identifier", "company_name", "careers_url"):
+                if not isinstance(row.get(field, ""), str):
+                    raise ValueError(f"{field} must be a string")
+            if not isinstance(row.get("enabled"), bool):
+                raise ValueError("enabled must be a boolean")
+            provider = _validate_ats_provider(row.get("ats_provider", ""))
+            raw_identifier = row.get("ats_identifier", "").strip()
+            identifier = normalize_target_identifier(provider, raw_identifier)
+            if not identifier.strip():
+                raise ValueError("ats_identifier cannot be blank")
+            identity = (provider, identifier)
+            if identity in seen:
+                raise ValueError(f"duplicate provider and identifier: {identity!r}")
+            seen.add(identity)
+            url = row.get("careers_url", "").strip()
+            if not url and "://" in raw_identifier:
+                url = raw_identifier
+            targets.append({
+                "company_name": row.get("company_name", "").strip() or identifier,
+                "ats_provider": provider,
+                "ats_identifier": identifier,
+                "careers_url": url,
+                "enabled": row["enabled"],
+            })
+        except ValueError as exc:
+            raise ValueError(f"Invalid target {index}: {exc}") from exc
+    return sorted(targets, key=_target_registry_order)
+
+
+def load_singapore_target_company_registry() -> dict[str, Any]:
+    """Read and validate the bundled starter list without importing it."""
+    payload = json.loads(SINGAPORE_TARGET_REGISTRY_PATH.read_text(encoding="utf-8"))
+    targets = _validate_target_company_registry(payload)
+    return {"schema_version": TARGET_REGISTRY_SCHEMA_VERSION, "targets": targets}
+
+
+def _read_live_target_companies_read_only() -> list[dict[str, Any]]:
+    """Read live overrides/custom targets without creating or mutating SQLite."""
+    if not DB_PATH.exists():
+        return []
+    connection = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='job_discovery_target_companies'"
+        ).fetchone()
+        if table is None:
+            return []
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM job_discovery_target_companies
+            ORDER BY company_name COLLATE NOCASE, ats_provider, ats_identifier
+            """
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["enabled"] = bool(item.get("enabled"))
+            result.append(item)
+        return result
+    finally:
+        connection.close()
+
+
+def list_effective_target_companies(
+    *,
+    include_disabled: bool = False,
+    provider: str | None = None,
+) -> list[dict[str, Any]]:
+    """Merge portable starter defaults with live SQLite overrides/custom targets.
+
+    Reading effective targets is deliberately non-mutating: starter targets are
+    immediately usable on a fresh database, while a matching live row wins and
+    can override metadata or disable the starter identity.
+    """
+    provider_filter = _validate_ats_provider(provider) if provider else None
+    starter = load_singapore_target_company_registry()
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for target in starter["targets"]:
+        item = dict(target)
+        item["id"] = None
+        item["origin"] = "starter"
+        merged[(item["ats_provider"], item["ats_identifier"])] = item
+
+    for row in _read_live_target_companies_read_only():
+        item = dict(row)
+        item["enabled"] = bool(item.get("enabled"))
+        item["origin"] = "live"
+        merged[(str(item["ats_provider"]), str(item["ats_identifier"]))] = item
+
+    targets = list(merged.values())
+    if provider_filter:
+        targets = [
+            target for target in targets
+            if str(target.get("ats_provider") or "") == provider_filter
+        ]
+    if not include_disabled:
+        targets = [target for target in targets if bool(target.get("enabled"))]
+    return sorted(targets, key=_target_registry_order)
+
+
+def export_effective_target_company_registry() -> dict[str, Any]:
+    """Export the active effective registry without database metadata."""
+    targets = [
+        _portable_target(row)
+        for row in list_effective_target_companies(include_disabled=True)
+    ]
+    return {
+        "schema_version": TARGET_REGISTRY_SCHEMA_VERSION,
+        "targets": sorted(targets, key=_target_registry_order),
+    }
+
+
+def _target_registry_preview(
+    targets: list[dict[str, Any]],
+    existing: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    current = {
+        (row["ats_provider"], row["ats_identifier"]): _portable_target(row)
+        for row in existing
+    }
+    changes = []
+    for target in targets:
+        previous = current.get((target["ats_provider"], target["ats_identifier"]))
+        action = "new" if previous is None else "update"
+        if previous == target:
+            action = "unchanged"
+        changes.append({"action": action, "target": dict(target)})
+    new_count = sum(change["action"] == "new" for change in changes)
+    return {
+        "schema_version": TARGET_REGISTRY_SCHEMA_VERSION,
+        "input_count": len(targets),
+        "new_count": new_count,
+        "updated_count": sum(change["action"] == "update" for change in changes),
+        "unchanged_count": sum(change["action"] == "unchanged" for change in changes),
+        "total_after": len(current) + new_count,
+        "changes": changes,
+    }
+
+
+def preview_target_company_registry_import(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate the complete payload and inspect SQLite using a read-only connection."""
+    targets = _validate_target_company_registry(payload)
+    existing = []
+    if DB_PATH.exists():
+        connection = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='job_discovery_target_companies'"
+            ).fetchone()
+            if table:
+                existing = [
+                    dict(row) for row in connection.execute(
+                        "SELECT * FROM job_discovery_target_companies"
+                    )
+                ]
+        finally:
+            connection.close()
+    return _target_registry_preview(targets, existing)
+
+
+def import_target_company_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    """Merge a validated registry atomically, preserving unrelated targets."""
+    targets = _validate_target_company_registry(payload)
+    init_job_discovery_schema()
+    connection = _connect()
+    try:
+        with connection:
+            # Lock before reading so receipts and writes describe the same state.
+            connection.execute("BEGIN IMMEDIATE")
+            existing = [
+                dict(row) for row in connection.execute(
+                    "SELECT * FROM job_discovery_target_companies"
+                )
+            ]
+            preview = _target_registry_preview(targets, existing)
+            for change in preview["changes"]:
+                if change["action"] != "unchanged":
+                    _upsert_target_company_row(connection, change["target"])
+        return {key: value for key, value in preview.items() if key != "changes"}
+    finally:
+        connection.close()
+
 
 
 def list_target_companies(

@@ -386,6 +386,9 @@ class JobMatchSessionABTests(unittest.TestCase):
         self.assertIn("Evidence / provenance", source)
         self.assertIn("Detailed Selected Base/Saved Baseline requirement provenance", source)
         self.assertIn("Detailed Tailored requirement provenance", source)
+        # Master also pins the baseline evidence column independently of
+        # the dynamic provenance label used by the feature branch.
+        self.assertIn('Baseline evidence', source)
         self.assertIn('baseline_name + " provenance"', source)
         self.assertIn('"Tailored provenance"', source)
         self.assertIn("Résumé comparison taxonomy and resolver diagnostics", source)

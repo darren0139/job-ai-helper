@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job AI Helper — Browser Integration POC",
-  "version": "0.4.6.7",
+  "version": "0.4.6.9",
   "description": "Local JD capture with dynamic ATS adapters, faster batch preparation, Job AI Helper bridge, and deterministic safe autofill.",
   "permissions": [
     "activeTab",
@@ -36,9 +36,13 @@
       "id": "job-ai-helper-browser@job-ai-helper.local",
       "data_collection_permissions": {
         "required": [
-          "none"
+          "authenticationInfo",
+          "browsingActivity",
+          "personallyIdentifyingInfo",
+          "websiteContent"
         ]
-      }
+      },
+      "strict_min_version": "142.0"
     }
   }
 }

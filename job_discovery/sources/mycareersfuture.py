@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from job_discovery.http_client import JsonHttpClient
+from job_discovery.http_client import JobSourceTimeout, JsonHttpClient
 from job_discovery.models import NormalizedJob, SearchSpec
 from job_discovery.text_utils import join_sections, list_text, matches_query
 from .base import JobSource
@@ -21,8 +21,29 @@ class MyCareersFutureSource(JobSource):
     BASE_URL = "https://api.mycareersfuture.gov.sg/v2/jobs"
 
     def __init__(self, *, client: JsonHttpClient | None = None, delay_seconds: float = 1.5) -> None:
-        self.client = client or JsonHttpClient()
+        self.client = client or JsonHttpClient(timeout=45.0)
         self.delay_seconds = float(delay_seconds)
+
+    def _fetch_page(self, query: str, page_size: int, page: int) -> Any:
+        for attempt in range(2):
+            try:
+                return self.client.get_json(
+                    self.BASE_URL,
+                    params={"search": query, "limit": page_size, "page": page},
+                    headers={
+                        "Origin": "https://www.mycareersfuture.gov.sg",
+                        "Referer": "https://www.mycareersfuture.gov.sg/",
+                    },
+                )
+            except JobSourceTimeout as exc:
+                if attempt == 1:
+                    raise JobSourceTimeout(
+                        "MyCareersFuture timed out twice while fetching "
+                        f"page {page + 1}. Other selected sources can still finish. "
+                        "Try MyCareersFuture again later or capture a job from "
+                        f"its website with the browser extension. Details: {exc}"
+                    ) from exc
+                self.client.pause(1.0)
 
     @staticmethod
     def _company(raw: dict[str, Any]) -> str:
@@ -129,18 +150,7 @@ class MyCareersFutureSource(JobSource):
         seen: set[str] = set()
 
         for page in range(max(1, int(spec.max_pages))):
-            data = self.client.get_json(
-                self.BASE_URL,
-                params={
-                    "search": spec.query.strip(),
-                    "limit": page_size,
-                    "page": page,
-                },
-                headers={
-                    "Origin": "https://www.mycareersfuture.gov.sg",
-                    "Referer": "https://www.mycareersfuture.gov.sg/",
-                },
-            )
+            data = self._fetch_page(spec.query.strip(), page_size, page)
             results = data.get("results", []) if isinstance(data, dict) else []
             if not isinstance(results, list) or not results:
                 break

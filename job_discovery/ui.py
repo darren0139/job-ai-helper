@@ -13,6 +13,10 @@ from database.job_match_manager import (
 from database.job_discovery_manager import (
     delete_hide_rule,
     delete_target_company,
+    export_effective_target_company_registry,
+    preview_target_company_registry_import,
+    import_target_company_registry,
+    load_singapore_target_company_registry,
     get_job_discovery_lifecycle_counts,
     get_job_discovery_source_counts,
     get_recent_discovery_runs,
@@ -20,6 +24,7 @@ from database.job_discovery_manager import (
     mark_expired_jobs,
     list_discovered_jobs,
     list_hide_rules,
+    list_effective_target_companies,
     list_target_companies,
     set_hide_rule_enabled,
     set_target_company_enabled,
@@ -28,6 +33,7 @@ from database.job_discovery_manager import (
 )
 from job_discovery.hide_filters import job_identity, partition_hidden_jobs, rule_description
 from job_discovery.faceted_search import (
+    JOB_TYPE_MODES,
     apply_job_finder_filters,
     company_counts,
     employment_type_counts,
@@ -76,6 +82,15 @@ SOURCE_LABELS = {
     "lever": "Lever company boards",
     "ashby": "Ashby company boards",
     "smartrecruiters": "SmartRecruiters company boards",
+    "fastjobs": "FastJobs (browser-assisted; direct HTTP may be blocked)",
+    "workjio": "WorkJio (browser-assisted; direct HTTP may be blocked)",
+    "staffie": "Staffie shifts (public sample)",
+}
+
+
+DIRECT_REFRESH_EXCLUDED_SOURCES = {
+    "fastjobs",
+    "workjio",
 }
 
 
@@ -117,14 +132,23 @@ def _safe_timestamp(value: Any) -> float:
 )
 def _cached_query_jobs_v16(
     active_query: str,
+    source_scope: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    """Cache the expensive 10k-row local index scan across page reruns."""
+    """Cache the source-scoped 10k-row local index scan across page reruns."""
     query = str(active_query or "").strip()
     if not query:
         return []
 
+    scope = tuple(
+        dict.fromkeys(
+            str(source or "").strip()
+            for source in source_scope
+            if str(source or "").strip()
+        )
+    )
     all_jobs = list_discovered_jobs(
-        limit=10000
+        sources=list(scope) if scope else None,
+        limit=10000,
     )
     return [
         job
@@ -237,15 +261,127 @@ def _handoff_to_new_application(job: dict[str, Any], snapshot_id: int | None = N
 
 
 
+def _render_target_registry_import(payload: dict[str, Any], *, label: str, key: str) -> None:
+    import sqlite3
+
+    try:
+        preview = preview_target_company_registry_import(payload)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        st.error(f"Invalid registry. {exc}")
+        return
+    st.caption(
+        f"{preview['input_count']} targets · {preview['new_count']} new · "
+        f"{preview['updated_count']} updates · {preview['unchanged_count']} unchanged"
+    )
+    st.dataframe(
+        [{"Action": change["action"], **change["target"]} for change in preview["changes"]],
+        width="stretch",
+        hide_index=True,
+    )
+    if st.button(label, key=key):
+        try:
+            receipt = import_target_company_registry(payload)
+        except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+            st.error(f"Registry import failed. {exc}")
+        else:
+            st.session_state["job_finder_registry_import_receipt_v1"] = receipt
+            st.rerun()
+
+
+def _render_target_registry_portability() -> None:
+    import json
+
+    st.markdown("##### Registry backup and transfer")
+    st.caption(
+        "Bundled Singapore starter targets are active defaults immediately. "
+        "SQLite stores only your overrides and custom targets. Downloads include "
+        "the effective active registry; imports remain explicit, merge-safe backups."
+    )
+    receipt = st.session_state.pop("job_finder_registry_import_receipt_v1", None)
+    if receipt:
+        st.success(
+            f"Imported {receipt['input_count']} targets. {receipt['new_count']} new, "
+            f"{receipt['updated_count']} updated, {receipt['unchanged_count']} already current."
+        )
+    st.download_button(
+        "Download target registry",
+        data=json.dumps(export_effective_target_company_registry(), ensure_ascii=False, indent=2) + "\n",
+        file_name="job_finder_target_registry.json",
+        mime="application/json",
+        key="job_finder_registry_download_v1",
+    )
+    uploaded = st.file_uploader(
+        "Import registry backup",
+        type=["json"],
+        key="job_finder_registry_upload_v1",
+    )
+    if uploaded is not None:
+        try:
+            payload = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+        except (ValueError, UnicodeError) as exc:
+            st.error(f"Invalid registry JSON. {exc}")
+        else:
+            _render_target_registry_import(
+                payload,
+                label="Import target registry",
+                key="job_finder_registry_import_v1",
+            )
+
+    with st.expander("Singapore starter targets — active defaults", expanded=False):
+        st.caption(
+            "These 18 portable ATS targets are available automatically without a database import. "
+            "Matching saved overrides take precedence, and custom saved targets are added alongside them."
+        )
+        try:
+            starter = load_singapore_target_company_registry()
+        except (ValueError, OSError) as exc:
+            st.error(f"Starter registry could not be loaded. {exc}")
+        else:
+            st.dataframe(
+                [
+                    {
+                        "Company": row["company_name"],
+                        "Provider": ATS_PROVIDER_LABELS.get(row["ats_provider"], row["ats_provider"]),
+                        "Identifier": row["ats_identifier"],
+                        "Enabled": "Yes" if row["enabled"] else "No",
+                        "Careers URL": row["careers_url"],
+                    }
+                    for row in starter["targets"]
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+
+
 def _render_target_company_registry() -> None:
     targets = list_target_companies(include_disabled=True)
+    effective_targets = list_effective_target_companies(include_disabled=True)
 
     st.markdown("#### Target companies")
     st.caption(
-        "Save each ATS company once. Enabled targets are used automatically when you refresh "
-        "Greenhouse, Lever, Ashby, or SmartRecruiters."
+        "Bundled Singapore targets are active defaults immediately. Save a matching target to "
+        "override/disable it, or save a new company to add a persistent custom target."
     )
+    _render_target_registry_portability()
 
+    st.markdown("##### Effective targets")
+    effective_rows = [
+        {
+            "Company": str(target.get("company_name") or ""),
+            "Provider": ATS_PROVIDER_LABELS.get(
+                str(target.get("ats_provider") or ""),
+                str(target.get("ats_provider") or ""),
+            ),
+            "Identifier": str(target.get("ats_identifier") or ""),
+            "Enabled": "Yes" if target.get("enabled") else "No",
+            "Origin": "Saved override/custom" if target.get("origin") == "live" else "Built-in default",
+            "Careers URL": str(target.get("careers_url") or ""),
+        }
+        for target in effective_targets
+    ]
+    st.dataframe(effective_rows, width="stretch", hide_index=True)
+
+    st.markdown("##### Saved overrides and custom targets")
     if targets:
         display_rows = [
             {
@@ -262,7 +398,7 @@ def _render_target_company_registry() -> None:
         ]
         st.dataframe(display_rows, width="stretch", hide_index=True)
     else:
-        st.info("No ATS target companies saved yet.")
+        st.info("No saved overrides or custom ATS targets yet. Built-in starter targets remain active.")
 
     with st.form("job_finder_target_company_form", clear_on_submit=True):
         form_col1, form_col2 = st.columns(2)
@@ -438,20 +574,35 @@ def render_job_finder() -> None:
     with st.expander("Advanced / global reviewed-corpus taxonomy health"):
         render_confirmed_coverage(st, key="job_finder_coverage", allow_import=True)
     st.caption(
-        "Search once, then narrow the indexed results with live filters. "
-        "Changing a source, company, date, experience or employment filter immediately updates the results; "
-        "it never contacts an external site."
+        "Search fetches jobs from the selected sources and updates the local index. "
+        "Use Apply filters to narrow the indexed results."
     )
 
-    # Query submission is intentionally separate from live filters. This mirrors
-    # a conventional search engine: the text query is submitted, while facets
-    # can be changed repeatedly without creating a new search snapshot.
+    refresh_sources = st.multiselect(
+        "Sources to search",
+        options=[
+            source
+            for source in SOURCE_LABELS
+            if source not in DIRECT_REFRESH_EXCLUDED_SOURCES
+        ],
+        default=["mycareersfuture", "careers_gov", "staffie"],
+        format_func=lambda value: SOURCE_LABELS.get(value, value),
+        key="job_finder_refresh_sources_v124",
+        help=("Search fetches from these providers and keeps results within the submitted "
+              "source scope. ATS providers use active defaults plus saved overrides/custom targets."),
+    )
+    st.caption(
+        "FastJobs and WorkJio use browser capture. Open a job normally and "
+        "capture it with the extension to add it to Job Finder."
+    )
+
+    # Only explicit Search or Refresh actions contact the selected sources.
     with st.form("job_finder_query_form_v123", clear_on_submit=False):
         query_input = st.text_input(
             "Search jobs",
             key="job_finder_query_draft_v123",
             placeholder="Software Engineer, AI Engineer, Backend Developer...",
-            help="Submit the text query. Source/company/date filters are applied live afterwards.",
+            help="Fetch jobs for this query, then search the updated local index.",
         )
         search_clicked = st.form_submit_button(
             "Search",
@@ -461,22 +612,52 @@ def render_job_finder() -> None:
 
     if search_clicked:
         cleaned_query = query_input.strip()
+        st.session_state["job_finder_page_v15"] = 1
+        st.session_state.pop("_job_finder_match_state_cache_v15", None)
         if cleaned_query:
             st.session_state["job_finder_active_query_v123"] = cleaned_query
+            active_sources = list(dict.fromkeys(str(source) for source in refresh_sources))
+            st.session_state["job_finder_active_sources_v126"] = active_sources
+            if active_sources:
+                current_result_sources = list(
+                    st.session_state.get("job_finder_filter_sources_v123", []) or []
+                )
+                st.session_state["job_finder_filter_sources_v123"] = [
+                    source for source in current_result_sources if source in active_sources
+                ]
         else:
             st.session_state.pop("job_finder_active_query_v123", None)
+            st.session_state.pop("job_finder_active_sources_v126", None)
 
     active_query = str(st.session_state.get("job_finder_active_query_v123") or "").strip()
+    active_source_scope = tuple(
+        source
+        for source in st.session_state.get("job_finder_active_sources_v126", [])
+        if str(source) in SOURCE_LABELS
+    )
     if active_query and query_input.strip() and query_input.strip() != active_query:
         st.caption(
             f'Results are still for **"{active_query}"**. Press Search to apply the edited query.'
         )
 
-    # Refresh is data ingestion, not a search filter. V1.2.4 keeps source
-    # refresh selection completely separate from the live search facets below.
-    #
-    # V1.2.5 keeps refresh feedback OUTSIDE the expander so a long network
-    # operation never looks like a dead button after Streamlit reruns.
+    # Keep source progress visible even when advanced settings are closed.
+    max_pages = st.session_state.get("job_finder_max_pages_v124", 3)
+    max_workers = st.session_state.get("job_finder_refresh_workers_v124", 4)
+    min_refresh_interval = st.session_state.get("job_finder_refresh_min_interval_v124", 15)
+    force_full_refresh = st.session_state.get("job_finder_force_full_refresh_v124", False)
+    selected_refresh_targets = st.session_state.get("job_finder_refresh_targets_v124", [])
+    target_selection: dict[str, list[str]] = {}
+    for target_key in selected_refresh_targets:
+        provider, separator, identifier = str(target_key).partition(":")
+        if separator and provider in refresh_sources and identifier:
+            target_selection.setdefault(provider, []).append(identifier)
+    target_overrides = {
+        provider: _split_identifiers(st.session_state.get(f"job_targets_{provider}_v124", ""))
+        for provider in ATS_PROVIDER_LABELS
+        if provider in refresh_sources
+    }
+    refresh_clicked = False
+
     refresh_feedback_slot = st.empty()
     last_refresh_feedback = str(
         st.session_state.get("job_finder_last_refresh_feedback_v125") or ""
@@ -492,18 +673,12 @@ def render_job_finder() -> None:
     ):
         st.caption(
             "Refresh updates the local index. ATS companies can be refreshed concurrently, "
-            "while database writes remain serialized for SQLite safety."
+            "while database writes remain serialized for SQLite safety. "
+            "FastJobs and WorkJio are browser-assisted because their public pages "
+            "block this direct HTTP client; open a job normally and use the "
+            "Job AI Helper browser extension to capture it into Job Finder."
         )
-        refresh_sources = st.multiselect(
-            "Sources to refresh",
-            options=list(SOURCE_LABELS),
-            default=[],
-            format_func=lambda value: SOURCE_LABELS.get(value, value),
-            key="job_finder_refresh_sources_v124",
-            help="Choose only the external providers you want to contact.",
-        )
-
-        enabled_targets = list_target_companies(include_disabled=False)
+        enabled_targets = list_effective_target_companies(include_disabled=False)
         eligible_targets = [
             target
             for target in enabled_targets
@@ -599,6 +774,21 @@ def render_job_finder() -> None:
                     st.text_area("One-off SmartRecruiters company identifiers", key="job_targets_smartrecruiters_v124", height=70)
                 )
 
+        if "fastjobs" in refresh_sources:
+            st.caption(
+                "FastJobs search/list pages may render job cards client-side. "
+                "Paste direct public job URLs for the most reliable import; "
+                "the adapter fails closed when a listing exposes no job links."
+            )
+            target_overrides["fastjobs"] = _split_identifiers(
+                st.text_area(
+                    "FastJobs job/search URLs",
+                    key="job_targets_fastjobs_v1",
+                    height=90,
+                    placeholder="https://www.fastjobs.sg/singapore-job-ad/...",
+                )
+            )
+
         query_required = any(
             source in {"mycareersfuture", "careers_gov"}
             for source in refresh_sources
@@ -615,128 +805,133 @@ def render_job_finder() -> None:
         elif not refresh_sources:
             st.caption("Select at least one source to refresh.")
 
-        if refresh_clicked:
-            refresh_scope = ", ".join(
-                SOURCE_LABELS.get(source, source) for source in refresh_sources
-            )
-            target_scope = (
-                f" Selected company targets: {len(selected_refresh_targets)}."
-                if selected_refresh_targets
-                else " All enabled companies for selected ATS providers will be considered."
-            )
-            started_message = (
-                f"Refreshing: {refresh_scope}.{target_scope} "
-                "Search-result filters are unchanged."
-            )
-            refresh_feedback_slot.info(started_message)
-            st.toast("Job source refresh started.", icon="🔄")
-
-            saved_by_provider = {
-                str(target.get("ats_provider") or "")
-                for target in enabled_targets
-                if target.get("ats_identifier")
-            }
-            missing_target_sources = [
-                source
-                for source in ("greenhouse", "lever", "ashby", "smartrecruiters")
-                if (
-                    source in refresh_sources
-                    and not target_overrides.get(source)
-                    and source not in saved_by_provider
-                )
-            ]
-            if missing_target_sources:
-                st.caption(
-                    "No enabled registry targets or one-off identifiers exist for: "
-                    + ", ".join(SOURCE_LABELS[source] for source in missing_target_sources)
-                    + "."
-                )
-
-            progress_rows: dict[str, dict[str, Any]] = {}
-            with st.status("Refreshing job sources...", expanded=True) as status:
-                progress_slot = st.empty()
-
-                def _refresh_progress(event: dict[str, Any]) -> None:
-                    key = str(event.get("source_key") or "source")
-                    phase = str(event.get("phase") or "")
-                    summary = event.get("summary") if isinstance(event.get("summary"), dict) else {}
-                    if phase == "queued":
-                        row = {"Source/company": key, "State": "Queued", "Jobs": "", "Details": ""}
-                    elif phase == "skipped":
-                        row = {"Source/company": key, "State": "Skipped", "Jobs": 0, "Details": summary.get("error", "")}
-                    elif phase == "completed":
-                        reused = int(summary.get("detail_reused", 0) or 0)
-                        fetched = int(summary.get("detail_fetched", 0) or 0)
-                        detail_text = f"detail fetched {fetched}, reused {reused}" if (fetched or reused) else ""
-                        row = {
-                            "Source/company": key,
-                            "State": "Done",
-                            "Jobs": int(summary.get("fetched_count", 0) or 0),
-                            "Details": detail_text,
-                        }
-                    else:
-                        row = {"Source/company": key, "State": "Error", "Jobs": 0, "Details": summary.get("error", "")}
-                    progress_rows[key] = row
-                    progress_slot.dataframe(list(progress_rows.values()), width="stretch", hide_index=True)
-
-                summaries = refresh_job_sources(
-                    query=active_query,
-                    selected_sources=list(refresh_sources),
-                    max_pages=int(max_pages),
-                    target_overrides=target_overrides,
-                    target_selection=target_selection,
-                    max_workers=int(max_workers),
-                    min_refresh_interval_minutes=int(min_refresh_interval),
-                    force_full_refresh=bool(force_full_refresh),
-                    progress_callback=_refresh_progress,
-                )
-                error_count = sum(1 for summary in summaries if summary.get("status") == "error")
-                skipped_count = sum(1 for summary in summaries if summary.get("status") == "skipped")
-                completed_count = sum(1 for summary in summaries if summary.get("status") == "ok")
-                status.update(
-                    label=(
-                        f"Refresh complete — {completed_count} completed, "
-                        f"{skipped_count} skipped, {error_count} failed."
-                    ),
-                    state="error" if error_count else "complete",
-                )
-
-            _cached_query_jobs_v16.clear()
-            refresh_summary_text = (
-                f"Last refresh: {completed_count} completed, "
-                f"{skipped_count} skipped, {error_count} failed."
-            )
-            st.session_state["job_finder_last_refresh_feedback_v125"] = refresh_summary_text
-            if error_count:
-                refresh_feedback_slot.warning(refresh_summary_text)
-                st.toast("Job source refresh finished with errors.", icon="⚠️")
-            else:
-                refresh_feedback_slot.success(refresh_summary_text)
-                st.toast("Job source refresh complete.", icon="✅")
-
-            for summary in summaries:
-                if summary.get("status") == "skipped":
-                    st.caption(f"{summary['source_key']}: skipped — {summary.get('error', '')}")
-                elif summary.get("status") == "ok":
-                    snapshot_label = "complete snapshot" if summary.get("snapshot_complete") else "partial/search snapshot"
-                    detail_bits = ""
-                    if summary.get("detail_fetched") or summary.get("detail_reused"):
-                        detail_bits = (
-                            f", detail fetched {summary.get('detail_fetched', 0)}, "
-                            f"reused {summary.get('detail_reused', 0)}"
-                        )
-                    st.write(
-                        f"{summary['source_key']}: fetched {summary['fetched_count']}, "
-                        f"new {summary['new']}, changed {summary['changed']}, "
-                        f"reactivated {summary.get('reactivated', 0)}, unchanged {summary['unchanged']}, "
-                        f"removed {summary.get('removed', 0)}{detail_bits}, "
-                        f"{summary.get('duration_seconds', 0):.1f}s ({snapshot_label})."
-                    )
-                else:
-                    st.warning(f"{summary['source_key']}: {summary.get('error', 'Refresh failed')}")
-
         st.write("### Target company registry")
         _render_target_company_registry()
+
+    if search_clicked and active_query and not refresh_sources:
+        st.info("Select sources to fetch new jobs. Showing matching jobs already in the local index.")
+
+    if refresh_clicked or (search_clicked and active_query and refresh_sources):
+        refresh_scope = ", ".join(
+            SOURCE_LABELS.get(source, source) for source in refresh_sources
+        )
+        target_scope = (
+            f" Selected company targets: {len(selected_refresh_targets)}."
+            if selected_refresh_targets
+            else " All enabled companies for selected ATS providers will be considered."
+        )
+        started_message = (
+            f"Refreshing: {refresh_scope}.{target_scope} "
+            "Search-result filters are unchanged."
+        )
+        refresh_feedback_slot.info(started_message)
+        st.toast("Job source refresh started.", icon="🔄")
+
+        enabled_targets = list_effective_target_companies(include_disabled=False)
+        saved_by_provider = {
+            str(target.get("ats_provider") or "")
+            for target in enabled_targets
+            if target.get("ats_identifier")
+        }
+        missing_target_sources = [
+            source
+            for source in ("greenhouse", "lever", "ashby", "smartrecruiters")
+            if (
+                source in refresh_sources
+                and not target_overrides.get(source)
+                and source not in saved_by_provider
+            )
+        ]
+        if missing_target_sources:
+            st.caption(
+                "No enabled registry targets or one-off identifiers exist for: "
+                + ", ".join(SOURCE_LABELS[source] for source in missing_target_sources)
+                + "."
+            )
+
+        progress_rows: dict[str, dict[str, Any]] = {}
+        with st.status("Refreshing job sources...", expanded=True) as status:
+            progress_slot = st.empty()
+
+            def _refresh_progress(event: dict[str, Any]) -> None:
+                key = str(event.get("source_key") or "source")
+                phase = str(event.get("phase") or "")
+                summary = event.get("summary") if isinstance(event.get("summary"), dict) else {}
+                if phase == "queued":
+                    row = {"Source/company": key, "State": "Queued", "Jobs": "", "Details": ""}
+                elif phase == "skipped":
+                    row = {"Source/company": key, "State": "Skipped", "Jobs": 0, "Details": summary.get("error", "")}
+                elif phase == "completed":
+                    reused = int(summary.get("detail_reused", 0) or 0)
+                    fetched = int(summary.get("detail_fetched", 0) or 0)
+                    detail_text = f"detail fetched {fetched}, reused {reused}" if (fetched or reused) else ""
+                    row = {
+                        "Source/company": key,
+                        "State": "Done",
+                        "Jobs": int(summary.get("fetched_count", 0) or 0),
+                        "Details": detail_text,
+                    }
+                else:
+                    row = {"Source/company": key, "State": "Error", "Jobs": 0, "Details": summary.get("error", "")}
+                progress_rows[key] = row
+                progress_slot.dataframe(list(progress_rows.values()), width="stretch", hide_index=True)
+
+            summaries = refresh_job_sources(
+                query=active_query,
+                selected_sources=list(refresh_sources),
+                max_pages=int(max_pages),
+                target_overrides=target_overrides,
+                target_selection=target_selection,
+                max_workers=int(max_workers),
+                min_refresh_interval_minutes=int(min_refresh_interval),
+                force_full_refresh=bool(force_full_refresh),
+                progress_callback=_refresh_progress,
+            )
+            error_count = sum(1 for summary in summaries if summary.get("status") == "error")
+            skipped_count = sum(1 for summary in summaries if summary.get("status") == "skipped")
+            completed_count = sum(1 for summary in summaries if summary.get("status") == "ok")
+            status.update(
+                label=(
+                    f"Refresh complete — {completed_count} completed, "
+                    f"{skipped_count} skipped, {error_count} failed."
+                ),
+                state="error" if error_count else "complete",
+            )
+
+        _cached_query_jobs_v16.clear()
+        refresh_summary_text = (
+            f"Last refresh: {completed_count} completed, "
+            f"{skipped_count} skipped, {error_count} failed."
+        )
+        st.session_state["job_finder_last_refresh_feedback_v125"] = refresh_summary_text
+        if error_count:
+            refresh_feedback_slot.warning(refresh_summary_text)
+            st.toast("Job source refresh finished with errors.", icon="⚠️")
+        else:
+            refresh_feedback_slot.success(refresh_summary_text)
+            st.toast("Job source refresh complete.", icon="✅")
+
+        for summary in summaries:
+            if summary.get("status") == "skipped":
+                st.caption(f"{summary['source_key']}: skipped — {summary.get('error', '')}")
+            elif summary.get("status") == "ok":
+                snapshot_label = "complete snapshot" if summary.get("snapshot_complete") else "partial/search snapshot"
+                detail_bits = ""
+                if summary.get("detail_fetched") or summary.get("detail_reused"):
+                    detail_bits = (
+                        f", detail fetched {summary.get('detail_fetched', 0)}, "
+                        f"reused {summary.get('detail_reused', 0)}"
+                    )
+                st.write(
+                    f"{summary['source_key']}: fetched {summary['fetched_count']}, "
+                    f"new {summary['new']}, changed {summary['changed']}, "
+                    f"reactivated {summary.get('reactivated', 0)}, unchanged {summary['unchanged']}, "
+                    f"removed {summary.get('removed', 0)}{detail_bits}, "
+                    f"{summary.get('duration_seconds', 0):.1f}s ({snapshot_label})."
+                )
+            else:
+                st.warning(f"{summary['source_key']}: {summary.get('error', 'Refresh failed')}")
+
 
     if st.checkbox(
         "Load job discovery diagnostics",
@@ -759,15 +954,16 @@ def render_job_finder() -> None:
 
     if not active_query:
         st.info(
-            "Enter a search term and press Search. After that, source/company/date/experience filters "
-            "will update results immediately without another Search click."
+            "Choose sources, enter a search term, and press Search to fetch jobs. "
+            "Then use Apply filters to narrow the results."
         )
         return
 
     # Query results are stable across Previous/Next reruns. Cache the
     # expensive 10k-row local index scan briefly; source refresh invalidates it.
     query_jobs = _cached_query_jobs_v16(
-        active_query
+        active_query,
+        active_source_scope,
     )
 
     st.divider()
@@ -787,6 +983,7 @@ def render_job_finder() -> None:
         st.session_state["job_finder_filter_companies_v123"] = []
         st.session_state["job_finder_filter_freshness_v123"] = "Any time"
         st.session_state["job_finder_filter_experience_v123"] = "Any"
+        st.session_state["job_finder_filter_job_type_v1"] = "All jobs"
         st.session_state["job_finder_filter_employment_v123"] = []
         st.session_state["job_finder_filter_lifecycle_v123"] = ["active"]
         st.session_state["job_finder_filter_events_v123"] = []
@@ -808,6 +1005,7 @@ def render_job_finder() -> None:
         "job_finder_filter_companies_v123": [],
         "job_finder_filter_freshness_v123": "Any time",
         "job_finder_filter_experience_v123": "Any",
+        "job_finder_filter_job_type_v1": "All jobs",
         "job_finder_filter_employment_v123": [],
         "job_finder_filter_lifecycle_v123": ["active"],
         "job_finder_filter_events_v123": [],
@@ -866,7 +1064,11 @@ def render_job_finder() -> None:
         )
         selected_sources = st.multiselect(
             "Filter results by source",
-            options=list(SOURCE_LABELS),
+            options=[
+                source
+                for source in SOURCE_LABELS
+                if not active_source_scope or source in active_source_scope
+            ],
             format_func=lambda value: (
                 f"{SOURCE_LABELS.get(value, value)} "
                 f"({source_count_map.get(value, 0)})"
@@ -959,6 +1161,16 @@ def render_job_finder() -> None:
                 key="job_finder_filter_entry_v123",
             )
 
+        job_type_mode = st.selectbox(
+            "Job Type",
+            options=list(JOB_TYPE_MODES),
+            key="job_finder_filter_job_type_v1",
+            help=(
+                "Broad preset across inconsistent source labels. "
+                "Employment type below remains an independent exact-match facet."
+            ),
+        )
+
         employment_count_map = employment_type_counts(
             facetable_preview
         )
@@ -1023,6 +1235,7 @@ def render_job_finder() -> None:
         max_experience_years=experience_ceiling,
         selected_lifecycle_statuses=lifecycle_filter,
         selected_events=event_filter,
+        job_type_mode=job_type_mode,
         selected_employment_types=selected_employment,
         entry_only=entry_only,
     )
@@ -1075,6 +1288,8 @@ def render_job_finder() -> None:
         )
     if event_filter:
         active_filter_bits.append("Event: " + ", ".join(value.title() for value in event_filter))
+    if job_type_mode != "All jobs":
+        active_filter_bits.append(f"Job Type: {job_type_mode}")
     if selected_employment:
         active_filter_bits.append("Employment: " + ", ".join(selected_employment))
     if entry_only:

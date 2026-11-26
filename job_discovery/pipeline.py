@@ -8,7 +8,7 @@ from typing import Any, Callable
 from database.job_discovery_manager import (
     get_latest_successful_discovery_run,
     list_discovered_jobs_by_scope,
-    list_target_companies,
+    list_effective_target_companies,
     mark_expired_jobs,
     mark_missing_jobs_removed,
     record_discovery_run,
@@ -16,9 +16,13 @@ from database.job_discovery_manager import (
 )
 from job_discovery.config import load_job_discovery_config
 from job_discovery.models import SearchSpec
+from job_discovery.structural_text_selection import select_job_description
 from job_discovery.sources import (
     AshbySource,
     CareersGovSource,
+    WorkJioSource,
+    StaffieSource,
+    FastJobsSource,
     GreenhouseSource,
     LeverSource,
     MyCareersFutureSource,
@@ -47,7 +51,7 @@ def _targets(
             if str(value).strip()
         ]
 
-    saved_targets = list_target_companies(include_disabled=False, provider=key)
+    saved_targets = list_effective_target_companies(include_disabled=False, provider=key)
     if saved_targets:
         requested = {
             str(value or "").strip().casefold()
@@ -71,7 +75,7 @@ def _targets(
 
     # If this provider exists in the registry but every target is disabled, respect
     # that state rather than silently reactivating legacy V1 config entries.
-    registry_rows = list_target_companies(include_disabled=True, provider=key)
+    registry_rows = list_effective_target_companies(include_disabled=True, provider=key)
     if registry_rows:
         return []
 
@@ -93,6 +97,17 @@ def _build_sources(
         sources.append(MyCareersFutureSource())
     if "careers_gov" in selected:
         sources.append(CareersGovSource())
+
+    if "workjio" in selected:
+        sources.append(WorkJioSource())
+    if "staffie" in selected:
+        sources.append(StaffieSource())
+    if "fastjobs" in selected:
+        sources.append(
+            FastJobsSource(
+                start_urls=(target_overrides or {}).get("fastjobs", [])
+            )
+        )
 
     for target in _targets(config, "greenhouse", target_overrides, target_selection):
         if "greenhouse" in selected:
@@ -145,7 +160,16 @@ def _can_reuse_recent_run(
 ) -> bool:
     if force_full_refresh or min_interval <= 0 or age_minutes is None or age_minutes >= min_interval:
         return False
-    if isinstance(source, (MyCareersFutureSource, CareersGovSource)):
+    if isinstance(
+        source,
+        (
+            MyCareersFutureSource,
+            CareersGovSource,
+            FastJobsSource,
+            WorkJioSource,
+            StaffieSource,
+        ),
+    ):
         return (
             str((recent_run or {}).get("query") or "").strip().casefold()
             == spec.query.strip().casefold()
@@ -268,7 +292,7 @@ def refresh_job_sources(
             for future in as_completed(futures):
                 source, started, started_clock = futures[future]
                 try:
-                    jobs = future.result()
+                    jobs = [select_job_description(job) for job in future.result()]
                     stats = upsert_discovered_jobs(jobs, source_scope=source.run_key)
                     removed_count = 0
                     fetch_complete = bool(getattr(source, "fetch_complete", False))

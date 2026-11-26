@@ -13,6 +13,7 @@ const showBridgeTokenButton = document.getElementById("showBridgeTokenButton");
 const clearPairingButton = document.getElementById("clearPairingButton");
 const connectButton = document.getElementById("connectButton");
 const extractButton = document.getElementById("extractButton");
+const selectiveExtractButton = document.getElementById("selectiveExtractButton");
 const saveCaptureButton = document.getElementById("saveCaptureButton");
 const scanButton = document.getElementById("scanButton");
 const autofillButton = document.getElementById("autofillButton");
@@ -100,7 +101,7 @@ async function getActiveTab() {
   return tab;
 }
 
-const CONTENT_SCRIPT_VERSION = "browser-content-v4.2";
+const CONTENT_SCRIPT_VERSION = "browser-content-v4.3";
 const BATCH_CONCURRENCY = 3;
 
 async function hasCurrentContentScript(tabId) {
@@ -135,6 +136,8 @@ async function ensureInjected(tabId) {
       "adapters/successfactors.js",
       "adapters/mycareersfuture.js",
       "adapters/smartrecruiters.js",
+      "adapters/fastjobs.js",
+      "adapters/workjio.js",
       "adapters/linkedin.js",
       "adapters/structured_job.js",
       "content.js",
@@ -348,6 +351,7 @@ async function batchCaptureSelectedTabs() {
             saved?.capture?.extraction_strategy ||
             capture?.job?.cleaning_strategy ||
             "",
+          job_finder_index: saved?.job_finder_index || null,
           elapsed_ms: Math.round(performance.now() - startedAt),
         };
       } catch (error) {
@@ -393,7 +397,7 @@ async function batchCaptureSelectedTabs() {
     model_calls: 0,
     items,
     note:
-      "Captures were extracted locally and saved to the localhost inbox only. No JD analysis or model call was triggered.",
+      "Captures were extracted locally and saved through the localhost bridge. FastJobs/WorkJio captures may also be indexed locally in Job Finder; no JD analysis or model call was triggered.",
   };
 }
 
@@ -616,6 +620,23 @@ extractButton.addEventListener("click", async () => {
       latestJob.capture_quality === "needs_review";
     showResult(response);
   } catch (error) {
+    showResult({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+selectiveExtractButton.addEventListener("click", async () => {
+  try {
+    const response = await sendToActiveTab({ type: "JOB_AI_EXTRACT_SELECTION" });
+    latestJobCapture = response?.data || null;
+    const latestJob = latestJobCapture?.job || {};
+    saveCaptureButton.disabled =
+      !latestJob.jd_text ||
+      latestJob.availability_status === "unavailable" ||
+      latestJob.capture_quality === "needs_review";
+    showResult(response);
+  } catch (error) {
+    latestJobCapture = null;
+    saveCaptureButton.disabled = true;
     showResult({ ok: false, error: String(error?.message || error) });
   }
 });

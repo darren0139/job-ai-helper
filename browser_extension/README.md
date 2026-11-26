@@ -576,3 +576,69 @@ PNG/section/ZIP integrity and restoration. They do not prove installed Firefox
 permissions or the exact owner workflow. Do not claim real current-tab support
 until the built extension has been exercised in the owner's existing Firefox
 App156 tab, with two captures, complete vertical coverage and restored scroll.
+
+## Firefox private / unlisted release
+
+Firefox release packaging is intentionally separate from the Chrome/Edge
+development manifest.
+
+The repository keeps:
+
+- `manifest.json` for the browser-neutral / Chromium development build.
+- `manifest.firefox.json` for the Firefox signing build.
+- `PRIVACY.md` for Firefox privacy/data-handling disclosure.
+- `scripts/build_firefox_unlisted_release.py` as the allow-listed release
+  packager.
+
+The Firefox manifest uses a stable Gecko add-on ID, requires Firefox 142+ for
+Firefox's built-in data-collection consent flow, and declares the data classes
+handled by the current local-bridge/capture/autofill workflow.
+
+Validate without writing an artifact:
+
+```bat
+python scripts\build_firefox_unlisted_release.py --check
+```
+
+Build the unsigned AMO submission ZIP:
+
+```bat
+python scripts\build_firefox_unlisted_release.py --build
+```
+
+Output is written to the already-ignored directory:
+
+```text
+dist/browser_extension/firefox/
+```
+
+The builder copies `manifest.firefox.json` into the ZIP as root-level
+`manifest.json` and packages runtime files only. It excludes tests, README /
+privacy documentation, and the source manifest filenames.
+
+Upload the generated ZIP to Mozilla Add-ons as a self-distributed / unlisted
+add-on. Install or privately distribute the Mozilla-signed `.xpi` returned by
+AMO, not the local unsigned ZIP.
+
+After the first signed submission, increment the extension version for each
+new signed update.
+
+## v4.4 manual highlighted JD selection
+
+The current-tab workflow now has a separate **Extract highlighted JD text** action.
+Highlight the meaningful job-description region in the page first, then use that
+action to create a `capture_mode="user_selection"` artifact.
+
+Manual selections are intentionally different from automatic captures:
+
+- the selected text becomes the Browser JD Queue / Tailor Resume analysis text;
+- the complete visible browser page remains preserved for diagnostics;
+- FastJobs/WorkJio manual selections are **withheld from automatic Job Finder indexing**;
+- automatic and manual captures from the same source URL remain separate pending artifacts;
+- for supported FastJobs/WorkJio captures, the Browser JD Queue exposes an explicit
+  **Promote selection to Job Finder** action if the user deliberately wants the
+  selected text to become the Job Finder description.
+
+Automatic FastJobs/WorkJio captures continue through the normal structural text
+selector and Job Finder ingestion path. Manual selection never silently replaces
+that canonical description.

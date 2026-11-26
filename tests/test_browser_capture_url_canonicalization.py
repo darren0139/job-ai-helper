@@ -218,7 +218,7 @@ class BrowserCaptureUrlCanonicalizationTests(unittest.TestCase):
         )
         self.assertEqual(len(pending), 1)
 
-    def test_changed_cleaner_supersedes_tracking_variant(self) -> None:
+    def test_changed_cleaner_refreshes_pending_tracking_variant(self) -> None:
         old = manager.save_browser_job_capture(
             _payload(
                 "https://example.com/jobs/123?"
@@ -233,7 +233,9 @@ class BrowserCaptureUrlCanonicalizationTests(unittest.TestCase):
             )
         )
 
-        self.assertNotEqual(old["id"], new["id"])
+        self.assertEqual(old["id"], new["id"])
+        self.assertNotEqual(old["capture_hash"], new["capture_hash"])
+        self.assertEqual(new["jd_text"], "Clean JD")
 
         pending = manager.list_browser_job_captures(
             limit=10,
@@ -243,7 +245,7 @@ class BrowserCaptureUrlCanonicalizationTests(unittest.TestCase):
 
         all_rows = manager.list_browser_job_captures(limit=10)
         statuses = {row["id"]: row["status"] for row in all_rows}
-        self.assertEqual(statuses[old["id"]], "superseded")
+        self.assertEqual(len(all_rows), 1)
         self.assertEqual(statuses[new["id"]], "pending")
 
     def test_schema_backfills_existing_canonical_url(self) -> None:

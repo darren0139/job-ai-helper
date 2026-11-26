@@ -277,6 +277,13 @@ Good written communication skills.
 
 
 class AtomicRequirementMatchingTests(unittest.TestCase):
+    def _garena_explicit_responsibilities_jd(self) -> str:
+        # Explicit headings remain supported independently of the V1.1
+        # contiguous unbulleted duty-list admission rule.
+        return self._garena_raw_jd().replace(
+            "\nJob Description\n", "\nResponsibilities\n", 1
+        )
+
     def _garena_raw_jd(self) -> str:
         return """
 Job Description
@@ -323,10 +330,31 @@ Having a track record of working with meticulous works that require high attenti
             "skills": {},
         }
 
+    def test_generic_unbulleted_job_description_admits_contiguous_duties(self) -> None:
+        rows = canonicalise_requirements({}, self._garena_raw_jd())["requirements"]
+        first_group = [row for row in rows if
+                       "daily operations of the gaming product" in row.get("parent_text", "").lower()]
+        self.assertEqual(len(first_group), 6)
+        self.assertEqual(len({row["requirement_id"] for row in first_group}), 6)
+        self.assertTrue(all("raw_jd.unheaded_explicit_role_obligation" in row.get("sources", [])
+                            for row in first_group))
+        for phrase in ("gaming product configuration", "gaming product quality assurance",
+                       "live environment handling", "bugs and hacks handling", "operational evaluation"):
+            self.assertTrue(any(phrase in row["text"].lower() for row in first_group), phrase)
+        self.assertTrue(any(row["text"].startswith("Coordinate configuration") for row in rows))
+        self.assertTrue(any(row["text"].startswith("Collaborate with") for row in rows))
+
+    def test_generic_unbulleted_job_description_does_not_infer_isolated_duty(self) -> None:
+        # The generic heading alone does not authorize a lone imperative.
+        duty = self._garena_raw_jd().split("Job Description\n", 1)[1].splitlines()[0]
+        self.assertIn("daily operations of the gaming product", duty)
+        rows = canonicalise_requirements({}, "Job Description\n" + duty)["requirements"]
+        self.assertFalse(rows)
+
     def test_compound_responsibility_is_split_atomically(self) -> None:
         result = canonicalise_requirements(
             {},
-            self._garena_raw_jd(),
+            self._garena_explicit_responsibilities_jd(),
         )
         texts = [row["text"].lower() for row in result["requirements"]]
         self.assertTrue(any("gaming product configuration" in text for text in texts))
@@ -336,7 +364,9 @@ Having a track record of working with meticulous works that require high attenti
         self.assertTrue(any("operational evaluation" in text for text in texts))
 
     def test_atomic_children_do_not_merge_back_into_parent(self) -> None:
-        result = canonicalise_requirements({}, self._garena_raw_jd())
+        result = canonicalise_requirements(
+            {}, self._garena_explicit_responsibilities_jd()
+        )
         first_group = [
             row
             for row in result["requirements"]
@@ -346,9 +376,15 @@ Having a track record of working with meticulous works that require high attenti
         self.assertEqual(len({row["requirement_id"] for row in first_group}), len(first_group))
 
     def test_published_game_does_not_prove_daily_operations_or_qa(self) -> None:
+        self._assert_published_game_does_not_prove_duties(self._garena_explicit_responsibilities_jd())
+
+    def test_generic_published_game_does_not_prove_daily_operations_or_qa(self) -> None:
+        self._assert_published_game_does_not_prove_duties(self._garena_raw_jd())
+
+    def _assert_published_game_does_not_prove_duties(self, raw_jd: str) -> None:
         stable = build_stable_analysis(
             jd_profile={},
-            raw_jd_text=self._garena_raw_jd(),
+            raw_jd_text=raw_jd,
             raw_resume_text="Built a mobile game published on Google Play.",
             resume_profile=self._resume_profile(),
             keyword_match={

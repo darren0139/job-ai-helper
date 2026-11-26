@@ -152,6 +152,10 @@ _render_result(st.session_state['result'])
             # Compare the exact saved-document section labels, including
             # combined Initial / Selected Base labels. A missing section must
             # still fail instead of being silently accepted.
+            # Independently pin the public labels and the feature's Base-first
+            # display order; a shared helper regression must not pass this test.
+            self.assertEqual(expected, ["#### Selected Base vs Final", "#### Initial vs Final"]
+                             if second else ["#### Initial / Selected Base vs Final"])
             self.assertTrue(expected)
             rendered = [value for value in text
                         if value.startswith("#### ") and value.endswith(" vs Final")]

@@ -12,6 +12,10 @@ class JobSourceError(RuntimeError):
     pass
 
 
+class JobSourceTimeout(JobSourceError):
+    """The source did not complete a request within the configured timeout."""
+
+
 class JsonHttpClient:
     def __init__(
         self,
@@ -37,7 +41,15 @@ class JsonHttpClient:
             raise JobSourceError(
                 f"HTTP {exc.code} for {request.full_url}: {body or exc.reason}"
             ) from exc
-        except (URLError, TimeoutError) as exc:
+        except TimeoutError as exc:
+            raise JobSourceTimeout(
+                f"Request timed out after {self.timeout:g}s for {request.full_url}"
+            ) from exc
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise JobSourceTimeout(
+                    f"Request timed out after {self.timeout:g}s for {request.full_url}"
+                ) from exc
             raise JobSourceError(f"Request failed for {request.full_url}: {exc}") from exc
 
         try:
@@ -46,6 +58,51 @@ class JsonHttpClient:
             raise JobSourceError(
                 f"Expected JSON from {request.full_url}, received invalid payload."
             ) from exc
+
+    def _request_text(self, request: Request) -> str:
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            raise JobSourceError(
+                f"HTTP {exc.code} for {request.full_url}: {body or exc.reason}"
+            ) from exc
+        except (URLError, TimeoutError) as exc:
+            raise JobSourceError(
+                f"Request failed for {request.full_url}: {exc}"
+            ) from exc
+
+    def get_text(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> str:
+        target = str(url)
+        if params:
+            encoded = urlencode(
+                [
+                    (key, value)
+                    for key, value in params.items()
+                    if value is not None
+                ],
+                doseq=True,
+            )
+            target += ("&" if "?" in target else "?") + encoded
+        request_headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html, application/xhtml+xml, text/plain, */*",
+        }
+        request_headers.update(headers or {})
+        return self._request_text(
+            Request(target, headers=request_headers, method="GET")
+        )
 
     def get_json(
         self,
