@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from database.phase9f_application_confirmation_manager import create_job_finder_application_session
@@ -866,7 +867,7 @@ def render_job_finder() -> None:
                 phase = str(event.get("phase") or "")
                 summary = event.get("summary") if isinstance(event.get("summary"), dict) else {}
                 if phase == "queued":
-                    row = {"Source/company": key, "State": "Queued", "Jobs": "", "Details": ""}
+                    row = {"Source/company": key, "State": "Queued", "Jobs": None, "Details": ""}
                 elif phase == "skipped":
                     row = {"Source/company": key, "State": "Skipped", "Jobs": 0, "Details": summary.get("error", "")}
                 elif phase == "completed":
@@ -882,7 +883,12 @@ def render_job_finder() -> None:
                 else:
                     row = {"Source/company": key, "State": "Error", "Jobs": 0, "Details": summary.get("error", "")}
                 progress_rows[key] = row
-                progress_slot.dataframe(list(progress_rows.values()), width="stretch", hide_index=True)
+                display_rows = list(progress_rows.values())
+                frame = pd.DataFrame(display_rows)
+                # Queued counts are unknown, not zero. Keep the display column
+                # nullable and numeric even when every source is still queued.
+                frame["Jobs"] = pd.array([item["Jobs"] for item in display_rows], dtype="Int64")
+                progress_slot.dataframe(frame, width="stretch", hide_index=True)
 
             summaries = refresh_job_sources(
                 query=active_query,
