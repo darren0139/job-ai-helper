@@ -16,7 +16,7 @@ from analysis_stability.stable_evidence_scoring import (
     canonicalise_requirements, compute_deterministic_alignment, stable_analysis_input_fingerprint,
 )
 from database import analysis_cache_manager as cache
-from rag.jd_identity import build_job_identity
+from rag.jd_identity import build_job_identity, source_version_matches
 from tailoring.document_grounded_analysis import (
     analyze_actual_resume_against_jd, seal_document_report, validate_document_report,
 )
@@ -53,7 +53,7 @@ def _source_and_ordinary(connection, application_id):
         raise ValueError("The linked JD profile identity is incomplete.")
     identity = build_job_identity(company=company, title=title, location=profile.get("location") or "",
                                   raw_jd_text=raw)
-    if (identity.source_version_id != source["source_version_id"]
+    if (not source_version_matches(raw, source["source_version_id"])
             or identity.canonical_jd_id != source["canonical_jd_id"]):
         raise ValueError("The linked JD identity could not be authenticated.")
     ordinary = json.loads(app["report_json"])

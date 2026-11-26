@@ -120,7 +120,7 @@ class FastRefreshTests(unittest.TestCase):
             {"ats_identifier": "NCS3", "company_name": "NCS"},
             {"ats_identifier": "Grab", "company_name": "Grab"},
         ]
-        with patch("job_discovery.pipeline.list_target_companies", return_value=saved):
+        with patch("job_discovery.pipeline.list_effective_target_companies", return_value=saved):
             targets = _targets(
                 {"targets": {}},
                 "smartrecruiters",
@@ -171,7 +171,7 @@ class FastRefreshTests(unittest.TestCase):
             {"ats_identifier": "NCS3", "company_name": "NCS"},
             {"ats_identifier": "Grab", "company_name": "Grab"},
         ]
-        with patch("job_discovery.pipeline.list_target_companies", return_value=saved):
+        with patch("job_discovery.pipeline.list_effective_target_companies", return_value=saved):
             targets = _targets(
                 {"targets": {}},
                 "smartrecruiters",

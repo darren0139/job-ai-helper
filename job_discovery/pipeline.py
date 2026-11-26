@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Callable
@@ -17,6 +18,7 @@ from database.job_discovery_manager import (
 from job_discovery.config import load_job_discovery_config
 from job_discovery.models import SearchSpec
 from job_discovery.structural_text_selection import select_job_description
+from job_discovery.text_utils import compact_text
 from job_discovery.sources import (
     AshbySource,
     CareersGovSource,
@@ -182,6 +184,40 @@ def _emit(callback: ProgressCallback | None, **payload: Any) -> None:
         callback(dict(payload))
 
 
+def _sanitize_fetched_job_text(job: Any) -> Any:
+    """Enforce one final text invariant before structural selection/persistence.
+
+    Source adapters remain responsible for understanding provider-specific
+    payload shapes. This common boundary prevents invisible Unicode/whitespace
+    junk from surviving merely because an adapter returned already-plain text,
+    and it fails closed if an adapter returns a structured object instead of a
+    textual description. Raw provider payloads are intentionally untouched.
+    """
+    description = getattr(job, "description", None)
+    if not isinstance(description, str):
+        source = str(getattr(job, "source", "") or "unknown")
+        source_job_id = str(
+            getattr(job, "source_job_id", "") or "unknown"
+        )
+        raise ValueError(
+            f"{source}:{source_job_id} returned a non-text job description"
+        )
+
+    cleaned = compact_text(description)
+    if not cleaned:
+        source = str(getattr(job, "source", "") or "unknown")
+        source_job_id = str(
+            getattr(job, "source_job_id", "") or "unknown"
+        )
+        raise ValueError(
+            f"{source}:{source_job_id} returned an empty job description "
+            "after source-text sanitation"
+        )
+    if cleaned == description:
+        return job
+    return replace(job, description=cleaned)
+
+
 def _fetch_one(
     source: Any,
     spec: SearchSpec,
@@ -292,7 +328,10 @@ def refresh_job_sources(
             for future in as_completed(futures):
                 source, started, started_clock = futures[future]
                 try:
-                    jobs = [select_job_description(job) for job in future.result()]
+                    jobs = [
+                        select_job_description(_sanitize_fetched_job_text(job))
+                        for job in future.result()
+                    ]
                     stats = upsert_discovered_jobs(jobs, source_scope=source.run_key)
                     removed_count = 0
                     fetch_complete = bool(getattr(source, "fetch_complete", False))

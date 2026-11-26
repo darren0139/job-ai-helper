@@ -12,7 +12,7 @@ from typing import Any
 from analysis_stability.stable_evidence_scoring import canonicalise_requirements
 from llm import summarise_call_usage
 from parse import _MIN_JD_CHARS, read_resume_docx, read_resume_pdf
-from rag.jd_identity import build_job_identity, source_version_id
+from rag.jd_identity import build_job_identity, exact_source_version_id, source_version_matches
 from tailoring.jd_user_input_overrides import (
     build_effective_application_local_requirement_scope,
     normalise_requirement_override_lines,
@@ -201,7 +201,7 @@ def build_transient_exact_jd_snapshot(
         profile["job_title"] = final_title
     if final_company:
         profile["company"] = final_company
-    if final_location:
+    if final_location or (final_title and final_company):
         profile["location"] = final_location
 
     canonical, base_requirements, _base_requirement_fingerprint = _canonical_scope(
@@ -225,10 +225,8 @@ def build_transient_exact_jd_snapshot(
     ]
     requirement_fingerprint = fingerprint_value(compact)
     raw_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    calculated_source_version = source_version_id(text)
-    if saved_source_version_id and (
-        calculated_source_version != _clean(saved_source_version_id)
-    ):
+    calculated_source_version = _clean(saved_source_version_id) or exact_source_version_id(text)
+    if not source_version_matches(text, calculated_source_version):
         raise Phase9FJDIntakeError(
             "The saved JD source-version identity does not match its raw text."
         )

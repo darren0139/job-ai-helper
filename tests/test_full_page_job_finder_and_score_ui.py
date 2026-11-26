@@ -52,6 +52,9 @@ class FullPageAndSessionControlsTests(unittest.TestCase):
         self.assertIn('widget_namespace=', initial)
         self.assertIn('receipt_key', initial)
         self.assertIn('Exact historical score contributions are unavailable', (ROOT / "tailoring/initial_score_breakdown_ui.py").read_text(encoding="utf-8"))
+        score_ui = (ROOT / "tailoring/initial_score_breakdown_ui.py").read_text(encoding="utf-8")
+        self.assertIn('key=f"{key_prefix}_advanced_map_v1"', score_ui)
+        self.assertIn('key=f"{key_prefix}_legacy_score_map_csv"', score_ui)
 
 
 if __name__ == "__main__":

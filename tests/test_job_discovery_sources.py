@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from job_discovery.models import SearchSpec
+from job_discovery.text_utils import compact_text
 from job_discovery.sources.ashby import AshbySource
 from job_discovery.sources.careers_gov import CareersGovSource
 from job_discovery.sources.greenhouse import GreenhouseSource
@@ -40,6 +41,16 @@ class SequenceClient:
 
 
 class JobDiscoverySourceTests(unittest.TestCase):
+    def test_compact_text_normalizes_unicode_spacing(self) -> None:
+        source = (
+            "Partner\u202fwith\u202fstakeholders and "
+            "Develop\u00a0and\u2007enhance\u200b applications\u2060."
+        )
+        self.assertEqual(
+            compact_text(source),
+            "Partner with stakeholders and Develop and enhance applications.",
+        )
+
     def test_mcf_normalizes_job(self) -> None:
         raw = {
             "uuid": "abc-123",
@@ -173,6 +184,65 @@ class JobDiscoverySourceTests(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].company, "Example Data")
         self.assertIn("SQL and cloud", jobs[0].description)
+
+    def test_smartrecruiters_unwraps_section_objects_and_preserves_raw_payload(self) -> None:
+        job_text = (
+            "Partner\u202fwith\u202fstakeholders to understand business and "
+            "system requirements. Develop\u202fand\u202fenhance software applications."
+        )
+        raw_section = {"title": "Job Description", "text": job_text}
+        client = SequenceClient([
+            {"content": [{"id": "sr-ncs", "name": "AI Software Engineer"}]},
+            {
+                "id": "sr-ncs",
+                "name": "AI Software Engineer",
+                "company": {"name": "NCS"},
+                "location": {"city": "Singapore", "country": "Singapore"},
+                "jobAd": {
+                    "sections": {
+                        "companyDescription": {
+                            "title": "Company Description",
+                            "text": "NCS is a technology services company.",
+                        },
+                        "jobDescription": raw_section,
+                        "qualifications": {
+                            "title": "Qualifications",
+                            "text": "Proficiency in Python.",
+                        },
+                        "additionalInformation": {
+                            "title": "Additional Information",
+                            "text": "Only shortlisted candidates will be contacted.",
+                        },
+                    },
+                    "jobUrl": "https://jobs.smartrecruiters.com/NCS3/sr-ncs",
+                },
+                "applyUrl": "https://jobs.smartrecruiters.com/NCS3/sr-ncs/apply",
+                "releasedDate": "2026-11-24T10:00:00Z",
+                "typeOfEmployment": {"label": "Full-time"},
+            },
+        ])
+
+        jobs = SmartRecruitersSource("NCS3", client=client).fetch(
+            SearchSpec(query="AI Software Engineer", max_pages=1)
+        )
+
+        self.assertEqual(len(jobs), 1)
+        description = jobs[0].description
+        self.assertIn(
+            "Partner with stakeholders to understand business and system requirements.",
+            description,
+        )
+        self.assertIn("Develop and enhance software applications.", description)
+        self.assertIn("Qualifications\nProficiency in Python.", description)
+        self.assertNotIn("{'title':", description)
+        self.assertNotIn("\\u202f", description)
+        self.assertNotIn("\u202f", description)
+
+        # The raw API payload remains untouched for provenance/debugging.
+        self.assertEqual(
+            jobs[0].raw_payload["jobAd"]["sections"]["jobDescription"],
+            raw_section,
+        )
 
 
 if __name__ == "__main__":

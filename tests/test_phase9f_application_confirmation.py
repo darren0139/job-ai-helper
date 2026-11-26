@@ -385,9 +385,59 @@ class Phase9FApplicationConfirmationTests(unittest.TestCase):
         finally:
             connection.close()
         before = self.counts()
-        with self.assertRaisesRegex(ValueError, "changed after"):
+        # Initialization now rejects a corrupted immutable version before D writes.
+        with self.assertRaisesRegex(
+            ValueError, r"^JD version ID collision: refusing to overwrite immutable text\.$"
+        ):
             self.confirm(intent="changed-jd")
         self.assertEqual(self.counts(), before)
+        connection = tailoring_version_manager._connect()
+        try:
+            row = connection.execute(
+                "SELECT raw_text FROM job_description_versions "
+                "WHERE job_description_id = ? AND source_version_id = ?",
+                (self.persisted_jd["library_jd_id"], self.persisted_jd["source_version_id"]),
+            ).fetchone()
+            self.assertEqual(row[0], self.persisted_jd["raw_text"] + " changed after preparation")
+        finally:
+            connection.close()
+
+    def test_exact_jd_changed_inside_d_transaction_rolls_back(self):
+        # Exercise the original link-time guard after initialization succeeds.
+        # Inject the change on the same connection so rollback must undo it too.
+        before = self.counts()
+        real_link = confirmation_manager.link_exact_job_description_with_connection
+
+        def change_then_link(connection, **kwargs):
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM applications").fetchone()[0],
+                before["applications"] + 1,
+            )
+            changed = connection.execute(
+                "UPDATE job_description_versions SET raw_text = raw_text || ' changed inside transaction' "
+                "WHERE job_description_id = ? AND source_version_id = ?",
+                (self.persisted_jd["library_jd_id"], self.persisted_jd["source_version_id"]),
+            )
+            self.assertEqual(changed.rowcount, 1)
+            return real_link(connection, **kwargs)
+
+        with patch.object(
+            confirmation_manager, "link_exact_job_description_with_connection", side_effect=change_then_link
+        ) as link:
+            with self.assertRaisesRegex(ValueError, "changed after Phase 9F-A preparation"):
+                self.confirm(intent="changed-jd-inside-transaction")
+            link.assert_called_once()
+        self.assertEqual(self.counts(), before)
+        connection = tailoring_version_manager._connect()
+        try:
+            row = connection.execute(
+                "SELECT raw_text FROM job_description_versions "
+                "WHERE job_description_id = ? AND source_version_id = ?",
+                (self.persisted_jd["library_jd_id"], self.persisted_jd["source_version_id"]),
+            ).fetchone()
+            self.assertEqual(row[0], self.persisted_jd["raw_text"])
+        finally:
+            connection.close()
 
     def test_stale_phase9f_c_fails_before_any_write(self):
         stale = copy.deepcopy(self.recommendation)

@@ -25,6 +25,7 @@ from database.jd_library_manager import (
     archive_job_description_version,
     delete_unlinked_saved_job_description,
     get_exact_job_description_version,
+    find_exact_saved_jd_by_raw_text,
     get_jd_library_cleanup_preview,
     get_job_description_versions,
     get_recent_job_descriptions,
@@ -37,7 +38,6 @@ from rag.jd_chroma_rag import (
     delete_job_description_from_chroma,
     index_job_description_to_chroma,
 )
-from rag.jd_identity import source_version_id
 from tailoring.jd_user_input_overrides import (
     PREFERRED_REQUIREMENTS_HELP,
     PREFERRED_REQUIREMENTS_LABEL,
@@ -133,42 +133,8 @@ def _version_label(row: dict[str, Any]) -> str:
     return f"{created} · {version[:16]}{archived}"
 
 
-def _find_exact_saved_jd_version(raw_text: str) -> dict[str, Any] | None:
-    """Find one exact immutable JD version by raw-text source identity.
-
-    This is a read-only preflight. It never calls a model, creates persistence,
-    or indexes Chroma.
-    """
-    text = str(raw_text or "").strip()
-    if not text:
-        return None
-
-    target_version = source_version_id(text)
-    for job in get_recent_job_descriptions(limit=5000):
-        try:
-            library_jd_id = int(job[0])
-        except (TypeError, ValueError, IndexError):
-            continue
-
-        versions = get_job_description_versions(library_jd_id)
-        if not any(
-            _clean(version.get("source_version_id")) == target_version
-            for version in versions
-            if isinstance(version, dict)
-        ):
-            continue
-
-        exact = get_exact_job_description_version(
-            library_jd_id,
-            target_version,
-        )
-        if not isinstance(exact, dict):
-            continue
-        if str(exact.get("raw_text") or "").strip() != text:
-            continue
-        return exact
-
-    return None
+def _find_exact_saved_jd_version(raw_text: str, *, title: str = "", company: str = "", location: str = "") -> dict[str, Any] | None:
+    return find_exact_saved_jd_by_raw_text(raw_text, title=title, company=company, location=location)
 
 
 def _current_save_receipt(snapshot: dict[str, Any]) -> dict[str, Any] | None:
@@ -402,6 +368,13 @@ def _render_analysis(snapshot: dict[str, Any], *, current_source_url: str) -> No
                     location=str(snapshot.get("location") or ""),
                     source_url=current_source_url,
                 )
+                exact_saved = get_exact_job_description_version(
+                    int(saved["job_description_id"]), str(saved["source_version_id"])
+                )
+                if (not exact_saved
+                    or exact_saved.get("raw_text") != snapshot.get("raw_text")
+                    or exact_saved.get("jd_profile") != snapshot.get("jd_profile")):
+                    raise ValueError("The saved JD differs from the analyzed snapshot. Analyse again to reuse the authoritative saved profile.")
                 index_message = ""
                 indexing_attempted = bool(saved.get("needs_chroma_index"))
                 indexing_occurred = False
@@ -884,7 +857,7 @@ def render_phase9f_jd_intake() -> None:
 
     exact_saved_match = None
     if source_type in {"pasted", "uploaded", "browser"} and _clean(raw_text):
-        exact_saved_match = _find_exact_saved_jd_version(raw_text)
+        exact_saved_match = _find_exact_saved_jd_version(raw_text, title=title, company=company, location=location)
 
     active_analysis_model = (
         get_active_model("analysis")
@@ -964,9 +937,9 @@ def render_phase9f_jd_intake() -> None:
                 snapshot = build_reused_exact_jd_snapshot(
                     exact_saved_match,
                     source_type=source_type,
-                    title=title,
-                    company=company,
-                    location=location,
+                    title="",
+                    company="",
+                    location="",
                     source_url=source_url,
                     source_filename=source_filename,
                     source_artifact_sha256=source_artifact_sha256,

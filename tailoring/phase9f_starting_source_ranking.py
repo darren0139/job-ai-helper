@@ -24,7 +24,7 @@ from analysis_stability.stable_evidence_scoring import (
     canonicalise_requirements,
     compute_deterministic_alignment,
 )
-from rag.jd_identity import source_version_id
+from rag.jd_identity import source_version_matches
 from tailoring.capability_taxonomy import get_default_taxonomy
 from tailoring.fresh_target_evidence_scoring import (
     FRESH_TARGET_EVIDENCE_POLICY_VERSION,
@@ -249,8 +249,13 @@ def validate_exact_jd_snapshot(
         "structured_profile_fingerprint": profile_fingerprint,
         "canonical_requirement_fingerprint": requirement_fingerprint,
         "canonical_requirement_ids": requirement_ids,
-        "source_version_id": source_version_id(raw_text),
+        "source_version_id": _clean(exact_jd.get("source_version_id")),
     }
+    if not source_version_matches(raw_text, expected["source_version_id"]):
+        raise Phase9FBRankingError(
+            "The exact JD source_version_id is stale or inconsistent.",
+            code="exact_jd_source_version_id_mismatch",
+        )
     for field, value in expected.items():
         actual = exact_jd.get(field)
         if field == "canonical_requirement_ids":
@@ -289,6 +294,9 @@ def validate_exact_jd_snapshot(
             "The exact JD snapshot fingerprint is inconsistent.",
             code="exact_jd_snapshot_fingerprint_mismatch",
         )
+    if _clean((semantic.get("source") or {}).get("source_version_id")) != expected["source_version_id"]:
+        raise Phase9FBRankingError("The exact JD semantic source version is inconsistent.",
+                                  code="exact_jd_source_version_id_mismatch")
     for field in (
         "raw_jd_sha256",
         "structured_profile_fingerprint",
