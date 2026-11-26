@@ -155,7 +155,7 @@ class MultiExpandTests(unittest.TestCase):
         self.assertIn('snapshot = (',self.src)
         self.assertIn('if isinstance(snapshot, dict):',self.src)
         self.assertIn('analyze_job_match(',self.src)
-        self.assertIn('Use in new Application Session',self.src)
+        self.assertIn('Tailor this job',self.src)
         self.assertIn('"Batch candidate matching"',self.src)
         self.assertNotIn('selected_job_key',self.src)
 

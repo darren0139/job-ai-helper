@@ -178,13 +178,27 @@ class SharedApplicationSessionIdentityTests(unittest.TestCase):
         tree = ast.parse((root / 'job_discovery/ui.py').read_text(encoding='utf-8'))
         node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_handoff_to_new_application')
         creator = Mock(return_value=123)
-        state = {}
+        from job_discovery.tailor_resume_handoff import apply_job_finder_tailor_resume_handoff
+        state = {"phase9f_jd_analysis": {"old": True}, "phase9f_jd_preferred_requirements": "stale"}
+        rerun = Mock()
         namespace = {'Any': object, 'create_job_finder_application_session': creator,
-                     'st': SimpleNamespace(session_state=state, rerun=Mock())}
+                     'apply_job_finder_tailor_resume_handoff': apply_job_finder_tailor_resume_handoff,
+                     'st': SimpleNamespace(session_state=state, rerun=rerun)}
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<handoff>', 'exec'), namespace)
-        namespace['_handoff_to_new_application']({'id':7, 'description': self.original_jd['raw_text']}, self.snapshot['id'])
+        job = {'id': 7, 'description': self.original_jd['raw_text'], 'company': 'Example',
+               'title': 'Engineer', 'location': 'Singapore', 'source_url': 'https://example.invalid'}
+        namespace['_handoff_to_new_application'](job, self.snapshot['id'])
         creator.assert_called_once_with(discovered_job_id=7, snapshot_id=self.snapshot['id'])
         self.assertEqual(state['current_application_id'], 123)
+        self.assertEqual(state['_pending_navigation_page'], 'Tailor Resume')
+        self.assertEqual(state['phase9f_jd_source_mode'], 'Paste job description')
+        self.assertEqual(state['phase9f_pasted_jd_text'], job['description'].strip())
+        for field in ('company', 'title', 'location', 'source_url'):
+            self.assertEqual(state['phase9f_jd_' + field], job[field])
+        self.assertEqual(state['phase9f_jd_intake_state'], 'jd_entered')
+        self.assertNotIn('phase9f_jd_analysis', state)
+        self.assertNotIn('phase9f_jd_preferred_requirements', state)
+        rerun.assert_called_once_with()
 
     def test_streamlit_explicit_confirmation_recovers_persisted_application(self):
         from streamlit.testing.v1 import AppTest

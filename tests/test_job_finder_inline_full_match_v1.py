@@ -70,7 +70,7 @@ class JobFinderInlineMatchTests(unittest.TestCase):
         self.assertIn("analyze_job_match(",segment)
         self.assertIn("render_job_finder_explainer",segment)
         self.assertIn("Refresh Match",segment)
-        self.assertIn("Use in new Application Session",segment)
+        self.assertIn("Tailor this job",segment)
         self.assertIn("job_finder_hide_job_v16_",segment)
         self.assertNotIn('"Batch candidate matching"',segment)
         self.assertEqual(self.src.count('"Batch candidate matching"'),1)
