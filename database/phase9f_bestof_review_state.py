@@ -258,3 +258,61 @@ def save_bestof_view_preferences(application_id: int, generation_id: str,
         return False
     finally:
         db.close()
+
+
+
+def load_historical_optimizer_settings(application_id: int, generation_id: str, docx_sha256: str) -> dict:
+    """Read latest document-bound mode for historical visibility only.
+
+    No table initialization or writes. The JD/scorer are historical and are
+    not validated as current here; this metadata cannot authorize reuse.
+    """
+    if not generation_id or len(docx_sha256) != 64:
+        return {}
+    connection = _connect()
+    try:
+        rows = connection.execute('''SELECT run_mode, mode_receipt_json, result_json,
+                result_sha256, updated_at, scorer_version
+            FROM phase9f_bestof_display_receipts
+            WHERE application_id=? AND generation_id=? AND docx_sha256=? AND schema_version=?
+            ORDER BY updated_at DESC, rowid DESC LIMIT 10''',
+            (int(application_id), str(generation_id), docx_sha256, SCHEMA)).fetchall()
+        for row in rows:
+            if sha256(row['result_json'].encode('utf-8')).hexdigest() != row['result_sha256']:
+                continue
+            try:
+                mode = json.loads(row['mode_receipt_json'])
+                result = json.loads(row['result_json'])
+            except (TypeError, ValueError):
+                continue
+            if (not isinstance(mode, dict) or not isinstance(result, dict)
+                    or mode.get('generation_id') != str(generation_id)
+                    or mode.get('mode') != row['run_mode']
+                    or mode.get('legacy_mode_inferred_for_display') is True
+                    or row['run_mode'] not in ('v35-relevance', 'v37-same-work', 'v26-fixed', 'v31-flexible', 'v33-evidence')
+                    or not result.get('status') or result.get('status') == 'not_run'):
+                continue
+            return {'mode': row['run_mode'], 'status': str(result['status']),
+                    'manual': mode.get('manual_existing_fit_trial') is True,
+                    'updated_at': row['updated_at'], 'scorer_version': row['scorer_version']}
+        return {}
+    except sqlite3.Error:
+        return {}
+    finally:
+        connection.close()
+
+
+
+def load_existing_working_preferences(application_id: int, generation_id: str, view_key: str) -> dict:
+    """Read existing preferences without creating a table during a preview."""
+    db = _connect()
+    try:
+        row = db.execute('''SELECT preferences_json FROM phase9f_bestof_view_preferences
+            WHERE application_id=? AND generation_id=? AND view_key=?''',
+            (int(application_id), str(generation_id), str(view_key))).fetchone()
+        item = json.loads(row['preferences_json']) if row else {}
+        return item if isinstance(item, dict) else {}
+    except (sqlite3.Error, ValueError, TypeError):
+        return {}
+    finally:
+        db.close()

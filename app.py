@@ -1579,6 +1579,19 @@ def create_full_debug_bundle(
             "reviews": jd_score_optimizer_reviews,
         }
 
+    if application_id:
+        from tailoring.phase9f_working_settings_v312b214 import saved_settings, working_values, recorded_optimizer
+        loaded_id = str(st.session_state.get(f"tailored_generation_id_{application_id}") or "")
+        try:
+            loaded_generation = get_tailoring_generation(application_id, loaded_id) if loaded_id else None
+        except Exception:
+            loaded_generation = None
+        debug_bundle["generation_settings_provenance_v312b214"] = {
+            "recorded": saved_settings(loaded_generation),
+            "working_controls": deepcopy(working_values(st, application_id)),
+            "optimizer_request": deepcopy(st.session_state.get(f"phase9f_auto_bestof_run_mode_{application_id}")),
+            "historical_optimizer": recorded_optimizer(application_id, loaded_generation),
+        }
     debug_bundle["jd_score_optimizer_debug"] = (
         jd_score_optimizer_debug
     )
@@ -3964,6 +3977,10 @@ elif page == "Application Sessions":
                         preview_generation,
                     )
 
+            from tailoring.phase9f_working_settings_v312b214 import (
+                settings_widget as _b214_settings_widget, persist_working as _b214_persist,
+                saved_settings as _b214_saved_settings,
+            )
             restored_settings = st.session_state.get(
                 f"restored_tailoring_settings_{current_application_id}",
                 {},
@@ -3977,8 +3994,11 @@ elif page == "Application Sessions":
             )
             if not isinstance(phase9f_generation_defaults, dict):
                 phase9f_generation_defaults = {}
+            # Normal lifecycle settings are generation-owned, not legacy execution defaults.
+            _b214_recorded = _b214_saved_settings({"generation_settings": restored_settings})
             generation_control_defaults = {
                 **restored_settings,
+                **_b214_recorded["generation"],
                 **phase9f_generation_defaults,
             }
             phase9f_fit_defaults: dict[str, Any] = {}
@@ -4003,6 +4023,7 @@ elif page == "Application Sessions":
                 **resume_format_preferences,
                 **restored_settings,
                 **phase9f_fit_defaults,
+                **(_b214_recorded["fitting"] if phase9f_f_normal_lifecycle else {}),
             }
 
             phase7_control = get_application_generation_control(
@@ -4066,7 +4087,7 @@ elif page == "Application Sessions":
             # Existing frozen generation contracts still receive only max_projects.
             auto_preview_candidates = None
             auto_full_preview = None
-            project_count_label = st.radio(
+            project_count_label = _b214_settings_widget(st, current_application_id, "radio",
                 "Project count before generation",
                 ["Manual (legacy)", "Auto (up to 5)"],
                 horizontal=True,
@@ -4080,7 +4101,7 @@ elif page == "Application Sessions":
                     "The explicit Generate button still controls paid generation."
                 ),
             )
-            max_projects = st.slider(
+            max_projects = _b214_settings_widget(st, current_application_id, "slider",
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
@@ -4144,7 +4165,7 @@ elif page == "Application Sessions":
             else:
                 bullet_allocation_index = 0
 
-            bullet_allocation_label = st.radio(
+            bullet_allocation_label = _b214_settings_widget(st, current_application_id, "radio",
                 "Bullet allocation",
                 bullet_allocation_options,
                 index=bullet_allocation_index,
@@ -4177,7 +4198,7 @@ elif page == "Application Sessions":
             else:
                 bullet_allocation_mode = "adaptive"
 
-            max_bullets = st.slider(
+            max_bullets = _b214_settings_widget(st, current_application_id, "slider",
                 "Bullet limit per project",
                 min_value=1,
                 max_value=4,
@@ -4211,6 +4232,7 @@ elif page == "Application Sessions":
                     f"{phase9f_f_generation_snapshot.get('settings_fingerprint', '')[:12]}."
                 )
 
+            _b214_persist(st, current_application_id)
             generation_plan = build_generation_action_plan(
                 lock_projects=lock_projects,
                 lock_skills=lock_skills,
@@ -7404,10 +7426,11 @@ elif page == "Application Sessions":
                             "Manual": "manual",
                             "Keep generated selection (legacy)": "legacy",
                         }
-                        chosen_project_mode = st.radio(
+                        chosen_project_mode = _b214_settings_widget(st, current_application_id, "radio",
                             "Projects policy for this fitted résumé",
                             options=list(project_modes),
-                            index=0,
+                            index=next((i for i, value in enumerate(project_modes.values())
+                                        if value == fit_control_defaults.get("adaptive_projects_mode")), 0),
                             key=f"adaptive_project_fit_mode_{current_application_id}",
                             help=(
                                 "Fit only: choose from projects already written in this "
@@ -7421,10 +7444,10 @@ elif page == "Application Sessions":
                                 entry["key"]: entry["label"]
                                 for entry in generated_project_pool
                             }
-                            adaptive_project_keys = st.multiselect(
+                            adaptive_project_keys = _b214_settings_widget(st, current_application_id, "multiselect",
                                 "Include these generated projects",
                                 options=list(project_labels),
-                                default=list(project_labels),
+                                default=[k for k in fit_control_defaults.get("adaptive_project_keys", list(project_labels)) if k in project_labels],
                                 format_func=lambda key: project_labels[key],
                                 key=f"adaptive_project_fit_manual_{current_application_id}",
                             )
@@ -7521,7 +7544,7 @@ elif page == "Application Sessions":
                              if value == saved_adaptive),
                             "Balanced (recommended)",
                         )
-                        adaptive_label = st.radio(
+                        adaptive_label = _b214_settings_widget(st, current_application_id, "radio",
                             "Skills policy for this fitted résumé",
                             options=list(adaptive_choices),
                             index=list(adaptive_choices).index(saved_label),
@@ -7554,10 +7577,10 @@ elif page == "Application Sessions":
                             default_manual = list(dict.fromkeys(
                                 value for value in default_manual if value in label_by_key
                             ))
-                            adaptive_manual_keys = st.multiselect(
+                            adaptive_manual_keys = _b214_settings_widget(st, current_application_id, "multiselect",
                                 "Include these supported skills",
                                 options=list(label_by_key),
-                                default=default_manual,
+                                default=[k for k in fit_control_defaults.get("adaptive_skill_keys", default_manual) if k in label_by_key],
                                 format_func=lambda value: label_by_key[value],
                                 key=f"adaptive_skills_manual_{current_application_id}",
                                 disabled=adaptive_controls_locked,
@@ -7618,7 +7641,7 @@ elif page == "Application Sessions":
                         if saved_project_header_layout == "inline"
                         else "Auto"
                     )
-                    project_header_layout_label = st.radio(
+                    project_header_layout_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Project header layout",
                         project_header_layout_options,
                         index=project_header_layout_options.index(
@@ -7657,7 +7680,7 @@ elif page == "Application Sessions":
                         if saved_project_metadata_style == "parentheses"
                         else "Pipes"
                     )
-                    project_metadata_style_label = st.radio(
+                    project_metadata_style_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Project metadata style",
                         project_metadata_style_options,
                         index=project_metadata_style_options.index(
@@ -7679,7 +7702,7 @@ elif page == "Application Sessions":
                         else "pipes"
                     )
 
-                    use_compact_before_delete = st.checkbox(
+                    use_compact_before_delete = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Compact project wording before deleting content",
                         value=bool(
                             fit_control_defaults.get(
@@ -7699,7 +7722,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    allow_bullet_fusion = st.checkbox(
+                    allow_bullet_fusion = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow safe bullet fusion",
                         value=bool(
                             fit_control_defaults.get(
@@ -7720,7 +7743,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    prefer_balanced_bullets = st.checkbox(
+                    prefer_balanced_bullets = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Balance project bullets during deletion",
                         value=bool(
                             fit_control_defaults.get(
@@ -7740,7 +7763,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    allow_skills_compaction = st.checkbox(
+                    allow_skills_compaction = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow removal of low-priority Skills",
                         value=bool(
                             fit_control_defaults.get(
@@ -7778,7 +7801,7 @@ elif page == "Application Sessions":
                     else:
                         default_page_density_label = "Balanced"
 
-                    page_density_label = st.radio(
+                    page_density_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Page density",
                         page_density_options,
                         index=page_density_options.index(
@@ -7804,7 +7827,7 @@ elif page == "Application Sessions":
                         else "balanced"
                     )
 
-                    allow_margin_compaction = st.checkbox(
+                    allow_margin_compaction = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow safe margin compaction before deleting content",
                         value=bool(
                             fit_control_defaults.get(
@@ -7850,7 +7873,7 @@ elif page == "Application Sessions":
                         else "Preserve original template spacing"
                     )
 
-                    spacing_mode_label = st.radio(
+                    spacing_mode_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Spacing mode",
                         spacing_mode_options,
                         index=spacing_mode_options.index(
@@ -7876,7 +7899,7 @@ elif page == "Application Sessions":
                         else "paragraph_spacing"
                     )
 
-                    add_spacing_before_first_project = st.checkbox(
+                    add_spacing_before_first_project = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Add spacing before the first project too",
                         value=bool(
                             fit_control_defaults.get(
@@ -7902,7 +7925,7 @@ elif page == "Application Sessions":
                             "is still regenerated; inspect the fitted DOCX."
                         )
                     elif spacing_mode == "paragraph_spacing":
-                        project_spacing_pt = st.number_input(
+                        project_spacing_pt = _b214_settings_widget(st, current_application_id, "number_input",
                             "Spacing before each next project (pt)",
                             min_value=0.0,
                             max_value=20.0,
@@ -7917,7 +7940,7 @@ elif page == "Application Sessions":
                             key=f"project_spacing_pt_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-                        after_projects_spacing_pt = st.number_input(
+                        after_projects_spacing_pt = _b214_settings_widget(st, current_application_id, "number_input",
                             "Spacing after final project / before Skills (pt)",
                             min_value=0.0,
                             max_value=20.0,
@@ -7935,7 +7958,7 @@ elif page == "Application Sessions":
                         blank_lines_between_projects = 0
                         blank_lines_after_projects = 0
                     else:
-                        blank_lines_between_projects = st.number_input(
+                        blank_lines_between_projects = _b214_settings_widget(st, current_application_id, "number_input",
                             "Blank lines before each project",
                             min_value=0,
                             max_value=3,
@@ -7949,7 +7972,7 @@ elif page == "Application Sessions":
                             key=f"blank_lines_between_projects_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-                        blank_lines_after_projects = st.number_input(
+                        blank_lines_after_projects = _b214_settings_widget(st, current_application_id, "number_input",
                             "Blank lines after final project / before Skills",
                             min_value=0,
                             max_value=3,
@@ -7982,6 +8005,7 @@ elif page == "Application Sessions":
                 # mark_fit_request snapshots this value on each successful fit.
                 from tailoring.phase9f_automatic_bestof_v30_ui import render_optimizer_mode_selector
                 render_optimizer_mode_selector(st, int(current_application_id))
+                _b214_persist(st, current_application_id)
 
                 # B1.2: transparent, application-local Step 3 execution receipt.
                 # The receipt lives only in Streamlit session state, never in DB.
@@ -8007,6 +8031,7 @@ elif page == "Application Sessions":
                         + " | mode=" + str(v312b12_previous.get("mode", "unknown"))
                         + " | requested=" + str(v312b12_previous.get("submitted_generation_id", ""))
                         + " | result=" + str(v312b12_previous.get("result_generation_id", ""))
+                        + " | requested optimizer=" + str(v312b12_previous.get("requested_optimizer", "not recorded"))
                         + " | cache=" + str(v312b12_previous.get("cache_status", ""))
                         + " | policy=" + str(v312b12_previous.get("render_policy", ""))
                         + " | B1 audit=" + str(v312b12_previous.get("b1_audit_present", ""))
@@ -8041,6 +8066,9 @@ elif page == "Application Sessions":
                         or not adaptive_project_selection_valid
                     ),
                 ):
+                    # Capture the click before any fitting/restoration can alter widget state.
+                    from tailoring.phase9f_automatic_bestof_v30_ui import configured_mode
+                    _b214_requested_optimizer = configured_mode(st, int(current_application_id))
                     # This point runs only on an actual button-click event.
                     st.session_state[v312b12_fit_trace_key] = {
                         "status": "clicked",
@@ -8049,6 +8077,7 @@ elif page == "Application Sessions":
                             else "legacy_phase9f" if phase9f_f_active else "ordinary_fit"
                         ),
                         "mode": str(adaptive_projects_mode),
+                        "requested_optimizer": _b214_requested_optimizer,
                         "submitted_generation_id": str(
                             st.session_state.get(tailored_generation_id_key) or ""
                         ),
@@ -8148,7 +8177,7 @@ elif page == "Application Sessions":
                                 # existing explicit Build and Fit action.
                                 if (generation.get("fit_result") or {}).get("fit_one_page") is True:
                                     from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                                    mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
+                                    mark_fit_request(st, int(current_application_id), generation.get("generation_id"), requested_mode=_b214_requested_optimizer)
                                 # Mark complete only after the generation was restored and
                                 # any existing optional best-of request was registered.
                                 v312b17_elapsed = round(
@@ -8221,7 +8250,7 @@ elif page == "Application Sessions":
                             )
                             if (generation.get("fit_result") or {}).get("fit_one_page") is True:
                                 from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                                mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
+                                mark_fit_request(st, int(current_application_id), generation.get("generation_id"), requested_mode=_b214_requested_optimizer)
                             st.session_state[f"phase7_flash_{current_application_id}"] = (
                                 "Built the deterministic fitted draft. Preview and "
                                 "approval remain in the normal Application Session "
@@ -8454,7 +8483,7 @@ elif page == "Application Sessions":
 
                         if fit_result["fit_one_page"] is True:
                             from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                            mark_fit_request(st, int(current_application_id), generation_id)
+                            mark_fit_request(st, int(current_application_id), generation_id, requested_mode=_b214_requested_optimizer)
                             st.success("Tailored resume copy generated and fits within one page.")
                         elif fit_result["fit_one_page"] is False:
                             st.warning(fit_result["note"])

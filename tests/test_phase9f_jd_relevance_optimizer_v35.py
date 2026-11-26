@@ -120,8 +120,10 @@ class RelevanceSelection(unittest.TestCase):
         from tailoring.phase9f_automatic_bestof_v30_ui import (
             ACTIVE_MODES,LEGACY_MODES,render_optimizer_mode_selector,configured_mode)
         class FakeUI:
-            def __init__(self):self.session_state={};self.options=[]
-            def radio(self,label,options,**kwargs):self.options.append(tuple(options))
+            def __init__(self):self.session_state={'v312b214_working_controls_156': {}};self.options=[]
+            def radio(self,label,options,**kwargs):
+                self.options.append(tuple(options))
+                return self.session_state.setdefault(kwargs['key'], options[kwargs.get('index', 0)])
             def caption(self,msg):pass
         ui=FakeUI()
         self.assertEqual(render_optimizer_mode_selector(ui,156),'v37-same-work')

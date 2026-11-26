@@ -29,10 +29,11 @@ def configured_mode(st: Any, application_id: int) -> str:
 def render_optimizer_mode_selector(st: Any, application_id: int) -> str:
     """Only V3.5 automatic and original V2.6 are user-facing modes."""
     key = _mode_key(application_id)
-    if st.session_state.get(key) not in ACTIVE_MODES:
-        st.session_state[key] = 'v37-same-work'  # _V38_DEFAULT_GUARDED_DEDUPE
-    st.radio('JD-aware bullet optimization (for the next Generate and Fit)',
-        options=ACTIVE_MODES, key=key, horizontal=False,
+    from tailoring.phase9f_working_settings_v312b214 import settings_widget
+    if key in st.session_state and st.session_state.get(key) not in ACTIVE_MODES:
+        st.session_state.pop(key, None)
+    settings_widget(st, application_id, 'radio', 'JD-aware bullet optimization (for the next Generate and Fit)',
+        options=ACTIVE_MODES, key=key, index=ACTIVE_MODES.index('v37-same-work'), horizontal=False,
         format_func=lambda mode: ('V3.5 — JD-aware comparison (existing behavior)'
                                   if mode=='v35-relevance' else
                                   'V3.7 — Prefer one wording per same-work Base/Library pair'
@@ -51,13 +52,16 @@ def render_optimizer_mode_selector(st: Any, application_id: int) -> str:
     return configured_mode(st, application_id)
 
 
-def mark_fit_request(st: Any, application_id: int, generation_id: Any) -> None:
+def mark_fit_request(st: Any, application_id: int, generation_id: Any, *, requested_mode: str | None = None) -> None:
     """Capture the visible mode on successful Build and Fit; history is immutable."""
     if generation_id:
         identifier = int(application_id)
         token = str(generation_id)
         st.session_state[f'phase9f_auto_bestof_pending_{identifier}'] = token
-        mode = configured_mode(st, identifier)
+        mode = configured_mode(st, identifier) if requested_mode is None else requested_mode
+        if mode not in ACTIVE_MODES:
+            st.session_state.pop(f'phase9f_auto_bestof_pending_{identifier}', None)
+            return
         st.session_state[f'phase9f_auto_bestof_run_mode_{identifier}'] = {
             'generation_id':token, 'mode':mode}
 
@@ -192,12 +196,13 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     mode_receipt = st.session_state.get(f'phase9f_auto_bestof_run_mode_{int(application_id)}')
     if (isinstance(mode_receipt, dict) and
             str(mode_receipt.get('generation_id') or '') == str(generation_id) and
-            mode_receipt.get('mode') in MODES):
+            mode_receipt.get('mode') in MODES and
+            mode_receipt.get('legacy_mode_inferred_for_display') is not True):
         run_mode = mode_receipt['mode']
         if mode_receipt.get('manual_existing_fit_trial') is True:
             st.caption('Manual optimizer recheck of the existing fitted résumé.')
         else:
-            st.caption('Optimizer used for this Build and Fit: **'+
+            st.caption('Optimizer requested for this Build and Fit: **'+
                        ('V3.7 one-of-two same-work' if run_mode == 'v37-same-work' else
                         'V3.5 JD relevance-first' if run_mode == 'v35-relevance' else
                         'V3.3 evidence-aware (historical)' if run_mode == 'v33-evidence' else
@@ -205,7 +210,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                         'V2.6 fixed counts')+'**.')
     else:
         # Legacy runs did not snapshot the mode on the Build and Fit click.
-        run_mode = 'v26-fixed'
+        run_mode = 'unknown'
         # A durable snapshot may be restored after the fitted audit is validated.
     if not generation_id or not isinstance(projects,dict) or not isinstance(fit,dict) or fit.get('fit_one_page') is not True:
         st.info('Build and Fit a normal one-page generation to run this comparison.')
@@ -235,18 +240,26 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
             saved_display=None  # Never convert display restoration into approval authority.
     if saved_display and not (isinstance(mode_receipt,dict) and
             str(mode_receipt.get('generation_id') or '')==str(generation_id) and
-            mode_receipt.get('mode') in MODES):
+            mode_receipt.get('mode') in MODES and
+            mode_receipt.get('legacy_mode_inferred_for_display') is not True):
         recovered=saved_display.get('mode_receipt') or {}
         if (isinstance(recovered,dict) and
                 recovered.get('mode')==saved_display.get('run_mode') and
                 str(recovered.get('generation_id') or '')==str(generation_id) and
-                recovered.get('mode') in MODES):
+                recovered.get('mode') in MODES and
+                recovered.get('legacy_mode_inferred_for_display') is not True):
             mode_receipt=recovered
             run_mode=recovered['mode']
             st.session_state[f'phase9f_auto_bestof_run_mode_{int(application_id)}']=recovered
             st.caption('Restored the saved comparison for this exact fitted document and JD.')
         else:
             saved_display=None
+    if run_mode == 'unknown':
+        saved_display = None
+        st.caption('Optimizer used for this historical fit: not recorded. No legacy mode is inferred.')
+        if pending == str(generation_id):
+            st.session_state.pop(pending_key, None)
+            pending = ''
     tie_preference=(isinstance(mode_receipt,dict) and run_mode=='v33-evidence' and
                     mode_receipt.get('library_tie_preference') is True)
     if run_mode=='v37-same-work':
@@ -258,7 +271,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
             a,p,library_tie_preference=tie_preference)
     else:
         selected_optimizer=(build_flexible_optimization if run_mode=='v31-flexible'
-                             else build_joint_optimization)
+                             else build_joint_optimization if run_mode=='v26-fixed' else None)
     mode_label=run_mode+'|library_tie='+str(bool(tie_preference))
     context=hashlib.sha256((str(generation_id)+'|'+audit['docx_sha256']+'|'+raw_jd_text+'|'+mode_label).encode('utf-8')).hexdigest()[:16]
     key=f'phase9f_auto_bestof_receipt_{int(application_id)}_{context}'
@@ -302,6 +315,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         if run_mode in ('v35-relevance','v37-same-work'):
             result=selected_base_floor_gate(result,result.get('a_vs_starting'))
         st.session_state[key]=result
+        st.caption('Comparison request: **' + run_mode + '** · ' + str(result.get('status') or 'unknown'))
         if not save_display_review(result):
             st.caption('Comparison is visible in this session, but its display receipt could not be saved.')
     result=st.session_state.get(key)
@@ -311,6 +325,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     if not isinstance(result,dict):
         st.caption('Start a comparison of this fitted résumé using its saved evidence.')
         result={'status':'not_run'}
+    if result.get('status') != 'not_run' and run_mode in MODES:
+        st.caption('Recorded comparison mode: **' + run_mode + '** · ' + str(result.get('status')))
     # Recovery from a withheld candidate does NOT require re-generating
     # Projects/Skills or the fitted A. The button reruns full source, document,
     # one-page and native-score gates on the unchanged, hashed saved generation.
@@ -343,7 +359,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     # withheld result. Offer a separate *explicit new trial* using the saved A
     # when V3.5 is selected above; never rewrite the historical Build&Fit mode.
     if (result.get('status')=='not_run' and
-            configured_mode(st,application_id)=='v35-relevance'):
+            configured_mode(st,application_id) in ('v35-relevance','v37-same-work')):
         st.caption('No optimizer result is cached for this session. A new explicit '
                    'trial can use this existing fitted résumé.')
         if st.button('Compare the existing fitted résumé with a JD-aware alternative',

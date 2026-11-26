@@ -20,6 +20,7 @@ class FakeStreamlit:
         self.downloads = []
     def radio(self, title, options, **kwargs):
         self.record.append(('radio', title, options, kwargs))
+        return self.session_state.setdefault(kwargs['key'], options[kwargs.get('index', 0)])
     def caption(self, text): self.record.append(('caption', text))
     def markdown(self, text): self.record.append(('markdown', text))
     def warning(self, text): self.record.append(('warning', text))
@@ -34,10 +35,10 @@ class FakeStreamlit:
 
 class ConfigTests(unittest.TestCase):
     def test_default_and_legacy_checked_migration(self):
-        st=FakeStreamlit()
+        st=FakeStreamlit({'v312b214_working_controls_40': {}})
         self.assertEqual(render_optimizer_mode_selector(st,40),'v37-same-work')
         self.assertEqual(st.session_state['phase9f_bestof_next_mode_40'],'v37-same-work')
-        old=FakeStreamlit({'phase9f_v31_flexible_mode_41':True})
+        old=FakeStreamlit({'phase9f_v31_flexible_mode_41':True, 'v312b214_working_controls_41': {}})
         self.assertEqual(render_optimizer_mode_selector(old,41),'v37-same-work')
         self.assertEqual(old.session_state['phase9f_bestof_next_mode_41'],'v37-same-work')
 

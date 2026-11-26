@@ -411,6 +411,8 @@ def _open_generation(
     message: str,
 ) -> None:
     restore_generation_to_session(int(application_id), state)
+    from tailoring.phase9f_working_settings_v312b214 import queue_saved_settings
+    queue_saved_settings(st, application_id, state)
     st.session_state[flash_key] = message
     st.rerun()
 
@@ -642,6 +644,9 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
             else f"**{previous_scope_pages}**"
         )
 
+        from tailoring.phase9f_working_settings_v312b214 import render_saved_settings
+        render_saved_settings(st, application_id, previous_scope_approved,
+                              key_prefix=f"b214_previous_{application_id}_{previous_scope_id}", allow_copy=True)
         with st.expander("Preview current application result", expanded=False):
             _render_pdf_preview(previous_scope_approved)
 
@@ -798,6 +803,9 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
             else:
                 cols[3].write("**Available**")
 
+            from tailoring.phase9f_working_settings_v312b214 import render_saved_settings
+            render_saved_settings(st, application_id, selected,
+                                  key_prefix=f"b214_current_{application_id}_{selected_id}", allow_copy=True)
             with st.expander("Preview selected résumé", expanded=False):
                 _render_pdf_preview(selected)
 
@@ -1129,6 +1137,9 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
             history_cols[2].caption("Access")
             history_cols[2].write("**Preview / recovery only**")
 
+            from tailoring.phase9f_working_settings_v312b214 import render_saved_settings
+            render_saved_settings(st, application_id, historical,
+                                  key_prefix=f"b214_history_{application_id}_{history_id}", allow_copy=True)
             with st.expander(
                 "Preview historical résumé",
                 expanded=False,
