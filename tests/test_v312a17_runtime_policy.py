@@ -12,7 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = 'JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY'
 TOKEN = 'v312a17_fullstack_single_row'
-BASE = 'stable-evidence-v1.16-phase6d20'
+from tests.b213_policy_support import ACTIVE_B219B, ROLLBACK_B219A
 
 
 class RuntimePolicyContracts(unittest.TestCase):
@@ -44,7 +44,7 @@ print('A17_STARTUP_PROBE='+json.dumps({
             with self.subTest(value=value):
                 row=self._child(value)
                 self.assertTrue(row['active'])
-                self.assertEqual(row['version'], BASE + '-v312b215-jd-eligibility-v312a17-fullstack-single-row')
+                self.assertEqual(row['version'], ACTIVE_B219B)
                 self.assertEqual(row['phase8'], row['version'])
                 self.assertFalse(row['scope'])
 
@@ -53,14 +53,14 @@ print('A17_STARTUP_PROBE='+json.dumps({
             with self.subTest(value=value):
                 row=self._child(value)
                 self.assertFalse(row['active'])
-                self.assertEqual(row['version'], BASE)
-                self.assertEqual(row['phase8'], BASE)
+                self.assertEqual(row['version'], ROLLBACK_B219A)
+                self.assertEqual(row['phase8'], ROLLBACK_B219A)
                 self.assertFalse(row['scope'])
 
     def test_exact_startup_token_changes_phase8_and_scorer_identity(self):
         row=self._child(TOKEN)
         self.assertTrue(row['active'])
-        self.assertEqual(row['version'], BASE + '-v312b215-jd-eligibility-v312a17-fullstack-single-row')
+        self.assertEqual(row['version'], ACTIVE_B219B)
         self.assertEqual(row['phase8'], row['version'])
         self.assertFalse(row['scope'])
 

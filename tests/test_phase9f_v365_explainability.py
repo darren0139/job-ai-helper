@@ -159,7 +159,11 @@ class RenderTests(unittest.TestCase):
         source=(Path(__file__).parents[1]/'tailoring'/'phase9f_automatic_bestof_v30_ui.py').read_text('utf-8')
         self.assertIn("Advanced fitting and optimizer receipt', expanded=False",source)
         self.assertIn("'candidate_wording_diagnostics': _source_comparison_rows",source)
-        self.assertNotIn('st.dataframe', source)
+        # Historical receipt table is explicitly inside the collapsed advanced panel.
+        advanced = source.index("Advanced fitting and optimizer receipt', expanded=False")
+        self.assertNotIn('st.dataframe', source[:advanced])
+        self.assertEqual(source.count('st.dataframe('), 1)
+        self.assertIn('st.dataframe(history,hide_index=True,use_container_width=True)', source[advanced:])
         self.assertIn('baseline_report=baseline_report, raw_jd_text=raw_jd_text',source)
         self.assertNotIn("alternatives', expanded=True",source)
 

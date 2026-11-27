@@ -84,7 +84,8 @@ class NativeTransitionTests(unittest.TestCase):
         from analysis_stability import stable_evidence_scoring as scorer
         from tailoring.phase8_verification import build_phase8_generation_snapshot_fingerprint
         from tests.test_v312b215_jd_eligibility import JD, PROFILE, OLD, REMOVED, make_handoff_fixture_docx
-        self.assertEqual(scorer.SCORING_VERSION,transition.CURRENT_SCORER)
+        from tests.b213_policy_support import ACTIVE_B219B
+        self.assertEqual(scorer.SCORING_VERSION,ACTIVE_B219B)
         with patch.object(scorer,'_V312A17_RUNTIME_ACTIVE',False):
             old_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements']
         new_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements']
@@ -102,6 +103,6 @@ class NativeTransitionTests(unittest.TestCase):
             before=copy.deepcopy((baseline,gen,prior));result=transition.build_preview(transition=t,baseline_report=baseline,generation=gen,source_artifact={'artifact_type':'docx','artifact_bytes':data,'sha256':sha,'byte_size':len(data)},prior=prior)
             self.assertEqual(result['status'],'native_preview_completed');self.assertEqual(len(result['native_after_analysis']['canonical_requirements']),12)
             self.assertFalse(result['approval_ready']);self.assertFalse(result['saved_as_phase8']);self.assertFalse(result['blueprint_ready']);self.assertEqual((baseline,gen,prior),before);self.assertEqual(final.read_bytes(),data);self.assertEqual(base.read_bytes(),data)
-            self.assertEqual(result['native_after_analysis']['scoring_version'],transition.CURRENT_SCORER)
+            self.assertEqual(result['native_after_analysis']['scoring_version'],ACTIVE_B219B)
 
 if __name__=='__main__':unittest.main()

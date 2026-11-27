@@ -67,7 +67,7 @@ class PerJDTaxonomyTests(unittest.TestCase):
         before = deepcopy(stable)
         self.assertEqual(stable["scoring_version"], LEGACY)
         self.assertEqual(current_match_versions()["scoring_version"], EXPECTED_SCORING_VERSION)
-        if EXPECTED_SCORING_VERSION == ACTIVE:
+        if EXPECTED_SCORING_VERSION != LEGACY:
             with self.assertRaisesRegex(ValueError, "Stale/incompatible analysis: scoring_version"):
                 coverage.jd_coverage(None, None, raw_jd_text=job["frozen_inputs"]["raw_jd_text"], stable_analysis=stable)
         else:

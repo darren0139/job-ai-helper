@@ -16,7 +16,10 @@ spec.loader.exec_module(module)
 class OwnerPacket(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cases = json.loads((PACKET.parent.parent/'cases.json').read_text(encoding='utf-8'))
+        source = PACKET.parent.parent/'cases.json'
+        if not source.exists():
+            raise unittest.SkipTest('Private 20-context benchmark unavailable; portable synthetic controls run separately.')
+        cls.cases = json.loads(source.read_text(encoding='utf-8'))
 
     def labelled_file(self, rows, path):
         with path.open('w', encoding='utf-8-sig', newline='') as f:
