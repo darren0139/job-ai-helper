@@ -65,7 +65,7 @@ class Runner(unittest.TestCase):
         def rank(a,p):return copy.deepcopy(self.proposal if proposal is None else proposal)
         def score(*,docx_path,generation_state,baseline_report,raw_jd_text,expected_sha256):
             self.calls.append('score')
-            return scoring(40 if Path(docx_path)==self.source else 52,expected_sha256)
+            return scoring(40 if Path(docx_path).samefile(self.source) else 52,expected_sha256)
         return evaluate_auto(audit=copy.deepcopy(self.audit),projects=copy.deepcopy(self.projects),
                 fit=copy.deepcopy(self.fit),generation=copy.deepcopy(self.generation),
                 baseline_report=copy.deepcopy(self.baseline),raw_jd_text='Qualifications: C++',

@@ -132,11 +132,11 @@ class RunnerReceipts(unittest.TestCase):
             return {'status':'generated','pages':1,'docx_path':str(b),'pdf_path':str(pdf)}
         def scorer(**kwargs):
             generation_state=kwargs['generation_state']
-            if Path(kwargs['docx_path'])!=self.a:
+            if not Path(kwargs['docx_path']).samefile(self.a):
                 self.assertEqual(len(generation_state['fit_result']['tailored_projects_used']['recommended_projects'][1]['draft_bullets']),3)
             return {'actual_docx_evidence':True,'docx_sha256':kwargs['expected_sha256'],
                     'claim_review_required_count':0,'scoring_version':'scorer-v1',
-                    'deterministic_alignment_score':33 if Path(kwargs['docx_path'])==self.a else 37,
+                    'deterministic_alignment_score':33 if Path(kwargs['docx_path']).samefile(self.a) else 37,
                     'canonical_requirements':[
                         {'requirement_id':'r1','importance':'core','match_label':'direct'},
                         {'requirement_id':'r2','importance':'preferred','match_label':'weak'}]}
