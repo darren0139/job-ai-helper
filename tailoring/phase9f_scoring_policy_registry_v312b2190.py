@@ -8,7 +8,8 @@ B215 = 'stable-evidence-v1.16-phase6d20-v312b215-jd-eligibility-v312a17-fullstac
 B219A = B215 + '-v312b219a-software-testing-v1'
 # Policy-only edges are exact and scope-preserving. Legacy eligibility correction
 # is a separately reviewed removal-only edge. An unused registration is inert.
-POLICY_ONLY_EDGES = frozenset({(B215, B219A)})
+B219B = B219A + '-v312b219b-technology-database-v1'
+POLICY_ONLY_EDGES = frozenset({(B215, B219A), (B219A, B219B)})
 
 def policy_path(old, new):
     if not isinstance(old,str) or not isinstance(new,str) or old == new:

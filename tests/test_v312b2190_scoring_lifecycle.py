@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 from tailoring import phase9f_policy_transition_v312b215c as t
 from tailoring import phase9f_policy_adoption_v312b215c2 as a
-from tailoring.phase9f_scoring_policy_registry_v312b2190 import B215, B219A, LEGACY, policy_path, needs_exact_recheck, enforce_fresh_receipt
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import B215, B219A, B219B, LEGACY, policy_path, needs_exact_recheck, enforce_fresh_receipt
 from tests.test_v312b215c_policy_transition import _row, _snapshot, _decision
 from tests import test_v312b215c2_policy_adoption as fixtures
 
@@ -154,28 +154,30 @@ class NativeSuccessor(unittest.TestCase):
         from tailoring.phase8_auto_verification import _matches_active_scoring_policy
         from tests.test_v312b215_jd_eligibility import JD, PROFILE, OLD, REMOVED, make_handoff_fixture_docx
         import os
-        if scorer.SCORING_VERSION != B219A and os.getenv('B2190_REQUIRE_SUCCESSOR') != '1':
+        if scorer.SCORING_VERSION not in (B219A,B219B) and os.getenv('B2190_REQUIRE_SUCCESSOR') != '1':
             self.skipTest('Successor scoring policy is not active; installer tests its disposable overlay')
-        self.assertEqual(scorer.SCORING_VERSION,B219A)
+        target=scorer.SCORING_VERSION
+        self.assertIn(target,(B219A,B219B))
+        predecessor=B219A if target==B219B else B215
         self.assertFalse(_matches_active_scoring_policy({'after_stable_analysis':{'scoring_version':B215}}))
-        self.assertTrue(_matches_active_scoring_policy({'after_stable_analysis':{'scoring_version':B219A}}))
+        self.assertTrue(_matches_active_scoring_policy({'after_stable_analysis':{'scoring_version':target}}))
         from tailoring.phase8_verification import refresh_phase8_readiness
         with patch('tailoring.phase8_verification.document_artifact_is_current',return_value=True):
             with self.assertRaisesRegex(ValueError,'Scoring policy changed'):
                 refresh_phase8_readiness({'after_stable_analysis':{'scoring_version':B215}}, {})
         with patch.object(scorer,'_V312A17_RUNTIME_ACTIVE',False):old_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements']
         new_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements'];self.assertEqual(len(new_rows),12);self.assertEqual(len(old_rows),17)
-        for version,rows in ((B215,new_rows),(OLD,old_rows)):
+        for version,rows in (((B219A,new_rows),(B215,new_rows),(OLD,old_rows)) if target==B219B else ((B215,new_rows),(OLD,old_rows))):
             with self.subTest(version=version),tempfile.TemporaryDirectory() as td:
                 old=_snapshot(rows,JD);current=_snapshot(new_rows,JD);old['jd_profile']=copy.deepcopy(PROFILE);current['jd_profile']=copy.deepcopy(PROFILE)
                 decision=_decision(old);decision['comparison']['stable_analysis_snapshot']['scoring_version']=version
-                tr=t.classify_transition(decision=decision,current_jd=current,active_scorer=B219A)
+                tr=t.classify_transition(decision=decision,current_jd=current,active_scorer=target)
                 base=Path(td)/'base.docx';final=Path(td)/'final.docx';text=make_handoff_fixture_docx(base);data=base.read_bytes();final.write_bytes(data);sha=hashlib.sha256(data).hexdigest()
                 profile={'name':'Synthetic Software Engineer','skills':{'Tools':['Unity','C#']},'projects':[],'education':[],'experience':[]}
                 baseline={'raw_jd_text':JD,'jd_profile':PROFILE,'raw_resume_text':text,'resume_profile':profile,'stable_analysis':{'scoring_version':version,'canonical_requirements':rows},'meta':{}}
                 gen={'application_id':1,'generation_id':'synthetic-fitted','status':'draft','projects':{'recommended_projects':[]},'skills':{'skill_lines':[{'category':'Tools','items':['Unity','C#']}]},'fit_result':{'docx_path':str(final),'fit_one_page':True,'page_count':1}}
-                prior_stable={'scoring_version':B215,'canonical_requirements':new_rows}
+                prior_stable={'scoring_version':predecessor,'canonical_requirements':new_rows}
                 prior={'application_id':1,'generation_id':gen['generation_id'],'comparison_valid':True,'verified_generation_snapshot_fingerprint':build_phase8_generation_snapshot_fingerprint(gen),'document_analysis':{'final_document_sha256':sha},'starting_document_contract':{'selected_base_docx_sha256':sha},'before_stable_analysis':prior_stable,'after_stable_analysis':prior_stable}
                 before=copy.deepcopy((baseline,gen,prior));material=t.build_preview(transition=tr,baseline_report=baseline,generation=gen,source_artifact={'artifact_type':'docx','artifact_bytes':data,'sha256':sha,'byte_size':len(data)},prior=prior,_return_material=True)
-                preview=material['preview'];self.assertFalse(preview['approval_ready']);self.assertFalse(preview['saved_as_phase8']);self.assertEqual(preview['native_after_analysis']['scoring_version'],B219A);self.assertEqual(len(preview['native_after_analysis']['canonical_requirements']),12)
+                preview=material['preview'];self.assertFalse(preview['approval_ready']);self.assertFalse(preview['saved_as_phase8']);self.assertEqual(preview['native_after_analysis']['scoring_version'],target);self.assertEqual(len(preview['native_after_analysis']['canonical_requirements']),12)
                 a._validate_projection(material['current_base'],tr,preview['starting_document_contract']);self.assertEqual((baseline,gen,prior),before);self.assertEqual(final.read_bytes(),data);self.assertEqual(base.read_bytes(),data)

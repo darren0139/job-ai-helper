@@ -90,7 +90,9 @@ _BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
 SCORING_VERSION = (
     _BASE_SCORING_VERSION + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
     if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION
-) + '-v312b219a-software-testing-v1'
+) + '-v312b219a-software-testing-v1' + (
+    '-v312b219b-technology-database-v1' if _V312A17_RUNTIME_ACTIVE else ''
+)
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
@@ -5131,6 +5133,27 @@ def build_stable_analysis(
                 {**receipt, "policy_version": _V312A17_POLICY_VERSION}
                 for receipt in experimental_audit
             ]
+    technology_database_audit = []
+    if _V312A17_RUNTIME_ACTIVE:
+        from tailoring.technology_database_evidence_v312b219b import apply_policy
+        taxonomy_validated, technology_database_audit = apply_policy(
+            taxonomy_validated, evidence_index, raw_resume_text,
+        )
+        # Report actual lexical overlap for the newly selected evidence, not
+        # the earlier missing/skill-only match's metrics.
+        for row in taxonomy_validated:
+            if not row.get('v312b219b_policy_audit'):
+                continue
+            evidence = row.get('evidence') or []
+            text = evidence[0]['text'] if evidence else ''
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                row['text'], text, canonical['acronym_map'],
+            )
+            row['match_coverage'] = round(coverage, 3)
+            row['match_overlap_count'] = overlap
+            row['match_similarity'] = round(_token_similarity(row['text'], text, canonical['acronym_map']), 3)
+            if evidence:
+                evidence[0]['evidence_similarity'] = f'{coverage:.3f}'
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:
         for warning in row.pop("validation_warnings", []) or []:
@@ -5160,6 +5183,11 @@ def build_stable_analysis(
             "scope": "opt_in_only", "not_a_saved_phase8_receipt": True,
             "selection_count": len(experimental_audit), "audit": experimental_audit,
         }} if _V312A14_NATIVE_REPLAY_SCOPE.get() else {}),
+        **({'native_technology_database_policy_v312b219b': {
+            'policy_version': 'v312b219b-technology-database-v1',
+            'selection_count': len(technology_database_audit),
+            'audit': technology_database_audit,
+        }} if _V312A17_RUNTIME_ACTIVE else {}),
         "scoring_version": scoring_version,
         **({"matching_policy_identity": policy_identity,
             "effective_requirement_scope": canonical["effective_requirement_scope"]} if policy_identity else {}),
