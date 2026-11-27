@@ -5,12 +5,14 @@ import unittest
 from pathlib import Path
 
 from analysis_stability.stable_evidence_scoring import (
+    SCORING_VERSION,
     build_deterministic_keyword_match,
     build_stable_analysis,
     canonicalise_requirements,
     requirement_is_score_eligible,
 )
 from job_discovery.matching import build_profile_evidence_context
+from tests.b213_policy_support import ACTIVE_B219B, ROLLBACK_B219A, EXPECTED_SCORING_VERSION
 
 
 FIXTURE_PATH = (
@@ -132,10 +134,50 @@ class TQD2732RealJobRegressionTests(unittest.TestCase):
 
         # The custom responsibility heading is now inferred from its coherent
         # child list, while the later employer-offer section remains excluded.
-        self.assertEqual(
-            result.get("deterministic_alignment_score"),
-            baseline["deterministic_alignment_score"],
-        )
+        # The historical fixture remains at 12. B2.19a legitimately removes
+        # the game-QA cap from this software-testing responsibility; B2.19b
+        # does not alter any row. No full implementation claim is permitted.
+        self.assertEqual(baseline["deterministic_alignment_score"], 12)
+        self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
+        self.assertIn(SCORING_VERSION, (ACTIVE_B219B, ROLLBACK_B219A))
+        for key, expected in {
+            "deterministic_alignment_score": 20,
+            "required_core_coverage_score": 14,
+            "preferred_coverage_score": 18,
+            "evidence_strength_score": 73,
+        }.items():
+            self.assertEqual(result.get(key), expected, key)
+        fields = ("requirement_id", "importance", "match_label", "match_value", "evidence_strength", "match_source")
+        expected_rows = [('req_d8a925b5b34e', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_4731e7fdb9f1', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_26d895b9a27f', 'core', 'none', 0.0, 0, 'missing'),
+         ('req_3f3b3d88b57d', 'core', 'transferable', 0.55, 3, 'capability_none_recovery'),
+         ('req_dbfa330d23eb', 'core', 'none', 0.0, 0, 'missing'),
+         ('req_52969cf18afc', 'core', 'none', 0.0, 0, 'missing'),
+         ('req_30482086845a', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_ff55125c928e', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_cfc6614dce69', 'preferred', 'transferable', 0.55, 3, 'present'),
+         ('req_c3b362e0255b', 'preferred', 'none', 0.0, 0, 'missing'),
+         ('req_09f08d68e520', 'preferred', 'direct', 1.0, 5, 'capability_none_recovery'),
+         ('req_67c5d07c55c1', 'preferred', 'none', 0.0, 0, 'missing'),
+         ('req_73ffb410c613', 'preferred', 'none', 0.0, 0, 'missing'),
+         ('req_74e080b49b36', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_ba468f2924d8', 'supporting', 'none', 0.0, 0, 'missing'),
+         ('req_b57c19e5162c', 'preferred', 'none', 0.0, 0, 'missing'),
+         ('req_193aa89d8bb0', 'preferred', 'none', 0.0, 0, 'missing')]
+        self.assertEqual([tuple(row.get(key) for key in fields) for row in rows], expected_rows)
+        testing = [row for row in rows if row.get("requirement_id") == "req_3f3b3d88b57d"]
+        self.assertEqual(len(testing), 1)
+        qa = testing[0]
+        self.assertEqual(qa.get("capability_id"), "quality.qa_testing")
+        self.assertEqual(len(qa.get("evidence") or []), 1)
+        evidence = qa["evidence"][0]
+        self.assertEqual(evidence.get("evidence_id"), "ev_302f4032e7e5")
+        self.assertIn("Added automated unit tests and GitHub Actions CI", evidence.get("text", ""))
+        recovery = qa.get("capability_none_recovery") or {}
+        self.assertEqual(recovery.get("taxonomy_reason"), "software_testing_activity_bounded_to_requested_scope")
+        self.assertEqual(recovery.get("recovered_label"), "transferable")
+        self.assertIs(recovery.get("combined_evidence_rows"), False)
         self.assertEqual(len(rows), baseline["requirement_count"])
         self.assertIn(baseline["known_missing_requirement"], texts)
         self.assertNotIn(baseline["known_included_non_requirement"], texts)

@@ -164,7 +164,8 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
                                      audit: dict, projects: dict, application_id: int,
                                      context: str, baseline_report: dict | None = None,
                                      raw_jd_text: str = '', offline_trial: dict | None = None,
-                                     offline_bonus: dict | None = None, repo_root=None) -> None:
+                                     offline_bonus: dict | None = None, repo_root=None,
+                                     independent_scores: dict | None = None) -> None:
     st.markdown('### Decision Explorer')
     info = decision_summary(calc, result)
     catalog = requirement_catalog(baseline_report, projects)
@@ -211,12 +212,18 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
         calc=calc, audit=audit, result=result, baseline_report=baseline_report or {},
         raw_jd_text=raw_jd_text, projects=projects)
     render_why_slate(st, info, calc if pair_recorded else {'status':'unavailable'})
-    # Never display saved JD points when the proposal/JD source receipt is stale.
+    # Selection authority stays gated. Standalone scores use the verified
+    # frozen source audit independently, even if there is no selected slate.
+    final_ranked = pair_rows
+    if independent_scores is not None and not pair_recorded and audit.get('verified'):
+        final_ranked, _, _ = inspector_evidence(calc={}, audit=audit, result={},
+            baseline_report=baseline_report or {}, raw_jd_text=raw_jd_text, projects=projects)
     final_view_available = render_verified_final_bullets(st, audit=audit, result=result,
         proposal=(proposal if pair_recorded else {}),
-        ranked=pair_rows, catalog=pair_catalog, application_id=application_id,
+        ranked=final_ranked, catalog=pair_catalog, application_id=application_id,
         context=context, repo_root=repo_root,
-        prefit_receipt=((projects or {}).get('_v39_auto_dedupe') if isinstance(projects, dict) else None))
+        prefit_receipt=((projects or {}).get('_v39_auto_dedupe') if isinstance(projects, dict) else None),
+        independent_scores=independent_scores)
 
     # Only the verified final view is primary. Retain the source-only inspector
     # as an explicit diagnostic, or fallback if no chosen DOCX is verified.

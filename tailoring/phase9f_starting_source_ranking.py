@@ -986,12 +986,17 @@ def prepare_ranking_context(
             )
         )
         try:
-            sources.append(
-                normalize_base_resume_source(
-                    deepcopy(current_base_resume),
-                    deepcopy(current_base_artifact),
-                )
-            )
+            normalized = normalize_base_resume_source(
+                deepcopy(current_base_resume), deepcopy(current_base_artifact))
+            from tailoring.phase9f_document_scoring_v312b216b import prepare_document_input
+            try:
+                document_input = prepare_document_input(normalized, current_base_artifact, jd)
+            except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
+                raise Phase9FBRankingError(str(exc), code="base_document_readback_failed",
+                    source_type="base_resume", source_id=normalized["source_id"]) from exc
+            if document_input is not None:
+                normalized["_document_score_input"] = document_input
+            sources.append(normalized)
         except Phase9FBRankingError as exc:
             integrity_issues.append(deepcopy(exc.diagnostic))
 
@@ -1094,6 +1099,13 @@ def prepare_ranking_context(
         "retrieval_mode": "lexical",
         "fresh_target_only": True,
     }
+    document_inputs = [deepcopy(row["_document_score_input"]["identity"])
+        for row in sources if "_document_score_input" in row]
+    if document_inputs:
+        scoring_identity["fresh_target_only"] = False
+        scoring_identity["document_score_inputs"] = document_inputs
+        from tailoring.job_match_ab_analysis import current_ab_identity
+        scoring_identity["document_native_identity"] = current_ab_identity(jd["raw_text"])
     semantic_identity = {
         "format_version": PHASE9F_B_VERSION,
         "source_normalization_policy_version": (
@@ -1138,23 +1150,32 @@ def score_normalized_source(
     source: dict[str, Any],
     exact_jd: dict[str, Any],
 ) -> dict[str, Any]:
-    """Run the Phase 9C fresh-target public scoring path for one source."""
+    """Score verified Base documents natively; retain legacy fresh-target diagnostics."""
     scope_identity = exact_jd["semantic_identity"].get("effective_requirement_scope")
     requirements = deepcopy(exact_jd.get("effective_requirements", exact_jd["canonical_requirements"]))
-    keyword_match = build_deterministic_keyword_match(
-        requirements=requirements,
-        acronym_map=deepcopy(exact_jd["acronym_map"]),
-        resume_profile=deepcopy(source["resume_profile_snapshot"]),
-        raw_resume_text=str(source["resume_text_snapshot"]),
-    )
-    analysis = build_fresh_target_analysis(
-        jd_profile=deepcopy(exact_jd["jd_profile"]),
-        keyword_match=keyword_match,
-        raw_jd_text=str(exact_jd["raw_text"]),
-        raw_resume_text=str(source["resume_text_snapshot"]),
-        resume_profile=deepcopy(source["resume_profile_snapshot"]),
-        retrieval_mode_override="lexical",
-    )
+    document_receipt = None
+    if "_document_score_input" in source:
+        from tailoring.phase9f_document_scoring_v312b216b import score_document_input
+        try:
+            analysis, keyword_match, document_receipt = score_document_input(source, exact_jd)
+        except (ValueError, OSError, RuntimeError, KeyError, TypeError) as exc:
+            raise Phase9FBRankingError(str(exc), code="native_document_scoring_failed",
+                source_type=source["source_type"], source_id=source["source_id"]) from exc
+    else:
+        keyword_match = build_deterministic_keyword_match(
+            requirements=requirements,
+            acronym_map=deepcopy(exact_jd["acronym_map"]),
+            resume_profile=deepcopy(source["resume_profile_snapshot"]),
+            raw_resume_text=str(source["resume_text_snapshot"]),
+        )
+        analysis = build_fresh_target_analysis(
+            jd_profile=deepcopy(exact_jd["jd_profile"]),
+            keyword_match=keyword_match,
+            raw_jd_text=str(exact_jd["raw_text"]),
+            raw_resume_text=str(source["resume_text_snapshot"]),
+            resume_profile=deepcopy(source["resume_profile_snapshot"]),
+            retrieval_mode_override="lexical",
+        )
     if score_value(analysis) is None:
         raise Phase9FBRankingError(
             unavailable_score_reason(analysis), code="score_unavailable",
@@ -1228,6 +1249,10 @@ def score_normalized_source(
         "scoring_policy_version": PHASE9F_B_SCORING_POLICY_VERSION,
         "retrieval_mode": "lexical",
     }
+    if document_receipt is not None:
+        scoring_identity["document_score_input"] = deepcopy(document_receipt["identity"])
+        scoring_identity["document_native_identity"] = deepcopy(document_receipt["document_analysis"]["identity"])
+        scoring_identity["evidence_policy_version"] = document_receipt["identity"]["version"]
     semantic_result = build_comparison_result_identity(
         canonical_requirement_results=compact_results,
         deterministic_alignment_score=int(
@@ -1257,6 +1282,8 @@ def score_normalized_source(
         "keyword_match_snapshot": deepcopy(keyword_match),
         "stable_analysis_snapshot": deepcopy(analysis),
     }
+    if document_receipt is not None:
+        candidate_analysis_snapshot["document_score_receipt"] = document_receipt
     candidate_analysis_snapshot_fingerprint = fingerprint_value(
         candidate_analysis_snapshot
     )
@@ -1328,7 +1355,8 @@ def score_normalized_source(
         ),
         "scoring_version": analysis["scoring_version"] if verified_scope else SCORING_VERSION,
         "capability_taxonomy_version": get_default_taxonomy().version,
-        "evidence_policy_version": PHASE9F_B_EVIDENCE_POLICY_VERSION,
+        "evidence_policy_version": scoring_identity["evidence_policy_version"],
+        **({"document_score_authority": document_receipt["identity"]["version"]} if document_receipt is not None else {}),
         "exact_verified_reuse_eligible": bool(
             (source.get("exact_verified_reuse") or {}).get("eligible")
         ),
@@ -1696,6 +1724,11 @@ def validate_ranked_candidate_analysis_snapshot(
             "The retained analysis exact-JD content is inconsistent.",
             code="candidate_analysis_exact_jd_mismatch",
         )
+    from tailoring.phase9f_document_scoring_v312b216b import validate_ranked_document_receipt
+    try:
+        validate_ranked_document_receipt(snapshot, candidate)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise Phase9FBRankingError(str(exc), code="ranked_document_receipt_invalid") from exc
     return {
         "candidate_analysis_snapshot": deepcopy(snapshot),
         "candidate_analysis_snapshot_fingerprint": expected_fingerprint,
@@ -1809,6 +1842,15 @@ def validate_ranked_result_contract(
             code="ranking_winner_mismatch",
         )
 
+    document_inputs = (result.get("semantic_identity", {}).get("scoring") or {}).get("document_score_inputs") or []
+    if document_inputs or any(row.get("document_score_authority") for row in rows):
+        actual_document_inputs = []
+        for row in rows:
+            if row.get("document_score_authority") or (row.get("candidate_analysis_snapshot") or {}).get("document_score_receipt"):
+                validate_ranked_candidate_analysis_snapshot(row)
+                actual_document_inputs.append(row["candidate_analysis_snapshot"]["document_score_receipt"]["identity"])
+        if actual_document_inputs != document_inputs:
+            raise Phase9FBRankingError("Document-scoring source scope differs from ranked input.", code="ranked_document_scope_mismatch")
     identity = build_ranking_result_identity(
         ranking_input_fingerprint=actual_input,
         ranked_candidates=rows,

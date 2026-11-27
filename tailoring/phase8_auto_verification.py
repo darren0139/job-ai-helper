@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import enforce_fresh_receipt
 from tailoring.phase8_verification import (
     PHASE8_PREAPPROVAL_GATE_VERSION,
     PHASE8_VERIFICATION_VERSION,
@@ -21,7 +22,7 @@ def _matches_active_scoring_policy(verification: dict[str, Any]) -> bool:
     A1.8 enables that policy by default; an explicit legacy startup rollback
     retains the earlier historical receipt and snapshot compatibility rules.
     """
-    if not SCORING_VERSION.endswith("-v312a17-fullstack-single-row"):
+    if not enforce_fresh_receipt(SCORING_VERSION):
         return True
     after = verification.get("after_stable_analysis")
     if not isinstance(after, dict):

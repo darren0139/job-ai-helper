@@ -654,12 +654,17 @@ def _render_ranked_result(
     current_base_artifact: dict[str, Any] | None,
     blueprints: list[dict[str, Any]],
 ) -> None:
+    from tailoring.phase9f_document_scoring_v312b216b import score_authority_label
     winner = result.get("recommended_source") or {}
     transparency = build_ranking_transparency(result)
     st.success(
         "Recommended starting source: "
         f"{_clean(winner.get('source_display_name')) or 'Immutable resume source'}"
     )
+    st.caption("Score authority: " + score_authority_label(winner))
+    if len({score_authority_label(row) for row in result.get("ranked_candidates", [])}) > 1:
+        st.info("This ranking includes actual-document and legacy frozen-source diagnostics. "
+            "Legacy scores are not actual-DOCX verification; existing ranking and exact-reuse rules still apply.")
     exact_reuse = winner.get("exact_verified_reuse") or {}
     if exact_reuse.get("eligible") is True:
         st.info(
@@ -739,6 +744,7 @@ def _render_ranked_result(
                 "Frozen/created": _clean(
                     context_row.get("frozen_or_created_at")
                 ),
+                "Score authority": score_authority_label(candidate),
                 "Current JD alignment": int(
                     candidate.get("deterministic_alignment_score") or 0
                 ),

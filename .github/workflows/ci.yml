@@ -34,12 +34,23 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ci.txt
 
       - name: Upgrade packaging tools
         run: python -m pip install --upgrade pip setuptools wheel
 
-      - name: Install application dependencies
-        run: python -m pip install -r requirements.txt
+      - name: Install application and CI dependencies
+        run: python -m pip install -r requirements-ci.txt
+
+      - name: Install test browsers and Linux system dependencies
+        if: runner.os == 'Linux'
+        run: python -m playwright install --with-deps chromium firefox
+
+      - name: Install test browsers on Windows
+        if: runner.os == 'Windows'
+        run: python -m playwright install chromium firefox
 
       - name: Check dependency consistency
         run: python -m pip check

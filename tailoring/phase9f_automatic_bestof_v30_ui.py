@@ -29,10 +29,11 @@ def configured_mode(st: Any, application_id: int) -> str:
 def render_optimizer_mode_selector(st: Any, application_id: int) -> str:
     """Only V3.5 automatic and original V2.6 are user-facing modes."""
     key = _mode_key(application_id)
-    if st.session_state.get(key) not in ACTIVE_MODES:
-        st.session_state[key] = 'v37-same-work'  # _V38_DEFAULT_GUARDED_DEDUPE
-    st.radio('JD-aware bullet optimization (for the next Generate and Fit)',
-        options=ACTIVE_MODES, key=key, horizontal=False,
+    from tailoring.phase9f_working_settings_v312b214 import settings_widget
+    if key in st.session_state and st.session_state.get(key) not in ACTIVE_MODES:
+        st.session_state.pop(key, None)
+    settings_widget(st, application_id, 'radio', 'JD-aware bullet optimization (for the next Generate and Fit)',
+        options=ACTIVE_MODES, key=key, index=ACTIVE_MODES.index('v37-same-work'), horizontal=False,
         format_func=lambda mode: ('V3.5 — JD-aware comparison (existing behavior)'
                                   if mode=='v35-relevance' else
                                   'V3.7 — Prefer one wording per same-work Base/Library pair'
@@ -51,13 +52,16 @@ def render_optimizer_mode_selector(st: Any, application_id: int) -> str:
     return configured_mode(st, application_id)
 
 
-def mark_fit_request(st: Any, application_id: int, generation_id: Any) -> None:
+def mark_fit_request(st: Any, application_id: int, generation_id: Any, *, requested_mode: str | None = None) -> None:
     """Capture the visible mode on successful Build and Fit; history is immutable."""
     if generation_id:
         identifier = int(application_id)
         token = str(generation_id)
         st.session_state[f'phase9f_auto_bestof_pending_{identifier}'] = token
-        mode = configured_mode(st, identifier)
+        mode = configured_mode(st, identifier) if requested_mode is None else requested_mode
+        if mode not in ACTIVE_MODES:
+            st.session_state.pop(f'phase9f_auto_bestof_pending_{identifier}', None)
+            return
         st.session_state[f'phase9f_auto_bestof_run_mode_{identifier}'] = {
             'generation_id':token, 'mode':mode}
 
@@ -96,7 +100,8 @@ def _source_comparison_rows(proposal: dict, jd_labels: dict | None = None) -> li
 
 def _render_source_comparison(st: Any, *, application_id: int, context: str,
                               run_mode: str, result: dict, audit: dict,
-                              projects: dict | None = None) -> None:
+                              projects: dict | None = None,
+                              independent_scores: dict | None = None) -> None:
     """Make provenance and collective selection visible even for no challenger."""
     import json
     proposal = result.get('proposal') if isinstance(result.get('proposal'), dict) else {}
@@ -152,9 +157,11 @@ def _render_source_comparison(st: Any, *, application_id: int, context: str,
         'original_actual_a': original,
         'candidate_wording_diagnostics': _source_comparison_rows(exported_proposal, jd_labels),
         'existing_fitting_audit': audit,
+        'independent_bullet_scores': independent_scores,
         'proposal': exported_proposal,
         'actual_a_vs_starting': result.get('a_vs_starting'),
         'v35_trial_receipts': result.get('v35_trial_receipts') or [],
+        'optimizer_execution_cache': result.get('_optimizer_cache'),
         'source_wording_is_causal_proof': False,
         'head_to_head_base_library_winner_recorded': False,
     }
@@ -192,12 +199,13 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     mode_receipt = st.session_state.get(f'phase9f_auto_bestof_run_mode_{int(application_id)}')
     if (isinstance(mode_receipt, dict) and
             str(mode_receipt.get('generation_id') or '') == str(generation_id) and
-            mode_receipt.get('mode') in MODES):
+            mode_receipt.get('mode') in MODES and
+            mode_receipt.get('legacy_mode_inferred_for_display') is not True):
         run_mode = mode_receipt['mode']
         if mode_receipt.get('manual_existing_fit_trial') is True:
             st.caption('Manual optimizer recheck of the existing fitted résumé.')
         else:
-            st.caption('Optimizer used for this Build and Fit: **'+
+            st.caption('Optimizer requested for this Build and Fit: **'+
                        ('V3.7 one-of-two same-work' if run_mode == 'v37-same-work' else
                         'V3.5 JD relevance-first' if run_mode == 'v35-relevance' else
                         'V3.3 evidence-aware (historical)' if run_mode == 'v33-evidence' else
@@ -205,7 +213,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                         'V2.6 fixed counts')+'**.')
     else:
         # Legacy runs did not snapshot the mode on the Build and Fit click.
-        run_mode = 'v26-fixed'
+        run_mode = 'unknown'
         # A durable snapshot may be restored after the fitted audit is validated.
     if not generation_id or not isinstance(projects,dict) or not isinstance(fit,dict) or fit.get('fit_one_page') is not True:
         st.info('Build and Fit a normal one-page generation to run this comparison.')
@@ -219,11 +227,24 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         st.info('Actual fitted DOCX audit withheld: '+str(audit.get('notice') or ''))
         return
     from database.phase9f_bestof_review_state import (
-        load_bestof_display_receipt, save_bestof_display_receipt)
+        load_bestof_display_receipt, save_bestof_display_receipt, list_bestof_mode_history)
+    from tailoring.phase9f_optimizer_cache_v312b214b3 import (
+        active_identity, display_scope, display_context, run_cached_trial, trial_scope, valid_result)
     import hashlib
     pending_key=f'phase9f_auto_bestof_pending_{int(application_id)}'
     pending=str(st.session_state.get(pending_key) or '')
-    scorer_version=str((baseline_report.get('stable_analysis') or {}).get('scoring_version') or '')
+    try:
+        live_identity=active_identity(raw_jd_text)
+    except Exception:
+        live_identity={}
+    scorer_version=str(live_identity.get('scoring_version') or '')
+    saved_scorer=str((baseline_report.get('stable_analysis') or {}).get('scoring_version') or '')
+    same_policy=bool(scorer_version and scorer_version==saved_scorer)
+    scope=display_scope(application_id=application_id,generation_id=generation_id,audit=audit,
+        projects=projects,fit=fit,baseline_report=baseline_report,raw_jd_text=raw_jd_text,identity=live_identity)
+    # Keep the old history visible separately, never as a new current native result.
+    if not same_policy and saved_scorer:
+        st.caption('Saved optimizer input uses a different or unavailable active scoring identity. A fresh native comparison is required.')
     saved_display=None
     if pending != str(generation_id):
         try:
@@ -235,18 +256,26 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
             saved_display=None  # Never convert display restoration into approval authority.
     if saved_display and not (isinstance(mode_receipt,dict) and
             str(mode_receipt.get('generation_id') or '')==str(generation_id) and
-            mode_receipt.get('mode') in MODES):
+            mode_receipt.get('mode') in MODES and
+            mode_receipt.get('legacy_mode_inferred_for_display') is not True):
         recovered=saved_display.get('mode_receipt') or {}
         if (isinstance(recovered,dict) and
                 recovered.get('mode')==saved_display.get('run_mode') and
                 str(recovered.get('generation_id') or '')==str(generation_id) and
-                recovered.get('mode') in MODES):
+                recovered.get('mode') in MODES and
+                recovered.get('legacy_mode_inferred_for_display') is not True):
             mode_receipt=recovered
             run_mode=recovered['mode']
             st.session_state[f'phase9f_auto_bestof_run_mode_{int(application_id)}']=recovered
-            st.caption('Restored the saved comparison for this exact fitted document and JD.')
+            st.caption('Recovered the recorded optimizer mode. Current comparison reuse requires an exact receipt.')
         else:
             saved_display=None
+    if run_mode == 'unknown':
+        saved_display = None
+        st.caption('Optimizer used for this historical fit: not recorded. No legacy mode is inferred.')
+        if pending == str(generation_id):
+            st.session_state.pop(pending_key, None)
+            pending = ''
     tie_preference=(isinstance(mode_receipt,dict) and run_mode=='v33-evidence' and
                     mode_receipt.get('library_tie_preference') is True)
     if run_mode=='v37-same-work':
@@ -258,12 +287,71 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
             a,p,library_tie_preference=tie_preference)
     else:
         selected_optimizer=(build_flexible_optimization if run_mode=='v31-flexible'
-                             else build_joint_optimization)
-    mode_label=run_mode+'|library_tie='+str(bool(tie_preference))
-    context=hashlib.sha256((str(generation_id)+'|'+audit['docx_sha256']+'|'+raw_jd_text+'|'+mode_label).encode('utf-8')).hexdigest()[:16]
+                             else build_joint_optimization if run_mode=='v26-fixed' else None)
+    def context_for(mode, tie=False, manual=False):
+        return display_context(scope,mode,tie,manual)
+    manual_mode_receipt=isinstance(mode_receipt,dict) and mode_receipt.get('manual_existing_fit_trial') is True
+    context=context_for(run_mode,tie_preference,manual_mode_receipt)
     key=f'phase9f_auto_bestof_receipt_{int(application_id)}_{context}'
 
+    def execute_trial(mode, docx, generation, optimizer, *, tie=False, force=False):
+        def fresh():
+            checked=evaluate_auto(audit=audit,projects=projects,fit=fit,
+                generation=generation,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
+                source_docx=docx,repo_root=repo_root,application_id=application_id,
+                optimizer=optimizer,generator=materialize_verified_candidate)
+            checked['a_vs_starting']=verify_fitted_a_against_baselines(
+                audit=audit,fit=fit,generation=generation,baseline_report=baseline_report,
+                raw_jd_text=raw_jd_text,source_docx=docx)
+            if mode in ('v35-relevance','v37-same-work'):
+                checked=selected_base_floor_gate(checked,checked.get('a_vs_starting'))
+            return checked
+        return run_cached_trial(execute=fresh,application_id=application_id,generation=generation,
+            audit=audit,projects=projects,fit=fit,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
+            source_docx=docx,repo_root=repo_root,mode=mode,tie=tie,force=force,identity=live_identity)
+
+    def save_manual_result(value, mode, *, tie=False):
+        manual_context=context_for(mode,tie,True)
+        snapshot={'generation_id':str(generation_id),'mode':mode,'library_tie_preference':bool(tie),
+                  'manual_existing_fit_trial':True}
+        st.session_state[f'phase9f_auto_bestof_receipt_{int(application_id)}_{manual_context}']=value
+        save_display_review(value,receipt_context=manual_context,mode=mode,mode_snapshot=snapshot)
+        st.session_state[f'phase9f_auto_bestof_run_mode_{int(application_id)}']=snapshot
+
+    def exact_display_ok(value):
+        # A display record is not an execution-cache hit. For a verified result,
+        # at least check its actual scorer and the still-owned exact artifacts.
+        if not isinstance(value,dict): return False
+        if value.get('status')!='verified': return bool(scope)
+        if not same_policy or not scope or value.get('scoring_version')!=scorer_version:
+            return False
+        if value.get('a_docx_sha256')!=audit.get('docx_sha256') or value.get('generation_id')!=str(generation_id):
+            return False
+        try:
+            owned=(Path(repo_root)/'outputs'/'tailored_resumes'/'optimizations').resolve()
+            for name,hash_name in (('candidate_file','b_docx_sha256'),('candidate_pdf','candidate_pdf_sha256')):
+                path=Path(value[name]).resolve(); path.relative_to(owned)
+                if not path.name.casefold().startswith(f'app_{int(application_id)}_') or hashlib.sha256(path.read_bytes()).hexdigest()!=value.get(hash_name):
+                    return False
+        except (OSError,ValueError,KeyError,TypeError):
+            return False
+        cached_scope=value.get('_exact_trial_scope')
+        if cached_scope is not None:
+            # A restored execution-cache receipt must still bind the live generation,
+            # runtime, source evidence, scorer and artifact bytes. No scoring here.
+            try:
+                current_docx,_=_docx_path(fit,repo_root,application_id)
+                current_generation=get_tailoring_generation(application_id,generation_id)
+                current_scope,_=trial_scope(application_id=application_id,generation=current_generation,
+                    audit=audit,projects=projects,fit=fit,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
+                    source_docx=current_docx,repo_root=repo_root,mode=run_mode,tie=tie_preference,identity=live_identity)
+                if current_scope!=cached_scope or not valid_result(value,current_scope,repo_root): return False
+            except Exception:
+                return False
+        return True
+
     def save_display_review(display, *, receipt_context=context, mode=run_mode, mode_snapshot=None):
+        if not scope: return False
         try:
             return save_bestof_display_receipt(
                 application_id=int(application_id), generation_id=str(generation_id),
@@ -275,6 +363,16 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                 result=display)
         except Exception:
             return False
+    # Restore only the exact selected display context, not the newest other mode.
+    if pending!=str(generation_id) and run_mode in MODES and scope and same_policy:
+        try:
+            saved_display=load_bestof_display_receipt(application_id=int(application_id),
+                generation_id=str(generation_id),docx_sha256=audit['docx_sha256'],
+                raw_jd_text=raw_jd_text,scorer_version=scorer_version,context=context)
+        except Exception:
+            saved_display=None
+    else:
+        saved_display=None
     # On the first rerun after the explicit successful fit only.
     if pending == str(generation_id):
         st.session_state.pop(pending_key,None)
@@ -284,33 +382,41 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         else:
             generation=get_tailoring_generation(application_id,generation_id)
             with st.spinner('Comparing actual one-page candidate documents...'):
-                result=evaluate_auto(audit=audit,projects=projects,fit=fit,
-                    generation=generation,baseline_report=baseline_report,
-                    raw_jd_text=raw_jd_text,source_docx=docx,repo_root=repo_root,
-                    application_id=application_id,optimizer=selected_optimizer,
-                    generator=materialize_verified_candidate)
-        # The Phase 8 comparison must be available even when the selector
-        # reports no challenger, or B is withheld. This never changes A/B winner.
-        if docx is not None and isinstance(generation,dict):
-            result['a_vs_starting']=verify_fitted_a_against_baselines(
-                audit=audit,fit=fit,generation=generation,
-                baseline_report=baseline_report,raw_jd_text=raw_jd_text,
-                source_docx=docx)
-        else:
-            result['a_vs_starting']={'status':'unavailable',
-                'reason':'Fitted DOCX or saved generation is missing.'}
-        if run_mode in ('v35-relevance','v37-same-work'):
-            result=selected_base_floor_gate(result,result.get('a_vs_starting'))
+                result=execute_trial(run_mode,docx,generation,selected_optimizer,tie=tie_preference)
+        if docx is None:
+            result['a_vs_starting']={'status':'unavailable','reason':'Fitted DOCX missing.'}
         st.session_state[key]=result
+        st.caption('Comparison request: **' + run_mode + '** · ' + str(result.get('status') or 'unknown'))
         if not save_display_review(result):
             st.caption('Comparison is visible in this session, but its display receipt could not be saved.')
     result=st.session_state.get(key)
-    if not isinstance(result,dict) and saved_display and saved_display.get('context')==context:
+    if not exact_display_ok(result):
+        result=None
+    if result is None and saved_display and saved_display.get('context')==context and exact_display_ok(saved_display.get('result')):
         result=saved_display['result']
         st.session_state[key]=result
     if not isinstance(result,dict):
         st.caption('Start a comparison of this fitted résumé using its saved evidence.')
         result={'status':'not_run'}
+    if result.get('status') != 'not_run' and run_mode in MODES:
+        st.caption('Recorded comparison mode: **' + run_mode + '** · ' + str(result.get('status')))
+    cache_note=result.get('_optimizer_cache') or {}
+    if cache_note.get('status')=='hit':
+        st.caption('Recorded execution: exact cache hit — reused the verified saved DOCX/PDF comparison; no new trial executed for that request.')
+    elif cache_note.get('status')=='fresh':
+        st.caption('Fresh optimizer comparison · '+str(cache_note.get('reason') or 'new request')+
+                   (' · reusable receipt saved.' if cache_note.get('persisted') else ' · not reusable.'))
+    if result.get('status') in ('verified','no_challenger') and run_mode in ('v35-relevance','v37-same-work'):
+        if st.button('Force fresh comparison using the existing fitted résumé',key=f'phase9f_v312b214b3_force_{application_id}_{context}'):
+            fresh_docx,fresh_err=_docx_path(fit,repo_root,application_id)
+            fresh_generation=get_tailoring_generation(application_id,generation_id)
+            if fresh_docx is None or not isinstance(fresh_generation,dict):
+                st.error('Fresh comparison unavailable: '+str(fresh_err or 'saved generation missing'))
+            else:
+                with st.spinner('Running a fresh actual-document comparison…'):
+                    fresh=execute_trial(run_mode,fresh_docx,fresh_generation,selected_optimizer,tie=tie_preference,force=True)
+                    save_manual_result(fresh,run_mode,tie=tie_preference)
+                st.rerun()
     # Recovery from a withheld candidate does NOT require re-generating
     # Projects/Skills or the fitted A. The button reruns full source, document,
     # one-page and native-score gates on the unchanged, hashed saved generation.
@@ -325,27 +431,15 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                 st.error('Retry unavailable: saved DOCX or generation missing. '+str(retry_err or ''))
             else:
                 with st.spinner('Verifying the existing fitted résumé and rendering and scoring the optimized alternative…'):
-                    retry=evaluate_auto(audit=audit,projects=projects,fit=fit,
-                        generation=retry_generation,baseline_report=baseline_report,
-                        raw_jd_text=raw_jd_text,source_docx=retry_docx,repo_root=repo_root,
-                        application_id=application_id,optimizer=selected_optimizer,
-                        generator=materialize_verified_candidate)
-                    retry['a_vs_starting']=verify_fitted_a_against_baselines(
-                        audit=audit,fit=fit,generation=retry_generation,
-                        baseline_report=baseline_report,raw_jd_text=raw_jd_text,
-                        source_docx=retry_docx)
-                    if run_mode in ('v35-relevance','v37-same-work'):
-                        retry=selected_base_floor_gate(retry,retry.get('a_vs_starting'))
-                    st.session_state[key]=retry
-                    save_display_review(retry)
+                    retry=execute_trial(run_mode,retry_docx,retry_generation,selected_optimizer,tie=tie_preference,force=True)
+                    save_manual_result(retry,run_mode,tie=tie_preference)
                 st.rerun()
     # A Streamlit restart can clear the transient run-mode snapshot and
     # withheld result. Offer a separate *explicit new trial* using the saved A
     # when V3.5 is selected above; never rewrite the historical Build&Fit mode.
-    if (result.get('status')=='not_run' and
-            configured_mode(st,application_id)=='v35-relevance'):
-        st.caption('No optimizer result is cached for this session. A new explicit '
-                   'trial can use this existing fitted résumé.')
+    if (configured_mode(st,application_id) in ('v35-relevance','v37-same-work') and
+            (result.get('status')=='not_run' or configured_mode(st,application_id)!=run_mode)):
+        st.caption('Use the selected next mode on this exact fitted résumé without regenerating. A matching verified trial may be reused.')
         if st.button('Compare the existing fitted résumé with a JD-aware alternative',
                      key=f'phase9f_v34_manual_existing_{application_id}_{context}'):
             manual_docx,manual_err=_docx_path(fit,repo_root,application_id)
@@ -358,28 +452,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                 manual_optimizer=(build_same_work_optimization if manual_mode=='v37-same-work'
                                   else build_certified_optimization)
                 with st.spinner('Testing JD-aware alternatives against the existing fitted résumé…'):
-                    manual=evaluate_auto(audit=audit,projects=projects,fit=fit,
-                        generation=manual_generation,baseline_report=baseline_report,
-                        raw_jd_text=raw_jd_text,source_docx=manual_docx,repo_root=repo_root,
-                        application_id=application_id,optimizer=manual_optimizer,
-                        generator=materialize_verified_candidate)
-                    manual['a_vs_starting']=verify_fitted_a_against_baselines(
-                        audit=audit,fit=fit,generation=manual_generation,
-                        baseline_report=baseline_report,raw_jd_text=raw_jd_text,
-                        source_docx=manual_docx)
-                    new_label=manual_mode+'|library_tie='+str(bool(manual_tie))
-                    new_context=hashlib.sha256((str(generation_id)+'|'+audit['docx_sha256']+
-                        '|'+raw_jd_text+'|'+new_label).encode('utf-8')).hexdigest()[:16]
-                    new_key=f'phase9f_auto_bestof_receipt_{int(application_id)}_{new_context}'
-                    manual=selected_base_floor_gate(manual,manual.get('a_vs_starting'))
-                    st.session_state[new_key]=manual
-                    save_display_review(manual, receipt_context=new_context,
-                        mode=manual_mode, mode_snapshot={
-                            'generation_id':str(generation_id),'mode':manual_mode,
-                            'library_tie_preference':manual_tie,'manual_existing_fit_trial':True})
-                    st.session_state[f'phase9f_auto_bestof_run_mode_{int(application_id)}']={
-                        'generation_id':str(generation_id),'mode':manual_mode,
-                        'library_tie_preference':manual_tie,'manual_existing_fit_trial':True}
+                    manual=execute_trial(manual_mode,manual_docx,manual_generation,manual_optimizer)
+                    save_manual_result(manual,manual_mode,tie=manual_tie)
                 st.rerun()
     # An explicit deduplication experiment reuses the EXACT saved fitted A.
     # It creates a new, separately keyed display receipt; no approved artifact
@@ -394,26 +468,9 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                 st.error('Same-work trial unavailable: saved fitted DOCX or generation missing. '+str(trial_err or ''))
             else:
                 with st.spinner('Testing a de-duplicated whole-résumé alternative with native verification...'):
-                    tested=evaluate_auto(audit=audit,projects=projects,fit=fit,
-                        generation=trial_generation,baseline_report=baseline_report,
-                        raw_jd_text=raw_jd_text,source_docx=trial_docx,repo_root=repo_root,
-                        application_id=application_id,optimizer=build_same_work_optimization,
-                        generator=materialize_verified_candidate)
-                    tested['a_vs_starting']=verify_fitted_a_against_baselines(
-                        audit=audit,fit=fit,generation=trial_generation,
-                        baseline_report=baseline_report,raw_jd_text=raw_jd_text,
-                        source_docx=trial_docx)
-                    tested=selected_base_floor_gate(tested,tested.get('a_vs_starting'))
                     trial_mode='v37-same-work'
-                    trial_context=hashlib.sha256((str(generation_id)+'|'+audit['docx_sha256']+
-                        '|'+raw_jd_text+'|'+trial_mode+'|library_tie=False').encode('utf-8')).hexdigest()[:16]
-                    trial_key=f'phase9f_auto_bestof_receipt_{int(application_id)}_{trial_context}'
-                    st.session_state[trial_key]=tested
-                    trial_snapshot={'generation_id':str(generation_id),'mode':trial_mode,
-                                    'manual_existing_fit_trial':True}
-                    save_display_review(tested,receipt_context=trial_context,
-                                        mode=trial_mode,mode_snapshot=trial_snapshot)
-                    st.session_state[f'phase9f_auto_bestof_run_mode_{int(application_id)}']=trial_snapshot
+                    tested=execute_trial(trial_mode,trial_docx,trial_generation,build_same_work_optimization)
+                    save_manual_result(tested,trial_mode)
                 st.rerun()
     # Historical cached B candidates also have to pass the new Base-floor
     # guard before they are displayed as recommendations. Do not rewrite
@@ -422,6 +479,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         result=selected_base_floor_gate(result,result.get('a_vs_starting'))
     saved_proposal = result.get('proposal') or {}
     has_selection_receipt = run_mode in ('v35-relevance','v37-same-work') or saved_proposal.get('source_comparison')
+    from tailoring.phase9f_independent_bullet_scores_v312b214b import build_independent_bullet_scores
+    independent_scores = build_independent_bullet_scores(audit, projects, baseline_report, raw_jd_text)
     if has_selection_receipt:
         from tailoring.phase9f_v363_selection_receipts import build_bullet_selection_calculation
         from tailoring.phase9f_v364_decision_explorer import render_compact_decision_explorer
@@ -431,8 +490,21 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                                          projects=projects, application_id=int(application_id),
                                          context=context, baseline_report=baseline_report, raw_jd_text=raw_jd_text,
                                          offline_trial=trusted_offline_trial, offline_bonus=trusted_offline_bonus,
-                                         repo_root=repo_root)
-    elif trusted_offline_trial is not None or trusted_offline_bonus is not None:
+                                         repo_root=repo_root, independent_scores=independent_scores)
+    elif independent_scores.get('status') == 'available':
+        # V2.6, older receipts and not-yet-run trials still have a verified
+        # fitted source audit. Display standalone points without a proposal.
+        from tailoring.phase9f_bullet_inspector import inspector_evidence
+        from tailoring.phase9f_v39_final_bullet_review import render_verified_final_bullets
+        rows, _, catalog = inspector_evidence(calc={}, audit=audit, result={},
+            baseline_report=baseline_report, raw_jd_text=raw_jd_text, projects=projects)
+        render_verified_final_bullets(st, audit=audit, result=result, proposal={},
+            ranked=rows, catalog=catalog, application_id=int(application_id), context=context,
+            repo_root=repo_root, prefit_receipt=projects.get('_v39_auto_dedupe'),
+            independent_scores=independent_scores)
+    else:
+        st.caption('JD points unavailable: '+str(independent_scores.get('reason') or 'Independent score inputs unavailable.'))
+    if not has_selection_receipt and (trusted_offline_trial is not None or trusted_offline_bonus is not None):
         from tailoring.phase9f_v364_decision_explorer import _render_offline_receipts
         from tailoring.phase9f_v365_jd_evidence import requirement_catalog
 
@@ -492,8 +564,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                         raw_jd_text=raw_jd_text,source_docx=docx)
                     reviewed = (selected_base_floor_gate(reviewed, reviewed['a_vs_starting'])
                                 if run_mode=='v35-relevance' else reviewed)
-                    st.session_state[key] = reviewed_core_floor(reviewed, baseline_report)
-                    save_display_review(st.session_state[key])
+                    save_manual_result(reviewed_core_floor(reviewed, baseline_report),run_mode,tie=tie_preference)
                     st.rerun()
     elif run_mode not in ('v35-relevance','v37-same-work') and result.get('status') != 'not_run':
         st.info(resume_terms(result.get('reason') or 'Native résumé comparison unavailable.'))
@@ -517,8 +588,23 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         st.caption('Comparison with starting documents is unavailable. '+
                    resume_terms(starting.get('reason') or 'This generation has no independent native-document receipt.'))
     with st.expander('Advanced fitting and optimizer receipt', expanded=False):
+        try:
+            history=list_bestof_mode_history(application_id,generation_id,audit['docx_sha256'])
+        except Exception:
+            history=[]
+        if history:
+            st.caption('Historical comparison records for this fitted DOCX (not current approval or score authority).')
+            st.dataframe(history,hide_index=True,use_container_width=True)
         _render_source_comparison(st, application_id=application_id, context=context,
-                                  run_mode=run_mode, result=result, audit=audit, projects=projects)
+                                  run_mode=run_mode, result=result, audit=audit, projects=projects,
+                                  independent_scores=independent_scores)
+        # BEGIN B2.14b-4 read-only diagnostics
+        from tailoring.phase9f_optimizer_diagnostics_v312b214b4 import render_diagnostics as _render_b214b4_diagnostics
+        _render_b214b4_diagnostics(st, application_id=application_id, generation_id=generation_id,
+            projects=projects, fit=fit, audit=audit, result=result, run_mode=run_mode,
+            baseline_report=baseline_report, raw_jd_text=raw_jd_text, context=context,
+            optimizer_history=history, independent_scores=independent_scores)
+        # END B2.14b-4 read-only diagnostics
 
 
 def freeze_reviewed_slate(proposal: dict) -> tuple[dict | None, str]:

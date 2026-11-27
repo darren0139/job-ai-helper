@@ -1377,13 +1377,19 @@ def create_full_debug_bundle(
                         or ""
                     ),
                     "starting_snapshot_fingerprint": str(
-                        binding.get("starting_snapshot_fingerprint")
+                        (binding.get("starting_snapshot") or {}).get("starting_snapshot_fingerprint")
+                        or binding.get("starting_snapshot_fingerprint")
                         or binding.get("source_snapshot_fingerprint")
                         or ""
                     ),
                 },
                 "workspace": {
                     "loaded_mode": str(ws.get("loaded_mode") or ""),
+                    "loaded_generation_id": str((ws.get("loaded_generation") or {}).get("generation_id") or ""),
+                    "accepted_generation_id": str((binding.get("scoring_policy_transition") or {}).get("generation_id") or ""),
+                    "accepted_verification_id": str((binding.get("scoring_policy_transition") or {}).get("verification_id") or ""),
+                    "restore_reason": st.session_state.get(f"b216c2_restore_reason_{application_id}", ""),
+                    "current_score_hold_reason": st.session_state.get(f"b216c2_score_reason_{application_id}", ""),
                     "current_approved_generation_id": str(
                         (ws.get("approved_generation") or {}).get(
                             "generation_id"
@@ -1579,6 +1585,19 @@ def create_full_debug_bundle(
             "reviews": jd_score_optimizer_reviews,
         }
 
+    if application_id:
+        from tailoring.phase9f_working_settings_v312b214 import saved_settings, working_values, recorded_optimizer
+        loaded_id = str(st.session_state.get(f"tailored_generation_id_{application_id}") or "")
+        try:
+            loaded_generation = get_tailoring_generation(application_id, loaded_id) if loaded_id else None
+        except Exception:
+            loaded_generation = None
+        debug_bundle["generation_settings_provenance_v312b214"] = {
+            "recorded": saved_settings(loaded_generation),
+            "working_controls": deepcopy(working_values(st, application_id)),
+            "optimizer_request": deepcopy(st.session_state.get(f"phase9f_auto_bestof_run_mode_{application_id}")),
+            "historical_optimizer": recorded_optimizer(application_id, loaded_generation),
+        }
     debug_bundle["jd_score_optimizer_debug"] = (
         jd_score_optimizer_debug
     )
@@ -2390,6 +2409,7 @@ CATEGORY_OPTIONS = [
 
 
 
+active_score_projection = None  # B2.16c: ephemeral display only; never session or DB authority.
 with st.sidebar:
     with st.expander("Capture", expanded=False):
         st.markdown("**Job Capture**")
@@ -2554,6 +2574,24 @@ with st.sidebar:
         application_session_limit = -1 if show_all_application_sessions else int(application_session_display)
         recent_applications = get_recent_applications(limit=application_session_limit)
         current_application_id = st.session_state.get("current_application_id")
+        from tailoring.phase9f_current_score_v312b216c import load_active_score, sidebar_score_label
+        # Validate only the loaded workspace, not every historical sidebar row.
+        score_display_diagnostics = {}
+        if current_application_id is not None:
+            try:
+                from tailoring.phase9f_workspace_restore_v312b216c2 import restore_accepted_workspace
+                score_workspace = restore_accepted_workspace(st, int(current_application_id),
+                    get_resume_workspace_context(int(current_application_id)))
+                active_score_projection = load_active_score(int(current_application_id),
+                    score_workspace, score_display_diagnostics)
+            except Exception:
+                active_score_projection = None
+                score_display_diagnostics['reason'] = 'Current workspace could not be validated.'
+        if current_application_id is not None:
+            st.session_state[f"b216c2_score_reason_{current_application_id}"] = score_display_diagnostics.get('reason', '')
+        st.caption("The active session shows its verified fitted score when current; other sessions show saved scores. Draft verification is not approval.")
+        if current_application_id is not None and not active_score_projection and score_display_diagnostics.get('reason'):
+            st.caption('Active score: ' + score_display_diagnostics['reason'])
 
         if show_all_application_sessions:
             st.caption(f"Showing all {len(recent_applications)} stored application sessions.")
@@ -2572,10 +2610,8 @@ with st.sidebar:
                 if has_report:
                     display_name = session_name or job_title or f"Application {app_id}"
 
-                    if score is not None:
-                        label = f"{display_name} — {score}/100"
-                    else:
-                        label = display_name
+                    score_label_v312b216c = sidebar_score_label(score, active_score_projection if is_current else None)
+                    label = f"{display_name} — {score_label_v312b216c}" if score_label_v312b216c else display_name
 
                     if is_current:
                         label = f"✅ {label}"
@@ -3358,9 +3394,17 @@ elif page == "Application Sessions":
             from tailoring.phase9f_explainer_stage_v2_1 import confirmed_phase9f_session
             if (not (report.get("meta") or {}).get("document_analysis")
                     and confirmed_phase9f_session(int(current_application_id))):
-                st.subheader("Step 1 — Selected Base Résumé Analysis")
                 from tailoring.phase9f_session_handoff import render_phase9f_selected_source_analysis
-                render_phase9f_selected_source_analysis(st, int(current_application_id))
+                if active_score_projection and active_score_projection['application_id'] == int(current_application_id):
+                    from tailoring.phase9f_current_score_v312b216c import render_current_base
+                    st.subheader("Step 1 — Selected Base Résumé Analysis")
+                    render_current_base(st, active_score_projection)
+                    with st.expander("Historical Selected Base confirmation and requirement evidence"):
+                        render_phase9f_selected_source_analysis(st, int(current_application_id))
+                else:
+                    st.subheader("Step 1 — Historical Selected Base Résumé Analysis")
+                    st.caption("Frozen confirmation-time score. No matching current fitted-document verification is available to this display yet; inspect Phase 8 when available.")
+                    render_phase9f_selected_source_analysis(st, int(current_application_id))
             else:
                 st.subheader("Step 1 — Initial Résumé Analysis")
                 from tailoring.initial_analysis_explainer_ui import render_application_initial_analysis
@@ -3381,6 +3425,12 @@ elif page == "Application Sessions":
                     application_id=int(current_application_id),
                 )
             )
+            if not has_current_legacy_result:
+                from tailoring.phase9f_workspace_restore_v312b216c2 import show_unapproved_workspace
+                recovery_workspace = get_resume_workspace_context(int(current_application_id))
+                if show_unapproved_workspace(int(current_application_id), recovery_workspace):
+                    from tailoring.phase9e1_resume_workspace_ui import render_resume_workspace
+                    render_resume_workspace(application_id=int(current_application_id))
 
         phase9a_jd_record: dict[str, Any] = {}
         if current_application_id is not None:
@@ -3438,31 +3488,42 @@ elif page == "Application Sessions":
                     selected_report = build_effective_tailoring_report(source_comparison_report, selected_decision)
                 except (ValueError, KeyError, TypeError) as exc:
                     st.caption("Selected receipt unavailable — " + str(exc))
-            if (selected_decision.get("current_scope_status") == "current" and isinstance(selected_report, dict)
-                    and (selected_report.get("meta") or {}).get("document_analysis")):
-                from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
-                render_selected_base_analysis(st, selected_report)
-            else:
-                # Phase 9F-D already saved a truthful exact-JD starting-source
-                # score, even when no uploaded-document receipt was established.
-                from tailoring.phase9f_session_handoff import load_confirmed_source_view
-                try:
-                    bound_view = load_confirmed_source_view(int(current_application_id))
-                except (ValueError, KeyError, TypeError) as exc:
-                    st.warning("Confirmed starting-source receipt unavailable — " + str(exc))
-                    bound_view = None
-                if bound_view:
-                    bound = bound_view["selected"]
-                    st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
-                    st.metric("Confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
-                    st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
+            step4_current_score = (active_score_projection if active_score_projection
+                and active_score_projection['application_id'] == int(current_application_id)
+                and selected_decision.get('current_scope_status') == 'current'
+                and selected_decision.get('scope_activation_status') == 'active'
+                and selected_decision.get('decision_fingerprint') == active_score_projection['decision_fingerprint'] else None)
+            if step4_current_score:
+                from tailoring.phase9f_current_score_v312b216c import render_current_base
+                render_current_base(st, step4_current_score)
+            # Preserve the previous source/evidence view, including its original scores.
+            from contextlib import nullcontext
+            with (st.expander("Historical / original Selected Base analysis") if step4_current_score else nullcontext()):
+                if (selected_decision.get("current_scope_status") == "current" and isinstance(selected_report, dict)
+                        and (selected_report.get("meta") or {}).get("document_analysis")):
+                    from tailoring.initial_analysis_explainer_ui import render_selected_base_analysis
+                    render_selected_base_analysis(st, selected_report)
                 else:
-                    st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
-            # Read the confirmed Phase 9F-B receipt and saved Phase 8 result only.
-            # This is distinct from a frozen Initial Resume Analysis.
-            from tailoring.phase9f_base_vs_tailored_explainer import render_selected_base_vs_tailored
-            # Step 4 shows the source analysis; the saved delta belongs in Phase 8.
-            render_selected_base_vs_tailored(st, int(current_application_id), preview_only=True)
+                    # Phase 9F-D already saved a truthful exact-JD starting-source
+                    # score, even when no uploaded-document receipt was established.
+                    from tailoring.phase9f_session_handoff import load_confirmed_source_view
+                    try:
+                        bound_view = load_confirmed_source_view(int(current_application_id))
+                    except (ValueError, KeyError, TypeError) as exc:
+                        st.warning("Confirmed starting-source receipt unavailable — " + str(exc))
+                        bound_view = None
+                    if bound_view:
+                        bound = bound_view["selected"]
+                        st.write("**Confirmed starting source:** " + str(bound.get("source_display_name") or "Immutable resume"))
+                        st.metric("Historical confirmed source Job Match", int(bound.get("deterministic_alignment_score") or 0))
+                        st.caption("Saved Phase 9F exact-JD source analysis, not an uploaded Application résumé document receipt. No analysis was rerun; see the frozen source comparison above.")
+                    else:
+                        st.caption("Bind a current document-authoritative tailoring base to view Selected Base Analysis.")
+                # Read the confirmed Phase 9F-B receipt and saved Phase 8 result only.
+                # This is distinct from a frozen Initial Resume Analysis.
+                from tailoring.phase9f_base_vs_tailored_explainer import render_selected_base_vs_tailored
+                # Step 4 shows the source analysis; the saved delta belongs in Phase 8.
+                render_selected_base_vs_tailored(st, int(current_application_id), preview_only=True)
             st.subheader("Step 5 — Tailor résumé")
             if (
                 phase9e_context.get("status")
@@ -3774,6 +3835,12 @@ elif page == "Application Sessions":
                 binding_marker=binding_marker,
                 phase9e_enforced=phase9e_enforced,
             ):
+                # An accepted policy can change the marker without changing the frozen draft.
+                # Preserve only the exact current decision + snapshot + workflow-action owner.
+                from tailoring.phase9f_workspace_restore_v312b216c2 import draft_to_preserve
+                retained_draft = (draft_to_preserve(int(current_application_id),
+                    get_resume_workspace_context(int(current_application_id)), phase9e_binding, phase9f_f_execution)
+                    if phase9e_ready else None)
                 for key in (
                     f"tailored_projects_result_{current_application_id}",
                     f"tailored_projects_fit_{current_application_id}",
@@ -3785,6 +3852,8 @@ elif page == "Application Sessions":
                     f"project_candidate_pool_{current_application_id}",
                 ):
                     st.session_state.pop(key, None)
+                if retained_draft is not None:
+                    restore_generation_to_session(int(current_application_id), retained_draft)
             st.session_state[marker_key] = binding_marker
 
         st.divider()
@@ -3964,6 +4033,10 @@ elif page == "Application Sessions":
                         preview_generation,
                     )
 
+            from tailoring.phase9f_working_settings_v312b214 import (
+                settings_widget as _b214_settings_widget, persist_working as _b214_persist,
+                saved_settings as _b214_saved_settings,
+            )
             restored_settings = st.session_state.get(
                 f"restored_tailoring_settings_{current_application_id}",
                 {},
@@ -3977,8 +4050,11 @@ elif page == "Application Sessions":
             )
             if not isinstance(phase9f_generation_defaults, dict):
                 phase9f_generation_defaults = {}
+            # Normal lifecycle settings are generation-owned, not legacy execution defaults.
+            _b214_recorded = _b214_saved_settings({"generation_settings": restored_settings})
             generation_control_defaults = {
                 **restored_settings,
+                **_b214_recorded["generation"],
                 **phase9f_generation_defaults,
             }
             phase9f_fit_defaults: dict[str, Any] = {}
@@ -4003,6 +4079,7 @@ elif page == "Application Sessions":
                 **resume_format_preferences,
                 **restored_settings,
                 **phase9f_fit_defaults,
+                **(_b214_recorded["fitting"] if phase9f_f_normal_lifecycle else {}),
             }
 
             phase7_control = get_application_generation_control(
@@ -4066,7 +4143,7 @@ elif page == "Application Sessions":
             # Existing frozen generation contracts still receive only max_projects.
             auto_preview_candidates = None
             auto_full_preview = None
-            project_count_label = st.radio(
+            project_count_label = _b214_settings_widget(st, current_application_id, "radio",
                 "Project count before generation",
                 ["Manual (legacy)", "Auto (up to 5)"],
                 horizontal=True,
@@ -4080,7 +4157,7 @@ elif page == "Application Sessions":
                     "The explicit Generate button still controls paid generation."
                 ),
             )
-            max_projects = st.slider(
+            max_projects = _b214_settings_widget(st, current_application_id, "slider",
                 "Maximum projects",
                 min_value=1,
                 max_value=8,
@@ -4144,7 +4221,7 @@ elif page == "Application Sessions":
             else:
                 bullet_allocation_index = 0
 
-            bullet_allocation_label = st.radio(
+            bullet_allocation_label = _b214_settings_widget(st, current_application_id, "radio",
                 "Bullet allocation",
                 bullet_allocation_options,
                 index=bullet_allocation_index,
@@ -4177,7 +4254,7 @@ elif page == "Application Sessions":
             else:
                 bullet_allocation_mode = "adaptive"
 
-            max_bullets = st.slider(
+            max_bullets = _b214_settings_widget(st, current_application_id, "slider",
                 "Bullet limit per project",
                 min_value=1,
                 max_value=4,
@@ -4211,6 +4288,7 @@ elif page == "Application Sessions":
                     f"{phase9f_f_generation_snapshot.get('settings_fingerprint', '')[:12]}."
                 )
 
+            _b214_persist(st, current_application_id)
             generation_plan = build_generation_action_plan(
                 lock_projects=lock_projects,
                 lock_skills=lock_skills,
@@ -7404,10 +7482,11 @@ elif page == "Application Sessions":
                             "Manual": "manual",
                             "Keep generated selection (legacy)": "legacy",
                         }
-                        chosen_project_mode = st.radio(
+                        chosen_project_mode = _b214_settings_widget(st, current_application_id, "radio",
                             "Projects policy for this fitted résumé",
                             options=list(project_modes),
-                            index=0,
+                            index=next((i for i, value in enumerate(project_modes.values())
+                                        if value == fit_control_defaults.get("adaptive_projects_mode")), 0),
                             key=f"adaptive_project_fit_mode_{current_application_id}",
                             help=(
                                 "Fit only: choose from projects already written in this "
@@ -7421,10 +7500,10 @@ elif page == "Application Sessions":
                                 entry["key"]: entry["label"]
                                 for entry in generated_project_pool
                             }
-                            adaptive_project_keys = st.multiselect(
+                            adaptive_project_keys = _b214_settings_widget(st, current_application_id, "multiselect",
                                 "Include these generated projects",
                                 options=list(project_labels),
-                                default=list(project_labels),
+                                default=[k for k in fit_control_defaults.get("adaptive_project_keys", list(project_labels)) if k in project_labels],
                                 format_func=lambda key: project_labels[key],
                                 key=f"adaptive_project_fit_manual_{current_application_id}",
                             )
@@ -7521,7 +7600,7 @@ elif page == "Application Sessions":
                              if value == saved_adaptive),
                             "Balanced (recommended)",
                         )
-                        adaptive_label = st.radio(
+                        adaptive_label = _b214_settings_widget(st, current_application_id, "radio",
                             "Skills policy for this fitted résumé",
                             options=list(adaptive_choices),
                             index=list(adaptive_choices).index(saved_label),
@@ -7554,10 +7633,10 @@ elif page == "Application Sessions":
                             default_manual = list(dict.fromkeys(
                                 value for value in default_manual if value in label_by_key
                             ))
-                            adaptive_manual_keys = st.multiselect(
+                            adaptive_manual_keys = _b214_settings_widget(st, current_application_id, "multiselect",
                                 "Include these supported skills",
                                 options=list(label_by_key),
-                                default=default_manual,
+                                default=[k for k in fit_control_defaults.get("adaptive_skill_keys", default_manual) if k in label_by_key],
                                 format_func=lambda value: label_by_key[value],
                                 key=f"adaptive_skills_manual_{current_application_id}",
                                 disabled=adaptive_controls_locked,
@@ -7618,7 +7697,7 @@ elif page == "Application Sessions":
                         if saved_project_header_layout == "inline"
                         else "Auto"
                     )
-                    project_header_layout_label = st.radio(
+                    project_header_layout_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Project header layout",
                         project_header_layout_options,
                         index=project_header_layout_options.index(
@@ -7657,7 +7736,7 @@ elif page == "Application Sessions":
                         if saved_project_metadata_style == "parentheses"
                         else "Pipes"
                     )
-                    project_metadata_style_label = st.radio(
+                    project_metadata_style_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Project metadata style",
                         project_metadata_style_options,
                         index=project_metadata_style_options.index(
@@ -7679,7 +7758,7 @@ elif page == "Application Sessions":
                         else "pipes"
                     )
 
-                    use_compact_before_delete = st.checkbox(
+                    use_compact_before_delete = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Compact project wording before deleting content",
                         value=bool(
                             fit_control_defaults.get(
@@ -7699,7 +7778,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    allow_bullet_fusion = st.checkbox(
+                    allow_bullet_fusion = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow safe bullet fusion",
                         value=bool(
                             fit_control_defaults.get(
@@ -7720,7 +7799,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    prefer_balanced_bullets = st.checkbox(
+                    prefer_balanced_bullets = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Balance project bullets during deletion",
                         value=bool(
                             fit_control_defaults.get(
@@ -7740,7 +7819,7 @@ elif page == "Application Sessions":
                         ),
                     )
 
-                    allow_skills_compaction = st.checkbox(
+                    allow_skills_compaction = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow removal of low-priority Skills",
                         value=bool(
                             fit_control_defaults.get(
@@ -7778,7 +7857,7 @@ elif page == "Application Sessions":
                     else:
                         default_page_density_label = "Balanced"
 
-                    page_density_label = st.radio(
+                    page_density_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Page density",
                         page_density_options,
                         index=page_density_options.index(
@@ -7804,7 +7883,7 @@ elif page == "Application Sessions":
                         else "balanced"
                     )
 
-                    allow_margin_compaction = st.checkbox(
+                    allow_margin_compaction = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Allow safe margin compaction before deleting content",
                         value=bool(
                             fit_control_defaults.get(
@@ -7850,7 +7929,7 @@ elif page == "Application Sessions":
                         else "Preserve original template spacing"
                     )
 
-                    spacing_mode_label = st.radio(
+                    spacing_mode_label = _b214_settings_widget(st, current_application_id, "radio",
                         "Spacing mode",
                         spacing_mode_options,
                         index=spacing_mode_options.index(
@@ -7876,7 +7955,7 @@ elif page == "Application Sessions":
                         else "paragraph_spacing"
                     )
 
-                    add_spacing_before_first_project = st.checkbox(
+                    add_spacing_before_first_project = _b214_settings_widget(st, current_application_id, "checkbox",
                         "Add spacing before the first project too",
                         value=bool(
                             fit_control_defaults.get(
@@ -7902,7 +7981,7 @@ elif page == "Application Sessions":
                             "is still regenerated; inspect the fitted DOCX."
                         )
                     elif spacing_mode == "paragraph_spacing":
-                        project_spacing_pt = st.number_input(
+                        project_spacing_pt = _b214_settings_widget(st, current_application_id, "number_input",
                             "Spacing before each next project (pt)",
                             min_value=0.0,
                             max_value=20.0,
@@ -7917,7 +7996,7 @@ elif page == "Application Sessions":
                             key=f"project_spacing_pt_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-                        after_projects_spacing_pt = st.number_input(
+                        after_projects_spacing_pt = _b214_settings_widget(st, current_application_id, "number_input",
                             "Spacing after final project / before Skills (pt)",
                             min_value=0.0,
                             max_value=20.0,
@@ -7935,7 +8014,7 @@ elif page == "Application Sessions":
                         blank_lines_between_projects = 0
                         blank_lines_after_projects = 0
                     else:
-                        blank_lines_between_projects = st.number_input(
+                        blank_lines_between_projects = _b214_settings_widget(st, current_application_id, "number_input",
                             "Blank lines before each project",
                             min_value=0,
                             max_value=3,
@@ -7949,7 +8028,7 @@ elif page == "Application Sessions":
                             key=f"blank_lines_between_projects_{current_application_id}",
                             disabled=phase9f_f_fit_settings_locked,
                         )
-                        blank_lines_after_projects = st.number_input(
+                        blank_lines_after_projects = _b214_settings_widget(st, current_application_id, "number_input",
                             "Blank lines after final project / before Skills",
                             min_value=0,
                             max_value=3,
@@ -7982,6 +8061,7 @@ elif page == "Application Sessions":
                 # mark_fit_request snapshots this value on each successful fit.
                 from tailoring.phase9f_automatic_bestof_v30_ui import render_optimizer_mode_selector
                 render_optimizer_mode_selector(st, int(current_application_id))
+                _b214_persist(st, current_application_id)
 
                 # B1.2: transparent, application-local Step 3 execution receipt.
                 # The receipt lives only in Streamlit session state, never in DB.
@@ -8007,6 +8087,7 @@ elif page == "Application Sessions":
                         + " | mode=" + str(v312b12_previous.get("mode", "unknown"))
                         + " | requested=" + str(v312b12_previous.get("submitted_generation_id", ""))
                         + " | result=" + str(v312b12_previous.get("result_generation_id", ""))
+                        + " | requested optimizer=" + str(v312b12_previous.get("requested_optimizer", "not recorded"))
                         + " | cache=" + str(v312b12_previous.get("cache_status", ""))
                         + " | policy=" + str(v312b12_previous.get("render_policy", ""))
                         + " | B1 audit=" + str(v312b12_previous.get("b1_audit_present", ""))
@@ -8041,6 +8122,9 @@ elif page == "Application Sessions":
                         or not adaptive_project_selection_valid
                     ),
                 ):
+                    # Capture the click before any fitting/restoration can alter widget state.
+                    from tailoring.phase9f_automatic_bestof_v30_ui import configured_mode
+                    _b214_requested_optimizer = configured_mode(st, int(current_application_id))
                     # This point runs only on an actual button-click event.
                     st.session_state[v312b12_fit_trace_key] = {
                         "status": "clicked",
@@ -8049,6 +8133,7 @@ elif page == "Application Sessions":
                             else "legacy_phase9f" if phase9f_f_active else "ordinary_fit"
                         ),
                         "mode": str(adaptive_projects_mode),
+                        "requested_optimizer": _b214_requested_optimizer,
                         "submitted_generation_id": str(
                             st.session_state.get(tailored_generation_id_key) or ""
                         ),
@@ -8148,7 +8233,7 @@ elif page == "Application Sessions":
                                 # existing explicit Build and Fit action.
                                 if (generation.get("fit_result") or {}).get("fit_one_page") is True:
                                     from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                                    mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
+                                    mark_fit_request(st, int(current_application_id), generation.get("generation_id"), requested_mode=_b214_requested_optimizer)
                                 # Mark complete only after the generation was restored and
                                 # any existing optional best-of request was registered.
                                 v312b17_elapsed = round(
@@ -8221,7 +8306,7 @@ elif page == "Application Sessions":
                             )
                             if (generation.get("fit_result") or {}).get("fit_one_page") is True:
                                 from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                                mark_fit_request(st, int(current_application_id), generation.get("generation_id"))
+                                mark_fit_request(st, int(current_application_id), generation.get("generation_id"), requested_mode=_b214_requested_optimizer)
                             st.session_state[f"phase7_flash_{current_application_id}"] = (
                                 "Built the deterministic fitted draft. Preview and "
                                 "approval remain in the normal Application Session "
@@ -8454,7 +8539,7 @@ elif page == "Application Sessions":
 
                         if fit_result["fit_one_page"] is True:
                             from tailoring.phase9f_automatic_bestof_v30_ui import mark_fit_request
-                            mark_fit_request(st, int(current_application_id), generation_id)
+                            mark_fit_request(st, int(current_application_id), generation_id, requested_mode=_b214_requested_optimizer)
                             st.success("Tailored resume copy generated and fits within one page.")
                         elif fit_result["fit_one_page"] is False:
                             st.warning(fit_result["note"])
@@ -8668,6 +8753,7 @@ elif page == "Application Sessions":
                     "application_id": current_application_id,
                     "baseline_report": report,
                     "raw_jd_text": score_phase8_raw_jd_text,
+                    "historical_baseline_report": persisted_application_report,
                     "phase9f_execution": (
                         phase9f_f_execution
                         if phase9f_f_active
@@ -9050,6 +9136,7 @@ elif page == "Application Sessions":
                         "application_id": current_application_id,
                         "baseline_report": report,
                         "raw_jd_text": phase8_raw_jd_text,
+                        "historical_baseline_report": persisted_application_report,
                         "phase9f_execution": (
                             phase9f_f_execution
                             if phase9f_f_active

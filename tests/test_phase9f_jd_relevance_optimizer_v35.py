@@ -120,8 +120,10 @@ class RelevanceSelection(unittest.TestCase):
         from tailoring.phase9f_automatic_bestof_v30_ui import (
             ACTIVE_MODES,LEGACY_MODES,render_optimizer_mode_selector,configured_mode)
         class FakeUI:
-            def __init__(self):self.session_state={};self.options=[]
-            def radio(self,label,options,**kwargs):self.options.append(tuple(options))
+            def __init__(self):self.session_state={'v312b214_working_controls_156': {}};self.options=[]
+            def radio(self,label,options,**kwargs):
+                self.options.append(tuple(options))
+                return self.session_state.setdefault(kwargs['key'], options[kwargs.get('index', 0)])
             def caption(self,msg):pass
         ui=FakeUI()
         self.assertEqual(render_optimizer_mode_selector(ui,156),'v37-same-work')
@@ -180,7 +182,7 @@ class NativeShortlist(unittest.TestCase):
                 return {'status':'generated', 'pages':1, 'docx_path':str(docx),
                         'pdf_path':str(pdf)}
             def scorer(**kwargs):
-                is_b = Path(kwargs['docx_path']) != a
+                is_b = not Path(kwargs['docx_path']).samefile(a)
                 if is_b:
                     checked['scored_b'] += 1
                     state = kwargs['generation_state']
@@ -229,7 +231,7 @@ class NativeShortlist(unittest.TestCase):
                 pdf=path/f'app_156_b{i}.pdf';pdf.write_bytes(b'pdf')
                 return {'status':'generated','pages':1,'docx_path':str(doc),'pdf_path':str(pdf)}
             def scorer(**kwargs):
-                doc=Path(kwargs['docx_path']);num=0 if doc==a else int(doc.stem[-1])
+                doc=Path(kwargs['docx_path']);num=0 if doc.samefile(a) else int(doc.stem[-1])
                 return {'actual_docx_evidence':True,'docx_sha256':kwargs['expected_sha256'],
                     'claim_review_required_count':0,'scoring_version':'test-native-v1',
                     'deterministic_alignment_score':31+num*3,

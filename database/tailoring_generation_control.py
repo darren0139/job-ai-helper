@@ -557,6 +557,12 @@ def approve_tailoring_generation(
             "This Phase 9F generation is incomplete or has not produced a "
             "one-page deterministic fit, so it cannot be approved."
         )
+    if exact_d:
+        from database.application_blueprint_manager import get_current_application_blueprint_decision
+        current_decision = get_current_application_blueprint_decision(int(application_id)) or {}
+        if (current_decision.get("decision_fingerprint") == decision_fingerprint
+                and current_decision.get("current_scope_status") != "current"):
+            raise ValueError("Phase 9F approval requires the current scoring scope to be explicitly accepted or rebound.")
     # The final approval authority must also enforce the native Base floor.
     # UI controls alone are not an approval security boundary. Historical
     # non-normal generations retain their existing lifecycle contract.

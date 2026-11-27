@@ -132,11 +132,11 @@ class RunnerReceipts(unittest.TestCase):
             return {'status':'generated','pages':1,'docx_path':str(b),'pdf_path':str(pdf)}
         def scorer(**kwargs):
             generation_state=kwargs['generation_state']
-            if Path(kwargs['docx_path'])!=self.a:
+            if not Path(kwargs['docx_path']).samefile(self.a):
                 self.assertEqual(len(generation_state['fit_result']['tailored_projects_used']['recommended_projects'][1]['draft_bullets']),3)
             return {'actual_docx_evidence':True,'docx_sha256':kwargs['expected_sha256'],
                     'claim_review_required_count':0,'scoring_version':'scorer-v1',
-                    'deterministic_alignment_score':33 if Path(kwargs['docx_path'])==self.a else 37,
+                    'deterministic_alignment_score':33 if Path(kwargs['docx_path']).samefile(self.a) else 37,
                     'canonical_requirements':[
                         {'requirement_id':'r1','importance':'core','match_label':'direct'},
                         {'requirement_id':'r2','importance':'preferred','match_label':'weak'}]}
@@ -174,7 +174,10 @@ class UIContract(unittest.TestCase):
         body=ui.read_text(encoding='utf-8')
         self.assertIn("result.get('status')=='withheld' and run_mode in ('v33-evidence','v35-relevance','v37-same-work')",body)
         self.assertIn('Retry native comparison using the existing fitted résumé',body)
-        self.assertIn('retry=evaluate_auto(audit=audit,projects=projects,fit=fit,',body)
+        self.assertIn('retry=execute_trial(run_mode,retry_docx,retry_generation,selected_optimizer,tie=tie_preference,force=True)',body)
+        self.assertIn('checked=evaluate_auto(audit=audit,projects=projects,fit=fit,',body)
+        self.assertIn('return run_cached_trial(execute=fresh,',body)
+        self.assertIn("checked=selected_base_floor_gate(checked,checked.get('a_vs_starting'))",body)
         self.assertIn("'verification_stage': result.get('verification_stage') or ''",body)
         self.assertIn('Compare the existing fitted résumé with a JD-aware alternative',body)
         self.assertIn("'manual_existing_fit_trial':True",body)

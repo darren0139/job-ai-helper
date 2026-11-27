@@ -10,11 +10,23 @@ from unittest.mock import patch
 POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
 TOKEN = "v312a17_fullstack_single_row"
 LEGACY = "stable-evidence-v1.16-phase6d20"
-ACTIVE = LEGACY + "-v312a17-fullstack-single-row"
-EXPECTED_SCORING_VERSION = ACTIVE if os.environ.get(POLICY_ENV, TOKEN).strip() == TOKEN else LEGACY
+ACTIVE = LEGACY + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
+# Frozen historical names above deliberately retain their original meaning.
+# These successors may open *read-only* V1.16 fixture scopes; they are not
+# interchangeable scoring identities and cannot be used for native replay.
+ROLLBACK_B219A = LEGACY + "-v312b219a-software-testing-v1"
+ACTIVE_B219A = ACTIVE + "-v312b219a-software-testing-v1"
+ACTIVE_B219B = ACTIVE_B219A + "-v312b219b-technology-database-v1"
+HISTORICAL_FIXTURE_HOST_POLICIES = frozenset((
+    LEGACY, ACTIVE, ROLLBACK_B219A, ACTIVE_B219A, ACTIVE_B219B,
+))
+
+EXPECTED_SCORING_VERSION = ACTIVE_B219B if os.environ.get(POLICY_ENV, TOKEN).strip() == TOKEN else ROLLBACK_B219A
 EXPECTED_JD_INPUT_FINGERPRINT = {
     LEGACY: "3b9ce38aea8345b847b486c710fa8f0c1dda3cc51d8b70cd6657503a25e0379c",
-    ACTIVE: "309cdf79124d6e9521cf04f3d4054e9430fe5e63209a21c13a53c0c3e1f1ea12",
+    ACTIVE: "57057947f0f70cdcca92754722faeb5911ede61a3eb4997d0b1df085d834a101",
+    ROLLBACK_B219A: "153d023c949ccadf352bde355b3a1cb45c71d4c6b50880d9f1e3fea07c1b32ab",
+    ACTIVE_B219B: "6728e21247e4f10b4e27b39696233ae72a38051b30e0fc194f2e89c77e45d17b",
 }[EXPECTED_SCORING_VERSION]
 
 @contextmanager
@@ -23,7 +35,7 @@ def historical_receipt_policy(bundle):
 
     Keep the real JD/taxonomy/registry/currentness validators and exact receipt
     bytes. Model only the historical scoring-version authority in this scope.
-    Under an actual legacy startup no override is necessary. Do not use this
+    Only under the original V1.16 identity is no override necessary. Do not use this
     scope for newly scored analyses or real application operations.
     """
     from job_discovery import matching
@@ -33,7 +45,7 @@ def historical_receipt_policy(bundle):
         raise AssertionError("Historical fixture must retain the exact V1.16 legacy policy")
     original = matching.current_match_versions
     actual = original()["scoring_version"]
-    if actual not in (LEGACY, ACTIVE):
+    if actual not in HISTORICAL_FIXTURE_HOST_POLICIES:
         raise AssertionError("Unknown current scoring policy: " + str(actual))
     if actual == LEGACY:
         yield

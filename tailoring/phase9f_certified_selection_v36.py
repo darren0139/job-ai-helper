@@ -21,6 +21,7 @@ from tailoring.phase9f_jd_relevance_optimizer_v35 import (
     MAX_TRIALS, MAX_COUNT_DELTA, MAX_TOTAL_EDITS, MAX_WORD_SLACK, MAX_TOTAL_BULLETS,
 )
 from tailoring.phase9f_auto_optimize_v31 import build_flexible_optimization
+from tailoring.phase9f_large_pool_v312b214b2 import prepare_sources
 from tailoring.phase9f_evidence_optimizer_v33 import _metadata, overlap
 from tailoring.phase9f_joint_resume_optimizer_v2_6 import _key, _points
 
@@ -40,6 +41,10 @@ def _fallback(audit:dict, projects:dict, reason:str, *, evaluator=None, same_wor
     }
     if same_work_guard:
         from tailoring.phase9f_same_work_selection_v37 import vet_fallback
+        # The screen may promote a variant to the envelope. Preserve the
+        # explicit non-optimal certificate on every fallback variant first.
+        for variant in result.get('candidate_variants') or []:
+            variant['mathematical_certificate'] = deepcopy(result['mathematical_certificate'])
         return vet_fallback(result)
     return result
 
@@ -320,7 +325,7 @@ def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_t
     if isinstance(max_trials,bool) or not isinstance(max_trials,int) or not 1<=max_trials<=MAX_TRIALS:
         return {'version':V35_VERSION,'status':'withheld','reason':'Invalid trial count.',
             'projects':[],'mathematical_certificate':{'status':'not_proven','claim':MODEL_REVIEW}}
-    frozen=build_flexible_optimization(audit,projects,evaluator=evaluator)
+    frozen=prepare_sources(audit,projects,evaluator=evaluator,legacy_builder=build_flexible_optimization)
     if frozen.get('status')=='withheld' or not isinstance(frozen.get('source_comparison'),dict):
         return _fallback(audit,projects,'Frozen source pool is unavailable.',evaluator=evaluator,same_work_guard=same_work_guard)
     try:
@@ -404,7 +409,7 @@ def compare_forced_bullet(audit:dict, projects:dict, saved_proposal:dict, *,
     from tailoring.phase9f_joint_resume_optimizer_v2_6 import _key
     if not isinstance(saved_proposal,dict) or not isinstance(saved_proposal.get('source_comparison'),dict):
         return {'status':'unavailable','reason':'Saved proposal/source ownership unavailable'}
-    frozen=build_flexible_optimization(audit,projects)
+    frozen=prepare_sources(audit,projects,legacy_builder=build_flexible_optimization)
     if frozen.get('status')=='withheld':
         return {'status':'unavailable','reason':'Current frozen source pool unavailable'}
     def canonical(slate):

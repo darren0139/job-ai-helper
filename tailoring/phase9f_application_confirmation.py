@@ -459,6 +459,15 @@ def build_application_baseline_report(
             "analysis. No tailoring has been executed."
         ),
     }
+    document_receipt = snapshot.get("document_score_receipt")
+    if document_receipt is not None:
+        # This is confirmation-time score provenance, NOT an uploaded Initial
+        # document report. Keep the immutable generation profile/text unchanged.
+        report["meta"]["phase9f_b_document_score_provenance"] = {
+            "identity": deepcopy(document_receipt["identity"]),
+            "document_analysis": deepcopy(document_receipt["document_analysis"]),
+            "receipt_fingerprint": document_receipt["fingerprint"],
+        }
     user_inputs = deepcopy(
         (prepared.get("original_exact_jd") or {}).get(
             "application_local_jd_user_inputs"

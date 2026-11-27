@@ -122,7 +122,8 @@ def save_bestof_display_receipt(*, application_id: int, generation_id: str,
 
 
 def load_bestof_display_receipt(*, application_id: int, generation_id: str,
-        docx_sha256: str, raw_jd_text: str, scorer_version: str = '') -> dict | None:
+        docx_sha256: str, raw_jd_text: str, scorer_version: str = '',
+        context: str | None = None) -> dict | None:
     """Load newest exact-input receipt, rejecting stale inputs and corrupt JSON."""
     connection = _connect()
     try:
@@ -132,9 +133,10 @@ def load_bestof_display_receipt(*, application_id: int, generation_id: str,
             SELECT * FROM phase9f_bestof_display_receipts
             WHERE application_id=? AND generation_id=? AND docx_sha256=?
               AND jd_sha256=? AND scorer_version=? AND schema_version=?
+              AND ((? IS NULL AND context NOT LIKE 'b214b3-cache:%') OR context=?)
             ORDER BY updated_at DESC, rowid DESC LIMIT 10
         ''', (int(application_id), str(generation_id), docx_sha256,
-              _jd_sha(raw_jd_text), str(scorer_version or ''), SCHEMA)).fetchall()
+              _jd_sha(raw_jd_text), str(scorer_version or ''), SCHEMA, context, context)).fetchall()
         for row in rows:
             if sha256(row['result_json'].encode('utf-8')).hexdigest() != row['result_sha256']:
                 continue
@@ -161,7 +163,8 @@ def has_bestof_display_receipt(application_id: int, generation_id: str) -> bool:
             _init(connection)
         return connection.execute('''
             SELECT 1 FROM phase9f_bestof_display_receipts
-            WHERE application_id=? AND generation_id=? AND schema_version=? LIMIT 1
+            WHERE application_id=? AND generation_id=? AND schema_version=?
+              AND context NOT LIKE 'b214b3-cache:%' LIMIT 1
         ''', (int(application_id), str(generation_id), SCHEMA)).fetchone() is not None
     finally:
         connection.close()
@@ -258,3 +261,114 @@ def save_bestof_view_preferences(application_id: int, generation_id: str,
         return False
     finally:
         db.close()
+
+
+
+def load_historical_optimizer_settings(application_id: int, generation_id: str, docx_sha256: str) -> dict:
+    """Read latest document-bound mode for historical visibility only.
+
+    No table initialization or writes. The JD/scorer are historical and are
+    not validated as current here; this metadata cannot authorize reuse.
+    """
+    if not generation_id or len(docx_sha256) != 64:
+        return {}
+    connection = _connect()
+    try:
+        rows = connection.execute('''SELECT run_mode, mode_receipt_json, result_json,
+                result_sha256, updated_at, scorer_version
+            FROM phase9f_bestof_display_receipts
+            WHERE application_id=? AND generation_id=? AND docx_sha256=? AND schema_version=?
+              AND context NOT LIKE 'b214b3-cache:%'
+            ORDER BY updated_at DESC, rowid DESC LIMIT 10''',
+            (int(application_id), str(generation_id), docx_sha256, SCHEMA)).fetchall()
+        for row in rows:
+            if sha256(row['result_json'].encode('utf-8')).hexdigest() != row['result_sha256']:
+                continue
+            try:
+                mode = json.loads(row['mode_receipt_json'])
+                result = json.loads(row['result_json'])
+            except (TypeError, ValueError):
+                continue
+            if (not isinstance(mode, dict) or not isinstance(result, dict)
+                    or mode.get('generation_id') != str(generation_id)
+                    or mode.get('mode') != row['run_mode']
+                    or mode.get('legacy_mode_inferred_for_display') is True
+                    or row['run_mode'] not in ('v35-relevance', 'v37-same-work', 'v26-fixed', 'v31-flexible', 'v33-evidence')
+                    or not result.get('status') or result.get('status') == 'not_run'):
+                continue
+            return {'mode': row['run_mode'], 'status': str(result['status']),
+                    'manual': mode.get('manual_existing_fit_trial') is True,
+                    'updated_at': row['updated_at'], 'scorer_version': row['scorer_version']}
+        return {}
+    except sqlite3.Error:
+        return {}
+    finally:
+        connection.close()
+
+
+
+def load_existing_working_preferences(application_id: int, generation_id: str, view_key: str) -> dict:
+    """Read existing preferences without creating a table during a preview."""
+    db = _connect()
+    try:
+        row = db.execute('''SELECT preferences_json FROM phase9f_bestof_view_preferences
+            WHERE application_id=? AND generation_id=? AND view_key=?''',
+            (int(application_id), str(generation_id), str(view_key))).fetchone()
+        item = json.loads(row['preferences_json']) if row else {}
+        return item if isinstance(item, dict) else {}
+    except (sqlite3.Error, ValueError, TypeError):
+        return {}
+    finally:
+        db.close()
+
+
+def list_bestof_mode_history(application_id: int, generation_id: str, docx_sha256: str) -> list[dict]:
+    """Historical display records only, independently keyed by mode and request origin.
+
+    No cache row is included and no row can authorize native scoring or approval.
+    """
+    connection = _connect()
+    try:
+        rows = connection.execute("""SELECT run_mode, mode_receipt_json, result_json,
+                result_sha256, updated_at, scorer_version, context
+            FROM phase9f_bestof_display_receipts
+            WHERE application_id=? AND generation_id=? AND docx_sha256=? AND schema_version=?
+                AND context NOT LIKE 'b214b3-cache:%'
+            ORDER BY updated_at DESC, rowid DESC LIMIT 30""",
+            (int(application_id), str(generation_id), docx_sha256, SCHEMA)).fetchall()
+        history=[]
+        for row in rows:
+            if sha256(row['result_json'].encode('utf-8')).hexdigest()!=row['result_sha256']:
+                continue
+            try:
+                mode=json.loads(row['mode_receipt_json']); result=json.loads(row['result_json'])
+                if (not isinstance(mode,dict) or not isinstance(result,dict)
+                        or mode.get('mode')!=row['run_mode'] or mode.get('generation_id')!=str(generation_id)
+                        or mode.get('legacy_mode_inferred_for_display') is True
+                        or result.get('status') in (None,'not_run')):
+                    continue
+                history.append({'Mode':row['run_mode'], 'Request':'Manual' if mode.get('manual_existing_fit_trial') is True else 'Build and Fit',
+                    'Status':result['status'],'Scorer':result.get('scoring_version') or row['scorer_version'],
+                    'Execution':(result.get('_optimizer_cache') or {}).get('status') or 'Historical (not recorded)',
+                    'Saved UTC':row['updated_at']})
+            except (ValueError,TypeError,AttributeError):
+                continue
+        return history
+    except sqlite3.Error:
+        return []
+    finally:
+        connection.close()
+
+
+def discard_bestof_execution_cache(*, application_id: int, generation_id: str, context: str) -> None:
+    """An explicit fresh run supersedes only its reusable cache, never mode history."""
+    if not context.startswith('b214b3-cache:'):
+        raise ValueError('Not an execution cache key')
+    connection=_connect()
+    try:
+        with connection:
+            _init(connection)
+            connection.execute('DELETE FROM phase9f_bestof_display_receipts WHERE application_id=? AND generation_id=? AND context=?',
+                               (int(application_id),str(generation_id),context))
+    finally:
+        connection.close()

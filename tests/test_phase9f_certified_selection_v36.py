@@ -109,7 +109,7 @@ class CertifiedOptimization(unittest.TestCase):
                 pdf=out/f'b{len(events)}.pdf';pdf.write_bytes(b'%PDF-1.4')
                 return {'status':'generated','pages':1,'docx_path':str(doc),'pdf_path':str(pdf)}
             def score(**kwargs):
-                is_b=Path(kwargs['docx_path'])!=a
+                is_b=not Path(kwargs['docx_path']).samefile(a)
                 return {'actual_docx_evidence':True,'docx_sha256':kwargs['expected_sha256'],
                     'claim_review_required_count':0,'scoring_version':'native-test',
                     'deterministic_alignment_score':35 if is_b else 31,

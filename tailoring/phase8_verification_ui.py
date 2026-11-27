@@ -658,6 +658,7 @@ def render_phase8_verification(
     phase9f_execution: dict[str, Any] | None = None,
     required_phase9e_binding: dict[str, Any] | None = None,
     preferred_generation_id: str = "",
+    historical_baseline_report: dict[str, Any] | None = None,
 ) -> None:
     st.divider()
     st.subheader("Phase 8 — Fitted Résumé Verification")
@@ -732,6 +733,7 @@ def render_phase8_verification(
         key=f"phase8_generation_{application_id}",
     )
     selected = by_id[selected_id]
+    st.caption("Phase 8 inspects the fitted version selected here. For supported Phase 9F sessions, Step 1, Step 4 and the sidebar use the active workspace draft or current approved résumé, not an alternate inspected version.")
 
     status_col, pages_col, cost_col = st.columns(3)
     status_col.metric(
@@ -875,6 +877,9 @@ def render_phase8_verification(
             )
             refreshed_latest.pop("cache_status", None)
         _render_result(refreshed_latest)
+        if phase8_verification_is_current(refreshed_latest, selected):
+            from tailoring.phase9f_score_authority_v312b216a import render_diagnostic
+            render_diagnostic(st, historical_baseline_report, refreshed_latest, selected, raw_jd_text)
     else:
         st.caption(
             "No saved verification exists for this fitted version yet."

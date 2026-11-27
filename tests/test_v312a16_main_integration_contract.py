@@ -13,9 +13,8 @@ class MainIntegrationContracts(unittest.TestCase):
     def test_legacy_a14_environment_setting_cannot_control_rollout(self):
         with patch.dict(os.environ, {'JOB_AI_HELPER_V312A14_FULLSTACK_ENABLED':'1'}):
             self.assertIs(scoring._V312A14_NATIVE_REPLAY_SCOPE.get(), False)
-            self.assertEqual(scoring.SCORING_VERSION,
-                             scoring._BASE_SCORING_VERSION +
-                             ('-v312a17-fullstack-single-row' if scoring._V312A17_RUNTIME_ACTIVE else ''))
+            from tests.b213_policy_support import EXPECTED_SCORING_VERSION
+            self.assertEqual(scoring.SCORING_VERSION, EXPECTED_SCORING_VERSION)
     def test_opt_in_is_temporary_and_cannot_leak_on_exception(self):
         self.assertIs(scoring._V312A14_NATIVE_REPLAY_SCOPE.get(), False)
         with self.assertRaisesRegex(RuntimeError,'isolation'):

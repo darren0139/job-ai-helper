@@ -80,7 +80,7 @@ def _rank_weights(rank: dict) -> tuple[dict[str, float], str]:
     return weights, ""
 
 
-def _source_pool(row: dict) -> tuple[list[dict], str]:
+def _source_pool(row: dict, *, max_pool: int = MAX_POOL_PER_PROJECT) -> tuple[list[dict], str]:
     pool: list[dict] = []
     by_key: dict[str, dict] = {}
     for source, field in (("Selected Base", "base"), ("Evidence Library", "library"), ("Current final", "final")):
@@ -101,8 +101,8 @@ def _source_pool(row: dict) -> tuple[list[dict], str]:
                 candidate = {"text": text, "sources": [source], "words": _words(text), "ids": []}
                 by_key[key] = candidate
                 pool.append(candidate)
-    if len(pool) > MAX_POOL_PER_PROJECT:
-        return [], f"Too many distinct bullet candidates ({len(pool)} > {MAX_POOL_PER_PROJECT})."
+    if len(pool) > max_pool:
+        return [], f"Too many distinct bullet candidates ({len(pool)} > {max_pool})."
     return pool, ""
 
 

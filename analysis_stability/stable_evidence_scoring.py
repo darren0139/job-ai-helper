@@ -76,8 +76,8 @@ def temporary_v312a14_candidate_scope():
 # Operators can temporarily select the previous scoring behavior at startup via
 # JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY=legacy.
 # The startup setting is read ONCE so a session cannot mix scoring identities.
-# A new scoring version is not needed: the actual active scoring algorithm is
-# unchanged from A1.7, only its default activation state changed.
+# B2.15 changes the default requirement eligibility scope. The existing
+# explicit legacy startup rollback retains the prior parser/scorer contract.
 _V312A17_POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
 _V312A17_POLICY_TOKEN = "v312a17_fullstack_single_row"
 _V312A17_RUNTIME_ACTIVE = (
@@ -88,8 +88,10 @@ _V312A17_POLICY_VERSION = "v312a17-fullstack-positive-single-row-v1"
 # Requirement recognition is part of snapshot/A-B reproducibility identity.
 _BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
 SCORING_VERSION = (
-    _BASE_SCORING_VERSION + "-v312a17-fullstack-single-row"
+    _BASE_SCORING_VERSION + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
     if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION
+) + '-v312b219a-software-testing-v1' + (
+    '-v312b219b-technology-database-v1' if _V312A17_RUNTIME_ACTIVE else ''
 )
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
@@ -813,6 +815,10 @@ def _raw_section_for_heading(value: Any) -> str:
 
     if not _REVIEW419_LEGACY_PARSER.get() and heading in {"period", "location", "working hours"}:
         return "stop"
+    if _v312b215_eligibility_active() and heading in {
+        "additional information", "further information", "other information",
+    }:
+        return "supplemental"
     for section, headings in _RAW_SECTION_HEADINGS.items():
         if heading in headings:
             return section
@@ -906,6 +912,37 @@ def _ineligible_semantic_metadata(
         "eligibility_rule": rule,
     }
 
+def _v312b215_eligibility_active() -> bool:
+    return _V312A17_RUNTIME_ACTIVE and not _REVIEW419_LEGACY_PARSER.get()
+
+
+def _v312b215_footer_reason(text: str) -> str:
+    """High-confidence whole-statement exclusions; never blacklist a skill token."""
+    if re.match(r"^(?:(?:while|although) we (?:appreciate|thank) [^.!?]{1,180},\s*)?"
+                r"(?:please note that )?only shortlisted (?:candidates|applicants) "
+                r"(?:will|would) be (?:contacted|notified)\b", text, re.I):
+        return "shortlist_contact_notice"
+    if re.match(r"^we (?:are driven by|are guided by|live by|believe in) "
+                r"(?:our |the )?[^.!?]{0,100}\b(?:beliefs|values)\b", text, re.I):
+        return "employer_values_narrative"
+    if re.match(r"^we are committed to (?:our )?(?:impact|mission|vision|values)\s*[:—–-]", text, re.I):
+        return "employer_mission_narrative"
+    if re.match(r"^learn more about (?:us|our company|our organisation|our organization)\b", text, re.I):
+        return "employer_information_link"
+    return ""
+
+
+# Supplemental prose is not an extension of Qualifications. Explicit candidate
+# qualifications remain admissible here, including degrees and experience.
+_V312B215_SUPPLEMENTAL_QUALIFICATION = re.compile(
+    r"^(?:(?:strong|good|solid|working|hands-on|demonstrated|proven|relevant|prior)\s+)?"
+    r"(?:experience|familiarity|knowledge|proficiency|ability|skills?)\b|"
+    r"^(?:(?:a |an )?(?:degree|diploma|bachelor(?:'s)?|master(?:'s)?)(?:\s+(?:in|of))\b|"
+    r"(?:at least |minimum (?:of )?)?\d+\+?\s+years?\s+(?:of\s+)?(?:relevant\s+)?(?:work(?:ing)?\s+)?experience\b|"
+    r"(?:minimum|required|mandatory)\s+(?:experience|qualification|certification)\b)", re.I,
+)
+
+
 def classify_jd_statement_semantics(
     value: Any,
     *,
@@ -932,6 +969,16 @@ def classify_jd_statement_semantics(
     }
     if not normalised:
         return metadata
+
+    if _v312b215_eligibility_active():
+        footer_reason = _v312b215_footer_reason(surface)
+        if footer_reason:
+            return _ineligible_semantic_metadata(
+                metadata,
+                semantic_type=("application_process" if footer_reason == "shortlist_contact_notice"
+                               else "company_context"),
+                rule=footer_reason,
+            )
 
     administrative_rules = (
         # High-confidence non-skill statements: never score recruiters' identities,
@@ -2375,6 +2422,8 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
             and not continues_pending
             and not is_requirement_list_intro
             and not is_unbulleted_action_in_role_section
+            and not (_v312b215_eligibility_active()
+                     and active_section_detection == "supplemental_unheaded")
         ):
             inferred = infer_semantic_list_heading(raw_lines, line_offset)
             if inferred.get("is_heading_candidate"):
@@ -2401,14 +2450,17 @@ def _raw_jd_content_spans(raw_jd_text: str) -> list[dict[str, Any]]:
                 not _REVIEW419_LEGACY_PARSER.get()
                 and _normalise_jd_section_heading(value) == "job description"
             )
-            active_section = "" if generic_container else section
+            supplemental = section == "supplemental" and _v312b215_eligibility_active()
+            active_section = "" if generic_container or supplemental else section
             active_section_heading = value
             active_section_detection = (
+                "supplemental_unheaded" if supplemental else
                 "structural_unheaded" if generic_container else "exact"
             )
             active_section_reason = (
                 "generic_jd_container_not_requirement_section"
-                if generic_container else "controlled_exact_heading"
+                if generic_container else "supplemental_information_requires_explicit_qualification"
+                if supplemental else "controlled_exact_heading"
             )
             continue
 
@@ -2754,6 +2806,18 @@ def _unheaded_span_status(span: dict[str, Any]) -> tuple[bool, str]:
         return False, "recruiting_call_to_action"
     if any(pattern.search(text) for pattern in _UNHEADED_CONTEXTUAL_PATTERNS):
         return False, "contextual_company_or_team_prose"
+    if _v312b215_eligibility_active():
+        reason = _v312b215_footer_reason(text)
+        if reason:
+            return False, reason
+        if span.get("section_detection") == "supplemental_unheaded":
+            if _V312B215_SUPPLEMENTAL_QUALIFICATION.search(text):
+                return True, "explicit_supplemental_qualification"
+            if re.match(r"^(?:you|(?:the )?candidate|successful applicant) (?:must|should|will)\b", text, re.I):
+                return True, "explicit_role_or_qualification_marker"
+            if span.get("is_bullet") and _GENERIC_JD_TASK_START.match(text) and len(_tokenise(text)) >= 4:
+                return True, "explicit_supplemental_task"
+            return False, "supplemental_context_not_explicit_requirement"
     generic_duty = _explicit_generic_jd_task_kind(span)
     if generic_duty:
         return True, generic_duty
@@ -2873,6 +2937,8 @@ def _unheaded_role_rows(
             "explicit_generic_jd_task_bullet",
             "explicit_generic_jd_responsibility_sentence",
             "explicit_generic_jd_task_run",
+            "explicit_supplemental_qualification",
+            "explicit_supplemental_task",
         }:
             content = _normalise_requirement_surface(sentence).strip(" ,;:.-")
         minimum_tokens = 1 if _is_explicit_unheaded_qualification(sentence) else 2
@@ -2969,6 +3035,8 @@ def _ground_profile_requirement_to_raw_span(
     for span in spans:
         span_text = _clean_text(span.get("text", ""))
         if not span_text:
+            continue
+        if _v312b215_eligibility_active() and span.get("section_detection") == "supplemental_unheaded":
             continue
         if not span.get("section"):
             eligible, reason = _unheaded_span_status(span)
@@ -5065,6 +5133,27 @@ def build_stable_analysis(
                 {**receipt, "policy_version": _V312A17_POLICY_VERSION}
                 for receipt in experimental_audit
             ]
+    technology_database_audit = []
+    if _V312A17_RUNTIME_ACTIVE:
+        from tailoring.technology_database_evidence_v312b219b import apply_policy
+        taxonomy_validated, technology_database_audit = apply_policy(
+            taxonomy_validated, evidence_index, raw_resume_text,
+        )
+        # Report actual lexical overlap for the newly selected evidence, not
+        # the earlier missing/skill-only match's metrics.
+        for row in taxonomy_validated:
+            if not row.get('v312b219b_policy_audit'):
+                continue
+            evidence = row.get('evidence') or []
+            text = evidence[0]['text'] if evidence else ''
+            coverage, overlap = deterministic_evidence_coverage_metrics(
+                row['text'], text, canonical['acronym_map'],
+            )
+            row['match_coverage'] = round(coverage, 3)
+            row['match_overlap_count'] = overlap
+            row['match_similarity'] = round(_token_similarity(row['text'], text, canonical['acronym_map']), 3)
+            if evidence:
+                evidence[0]['evidence_similarity'] = f'{coverage:.3f}'
     taxonomy_warnings: list[dict[str, Any]] = []
     for row in taxonomy_validated:
         for warning in row.pop("validation_warnings", []) or []:
@@ -5094,6 +5183,11 @@ def build_stable_analysis(
             "scope": "opt_in_only", "not_a_saved_phase8_receipt": True,
             "selection_count": len(experimental_audit), "audit": experimental_audit,
         }} if _V312A14_NATIVE_REPLAY_SCOPE.get() else {}),
+        **({'native_technology_database_policy_v312b219b': {
+            'policy_version': 'v312b219b-technology-database-v1',
+            'selection_count': len(technology_database_audit),
+            'audit': technology_database_audit,
+        }} if _V312A17_RUNTIME_ACTIVE else {}),
         "scoring_version": scoring_version,
         **({"matching_policy_identity": policy_identity,
             "effective_requirement_scope": canonical["effective_requirement_scope"]} if policy_identity else {}),

@@ -706,6 +706,8 @@ def render_tailoring_generation_controls(
             width="stretch",
         ):
             restore_generation_to_session(application_id, selected)
+            from tailoring.phase9f_working_settings_v312b214 import queue_saved_settings
+            queue_saved_settings(st, application_id, selected)
             st.session_state[
                 f"phase7_flash_{application_id}"
             ] = (
@@ -763,6 +765,8 @@ def render_tailoring_generation_controls(
                 source_generation_id=selected_id,
             )
             restore_generation_to_session(application_id, restored)
+            from tailoring.phase9f_working_settings_v312b214 import queue_saved_settings
+            queue_saved_settings(st, application_id, restored)
             st.session_state[
                 f"phase7_flash_{application_id}"
             ] = "Copied the selected version into a new editable draft."

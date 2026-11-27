@@ -93,7 +93,7 @@ class TailoringUiStructureRegressionTests(unittest.TestCase):
             "render_tailoring_section_update_scope("
         )
         max_projects_index = source.index(
-            "max_projects = st.slider(",
+            'max_projects = _b214_settings_widget(st, current_application_id, "slider",',
             scope_index,
         )
         self.assertLess(scope_index, max_projects_index)

@@ -587,6 +587,10 @@ def _show_active_binding(
         execution_stage = _clean((execution or {}).get("current_stage"))
 
         st.success("Exact Phase 9F-D Tailoring Base is bound.")
+        if current.get("scoring_policy_transition"):
+            adopted = current["scoring_policy_transition"]
+            transition = adopted["transition"]
+            st.caption(f"Updated scoring scope accepted: {transition['previous_count']} → {transition['current_count']} requirements. Original source and historical decision retained.")
         st.write(f"**Active tailoring base:** {source_label}")
         st.caption(source_details)
         st.write(
@@ -1145,6 +1149,11 @@ def render_phase9e_blueprint_selection(
     # Resolution already validates the bound decision against current knowledge
     # and source identities. Reuse that exact decision within this render only.
     current = generation_context.get("decision")
+    # B2.15c: an explicit historical actual-document recheck is distinct from
+    # currentness of the source decision. Never unlock generation/approval here.
+    if generation_context.get("status") == "stale" and isinstance(current, dict):
+        from tailoring.phase9f_policy_transition_v312b215c import render_transition_preview
+        render_transition_preview(st, application_id=application_id, decision=current)
     with st.expander("Binding audit details", expanded=False):
         actor_label = st.text_input(
             "Binding actor label",
