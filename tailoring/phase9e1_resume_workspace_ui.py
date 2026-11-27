@@ -711,9 +711,9 @@ def render_resume_workspace(*, application_id: int) -> dict[str, Any]:
 
     if approved is None and state["loaded_mode"] == "working_draft":
         st.warning(
-            "Revision in progress. There is no current approved résumé. "
-            "Finish the working draft, fit it, approve it, and run Phase 8 "
-            "verification again."
+            "There is no current approved résumé. Review the working draft and "
+            "its existing fit and Phase 8 verification below. Build or refit only "
+            "if needed; approval remains explicit."
         )
 
     approved_id = _generation_id(approved)

@@ -1377,13 +1377,19 @@ def create_full_debug_bundle(
                         or ""
                     ),
                     "starting_snapshot_fingerprint": str(
-                        binding.get("starting_snapshot_fingerprint")
+                        (binding.get("starting_snapshot") or {}).get("starting_snapshot_fingerprint")
+                        or binding.get("starting_snapshot_fingerprint")
                         or binding.get("source_snapshot_fingerprint")
                         or ""
                     ),
                 },
                 "workspace": {
                     "loaded_mode": str(ws.get("loaded_mode") or ""),
+                    "loaded_generation_id": str((ws.get("loaded_generation") or {}).get("generation_id") or ""),
+                    "accepted_generation_id": str((binding.get("scoring_policy_transition") or {}).get("generation_id") or ""),
+                    "accepted_verification_id": str((binding.get("scoring_policy_transition") or {}).get("verification_id") or ""),
+                    "restore_reason": st.session_state.get(f"b216c2_restore_reason_{application_id}", ""),
+                    "current_score_hold_reason": st.session_state.get(f"b216c2_score_reason_{application_id}", ""),
                     "current_approved_generation_id": str(
                         (ws.get("approved_generation") or {}).get(
                             "generation_id"
@@ -2573,11 +2579,16 @@ with st.sidebar:
         score_display_diagnostics = {}
         if current_application_id is not None:
             try:
+                from tailoring.phase9f_workspace_restore_v312b216c2 import restore_accepted_workspace
+                score_workspace = restore_accepted_workspace(st, int(current_application_id),
+                    get_resume_workspace_context(int(current_application_id)))
                 active_score_projection = load_active_score(int(current_application_id),
-                    get_resume_workspace_context(int(current_application_id)), score_display_diagnostics)
+                    score_workspace, score_display_diagnostics)
             except Exception:
                 active_score_projection = None
                 score_display_diagnostics['reason'] = 'Current workspace could not be validated.'
+        if current_application_id is not None:
+            st.session_state[f"b216c2_score_reason_{current_application_id}"] = score_display_diagnostics.get('reason', '')
         st.caption("The active session shows its verified fitted score when current; other sessions show saved scores. Draft verification is not approval.")
         if current_application_id is not None and not active_score_projection and score_display_diagnostics.get('reason'):
             st.caption('Active score: ' + score_display_diagnostics['reason'])
@@ -3414,6 +3425,12 @@ elif page == "Application Sessions":
                     application_id=int(current_application_id),
                 )
             )
+            if not has_current_legacy_result:
+                from tailoring.phase9f_workspace_restore_v312b216c2 import show_unapproved_workspace
+                recovery_workspace = get_resume_workspace_context(int(current_application_id))
+                if show_unapproved_workspace(int(current_application_id), recovery_workspace):
+                    from tailoring.phase9e1_resume_workspace_ui import render_resume_workspace
+                    render_resume_workspace(application_id=int(current_application_id))
 
         phase9a_jd_record: dict[str, Any] = {}
         if current_application_id is not None:
@@ -3818,6 +3835,12 @@ elif page == "Application Sessions":
                 binding_marker=binding_marker,
                 phase9e_enforced=phase9e_enforced,
             ):
+                # An accepted policy can change the marker without changing the frozen draft.
+                # Preserve only the exact current decision + snapshot + workflow-action owner.
+                from tailoring.phase9f_workspace_restore_v312b216c2 import draft_to_preserve
+                retained_draft = (draft_to_preserve(int(current_application_id),
+                    get_resume_workspace_context(int(current_application_id)), phase9e_binding, phase9f_f_execution)
+                    if phase9e_ready else None)
                 for key in (
                     f"tailored_projects_result_{current_application_id}",
                     f"tailored_projects_fit_{current_application_id}",
@@ -3829,6 +3852,8 @@ elif page == "Application Sessions":
                     f"project_candidate_pool_{current_application_id}",
                 ):
                     st.session_state.pop(key, None)
+                if retained_draft is not None:
+                    restore_generation_to_session(int(current_application_id), retained_draft)
             st.session_state[marker_key] = binding_marker
 
         st.divider()

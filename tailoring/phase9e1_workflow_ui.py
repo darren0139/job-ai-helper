@@ -109,6 +109,29 @@ def _decision_source_label(
     return "Not selected", "Choose a starting résumé"
 
 
+def _stale_scope_guidance(decision: dict[str, Any]) -> str:
+    """Route policy-only staleness to recheck, not a replacement source.
+
+    Only the exact-binding manager's explicit reasons qualify. Mixed or
+    unknown stale reasons retain the normal source re-evaluation route.
+    This is guidance only; the actual binding and recheck gates are unchanged.
+    """
+    reasons = decision.get("stale_reasons") or []
+    hold = " Do not approve or generate until its binding is current."
+    if isinstance(reasons, (list, tuple)) and len(reasons) == 1:
+        reason = str(reasons[0])
+        if reason.startswith((
+            "The scoring policy changed. The exact JD scope is unchanged;",
+            "The application's canonical JD scope changed. The exact JD text is unchanged;",
+        )):
+            return ("Review the current scoring scope in Tailoring Base. "
+                    "Recheck the existing fitted résumé if eligible, or follow the explicit reconfirmation guidance." + hold)
+        if reason.startswith("Accepted scoring policy transition is unavailable:"):
+            return ("Review the saved scoring-policy acceptance diagnostics in Tailoring Base. "
+                    "Resolve the verification issue before continuing." + hold)
+    return ("Re-evaluate and bind a current starting résumé in Tailoring Base before continuing." + hold)
+
+
 def build_application_workflow_overview(
     *,
     application_id: int,
@@ -355,7 +378,7 @@ def build_application_workflow_overview(
 
     if scope == "stale":
         phase9e_status = "Historical/stale · review current scoring scope"
-        next_action = "Review the current scoring scope in Tailoring Base. Do not approve or generate until its binding is current."
+        next_action = _stale_scope_guidance(decision)
     elif phase9e_active and decision.get("scoring_policy_transition"):
         phase9e_status = "Active · exact source + accepted scoring policy"
 

@@ -286,6 +286,8 @@ def render_transition_preview(st, *, application_id: int, decision: dict) -> Non
         except (ValueError, RuntimeError, OSError, KeyError, TypeError, sqlite3.Error) as exc:
             st.error('Policy acceptance withheld: '+str(exc))
             return
+        from tailoring.phase9f_workspace_restore_v312b216c2 import queue_accepted_restore
+        queue_accepted_restore(st.session_state, application_id, accepted)
         st.session_state.pop(preview_key,None)
         st.session_state[f'phase9e_flash_{application_id}'] = ('Updated scoring scope accepted. The existing fitted résumé and original source are retained. '
             + ('Current native Phase 8 verification is saved; approval remains explicit.' if accepted['approval_floor_ready_at_acceptance'] else 'Current native verification is saved, but the approval floor is not met.'))
