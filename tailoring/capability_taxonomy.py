@@ -628,6 +628,13 @@ def _evaluate_capability_record(
     taxonomy_version: str,
 ) -> dict[str, Any]:
     """Evaluate evidence against one already-resolved capability record."""
+    if capability.get("capability_id") == "quality.qa_testing":
+        from tailoring.software_testing_evidence_v312b219a import evaluate_software_testing
+        qa = evaluate_software_testing(requirement, evidence_text)
+        if qa is not None:
+            return {**qa, "capability_id": capability["capability_id"],
+                    "taxonomy_version": taxonomy_version,
+                    "does_not_prove": capability.get("does_not_prove", [])}
     if capability.get("capability_id") == "backend.api_development":
         focus = _clean(requirement.get("atomic_focus") or requirement.get("text"))
         requested = [p for p in ("rest", "grpc") if _contains_any(focus, [p, "restful"] if p == "rest" else [p])]

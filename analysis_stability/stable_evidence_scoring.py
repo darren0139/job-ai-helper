@@ -90,7 +90,7 @@ _BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
 SCORING_VERSION = (
     _BASE_SCORING_VERSION + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
     if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION
-)
+) + '-v312b219a-software-testing-v1'
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
