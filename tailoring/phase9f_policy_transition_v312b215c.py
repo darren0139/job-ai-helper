@@ -13,6 +13,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import policy_path, B215, LEGACY
+
 VERSION = 'v312b215c-historical-phase8-preview-v1'
 CURRENT_SCORER = 'stable-evidence-v1.16-phase6d20-v312b215-jd-eligibility-v312a17-fullstack-single-row'
 OLD_SCORERS = {'stable-evidence-v1.16-phase6d20', 'stable-evidence-v1.16-phase6d20-v312a17-fullstack-single-row'}
@@ -55,7 +57,9 @@ def _canonical_rows(snapshot: dict) -> dict:
 
 def classify_transition(*, decision: dict, current_jd: dict, active_scorer: str) -> dict:
     """Bounded first release: exact D-bound, removal-only B2.15 handoffs."""
-    _require(active_scorer == CURRENT_SCORER, 'The supported B2.15 scoring policy is not active.')
+    stable = (decision.get('effective_starting_comparison') or decision.get('comparison') or {}).get('stable_analysis_snapshot') or {}
+    path = policy_path(stable.get('scoring_version'), active_scorer)
+    _require(path is not None, 'The scoring policy transition is not registered.')
     _require(decision.get('scope_activation_status') == 'active' and decision.get('current_scope_status') == 'stale', 'An active historical binding is required.')
     historical = decision.get('current_jd_snapshot') or {}
     stored = (decision.get('semantic_identity') or {}).get('current_jd') or {}
@@ -69,10 +73,13 @@ def classify_transition(*, decision: dict, current_jd: dict, active_scorer: str)
         _require(historical.get(key) == stored.get(key), 'Historical JD scope is not bound: '+key)
     old = _canonical_rows(historical)
     new = _canonical_rows(current_jd)
-    _require(set(new) < set(old), 'Only a strict removal-only JD eligibility transition is supported.')
+    if active_scorer == B215:
+        _require(set(new) < set(old), 'Only a strict removal-only JD eligibility transition is supported.')
+    elif stable.get('scoring_version') in LEGACY:
+        _require(set(new) <= set(old), 'Only removal-only or unchanged JD scope is supported.')
+    else:
+        _require(set(new) == set(old), 'A scoring-only upgrade requires identical canonical scope.')
     _require(all(old[rid] == row for rid, row in new.items()), 'A surviving canonical requirement changed; scope review is required.')
-    stable = (decision.get('effective_starting_comparison') or decision.get('comparison') or {}).get('stable_analysis_snapshot') or {}
-    _require(stable.get('scoring_version') in OLD_SCORERS, 'The historical scoring policy is not supported.')
     _require(not stable.get('matching_policy_identity') and not stable.get('effective_requirement_scope'), 'Reviewed or custom requirement scopes need separate migration.')
     stable_rows = stable.get('canonical_requirements') or []
     _require(len(stable_rows) == len(old) and sorted(r.get('requirement_id') for r in stable_rows) == sorted(old), 'Historical scoring scope does not match the bound JD.')
@@ -125,14 +132,18 @@ def build_preview(*, transition: dict, baseline_report: dict, generation: dict, 
     _require(not ((baseline_report.get('meta') or {}).get('jd_user_inputs') or {}).get('preferred_requirement_overrides'), 'Application-local preferred scope needs separate migration.')
     raw = baseline_report.get('raw_jd_text')
     _require(isinstance(raw, str) and hashlib.sha256(raw.encode('utf-8')).hexdigest() == transition.get('raw_jd_sha256'), 'Frozen baseline JD differs from the transition.')
-    path = Path(str((generation.get('fit_result') or {}).get('docx_path') or ''))
-    final_sha = _file_hash(path)
+    fitted_docx_path = Path(str((generation.get('fit_result') or {}).get('docx_path') or ''))
+    final_sha = _file_hash(fitted_docx_path)
     snapshot = build_phase8_generation_snapshot_fingerprint(generation)
     authenticate_final(generation=generation, prior=prior, snapshot_fingerprint=snapshot, final_sha=final_sha)
     _require((prior.get('starting_document_contract') or {}).get('selected_base_docx_sha256') == source_artifact.get('sha256'), 'The prior Selected Base DOCX authority differs.')
     for key in ('before_stable_analysis', 'after_stable_analysis'):
         previous = prior.get(key) or {}
-        _require(previous.get('scoring_version') in OLD_SCORERS and sorted(r.get('requirement_id') for r in previous.get('canonical_requirements') or []) == transition['historical_requirement_ids'], 'Prior native receipt does not belong to the historical scoring scope: '+key)
+        prior_version = previous.get('scoring_version')
+        scoring_policy_path = policy_path(transition['old_scorer'], transition['new_scorer']) or ()
+        allowed_ids = transition['historical_requirement_ids'] if prior_version in LEGACY else transition['surviving_requirement_ids']
+        _require((prior_version in scoring_policy_path[:-1] or (transition['old_scorer'] in LEGACY and prior_version in LEGACY)) and sorted(r.get('requirement_id') for r in previous.get('canonical_requirements') or []) == allowed_ids, 'Prior native receipt does not belong to the historical scoring scope: '+key)
+    _require(prior['before_stable_analysis'].get('scoring_version') == prior['after_stable_analysis'].get('scoring_version'), 'Prior native receipt mixes scoring versions.')
     stable = baseline_report.get('stable_analysis') or {}
     _require(stable.get('scoring_version') == transition['old_scorer'] and sorted(r.get('requirement_id') for r in stable.get('canonical_requirements') or []) == transition['historical_requirement_ids'], 'Frozen baseline scoring scope does not reproduce.')
     sealed, contract = build_frozen_selected_base_document_report(baseline_report=deepcopy(baseline_report), jd_text=raw, source_artifact=source_artifact)
@@ -142,8 +153,8 @@ def build_preview(*, transition: dict, baseline_report: dict, generation: dict, 
     _require(result.get('comparison_valid') is True, 'Fresh native Phase 8 comparison is not comparable.')
     for key in ('before_stable_analysis', 'after_stable_analysis'):
         analysis = result.get(key) or {}
-        _require(analysis.get('scoring_version') == CURRENT_SCORER and sorted(r.get('requirement_id') for r in analysis.get('canonical_requirements') or []) == transition['surviving_requirement_ids'], 'Native A/B scope or scorer differs: '+key)
-    _require((result.get('document_analysis') or {}).get('final_document_sha256') == final_sha == _file_hash(path), 'Fitted DOCX changed during verification.')
+        _require(analysis.get('scoring_version') == transition['new_scorer'] and sorted(r.get('requirement_id') for r in analysis.get('canonical_requirements') or []) == transition['surviving_requirement_ids'], 'Native A/B scope or scorer differs: '+key)
+    _require((result.get('document_analysis') or {}).get('final_document_sha256') == final_sha == _file_hash(fitted_docx_path), 'Fitted DOCX changed during verification.')
     _require(result.get('verified_generation_snapshot_fingerprint') == snapshot, 'Native fitted snapshot identity differs.')
     # Deliberately never publish a normal verification receipt or a ready gate.
     preview = {'version': VERSION, 'status': 'native_preview_completed', 'transition': deepcopy(transition),
@@ -196,6 +207,11 @@ def run_transition_preview(application_id: int, generation_id: str, *, _return_m
     prior = get_latest_tailoring_verification(int(application_id), str(generation_id))
     _require(isinstance(prior, dict), 'No prior Phase 8 actual-document receipt is available for this fit.')
     material = build_preview(transition=transition, baseline_report=baseline, generation=generation, source_artifact=source, prior=prior, _return_material=_return_material)
+    if transition['new_scorer'] != B215:
+        from tailoring.phase9f_policy_adoption_v312b215c2 import read_transition_predecessor
+        parent = read_transition_predecessor(application_id=int(application_id), decision=decision, transition=transition, execution=execution, source=source)
+        public = material['preview'] if _return_material else material
+        public['previous_acceptance_fingerprint'] = parent['acceptance_fingerprint'] if parent else None
     if _return_material:
         from tailoring.phase9f_policy_adoption_v312b215c2 import _historical_scope
         _historical_scope(decision=decision, exact_jd=exact_jd, confirmation=confirmation, execution=execution)
@@ -219,7 +235,10 @@ def render_transition_preview(st, *, application_id: int, decision: dict) -> Non
     st.subheader('Phase 8 — Scoring policy transition recheck')
     st.info('The exact JD is unchanged. Recheck an existing fitted résumé. For supported Full tailoring, explicitly accept the new scoring scope while retaining the original Tailoring Base and documents. Approval remains separate.')
     st.caption(f"Canonical requirements: {transition['previous_count']} → {transition['current_count']}. No added or modified surviving requirements.")
-    st.dataframe(transition['removed_requirements'], hide_index=True)
+    if transition['removed_requirements']:
+        st.dataframe(transition['removed_requirements'], hide_index=True)
+    else:
+        st.caption('Requirement scope unchanged; scoring policy changed.')
     try:
         versions = {str(g['generation_id']): g for g in list_tailoring_generations(application_id)
             if g.get('status') in {'draft', 'approved'} and g.get('phase9e_decision_fingerprint') == decision.get('decision_fingerprint')
@@ -233,7 +252,7 @@ def render_transition_preview(st, *, application_id: int, decision: dict) -> Non
     gid = st.selectbox('Existing fitted version to recheck', list(versions),
         format_func=lambda value: f"{versions[value]['status'].title()} · {value[:8]}", key=f'b215c_preview_generation_{application_id}')
     from tailoring.phase9f_policy_adoption_v312b215c2 import accept_policy_transition, preview_identity
-    preview_key = f'b215c2_preview_{application_id}_{gid}_{transition["new_scope_fingerprint"]}_{decision["decision_fingerprint"]}'
+    preview_key = f'b215c2_preview_{application_id}_{gid}_{transition["new_scorer"]}_{transition["new_scope_fingerprint"]}_{decision["decision_fingerprint"]}'
     if st.button('Recheck existing fitted résumé under current scoring policy', key=f'b215c_preview_run_{application_id}'):
         try:
             st.session_state[preview_key] = run_transition_preview(application_id, gid)

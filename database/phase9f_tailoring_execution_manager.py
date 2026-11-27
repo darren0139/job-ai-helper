@@ -609,6 +609,10 @@ def prepare_phase9f_tailoring_execution(
     confirmation, decision, exact_jd, application, application_report = _load_execution_inputs(
         int(application_id)
     )
+    from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+    from tailoring.phase9f_scoring_policy_registry_v312b2190 import needs_exact_recheck
+    if needs_exact_recheck(decision, SCORING_VERSION) and decision.get('current_scope_status') != 'current':
+        raise Phase9FFExecutionError('Scoring policy changed; recheck and accept the current policy first.', code='scoring_policy_transition_required')
     scope_validator = validate_minor_full_execution_scope
     if decision.get("scoring_policy_transition"):
         from tailoring.phase9f_policy_adoption_v312b215c2 import validate_execution_scope
@@ -1617,6 +1621,10 @@ def _prepare_frozen_phase8_context(
         _application,
         application_report,
     ) = _load_execution_inputs(int(execution["application_id"]))
+    from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+    from tailoring.phase9f_scoring_policy_registry_v312b2190 import needs_exact_recheck
+    if needs_exact_recheck(decision, SCORING_VERSION) and decision.get('current_scope_status') != 'current':
+        raise Phase9FFExecutionError('Scoring policy changed; recheck and accept the current policy first.', code='scoring_policy_transition_required')
     scope_validator = validate_minor_full_execution_scope
     if decision.get("scoring_policy_transition"):
         from tailoring.phase9f_policy_adoption_v312b215c2 import validate_execution_scope

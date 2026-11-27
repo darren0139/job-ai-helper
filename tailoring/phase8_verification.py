@@ -13,6 +13,7 @@ from typing import Any
 
 from analysis_stability import build_stable_analysis
 from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import enforce_fresh_receipt
 from tailoring.phase8_requirement_reconciliation import (
     reconcile_final_requirement_matches,
 )
@@ -659,7 +660,7 @@ def refresh_phase8_readiness(
 
     # An explicitly activated A1.7 scoring policy must never refresh an old
     # Phase 8 verification into an apparently current approval receipt.
-    if SCORING_VERSION.endswith("-v312a17-fullstack-single-row"):
+    if enforce_fresh_receipt(SCORING_VERSION):
         after = result.get("after_stable_analysis")
         recorded_version = str(after.get("scoring_version") or "") if isinstance(after, dict) else ""
         if recorded_version != SCORING_VERSION and not recorded_version.startswith(SCORING_VERSION + "+"):

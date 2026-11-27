@@ -18,6 +18,8 @@ from tailoring.phase9f_policy_transition_v312b215c import (
     classify_transition, authenticate_execution,
 )
 
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import B215, POLICY_ONLY_EDGES, policy_path
+
 VERSION = 'v312b215c2-explicit-policy-adoption-v1'
 EVENT = 'scoring_policy_transition_accepted_v312b215c2'
 BASE_FIELDS = ('stable_analysis', 'keyword_match', 'resume_profile', 'raw_resume_text', 'jd_profile', 'raw_jd_text')
@@ -35,17 +37,63 @@ def _event_details(connection, application_id, decision):
         (int(application_id), decision['decision_id'], EVENT)).fetchall()
     if not rows:
         return None
-    _require(len(rows) == 1, 'Duplicate scoring policy acceptances.')
-    row = rows[0]
-    event = json.loads(row['event_json'])
-    digest = event.pop('event_fingerprint', None)
-    _require(digest == row['event_fingerprint'] == _fingerprint(event), 'Scoring policy acceptance event checksum differs.')
-    _require(all(event.get(k) == row[k] for k in ('event_id','event_type','application_id','decision_id','decision_fingerprint')), 'Scoring policy acceptance event identity differs.')
-    _require(event['decision_fingerprint'] == decision['decision_fingerprint'], 'Scoring policy acceptance belongs to another decision.')
-    details = event['event_details']
-    _require(details.get('version') == VERSION, 'Unsupported scoring policy acceptance.')
-    _require(details.get('acceptance_fingerprint') == _fingerprint({k:v for k,v in details.items() if k != 'acceptance_fingerprint'}), 'Scoring policy acceptance content changed.')
+    by_digest = {}
+    successors = {}
+    for row in rows:
+        event = json.loads(row['event_json'])
+        digest = event.pop('event_fingerprint', None)
+        _require(digest == row['event_fingerprint'] == _fingerprint(event), 'Scoring policy acceptance event checksum differs.')
+        _require(all(event.get(k) == row[k] for k in ('event_id','event_type','application_id','decision_id','decision_fingerprint')), 'Scoring policy acceptance event identity differs.')
+        _require(event['decision_fingerprint'] == decision['decision_fingerprint'], 'Scoring policy acceptance belongs to another decision.')
+        details = event['event_details']
+        _require(details.get('version') == VERSION, 'Unsupported scoring policy acceptance.')
+        _require(details.get('acceptance_fingerprint') == _fingerprint({k:v for k,v in details.items() if k != 'acceptance_fingerprint'}), 'Scoring policy acceptance content changed.')
+        fp = details['acceptance_fingerprint']
+        parent = details.get('previous_acceptance_fingerprint')
+        _require(fp not in by_digest and parent not in successors, 'Duplicate or forked scoring policy acceptances.')
+        by_digest[fp] = details
+        successors[parent] = fp
+    current = successors.get(None)
+    _require(current is not None, 'Missing original scoring policy acceptance.')
+    visited = set()
+    while current is not None:
+        _require(current in by_digest and current not in visited, 'Invalid scoring policy acceptance chain.')
+        visited.add(current)
+        details = by_digest[current]
+        next_fp = successors.get(current)
+        if next_fp is None:
+            break
+        _require(next_fp in by_digest, 'Missing next policy acceptance.')
+        child = by_digest[next_fp]
+        _validate_successor(details, child['transition'], child['execution_fingerprint'], child['confirmation_fingerprint'], child['source_sha256'])
+        current = next_fp
+    _require(len(visited) == len(by_digest), 'Disconnected scoring policy acceptance chain.')
     return details
+
+
+def _validate_successor(parent, transition, execution_fp, confirmation_fp, source_sha):
+    old = parent['transition']
+    path = policy_path(old.get('new_scorer'), transition.get('new_scorer'))
+    _require(path is not None and all(edge in POLICY_ONLY_EDGES for edge in zip(path, path[1:])),
+             'Scoring policy transition was already accepted or the successor is not registered.')
+    for key in ('old_scorer','raw_jd_sha256','old_scope_fingerprint','new_scope_fingerprint',
+                'previous_count','current_count','historical_requirement_ids','surviving_requirement_ids','removed_requirements'):
+        _require(old.get(key) == transition.get(key), 'Accepted predecessor scope changed: '+key)
+    _require(parent['execution_fingerprint'] == execution_fp and parent['confirmation_fingerprint'] == confirmation_fp
+             and parent['source_sha256'] == source_sha, 'Accepted predecessor source or execution changed.')
+
+
+def read_transition_predecessor(*, application_id, decision, transition, execution, source):
+    """Historical acceptance proves ownership, never current native score authority."""
+    from database import application_blueprint_manager as bindings
+    connection = bindings._connect()
+    try:
+        parent = _event_details(connection, application_id, decision)
+    finally:
+        connection.close()
+    if parent is not None:
+        _validate_successor(parent, transition, execution['execution_fingerprint'], execution['confirmation_fingerprint'], source['sha256'])
+    return parent
 
 
 def _historical_scope(*, decision, exact_jd, confirmation, execution):
@@ -96,6 +144,9 @@ def read_accepted_transition(*, application_id, decision, exact_jd):
         connection.close()
     if accepted is None:
         return None
+    from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+    if (accepted.get('transition') or {}).get('new_scorer') != SCORING_VERSION:
+        return None  # Historical chain is authenticated, but never promoted to current.
     from database import phase9f_tailoring_execution_manager as manager
     confirmation = manager.get_phase9f_application_confirmation(int(application_id))
     execution = manager.get_phase9f_tailoring_execution(int(application_id))
@@ -176,7 +227,10 @@ def _persist_acceptance(connection, *, material, reviewed_fingerprint, actor_lab
     _require(generation.get('application_id')==preview['application_id']==result['application_id'] and generation.get('generation_id')==preview['generation_id']==result['generation_id'], 'Native result identity differs.')
     _require(result.get('comparison_valid') is True and result.get('fit_one_page') is True, 'A comparable one-page verification is required.')
     _require(execution.get('confirmed_intensity')=='full', 'Only confirmed Full tailoring is supported by this release.')
-    _require(_event_details(connection,preview['application_id'],decision) is None,'Policy transition was already accepted; reload the application.')
+    parent = _event_details(connection,preview['application_id'],decision)
+    if parent is not None:
+        _validate_successor(parent, preview['transition'], execution['execution_fingerprint'], execution['confirmation_fingerprint'], preview['selected_base_docx_sha256'])
+    _require(preview.get('previous_acceptance_fingerprint') == (parent['acceptance_fingerprint'] if parent else None), 'Reviewed policy predecessor changed; reload the application.')
     _check_artifacts(material)
     projection=material['current_base']
     _validate_projection(projection,preview['transition'],preview['starting_document_contract'])
@@ -191,6 +245,8 @@ def _persist_acceptance(connection, *, material, reviewed_fingerprint, actor_lab
         'verified_generation_snapshot_fingerprint':stored['verified_generation_snapshot_fingerprint'],
         'starting_document_contract':deepcopy(preview['starting_document_contract']),'current_base':deepcopy(projection),
         'approval_floor_ready_at_acceptance':floor.get('ready') is True,'native_verdict':preview['native_verdict']}
+    if parent is not None:
+        details['previous_acceptance_fingerprint'] = parent['acceptance_fingerprint']
     details['acceptance_fingerprint']=_fingerprint(details)
     # Same F identity and frozen stage inputs; only its mutable latest verification
     # pointer advances, exactly as normal Phase 8 does. Old receipts remain rows.

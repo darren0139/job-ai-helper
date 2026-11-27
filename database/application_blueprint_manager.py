@@ -1195,7 +1195,10 @@ def _phase9f_d_exact_binding_stale_reasons(
             str(stored_jd.get("canonical_requirement_fingerprint") or "")
             or list(exact_jd.get("canonical_requirement_ids") or []) !=
             list(stored_jd.get("canonical_requirement_ids") or []))
-    if scope_changed:
+    from analysis_stability.stable_evidence_scoring import SCORING_VERSION
+    from tailoring.phase9f_scoring_policy_registry_v312b2190 import needs_exact_recheck
+    policy_changed = needs_exact_recheck(decision, SCORING_VERSION)
+    if scope_changed or policy_changed:
         # No change to the immutable D fingerprint. Only an explicit, verified
         # acceptance can authorize the current scoring scope for this source.
         from tailoring.phase9f_policy_adoption_v312b215c2 import read_accepted_transition
@@ -1203,6 +1206,8 @@ def _phase9f_d_exact_binding_stale_reasons(
             accepted = read_accepted_transition(application_id=application_id, decision=decision, exact_jd=exact_jd)
         except (ValueError, RuntimeError, KeyError, TypeError, OSError, sqlite3.Error) as exc:
             return ["Accepted scoring policy transition is unavailable: " + str(exc)]
+        if accepted is None and policy_changed and not scope_changed:
+            return ["The scoring policy changed. The exact JD scope is unchanged; recheck the existing document and explicitly accept the updated scoring policy."]
         if accepted is None:
             return ["The application's canonical JD scope changed. The exact JD text is unchanged; review the current scoring scope and explicitly reconfirm before generating or approving."]
         decision["scoring_policy_transition"] = accepted

@@ -62,9 +62,8 @@ def build_frozen_selected_base_document_report(*, baseline_report: dict[str, Any
     expected = stable.get('canonical_requirements')
     scope_refresh = None
     previous_version = str(stable.get('scoring_version') or '')
-    if (SCORING_VERSION == 'stable-evidence-v1.16-phase6d20-v312b215-jd-eligibility-v312a17-fullstack-single-row' and previous_version in {
-            'stable-evidence-v1.16-phase6d20',
-            'stable-evidence-v1.16-phase6d20-v312a17-fullstack-single-row'}):
+    from tailoring.phase9f_scoring_policy_registry_v312b2190 import policy_path, LEGACY
+    if policy_path(previous_version, SCORING_VERSION):
         if (baseline_report.get('raw_jd_text') != jd_text or not isinstance(expected, list)
                 or not expected or any(not isinstance(row, dict) or not row.get('requirement_id') for row in expected)):
             raise ValueError('B2.15 scope refresh requires the exact frozen JD and original requirement rows')
@@ -73,11 +72,19 @@ def build_frozen_selected_base_document_report(*, baseline_report: dict[str, Any
             raise ValueError('B2.15 historical requirement identities are duplicated')
         if stable.get('matching_policy_identity') or stable.get('effective_requirement_scope'):
             raise ValueError('Reviewed candidate scopes cannot be migrated through ordinary verification')
+        historical_rows = {row['requirement_id']: row for row in expected}
         expected = canonicalise_requirements(baseline_report.get('jd_profile') or {}, jd_text)['requirements']
         new_ids = [row['requirement_id'] for row in expected]
         if not new_ids or len(new_ids) != len(set(new_ids)):
             raise ValueError('B2.15 current requirement scope unavailable or ambiguous')
-        scope_refresh = {'policy': 'v312b215-jd-eligibility', 'previous_scoring_version': previous_version,
+        if previous_version not in LEGACY and set(new_ids) != set(old_ids):
+            raise ValueError('Scoring-only upgrade changed canonical requirement IDs')
+        if previous_version in LEGACY and not set(new_ids) <= set(old_ids):
+            raise ValueError('Eligibility upgrade added canonical requirements')
+        geometry = ('text','importance','atomic_group_id','group_weight_fraction')
+        if any(any(historical_rows[row['requirement_id']].get(k) != row.get(k) for k in geometry) for row in expected):
+            raise ValueError('Scoring policy upgrade changed surviving canonical requirement geometry')
+        scope_refresh = {'policy': 'v312b215-jd-eligibility' if previous_version in LEGACY else 'v312b2190-scoring-policy-only', 'previous_scoring_version': previous_version,
             'current_scoring_version': SCORING_VERSION,
             'raw_jd_sha256': hashlib.sha256(jd_text.encode('utf-8')).hexdigest(),
             'previous_count': len(old_ids), 'current_count': len(new_ids),
