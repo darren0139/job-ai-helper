@@ -760,28 +760,27 @@ def build_project_candidate_pool(
     evidence_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Merge resume projects and Project Evidence Library records."""
-    candidates_by_key: dict[str, dict[str, Any]] = {}
+    from tailoring.project_title_resolution_v1 import mutually_resolve_project
 
-    for resume_project in _find_resume_project_lists(resume_profile):
-        candidate = _resume_project_to_candidate(resume_project)
-        if not candidate:
-            continue
+    def distinct(rows, convert):
+        result = []
+        for row in rows:
+            candidate = convert(row)
+            if candidate and _normalise_project_key(candidate['title']):
+                if row.get('project_id'):
+                    candidate['project_id'] = row['project_id']
+                if candidate not in result:
+                    result.append(candidate)
+        return result
 
-        key = _normalise_project_key(candidate["title"])
-        if key:
-            candidates_by_key[key] = candidate
-
-    for item in evidence_items:
-        candidate = _evidence_item_to_candidate(item)
-        if not candidate:
-            continue
-
-        key = _normalise_project_key(candidate["title"])
-        if not key:
-            continue
-
-        if key in candidates_by_key:
-            existing = candidates_by_key[key]
+    resume_rows = distinct(_find_resume_project_lists(resume_profile), _resume_project_to_candidate)
+    library_rows = distinct(evidence_items, _evidence_item_to_candidate)
+    # Resolve the complete original pools before modifying any row's title.
+    joins = [mutually_resolve_project(candidate, library_rows, resume_rows)[0]
+             for candidate in library_rows]
+    combined = list(resume_rows)
+    for candidate, existing in zip(library_rows, joins):
+        if existing is not None:
             existing["sources"] = sorted(
                 set(existing.get("sources", []) + ["evidence_library"])
             )
@@ -811,12 +810,19 @@ def build_project_candidate_pool(
             if candidate.get("period"):
                 existing["period"] = candidate["period"]
         else:
-            candidates_by_key[key] = candidate
+            combined.append(candidate)
 
-    return sorted(
-        candidates_by_key.values(),
-        key=lambda candidate: candidate.get("title", "").lower(),
-    )
+    # The downstream ranking/writer still uses the historical key. Never let
+    # that key silently overwrite distinct projects or competing subtitles.
+    seen = set()
+    for candidate in combined:
+        key = _normalise_project_key(candidate['title'])
+        if key in seen:
+            raise ValueError('Ambiguous project titles share a ranking key: '
+                             + candidate['title'] + '. Use distinct project names before generation.')
+        seen.add(key)
+        candidate.pop('project_id', None)  # Preserve existing output schema.
+    return sorted(combined, key=lambda candidate: candidate.get('title', '').lower())
 
 
 # ---------------------------------------------------------------------------

@@ -115,6 +115,8 @@ def build_selected_project_identity_index(
 
     return {
         "version": PROJECT_IDENTITY_VERSION,
+        "_selected_identity_rows": [dict(r) for r in selected_projects if isinstance(r, dict)],
+        "_evidence_identity_rows": [dict(r) for r in evidence_items if isinstance(r, dict)],
         "selected_project_ids": {
             record["project_id"]
             for record in selected_records
@@ -141,37 +143,21 @@ def build_selected_project_identity_index(
 
 
 def match_evidence_project_to_selected(
-    item: dict[str, Any],
-    identity_index: dict[str, Any],
+    item: dict[str, Any], identity_index: dict[str, Any],
 ) -> tuple[bool, str]:
-    """Return whether an Evidence Library item belongs to a selected project."""
-    item_id = _clean_text(item.get("project_id"))
-    if (
-        item_id
-        and item_id in identity_index.get("selected_project_ids", set())
-    ):
-        return True, "project_id"
-
-    title = _clean_text(item.get("title"))
-    exact_key = _normalise_title_key(title)
-    if (
-        exact_key
-        and exact_key
-        in identity_index.get("selected_exact_title_keys", set())
-    ):
-        return True, "exact_display_title"
-
-    base_key = _base_title_key(title)
-    selected_base_counts = identity_index.get("selected_base_counts", {}) or {}
-    evidence_base_counts = identity_index.get("evidence_base_counts", {}) or {}
-
-    if (
-        base_key
-        and base_key
-        in identity_index.get("selected_base_title_keys", set())
-        and int(selected_base_counts.get(base_key, 0)) == 1
-        and int(evidence_base_counts.get(base_key, 0)) == 1
-    ):
-        return True, "unique_base_title"
-
-    return False, ""
+    """Resolve selected project support without mixing distinct title variants."""
+    from tailoring.project_title_resolution_v1 import resolve_project, full_title, title_key
+    selected = identity_index.get('_selected_identity_rows') or []
+    evidence = identity_index.get('_evidence_identity_rows') or []
+    row, method = resolve_project(item, selected)
+    if row is None:
+        return False, ''
+    # The entire evidence scope must agree with the same selection. The item
+    # may be a different dict instance from the original index, so compare
+    # full title and ID, not object identity across the caller boundary.
+    reverse, _ = resolve_project(row, evidence)
+    if reverse is None or (title_key(full_title(reverse)) != title_key(full_title(item))
+            or _clean_text(reverse.get('project_id')) != _clean_text(item.get('project_id'))):
+        return False, ''
+    return True, {'project_id': 'project_id', 'exact_title': 'exact_display_title',
+                  'unique_subtitle_alias': 'unique_base_title'}[method]

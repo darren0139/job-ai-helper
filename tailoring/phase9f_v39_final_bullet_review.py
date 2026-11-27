@@ -1,8 +1,7 @@
 """V3.9 read-only actual-DOCX bullet browser and scored source explanation.
 
 Never converts a proposed B into the selected final or claims an independent
-per-bullet native score. The only selection control selects a bullet in the
-verified chosen DOCX. Source alternatives are automatic and read-only.
+per-bullet native score. Source comparisons use frozen, read-only evidence.
 """
 from __future__ import annotations
 
@@ -113,47 +112,151 @@ def scored_wording(proposal: dict, project: str, wording: str) -> dict | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def explain_pair(*, final: dict, ranked: list[dict], proposal: dict) -> dict:
-    """Only same-project, cross-source related wordings are paired; no user picker."""
+SAME_WORK = 'Same work'
+RELATED_EVIDENCE = 'Related evidence'
+MANUAL_COMPARISON = 'Manual comparison'
+
+
+def _pair_links(proposal: dict, project: str, wording: str) -> set[str]:
+    receipt = scored_wording(proposal, project, wording)
+    return set(receipt['saved_jd_ids']) if receipt else set()
+
+
+def explain_pair(*, final: dict, ranked: list[dict], proposal: dict, mode: str = SAME_WORK) -> dict:
+    """Explain the best eligible opposite-source peer in the frozen project."""
+    from tailoring.phase9f_comparison_pair_guard_v37 import classify_comparison_pair, classify_related_pair
+    from tailoring.phase9f_same_work_selection_v37 import _confident_same_work
+
     project, wording = str(final['project']), str(final['bullet'])
     pool = [row for row in ranked if isinstance(row, dict) and
             _norm(row.get('project')) == _norm(project)]
     exact = [row for row in pool if _norm(row.get('bullet')) == _norm(wording)]
+    neutral = {'source': 'unknown', 'base': None, 'library': None, 'overlap': False}
     if len(exact) != 1:
-        return {'source': 'unknown', 'base': None, 'library': None, 'reason':
-                'This final wording has no unique exact source attribution; no alternative is inferred.'}
+        return {**neutral, 'reason': 'This final wording has no unique attribution in the frozen sources.'}
     current = exact[0]
     origins = set(current.get('sources') or [])
-    if 'Selected Base' in origins and 'Evidence Library' in origins:
-        return {'source': 'shared', 'base': current, 'library': current,
-                'reason': 'The same exact wording occurs in both frozen sources; display once, not as a contest.'}
-    from tailoring.phase9f_comparison_pair_guard_v37 import classify_related_pair
     own_base = 'Selected Base' in origins
     own_library = 'Evidence Library' in origins
+    if own_base and own_library:
+        return {**neutral, 'source': 'shared', 'base': current, 'library': current,
+                'reason': 'Both frozen sources contain this exact wording.'}
     if not own_base and not own_library:
-        return {'source': 'unknown', 'base': None, 'library': None,
-                'reason': 'A final-only wording is not enough to prove Base or Library provenance.'}
+        return {**neutral, 'reason': 'This final wording was found only in the DOCX. Its source is unknown.'}
+
     opposite = 'Evidence Library' if own_base else 'Selected Base'
-    alternatives = []
-    for other in pool:
-        if other is current or opposite not in set(other.get('sources') or []):
+    alternatives = [row for row in pool if row is not current and opposite in (row.get('sources') or [])]
+    current_ids = _pair_links(proposal, project, wording)
+    eligible = []
+    for other in alternatives:
+        peer_word = other['bullet']
+        strict = _confident_same_work(wording, peer_word)
+        if mode == SAME_WORK and not strict:
             continue
-        from tailoring.phase9f_same_work_selection_v37 import _confident_same_work
-        if not _confident_same_work(wording, str(other.get('bullet') or '')):
-            continue
-        relation = classify_related_pair(current, other) if own_base else classify_related_pair(other, current)
-        if relation.get('eligible'):
-            score = scored_wording(proposal, project, other['bullet']) or {}
-            alternatives.append((float(score.get('standalone_weighted_points') or 0), other['bullet'], other))
-    peer = sorted(alternatives, key=lambda row: (-row[0], row[1]))[0][2] if alternatives else None
-    return {'source': 'base' if own_base else 'library',
+        base, library = (current, other) if own_base else (other, current)
+        classifier = classify_related_pair if mode == SAME_WORK else classify_comparison_pair
+        relation = classifier(base, library)
+        if relation['eligible']:
+            peer_score = scored_wording(proposal, project, peer_word)
+            shared = len(current_ids & _pair_links(proposal, project, peer_word))
+            specificity = len(relation.get('shared_activities') or ())
+            points = float(peer_score['standalone_weighted_points']) if peer_score else -1.0
+            order = (-int(strict), -shared, -specificity, -points, peer_word)
+            eligible.append((order, other, relation, strict))
+
+    compare = f'{len(eligible)} eligible of {len(alternatives)} opposite-source alternatives.'
+    if eligible:
+        _, peer, relation, strict = min(eligible, key=lambda candidate: candidate[0])
+        summary = 'Overlapping evidence.' if strict else 'Complementary evidence.'
+        reason = f"{summary} {relation['reason']} {compare}"
+    else:
+        peer, strict = None, False
+        reason = f'No counterpart met the {mode.lower()} criteria. {compare}'
+    return {'source': 'base' if own_base else 'library', 'overlap': strict,
             'base': current if own_base else peer, 'library': current if own_library else peer,
-            'reason': ('A single related frozen alternative was automatically selected for explanation.' if peer else
-                       'No confidently same-work wording exists in the other frozen source.')}
+            'reason': reason}
+
+
+def _manual_comparison(st: Any, pool: list[dict], project_key: str) -> dict:
+    from tailoring.phase9f_comparison_pair_guard_v37 import classify_comparison_pair
+    from tailoring.phase9f_same_work_selection_v37 import _confident_same_work
+
+    chosen = {}
+    for key, label, source in (
+        ('base', 'Frozen Base Resume wording', 'Selected Base'),
+        ('library', 'Frozen Evidence Library wording', 'Evidence Library'),
+    ):
+        wordings = {row['bullet']: row for row in pool if source in (row.get('sources') or [])}
+        wording = st.selectbox(label, list(wordings), key=project_key + '_manual_' + key) if wordings else None
+        chosen[key] = wordings.get(wording)
+    base, library = chosen['base'], chosen['library']
+    if base is None or library is None:
+        reason = 'This project needs a frozen wording from each source for a manual comparison.'
+    elif _norm(base['bullet']) == _norm(library['bullet']):
+        reason = 'Both frozen sources contain this exact wording.'
+    else:
+        related = classify_comparison_pair(base, library)
+        if related['eligible']:
+            overlap = _confident_same_work(base['bullet'], library['bullet'])
+            reason = ('Overlapping evidence. ' if overlap else 'Complementary evidence. ') + related['reason']
+        else:
+            reason = 'Different details from the same project. The wordings have no established overlap.'
+    return {**chosen, 'source': 'manual', 'reason': reason}
+
+
+def _frozen_comparison_rows(audit: dict, ranked: list[dict], proposal: dict, catalog: dict) -> list[dict]:
+    from tailoring.phase9f_bullet_inspector import inspector_rows
+
+    rows, _ = inspector_rows({}, audit)
+    details = {}
+    for row in ranked:
+        key = (_norm(row['project']), _norm(row['bullet']))
+        details.setdefault(key, []).append(row)
+    for row in rows:
+        project, bullet = row['project'], row['bullet']
+        matches = details.get((_norm(project), _norm(bullet)), [])
+        compatible = {link['id']: link for link in matches[0].get('jd_links', [])} if len(matches) == 1 else {}
+        row['jd_links'] = [compatible.get(rid) or {'id': rid, **catalog.get(rid, {})}
+                           for rid in sorted(_pair_links(proposal, project, bullet))]
+    return rows
+
+
+def _show_shared_saved_links(st: Any, relation: dict, proposal: dict, project: str, catalog: dict) -> None:
+    if relation['base'] is None or relation['library'] is None:
+        return
+    receipts = [scored_wording(proposal, project, relation[key]['bullet']) for key in ('base', 'library')]
+    if any(receipt is None for receipt in receipts):
+        st.caption('Scores for both wordings are needed to compare shared and unique saved links.')
+        return
+    base_ids, library_ids = (set(receipt['saved_jd_ids']) for receipt in receipts)
+    for label, ids in (('Shared', base_ids & library_ids), ('Base only', base_ids - library_ids),
+                       ('Library only', library_ids - base_ids)):
+        requirements = ', '.join(str(catalog.get(rid, {}).get('text') or rid) for rid in sorted(ids))
+        st.caption(f"{label} saved JD links · {requirements or 'None'}")
+
+    from tailoring.phase6d_ranking_adapter import match_requirement_to_candidate
+
+    for rid in sorted(base_ids | library_ids):
+        entry = catalog.get(rid, {})
+        text = entry.get('text')
+        if not text:
+            continue
+        requirement = {'text': text, 'atomic_focus': text, 'importance': entry.get('importance') or 'required'}
+        for key, label, ids in (('base', 'Base Resume', base_ids), ('library', 'Evidence Library', library_ids)):
+            match = match_requirement_to_candidate(requirement=requirement,
+                                                   candidate_evidence_text=relation[key]['bullet'])
+            missing = match.get('missing_testing_modalities') or []
+            if not missing or not match.get('qa_testing_policy_version'):
+                continue
+            if (rid in ids) != (match.get('label') != 'none'):
+                continue
+            missing = ', '.join('user acceptance' if item == 'acceptance' else item for item in missing)
+            st.caption(f'{label} wording does not establish these requested test types · {missing}.')
 
 
 def _show_panel(st: Any, *, title: str, row: dict | None, proposal: dict,
-                project: str, catalog: dict, optimizer_proposal: dict | None = None) -> None:
+                project: str, catalog: dict, optimizer_proposal: dict | None = None,
+                final_wordings: set[str] | None = None) -> None:
     # Keep the V3.9 selected-final-only model; source panels are read-only.
     with st.container(border=True):
         st.markdown('##### '+title)
@@ -162,6 +265,9 @@ def _show_panel(st: Any, *, title: str, row: dict | None, proposal: dict,
             return
         wording = str(row['bullet'])
         st.write(wording)
+        if final_wordings is not None:
+            st.caption('Exact wording in the selected DOCX' if _norm(wording) in final_wordings
+                       else 'Exact wording absent from the selected DOCX')
         scored = scored_wording(proposal, project, wording)
         if scored is not None:
             st.metric('Weighted JD relevance (saved-link points)',
@@ -180,7 +286,21 @@ def _show_panel(st: Any, *, title: str, row: dict | None, proposal: dict,
             if marginal is not None:
                 st.caption(f"Marginal points in proposed slate: {marginal:.3f} (not the final-document impact).")
         else:
+            receipt = (proposal or {}).get('v38_bullet_score_receipt') or {}
+            if receipt.get('status') != 'available':
+                reason = str(receipt.get('reason') or 'No valid weighted JD receipt for this generation.')
+            else:
+                matching_project = [r for r in receipt.get('bullets') or []
+                                    if isinstance(r, dict) and _norm(r.get('project')) == _norm(project)]
+                exact = [r for r in matching_project if _norm(r.get('wording')) == _norm(wording)]
+                if not matching_project:
+                    reason = 'No score rows bound to this exact project title.'
+                elif not exact:
+                    reason = 'This exact wording was not included in the saved scored source pool.'
+                else:
+                    reason = 'Multiple score rows for this exact wording; score withheld.'
             st.caption('Weighted JD score unavailable for this exact wording or generation.')
+            st.caption('Reason: ' + reason)
         from tailoring.phase9f_wording_explanation_ui import wording_facts
         facts = wording_facts(row, catalog)
         st.caption(str(facts['words'])+' words · source: '+', '.join(row.get('sources') or []))
@@ -334,12 +454,14 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
                 st.write('• '+removed['project']+' — '+removed['bullet'])
         else:
             st.caption('No exact project bullet was removed compared with the fitted document.')
-    st.caption('Only project bullets independently read from the currently chosen DOCX are selectable. Clicking a bullet does not edit the résumé.')
+    st.caption('Automatic comparisons start from a verified DOCX bullet. Manual comparison uses the frozen Base and Library wordings.')
+    frozen_rows = _frozen_comparison_rows(audit, ranked, score_context, catalog)
     names = list(dict.fromkeys(x['project'] for x in chosen['bullets']))
     token = f'v39_final_{int(application_id)}_{context}'
     from tailoring.phase9f_multi_project_evidence_v36 import project_checkboxes
     # Scope UI preferences to the chosen document, not an index or another generation.
-    token += '_'+sha256(str(chosen['docx_sha256']).encode()).hexdigest()[:16]
+    document_key = f"{audit.get('generation_id', '')}:{chosen['docx_sha256']}"
+    token += '_'+sha256(document_key.encode()).hexdigest()[:16]
     with st.container(border=True):
         st.markdown('#### Projects to inspect')
         st.caption('Choose any number. Each checked project remains visible below.')
@@ -351,6 +473,21 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
         st.markdown('#### '+project)
         project_key = token+'_'+sha256(project.encode('utf-8')).hexdigest()[:16]
         options = [x for x in chosen['bullets'] if x['project'] == project]
+        mode = st.selectbox('Comparison mode', (SAME_WORK, RELATED_EVIDENCE, MANUAL_COMPARISON),
+                            key=project_key+'_mode')
+        final_wordings = {_norm(row['bullet']) for row in options}
+        if mode == MANUAL_COMPARISON:
+            pool = [row for row in frozen_rows if _norm(row['project']) == _norm(project)]
+            relation = _manual_comparison(st, pool, project_key)
+            st.caption(relation['reason'])
+            base, lib = st.columns(2)
+            for column, label, key in ((base, 'Base Resume', 'base'), (lib, 'Evidence Library', 'library')):
+                with column:
+                    _show_panel(st, title=label, row=relation[key], proposal=score_context,
+                                project=project, catalog=catalog, final_wordings=final_wordings)
+            _show_shared_saved_links(st, relation, score_context, project, catalog)
+            _render_detailed_comparison(st, base=relation['base'], library=relation['library'], catalog=catalog)
+            continue
         # Freeze the display labels now. Streamlit may call this formatter
         # again after the loop has moved on to another project.
         labels = {}
@@ -370,15 +507,15 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
                                  format_func=labels.__getitem__, key=widget)
         st.session_state[remembered] = selected_word
         selected = options[wordings.index(selected_word)]
-        relation = explain_pair(final=selected, ranked=ranked, proposal=score_context)
+        relation = explain_pair(final=selected, ranked=frozen_rows, proposal=score_context, mode=mode)
         st.caption(relation['reason'])
         base, lib = st.columns(2)
         with base:
             _show_panel(st, title='Base Resume', row=relation['base'], proposal=score_context,
-                        project=project, catalog=catalog, optimizer_proposal=proposal)
+                        project=project, catalog=catalog, optimizer_proposal=proposal, final_wordings=final_wordings)
         with lib:
             _show_panel(st, title='Evidence Library', row=relation['library'], proposal=score_context,
-                        project=project, catalog=catalog, optimizer_proposal=proposal)
+                        project=project, catalog=catalog, optimizer_proposal=proposal, final_wordings=final_wordings)
         selected_prefit=_verified_prefit_pair(selected=selected,chosen=chosen,receipt=prefit_receipt)
         st.markdown('**Automatic selection outcome**')
         st.caption('Selected wording: '+selected['bullet'])
@@ -400,8 +537,10 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
             other_wording = str(counterpart['bullet'])
             both_present = any(_norm(x['project']) == _norm(project) and
                                _norm(x['bullet']) == _norm(other_wording) for x in chosen['bullets'])
-            if both_present:
-                st.warning('The related alternative also appears in this selected DOCX. Same-work duplication remains; neither wording was excluded.')
+            if both_present and relation.get('overlap'):
+                st.warning('Both overlapping wordings appear in the selected DOCX.')
+            elif both_present:
+                st.caption('Both related wordings appear in the selected DOCX.')
             elif chosen['role'] == 'challenger':
                 st.caption('Related wording excluded from the verified selected challenger: '+other_wording)
                 st.caption('The optimizer selected the complete résumé, not a causal per-bullet score winner. The source receipts provide the comparative JD evidence below.')
@@ -410,5 +549,6 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
             else:
                 st.caption('The related wording is not in the fitted DOCX; no exact pre-fit rejection receipt is bound to this selected bullet.')
 
+        _show_shared_saved_links(st, relation, score_context, project, catalog)
         _render_detailed_comparison(st,base=relation['base'],library=relation['library'],catalog=catalog)
     return True

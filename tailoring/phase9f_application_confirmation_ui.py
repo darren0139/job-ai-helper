@@ -135,6 +135,7 @@ def _candidate_label(candidate: dict[str, Any]) -> str:
         f"#{int(candidate.get('rank') or 0)} · "
         f"{_clean(candidate.get('source_display_name')) or 'Immutable source'} "
         f"· {_clean(candidate.get('source_type')).replace('_', ' ').title()}"
+        f" · version {candidate.get('source_version') or '?'}"
     )
 
 
@@ -370,31 +371,54 @@ def render_phase9f_source_revision(*, application_id: int) -> None:
         st.error('A guarded Phase 9F confirmation is required.')
         return
     prefix = f"phase9f_reconfirm_{application_id}_{current['confirmation_id']}"
-    if st.button('Change tailoring base', key=prefix+'_open'):
+    from tailoring.project_title_resolution_v1 import registry_scope
+    opened = st.button('Change tailoring base', key=prefix+'_open')
+    if opened:
         st.session_state[prefix+'_editing'] = True
+        st.session_state.pop(prefix+'_scope', None)
+        st.session_state.pop(prefix+'_registry_scope', None)
     if st.session_state.get(prefix+'_editing'):
         st.subheader('New generation — confirm a different Tailor Base')
         st.caption(f'Application #{application_id} stays the same. Earlier frozen generations, documents and verification remain historical. No approval occurs here.')
-        if st.button('Analyze available immutable bases', key=prefix+'_analyze'):
-            try:
+        refresh = st.button('Analyze available immutable bases', key=prefix+'_analyze')
+        try:
+            master = get_current_global_master_resume()
+            blueprints = list(list_active_global_blueprints_read_only())
+            observed = registry_scope(master, blueprints)
+            changed = st.session_state.get(prefix+'_registry_scope') != observed
+            if changed or opened or refresh:
+                # Clear the old scope BEFORE any potentially failing operation.
+                st.session_state.pop(prefix+'_scope', None)
+                st.session_state.pop(prefix+'_registry_scope', None)
                 exact=current['confirmation_snapshot']['phase9f_a_snapshot']
-                master=get_current_global_master_resume()
                 ranking=rank_starting_resume_sources(exact_jd=exact,current_base_resume=master,
                     current_base_artifact=get_global_master_resume_artifact(master['master_version_id']) if master else None,
-                    global_blueprints=list_active_global_blueprints_read_only())
+                    global_blueprints=blueprints)
+                if ranking.get('status') != 'ranked':
+                    issues = ranking.get('integrity_issues') or []
+                    raise ValueError('Ranking '+str(ranking.get('status') or 'unavailable')+': '+
+                                     '; '.join(str(x.get('message') or x.get('code') or '') for x in issues if isinstance(x, dict)))
                 recommendation=recommend_tailoring_intensity(ranking,expected_ranking_input_fingerprint=ranking['ranking_input_fingerprint'])
                 st.session_state[prefix+'_scope']=(ranking,recommendation)
-            except (ValueError,RuntimeError) as exc:
-                st.error('Current source analysis unavailable: '+str(exc))
+                st.session_state[prefix+'_registry_scope']=observed
+            if master:
+                st.caption('Current registered Master résumé: version '+str(master.get('version_number') or '?')+
+                           ' · '+str(master.get('master_version_id') or '')[:12])
+            else:
+                st.info('No current registered Master résumé. Register or update the Master résumé before selecting it.')
+        except (ValueError, RuntimeError, KeyError, OSError, TypeError) as exc:
+            st.session_state.pop(prefix+'_scope', None)
+            st.session_state.pop(prefix+'_registry_scope', None)
+            st.error('Current source analysis unavailable: '+str(exc))
         scope=st.session_state.get(prefix+'_scope')
         if scope:
             ranking,recommendation=scope
             old=current['confirmation_snapshot']['selected_candidate']['normalized_source_fingerprint']
             candidates=[r for r in ranking.get('ranked_candidates',[]) if r['normalized_source_fingerprint']!=old]
             if not candidates:
-                st.info('No different eligible immutable base is currently available. Register a verified source before retrying.')
+                st.info('No different eligible immutable base is currently available in the freshly checked registry. Updating an editable résumé file does not automatically register a new immutable Master version. Register the updated Master résumé, then retry.')
             else:
-                selected=st.selectbox('Tailor Base for the NEW generation',candidates,format_func=_candidate_label,key=prefix+'_choice')
+                selected=st.selectbox('Tailor Base for the NEW generation',candidates,format_func=_candidate_label,key=prefix+'_choice_'+ranking['ranking_input_fingerprint'])
                 _render_selected_metrics(selected)
                 identity=selected['normalized_source_fingerprint']
                 intensity=st.radio('New generation tailoring intensity',['full','minor'],format_func=str.title,key=prefix+'_'+identity+'_intensity')

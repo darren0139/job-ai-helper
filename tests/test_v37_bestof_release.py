@@ -185,6 +185,12 @@ class BestOfRelease(unittest.TestCase):
             # The manual existing-fit trial is V3.5-only; Main now defaults to V3.7.
             st.session_state = {'phase9f_bestof_next_mode_156': 'v35-relevance'}
             st.button.return_value = False
+            st.checkbox.return_value = True
+            st.selectbox.side_effect = _selected_option
+            st.radio.side_effect = _selected_option
+            st.columns.side_effect = lambda spec, **_: [
+                MagicMock() for _ in range(spec if isinstance(spec, int) else len(spec))
+            ]
             st.expander.return_value = MagicMock()
             st.spinner.return_value = nullcontext()
             generation = {'generation_id': 'gen156', 'fit_result': fit}

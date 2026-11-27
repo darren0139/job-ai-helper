@@ -94,6 +94,77 @@ class FinalBulletReviewTests(unittest.TestCase):
         self.assertEqual(LIB, pair['library']['bullet'])
         self.assertNotIn(COVER, str(pair))
 
+    def test_related_request_tracker_is_not_a_same_work_pair(self):
+        from tailoring.phase9f_same_work_selection_v37 import _confident_same_work
+        from tailoring.phase9f_v39_final_bullet_review import RELATED_EVIDENCE
+
+        base = 'Built a full-stack IT service request tracker with JWT authentication, role-based access control, request workflows, comments, and admin-only internal notes.'
+        library = 'Built a full-stack IT service request tracker with React, TypeScript, FastAPI, and PostgreSQL, spanning application development, database design, and RESTful APIs.'
+        ranked = [
+            {'project': 'RequestFlow', 'bullet': base, 'sources': ['Selected Base']},
+            {'project': 'RequestFlow', 'bullet': library, 'sources': ['Evidence Library']},
+            {'project': 'Different project', 'bullet': library, 'sources': ['Evidence Library']},
+        ]
+        final = {'project': 'RequestFlow', 'bullet': base}
+        self.assertFalse(_confident_same_work(base, library))
+        self.assertIsNone(explain_pair(final=final, ranked=ranked, proposal={})['library'])
+        pair = explain_pair(final=final, ranked=ranked, proposal={}, mode=RELATED_EVIDENCE)
+        self.assertEqual(ranked[1], pair['library'])
+        self.assertFalse(pair['overlap'])
+        self.assertIn('1 eligible of 1', pair['reason'])
+
+    def test_manual_comparison_keeps_independent_project_widgets_and_scores(self):
+        from streamlit.testing.v1 import AppTest
+
+        second = 'Another project'
+        unrelated_base = 'Configured JWT authentication for a private admin workflow.'
+        unrelated_library = 'Designed a database schema with PostgreSQL and wrote data migration scripts.'
+        fitted = audit()
+        fitted['projects'][0].update(base=[{'text': BASE}], library=[{'text': LIB}])
+        fitted['projects'].append({'project': second, 'base': [{'text': unrelated_base}],
+                                   'library': [{'text': unrelated_library}],
+                                   'final': [{'text': unrelated_library}]})
+        current = proposal()['v38_bullet_score_receipt']
+        current['scope'] = {'generation_id': 'gen1', 'a_docx_sha256': 'a'*64, 'raw_jd_sha256': 'b'*64}
+        current['bullets'].append({'project': second, 'wording': unrelated_library,
+                                   'saved_jd_ids': ['req_c'], 'standalone_weighted_points': 12.0})
+        script = f"""
+import streamlit as st
+from tailoring.phase9f_v39_final_bullet_review import render_verified_final_bullets
+render_verified_final_bullets(st, audit={fitted!r}, result={{}}, proposal={{}},
+                              ranked=[], catalog={{}}, application_id=22,
+                              context='headless', independent_scores={current!r})
+"""
+        app = AppTest.from_string(script, default_timeout=30).run()
+        self.assertFalse(app.exception)
+        next(control for control in app.checkbox if control.label == second).check().run()
+        for control in list(app.selectbox):
+            if control.label == 'Comparison mode':
+                app.selectbox(key=control.key).set_value('Manual comparison').run()
+        self.assertFalse(app.exception)
+        keys = [control.key for control in app.selectbox]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn('12.000', [metric.value for metric in app.metric])
+        self.assertEqual(3, len(app.metric))
+        self.assertTrue(any('Weighted JD score unavailable' in caption.value for caption in app.caption))
+        self.assertTrue(any('Exact wording absent' in caption.value for caption in app.caption))
+
+    def test_partial_testing_explanation_agrees_with_saved_links(self):
+        from tailoring.phase9f_v39_final_bullet_review import _show_shared_saved_links
+
+        notes = []
+        st = types.SimpleNamespace(caption=notes.append)
+        inputs = {'base': {'bullet': BASE}, 'library': {'bullet': LIB}}
+        saved = proposal()
+        rows = saved['v38_bullet_score_receipt']['bullets']
+        rows[0].update(saved_jd_ids=[], standalone_weighted_points=0)
+        rows[1].update(saved_jd_ids=['req_a'], standalone_weighted_points=9)
+        catalog = {'req_a': {'text': 'Execute unit, integration, system and user acceptance testing',
+                             'importance': 'core'}}
+        _show_shared_saved_links(st, inputs, saved, PROJECT, catalog)
+        self.assertIn('Base Resume wording does not establish these requested test types · user acceptance, integration, system, unit.', notes)
+        self.assertIn('Evidence Library wording does not establish these requested test types · user acceptance, integration, system.', notes)
+
     def test_exact_same_wording_does_not_compete_against_itself(self):
         ranked = [{'project': PROJECT, 'bullet': LIB, 'sources': ['Selected Base','Evidence Library']}]
         pair = explain_pair(final={'project': PROJECT,'bullet': LIB}, ranked=ranked, proposal={})

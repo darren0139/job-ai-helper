@@ -12,7 +12,7 @@ import json
 import re
 
 from tailoring.phase9f_joint_resume_optimizer_v2_6 import (
-    _get_rank, _key, _rank_weights, _source_pool, _support, _points)
+    _key, _rank_weights, _source_pool, _support, _points)
 
 VERSION = 'phase9f-v312b214b-independent-bullet-scores-v1'
 # Linear inspection, NOT the optimizer's 16-candidate search budget.
@@ -68,6 +68,7 @@ def build_independent_bullet_scores(audit, projects, baseline_report, raw_jd_tex
         return unavailable('Saved project pool or ranking unavailable.')
     if any(not isinstance(r, dict) for r in ranks):
         return unavailable('Malformed saved project ranking.')
+    from tailoring.project_title_resolution_v1 import mutually_resolve_project
     names, inputs, weights = set(), [], {}
     for section in sections:
         if not isinstance(section, dict):
@@ -76,9 +77,9 @@ def build_independent_bullet_scores(audit, projects, baseline_report, raw_jd_tex
         if not isinstance(name, str) or not _key(name) or _key(name) in names:
             return unavailable('Missing or ambiguous audited project identity.')
         names.add(_key(name))
-        rank = _get_rank(projects, name)
+        rank, method = mutually_resolve_project(section, sections, ranks)
         if rank is None:
-            return unavailable(name + ': saved project ranking missing or ambiguous.')
+            return unavailable(name + ': saved project ranking missing or ambiguous (' + method + ').')
         local, error = _rank_weights(rank)
         if error:
             return unavailable(name + ': ' + error)
@@ -89,14 +90,15 @@ def build_independent_bullet_scores(audit, projects, baseline_report, raw_jd_tex
             if (not req or rid in seen or req.get('score_eligible') is False
                     or _key(match.get('requirement_text') or match.get('text')) != _key(req['text'])
                     or _key(match.get('importance')) != _key(req['importance'])):
-                return unavailable(name + ': saved ranking does not match canonical JD identity/text/importance.')
+                return unavailable(name + ': saved ranking does not match canonical JD identity/text/importance (requirement ' + str(rid or 'missing') + ').')
             seen.add(rid)
         for rid, value in local.items():
             # V3.8 uses the maximum saved weight for the same identity across
             # the audited project set, not the pre-fit evidence_value metric.
             weights[rid] = max(weights.get(rid, 0.0), value)
         pool, error = _source_pool(section, max_pool=MAX_INSPECTION_POOL)
-        if error or not pool or not section.get('final'):
+        removed = section.get('present_in_docx') is False and section.get('final') == []
+        if error or not pool or (not section.get('final') and not removed):
             return unavailable(name + ': ' + (error or 'Missing audited source/final wording.'))
         final_keys = [_key(x['text']) for x in section['final']]
         if len(final_keys) != len(set(final_keys)):

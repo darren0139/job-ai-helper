@@ -6,7 +6,9 @@ bullets. It never modifies DOCX, evidence, scoring, or SQLite.
 from __future__ import annotations
 
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
+import re
 from zipfile import BadZipFile
 from typing import Any
 
@@ -39,76 +41,103 @@ def _docx_path(fit: dict[str, Any], root: Path, application_id: int) -> tuple[Pa
     return path, ""
 
 
-def _read_exact_docx_bullets(path: Path, titles: list[str]) -> tuple[dict[str, list[str]], str]:
-    """Extract the rendered PROJECTS section; no inferred source-to-source pairing."""
-    try:
-        from docx import Document
-        paragraphs = Document(str(path)).paragraphs
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError, BadZipFile) as exc:
-        return {}, f"Fitted DOCX could not be opened: {exc}"
+_PROJECT_BULLET_MARKER = re.compile(r"^\s*(?:[•●▪‣·]\s*|-\s+)")
+
+
+def _is_project_bullet(paragraph: Any) -> bool:
+    style = _key(getattr(getattr(paragraph, "style", None), "name", ""))
+    ppr = getattr(getattr(paragraph, "_p", None), "pPr", None)
+    has_native_numbering = ppr is not None and ppr.numPr is not None
+    return bool(_PROJECT_BULLET_MARKER.match(paragraph.text) or "bullet" in style or has_native_numbering)
+
+
+def _project_bullet_text(paragraph: Any) -> str:
+    return _txt(_PROJECT_BULLET_MARKER.sub("", paragraph.text, count=1))
+
+
+def _project_bullet_paragraphs(document: Any, titles: list[str], *,
+                               strict_layout: bool = False) -> tuple[dict[str, list[Any]], str]:
+    """Resolve project heading ownership and bullet paragraphs for audit and writing."""
     name_map = {_key(title): title for title in titles}
     if len(name_map) != len(titles) or not all(name_map):
         return {}, "Generated project identities are ambiguous."
-    found = {name: [] for name in titles}
+    found: dict[str, list[Any]] = {}
+    if strict_layout:
+        from tailoring.project_title_resolution_v1 import resolve_project
+
+        known = [{"title": title} for title in titles]
     in_projects = False
     current = None
     allow_metadata = False
-    heading_count = 0
-    seen_headings = set()
     section_count = 0
-    for paragraph in paragraphs:
+    for paragraph in document.paragraphs:
         raw = str(paragraph.text or "").strip()
         if not raw:
             continue
-        if _key(raw) == "projects":
+        section = _key(raw)
+        if section == "projects":
             section_count += 1
             in_projects = True
             current = None
             allow_metadata = False
             continue
-        if in_projects and _key(raw) in {"skills", "technical skills", "certifications", "additional information"}:
+        if section in {"skills", "technical skills", "certifications", "additional information"}:
             in_projects = False
         if not in_projects:
             continue
-        stripped = raw.lstrip("•●▪‣·- \t")
-        is_bullet = raw.startswith(("•", "●", "▪", "‣", "·", "- "))
-        style = _key(getattr(getattr(paragraph, "style", None), "name", ""))
-        # Word can render a bullet through native w:numPr numbering, with no
-        # literal bullet glyph and a custom style such as "Resume Bullet".
-        # This is readback classification only: do not change fitting receipts.
-        ppr = getattr(getattr(paragraph, "_p", None), "pPr", None)
-        has_native_numbering = ppr is not None and ppr.numPr is not None
-        is_bullet = is_bullet or "bullet" in style or has_native_numbering
-        if is_bullet:
+        if _is_project_bullet(paragraph):
             if current is None:
                 return {}, "Fitted PROJECTS section has bullets without a verified project heading."
-            found[current].append(_txt(stripped))
+            found[current].append(paragraph)
             allow_metadata = False
             continue
         matched = []
         for normalized, title in name_map.items():
-            if _key(raw).startswith(normalized):
+            if section.startswith(normalized):
                 suffix = raw[len(title):]
                 if not suffix or suffix[0] in "\t |":
                     matched.append(title)
+        if strict_layout and len(matched) != 1:
+            header = re.split(r"\t|\s+\|\s+", raw, maxsplit=1)[0]
+            match, _ = resolve_project({"title": header}, known)
+            if match:
+                matched = [match["title"]]
         if len(matched) != 1:
             if current is not None and allow_metadata:
-                # Project tools / team metadata directly after its title.
-                allow_metadata = False
+                allow_metadata = False  # One project tools/team metadata paragraph.
                 continue
+            if strict_layout:
+                return {}, "The Base PROJECTS section contains text outside a recognized project."
             current = None
             continue
-        title = matched[0]
-        if title in seen_headings:
+        current = matched[0]
+        if current in found:
             return {}, "A project heading occurs twice in the fitted document."
-        # Same heading twice with no bullets should also fail.
-        seen_headings.add(title)
-        heading_count += 1
-        current = title
+        found[current] = []
         allow_metadata = True
-    if section_count != 1 or heading_count == 0:
+    if section_count != 1 or not found:
         return {}, "Fitted DOCX has no unique, recognizable PROJECTS section."
+    if strict_layout and set(found) != set(titles):
+        return {}, "The Base project headings differ from the frozen source profile."
     return found, ""
+
+
+def _read_exact_docx_bullets(path: Path | BytesIO, titles: list[str], *, present_only: bool = False,
+                            strict_layout: bool = False) -> tuple[dict[str, list[str]], str]:
+    """Extract exact rendered project wording while preserving project order."""
+    try:
+        from docx import Document
+
+        document = Document(str(path) if isinstance(path, Path) else path)
+        locations, error = _project_bullet_paragraphs(document, titles, strict_layout=strict_layout)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, BadZipFile) as exc:
+        return {}, f"DOCX could not be opened: {exc}"
+    if error:
+        return {}, error
+    return {
+        name: [_project_bullet_text(paragraph) for paragraph in locations.get(name, ())]
+        for name in titles if name in locations or not present_only
+    }, ""
 
 
 def _expected_final_counts(fit: dict[str, Any], titles: list[str]) -> tuple[dict[str, int] | None, dict[str, list[dict]], str]:
@@ -207,15 +236,15 @@ def build_final_evidence_audit(
     path, error = _docx_path(fit, repo_root, application_id)
     if path is None:
         return withheld(error)
-    actual, error = _read_exact_docx_bullets(path, names)
+    actual, error = _read_exact_docx_bullets(path, names, present_only=True)
     if error:
         return withheld(error)
-    if any(len(actual[name]) != counts[name] for name in names):
+    if any(len(actual.get(name, ())) != counts[name] for name in names):
         return withheld("The actual DOCX bullet counts disagree with saved active fitting reductions.")
     results = []
     for row in sources:
         name = row["project"]
-        bullets = actual[name]
+        bullets = actual.get(name, [])
         base = row["base_bullets"]
         library = row["library_bullets"]
         draft = row["draft_bullets"]
@@ -279,7 +308,7 @@ def build_final_evidence_audit(
                 changes.append({"action": "Project removed during fitting", "text": "", "reason": "Saved project-removal event", "saved_evidence_value": None})
             elif kind in {"compact_rewrite", "shorten", "compact"}:
                 changes.append({"action": "Compaction/rewording action", "text": "", "reason": "Saved fitting action, not an independent bullet-quality result", "saved_evidence_value": None})
-        results.append({"project": name, "base": outcome_base, "library": outcome_library,
+        results.append({"project": name, "present_in_docx": name in actual, "base": outcome_base, "library": outcome_library,
                         "final": final_rows, "changes": changes, "base_count": len(base),
                         "library_count": len(library), "final_count": len(final_rows),
                         "selection_source": row["source"], "rank": row["rank"]})
@@ -304,23 +333,36 @@ def render_final_evidence_audit(
     st: Any, *, application_id: int, projects: dict[str, Any] | None,
     fit: dict[str, Any] | None, execution: dict[str, Any] | None,
     decision: dict[str, Any] | None, generation_id: str, repo_root: Path,
+    baseline_report: dict[str, Any] | None = None, raw_jd_text: str = "",
+    native_score: dict[str, Any] | None = None, optimizer_context: dict[str, Any] | None = None,
 ) -> bool:
-    """A compact after-fit receipt, not another place to choose résumé bullets."""
+    """Render the after-fit changes and the supporting source audit."""
+    from tailoring.phase9f_project_bullet_sources_v2_3 import _bound_candidate_sources
+
+    if baseline_report is not None:
+        st.markdown("### Résumé Changes & Selection Decisions")
+    candidates, msg = _bound_candidate_sources(execution, decision)
+    if candidates is None:
+        st.caption("Saved source comparison withheld: " + msg)
+        return False
+    result = build_final_evidence_audit(
+        projects, fit, candidates, repo_root=repo_root,
+        application_id=application_id, expected_generation_id=generation_id,
+    )
+    if not result.get("verified"):
+        st.info(result.get("notice") or "The actual final document was not verified.")
+        return False
+    if baseline_report is not None:
+        from tailoring.phase9f_resume_changes import render_resume_changes
+
+        render_resume_changes(st, application_id=application_id, generation_id=generation_id,
+                              projects=projects, fit=fit, audit=result, candidates=candidates,
+                              execution=execution, decision=decision, baseline_report=baseline_report,
+                              raw_jd_text=raw_jd_text, native_score=native_score,
+                              optimizer_context=optimizer_context)
     with st.expander("Fitting and source audit (advanced)", expanded=False,
                      key=f'phase9f_final_source_audit_{application_id}_{generation_id}',
                      on_change='rerun'):
-        from tailoring.phase9f_project_bullet_sources_v2_3 import _bound_candidate_sources
-        candidates, msg = _bound_candidate_sources(execution, decision)
-        if candidates is None:
-            st.caption("Saved source comparison withheld: " + msg)
-            return False
-        result = build_final_evidence_audit(
-            projects, fit, candidates, repo_root=repo_root,
-            application_id=application_id, expected_generation_id=generation_id,
-        )
-        if not result.get("verified"):
-            st.info(result.get("notice") or "The actual final document was not verified.")
-            return False
         st.caption("Actual final DOCX verified as one page. Source selection belongs in the pre-generation stage; this section audits the result.")
         st.caption(result["notice"])
         from tailoring.phase9f_multi_project_evidence_v36 import render_multi_project_evidence

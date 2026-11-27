@@ -62,10 +62,100 @@ def detach(value, active=None, depth=0):
     return {'diagnostic_omission': 'non-JSON value', 'type': type(value).__name__}
 
 
+def _decision_trace(projects, bullets, fit, result):
+    """Explain exact wording presence or a bound recorded event at each stage."""
+    from tailoring.phase9f_lead_intro_v310 import VERSION as LEAD_VERSION
+    from tailoring.phase9f_prefit_dedupe_v39 import VERSION as DEDUPE_VERSION
+
+    by_project = {row['project']: row for row in projects}
+    prefit_events = defaultdict(list)
+    for field, version, label in (('v39_auto_dedupe', DEDUPE_VERSION, 'Same-work deduplication'),
+                                  ('v310_lead_intro', LEAD_VERSION, 'Project lead selection')):
+        receipt = obj(fit.get(field))
+        if receipt.get('version') != version:
+            continue
+        for event in rows(receipt.get('removals')):
+            if event.get('removed') and event.get('project'):
+                prefit_events[(wording(event['project']), wording(event['removed']))].append({
+                    'name': label, 'reason': event.get('selection_reason') or event.get('reason'),
+                    'retained': event.get('retained'),
+                })
+
+    active_events = defaultdict(list)
+    for event in rows(fit.get('remaining_active_reductions')):
+        for text in set(strings([event.get('removed_bullet'), event.get('merged_bullet')])
+                        + strings(event.get('source_bullets'))):
+            active_events[(wording(event.get('project')), wording(text))].append(event)
+    proposed = defaultdict(list)
+    comparison = obj(obj(result.get('proposal')).get('source_comparison'))
+    for project in rows(comparison.get('projects')):
+        for candidate in rows(project.get('candidates')):
+            proposed[(wording(project.get('project')), wording(candidate.get('text')))].append(candidate)
+
+    def stage(name, certainty, details):
+        return {'stage': name, 'certainty': certainty, 'details': details}
+
+    def presence(name, count):
+        detail = ('This exact wording is absent.' if count == 0 else
+                  f'Exact wording occurrences · {count}' if count is not None else 'No matching stage receipt.')
+        return stage(name, 'Observed' if count is not None else 'Unavailable', detail)
+
+    trace = []
+    for row in bullets:
+        key = (row['project'], row['wording'])
+        project = by_project[row['project']]
+        sources = [label for label in row['sources'] if not label.startswith('saved allocation:')]
+        selected = row['saved_selected']
+        steps = [
+            stage('Frozen evidence', 'Observed' if sources else 'Unavailable',
+                  ', '.join(sources) if sources else 'No exact Base or Library source established.'),
+            stage('Candidate admission', 'Recorded' if selected is not None else 'Unavailable',
+                  'An exact wording was present in saved allocation.' if selected is not None
+                  else 'No unique allocation record for this wording.'),
+            stage('Project ranking', 'Recorded' if project['saved_rank'] is not None else 'Unavailable',
+                  {'rank': project['saved_rank'], 'recommendation': project['saved_recommendation'],
+                   'reason': project['saved_rank_reason']}),
+            stage('Initial selection', 'Recorded' if selected is not None else 'Unavailable',
+                  {'selected': selected, 'reason': row['saved_reason'],
+                   'strong_links': row['saved_supported_ids'], 'weak_links': row['saved_weak_ids']}),
+            presence('Generation or fitter caller', row['generated_or_caller']),
+        ]
+        if row['generated_or_caller'] and row['fitter_start'] == 0:
+            events = prefit_events[key]
+            steps.append(stage('Preparation', 'Recorded' if events else 'Cause unknown',
+                               events or 'Exact wording was present at the caller and absent at fitter start. No matching preparation event was recorded.'))
+        else:
+            steps.append(stage('Preparation', 'Unavailable', 'No exact wording change established at this boundary.'))
+        steps.append(presence('Fitter input', row['fitter_start']))
+        fitting = active_events[key]
+        steps.append(stage('Fitting actions', 'Recorded' if fitting else 'Cause unknown',
+                           fitting or 'No active fitting action names this exact wording.'))
+        steps.extend((presence('Saved fitted wording', row['saved_fitted']),
+                      presence('Actual DOCX readback', row['actual_readback'])))
+        choices = proposed[key]
+        considered = len(choices) == 1 and type(choices[0].get('selected_for_proposed_b')) is bool
+        steps.append(stage('Optimizer challenger', 'Recorded' if considered else 'Unavailable',
+                           {'proposed': choices[0]['selected_for_proposed_b']} if considered else
+                           'No uniquely scoped proposal record for this wording.'))
+        trace.append({'project': key[0], 'wording': key[1], 'stages': steps})
+
+    native = [stage('Native optimizer A/B', 'Recorded' if result else 'Unavailable',
+                    {'status': result.get('status'), 'stage': result.get('verification_stage'),
+                     'reason': result.get('reason'), 'a_score': result.get('a_score'),
+                     'b_score': result.get('b_score'), 'required_core_losses': result.get('hard_regressed_ids'),
+                     'trials': [{k: trial.get(k) for k in ('trial', 'status', 'verification_stage', 'reason')}
+                                for trial in rows(result.get('v35_trial_receipts'))]})]
+    winner = result.get('winner') if result.get('status') == 'verified' else None
+    native.append(stage('Optimizer document selection', 'Recorded' if winner else 'Unavailable',
+                        winner or 'No verified optimizer selection.'))
+    return {'wordings': trace, 'whole_document': native}
+
+
 def build_report(*, application_id, generation_id, projects=None, fit=None, audit=None,
                  result=None, run_mode=None, baseline_report=None, raw_jd_text=None,
                  candidate_pool=None, historical_optimizer=None, phase8=None,
-                 docx_bytes=None, optimizer_history=None, independent_scores=None):
+                 docx_bytes=None, optimizer_history=None, independent_scores=None,
+                 optimizer_scope=None):
     projects, fit, audit, result = map(obj, (projects, fit, audit, result))
     gen = str(generation_id or '')
     fit_bound = bool(gen and fit.get('generation_id') == gen)
@@ -224,6 +314,14 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
         and independent_scope.get('raw_jd_sha256') == jd_hash)
     independent_display = independent if independent_bound else {
         'status':'unavailable', 'reason': independent.get('reason') or 'No identity-bound standalone saved-link receipt supplied.'}
+    trace_scope = obj(optimizer_scope) or obj(result.get('_exact_trial_scope'))
+    trace_bound = bool(audit_bound and jd_hash and doc_hash == audit['docx_sha256']
+                       and trace_scope.get('application_id') == application_id
+                       and trace_scope.get('generation_id') == gen
+                       and trace_scope.get('jd_sha256') == jd_hash
+                       and trace_scope.get('docx_sha256') == doc_hash)
+    decision_trace = _decision_trace(project_table, bullet_table, fit if fit_bound else {},
+                                     result if trace_bound and result.get('status') != 'not_run' else {})
     notes += ['Historical mode rows are document-bound metadata only; no current comparison or exact JD authority is inferred.',
               'Standalone points use saved links; zero is not evidence of zero native relevance.',
               'Exact wording presence is not proof of causal lineage. Rewrites/fusions may change wording.',
@@ -233,6 +331,7 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
     return detach({'schema':VERSION,'application_id':application_id,'generation_id':gen,'fit_bound':fit_bound,
         'actual_readback_available':audit_bound,'docx_sha256':doc_hash,'jd_sha256':jd_hash,'notes':notes,
         'project_stages':project_table,'bullet_stages':bullet_table,'saved_allocation_decisions':decisions,
+        'decision_trace':decision_trace,
         'active_reductions':active,'native_phase8':native,'native_gap_clues':gaps,
         'independent_bullet_scores':independent_display, 'historical_optimizer_records':historical_rows,
         'optimizer':{'mode':run_mode,'status':result.get('status'),'reason':result.get('reason'),'winner':result.get('winner'),
@@ -261,12 +360,14 @@ def from_bundle(bundle, *, phase8=None, docx_bytes=None):
 
 
 def render_diagnostics(st, *, application_id, generation_id, projects, fit, audit, result, run_mode,
-                       baseline_report, raw_jd_text, context, optimizer_history=None, independent_scores=None):
+                       baseline_report, raw_jd_text, context, optimizer_history=None, independent_scores=None,
+                       optimizer_scope=None):
     """Only a projection of already-loaded receipts. Never run a comparison."""
     try:
         report=build_report(application_id=application_id,generation_id=generation_id,projects=projects,
             fit=fit,audit=audit,result=result,run_mode=run_mode,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
-            optimizer_history=optimizer_history, independent_scores=independent_scores)
+            optimizer_history=optimizer_history, independent_scores=independent_scores,
+            optimizer_scope=optimizer_scope)
         st.markdown('#### B2.14b-4 — Optimizer evidence trail')
         st.caption('Read-only · saved selection signals are not native per-bullet scores · no new optimizer or model calls.')
         st.caption(report['optimizer']['version_comparison'])

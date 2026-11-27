@@ -22,6 +22,43 @@ class DiagnosticsTests(unittest.TestCase):
         p=r['project_stages'][0]; self.assertEqual([p[x] for x in ('generated_or_caller','fitter_start','saved_fitted','actual_readback')],[2,2,1,1])
         l=next(x for x in r['bullet_stages'] if x['wording']==LOST); self.assertEqual(l['outcome'],'Active exact-wording removal recorded'); self.assertEqual(l['active_removal_reasons'],['saved reason'])
         self.assertEqual(len(r['native_gap_clues'][0]['historical_saved_link_candidates']),1)
+    def test_preparation_disappearance_needs_an_exact_saved_event(self):
+        from tailoring.phase9f_lead_intro_v310 import VERSION as LEAD
+        from tailoring.phase9f_prefit_dedupe_v39 import VERSION as DEDUPE
+
+        k = inputs()
+        fit = k['fit']
+        fit['fitting_input_snapshot']['prepared_initial_state']['projects']['recommended_projects'] = [project(TEXT)]
+        fit['remaining_active_reductions'] = []
+        fit['v39_auto_dedupe'] = {'version': DEDUPE, 'status': 'checked_no_duplicates', 'removals': []}
+
+        def preparation():
+            trace = build_report(**k)['decision_trace']
+            row = next(row for row in trace['wordings'] if row['wording'] == LOST)
+            return next(stage for stage in row['stages'] if stage['stage'] == 'Preparation')
+
+        self.assertEqual(preparation()['certainty'], 'Cause unknown')
+        fit['v310_lead_intro'] = {'version': LEAD, 'removals': [
+            {'project': 'P', 'removed': LOST, 'retained': TEXT, 'reason': 'saved lead decision'},
+        ]}
+        stage = preparation()
+        self.assertEqual(stage['certainty'], 'Recorded')
+        self.assertEqual(stage['details'][0]['name'], 'Project lead selection')
+        self.assertEqual(stage['details'][0]['reason'], 'saved lead decision')
+
+    def test_optimizer_trace_requires_same_generation_jd_and_document(self):
+        k = inputs()
+        k['result'] = {'status': 'withheld', 'verification_stage': 'materialize_and_render_b',
+                       'reason': 'Saved malformed challenger'}
+        k['optimizer_scope'] = {'application_id': 158, 'generation_id': G,
+                                'jd_sha256': sha256(JD.encode()).hexdigest(),
+                                'docx_sha256': sha256(DOC).hexdigest()}
+        scope = build_report(**k)['decision_trace']['whole_document']
+        self.assertEqual(scope[0]['details']['stage'], 'materialize_and_render_b')
+        self.assertEqual(scope[1]['certainty'], 'Unavailable')
+        k['optimizer_scope']['docx_sha256'] = 'foreign'
+        self.assertEqual(build_report(**k)['decision_trace']['whole_document'][0]['certainty'], 'Unavailable')
+
     def test_receipt_identity(self):
         for key,val in [('application_id',99),('generation_id','other'),('raw_jd_text','different'),('docx_bytes',b'changed')]:
             k=inputs(); k[key]=val; self.assertIsNone(build_report(**k)['native_phase8'])

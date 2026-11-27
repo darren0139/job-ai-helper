@@ -279,77 +279,32 @@ def build_joint_optimization(
 
 
 def _bullet_locations(document: Any, expected: list[dict]) -> list[list[Any]]:
-    """Locate bullet paragraphs by exact final audit text and unique headings.
+    """Locate and verify every saved bullet in its original order and project."""
+    from tailoring.phase9f_final_evidence_comparison_v2_4 import (
+        _project_bullet_paragraphs, _project_bullet_text,
+    )
 
-    Fail closed if template format cannot be paired without ambiguity.
-    """
-    titles = [r["project"] for r in expected]
-    matches = {_key(t): t for t in titles}
-    if len(matches) != len(titles):
-        raise ValueError("Duplicate selected project titles.")
-    found: dict[str, list[Any]] = {x: [] for x in titles}
-    seen = set()
-    in_projects = False
-    current = None
-    allow_metadata = False
-    section_count = 0
-    for p in document.paragraphs:
-        raw = (p.text or "").strip()
-        if not raw:
-            continue
-        if _key(raw) == "projects":
-            section_count += 1
-            in_projects = True
-            current = None
-            allow_metadata = False
-            continue
-        if in_projects and _key(raw) in {"skills", "technical skills", "certifications", "additional information"}:
-            in_projects = False
-        if not in_projects:
-            continue
-        stripped = raw.lstrip("•●▪‣·- \t")
-        stylename = _key(getattr(getattr(p, "style", None), "name", ""))
-        is_bullet = raw.startswith(("•", "●", "▪", "‣", "·", "- ")) or "list bullet" in stylename
-        if is_bullet:
-            if current is None:
-                raise ValueError("Unmatched bullet in project section.")
-            found[current].append(p)
-            allow_metadata = False
-            continue
-        headings = []
-        for normalized, title in matches.items():
-            if _key(raw).startswith(normalized):
-                suffix = raw[len(title):]
-                if not suffix or suffix[0] in "\t |":
-                    headings.append(title)
-        if len(headings) != 1:
-            if current and allow_metadata:
-                allow_metadata = False
-                continue
-            current = None
-            continue
-        title = headings[0]
-        if title in seen:
-            raise ValueError("Duplicate project heading in source DOCX.")
-        seen.add(title)
-        current = title
-        allow_metadata = True
-    if section_count != 1 or seen != set(titles):
+    titles = [row["project"] for row in expected]
+    found, problem = _project_bullet_paragraphs(document, titles)
+    if problem:
+        raise ValueError(problem)
+    if set(found) != set(titles):
         raise ValueError("Final DOCX PROJECTS headings differ from verified audit.")
     for row in expected:
-        actual = [_text(p.text.lstrip("•●▪‣·- \t")) for p in found[row["project"]]]
+        actual = [_project_bullet_text(paragraph) for paragraph in found[row["project"]]]
         if actual != row["before"]:
             raise ValueError("Exact saved final bullets do not match DOCX paragraphs.")
-    return [found[row["project"]] for row in expected]
+    return [found[title] for title in titles]
 
 
 def _replace_content(paragraph: Any, text: str) -> None:
     """Preserve paragraph + numbering formatting; do not edit non-project sections."""
-    raw = paragraph.text
-    prefix_match = re.match(r"^(\s*[•●▪‣·]|\s*-)(\s*)", raw)
-    prefix = prefix_match.group(0) if prefix_match else ""
-    if not prefix and "list bullet" not in _key(paragraph.style.name):
+    from tailoring.phase9f_final_evidence_comparison_v2_4 import _PROJECT_BULLET_MARKER, _is_project_bullet
+
+    if not _is_project_bullet(paragraph):
         raise ValueError("Unrecognized bullet formatting; refusing to write.")
+    prefix_match = _PROJECT_BULLET_MARKER.match(paragraph.text)
+    prefix = prefix_match.group(0) if prefix_match else ""
     runs = list(paragraph.runs)
     if not runs:
         raise ValueError("Bullet paragraph is missing text runs.")

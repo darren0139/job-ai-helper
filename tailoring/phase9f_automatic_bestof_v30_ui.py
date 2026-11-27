@@ -184,7 +184,7 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                             projects:dict|None, fit:dict|None, baseline_report:dict,
                             raw_jd_text:str, execution:dict|None, decision:dict|None,
                             repo_root:Path, trusted_offline_trial:dict|None=None,
-                            trusted_offline_bonus:dict|None=None) -> None:
+                            trusted_offline_bonus:dict|None=None) -> dict | None:
     """Render comparison plus explicitly supplied, read-only receipt bindings."""
     from tailoring.phase9f_automatic_bestof_v30 import evaluate_auto,hold,verify_fitted_a_against_baselines
     from tailoring.phase9f_project_bullet_sources_v2_3 import _bound_candidate_sources
@@ -504,6 +504,14 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
             independent_scores=independent_scores)
     else:
         st.caption('JD points unavailable: '+str(independent_scores.get('reason') or 'Independent score inputs unavailable.'))
+        from tailoring.phase9f_bullet_inspector import inspector_evidence
+        from tailoring.phase9f_v39_final_bullet_review import render_verified_final_bullets
+        rows, _, catalog = inspector_evidence(calc={}, audit=audit, result={},
+            baseline_report=baseline_report, raw_jd_text=raw_jd_text, projects=projects)
+        render_verified_final_bullets(st, audit=audit, result=result, proposal={},
+            ranked=rows, catalog=catalog, application_id=int(application_id), context=context,
+            repo_root=repo_root, prefit_receipt=projects.get('_v39_auto_dedupe'),
+            independent_scores=independent_scores)
     if not has_selection_receipt and (trusted_offline_trial is not None or trusted_offline_bonus is not None):
         from tailoring.phase9f_v364_decision_explorer import _render_offline_receipts
         from tailoring.phase9f_v365_jd_evidence import requirement_catalog
@@ -587,6 +595,12 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     else:
         st.caption('Comparison with starting documents is unavailable. '+
                    resume_terms(starting.get('reason') or 'This generation has no independent native-document receipt.'))
+    diagnostic_scope = {
+        'application_id': int(application_id),
+        'generation_id': str(generation_id),
+        'docx_sha256': audit['docx_sha256'],
+        'jd_sha256': hashlib.sha256(raw_jd_text.encode()).hexdigest(),
+    } if same_policy and scope and baseline_report.get('raw_jd_text') == raw_jd_text else None
     with st.expander('Advanced fitting and optimizer receipt', expanded=False):
         try:
             history=list_bestof_mode_history(application_id,generation_id,audit['docx_sha256'])
@@ -603,8 +617,10 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         _render_b214b4_diagnostics(st, application_id=application_id, generation_id=generation_id,
             projects=projects, fit=fit, audit=audit, result=result, run_mode=run_mode,
             baseline_report=baseline_report, raw_jd_text=raw_jd_text, context=context,
-            optimizer_history=history, independent_scores=independent_scores)
+            optimizer_history=history, independent_scores=independent_scores,
+            optimizer_scope=diagnostic_scope)
         # END B2.14b-4 read-only diagnostics
+    return {'result': result, 'scope': diagnostic_scope} if diagnostic_scope else None
 
 
 def freeze_reviewed_slate(proposal: dict) -> tuple[dict | None, str]:

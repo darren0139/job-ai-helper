@@ -140,6 +140,41 @@ class JointOptimizationV26Tests(TestCase):
             self.assertEqual([x for x in after if x.startswith("•")], ["• C", "• D"])
             self.assertEqual([x for x in before if x.startswith("•")], ["• A", "• B"])
 
+    def test_native_numbered_project_bullet_audit_and_writer_agree(self):
+        from docx import Document
+        from docx.enum.style import WD_STYLE_TYPE
+        from tailoring.phase9f_final_evidence_comparison_v2_4 import _read_exact_docx_bullets
+
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "numbered.docx"
+            target = Path(directory) / "candidate.docx"
+            doc = Document()
+            style = doc.styles.add_style("Resume Bullet", WD_STYLE_TYPE.PARAGRAPH)
+            doc.add_paragraph("PROJECTS")
+            doc.add_paragraph("RequestFlow")
+            paragraph = doc.add_paragraph("Built request workflows.", style=style)
+            paragraph._p.get_or_add_pPr().get_or_add_numPr().get_or_add_numId().val = 1
+            doc.add_paragraph("SKILLS")
+            doc.save(source)
+            before, problem = _read_exact_docx_bullets(source, ["RequestFlow"])
+            self.assertFalse(problem)
+            plan = {"status": "candidate", "changed": True, "projects": [
+                {"project": "RequestFlow", "before": before["RequestFlow"],
+                 "after": ["Built REST API endpoints."]},
+            ]}
+            digest = sha256(source.read_bytes()).hexdigest()
+            write_optimized_docx(source_path=source, audit_sha=digest, proposal=plan, destination=target)
+            self.assertEqual(digest, sha256(source.read_bytes()).hexdigest())
+            self.assertEqual(({"RequestFlow": ["Built REST API endpoints."]}, ""),
+                             _read_exact_docx_bullets(target, ["RequestFlow"]))
+            para = Document(target).paragraphs[2]
+            self.assertEqual("Resume Bullet", para.style.name)
+            self.assertIsNotNone(para._p.pPr.numPr)
+            plan["projects"][0]["before"] = ["Incorrect saved wording."]
+            with self.assertRaisesRegex(ValueError, "Exact saved final bullets"):
+                write_optimized_docx(source_path=source, audit_sha=digest, proposal=plan,
+                                     destination=target.with_stem("invalid"))
+
     def test_existing_candidate_file_is_never_overwritten(self):
         a, p = fixture()
         result = build_joint_optimization(a, p, evaluator=evaluator)

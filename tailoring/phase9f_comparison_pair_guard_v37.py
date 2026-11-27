@@ -54,3 +54,31 @@ def classify_related_pair(base: dict, library: dict) -> dict:
     return {'eligible': bool(eligible), 'status': status,
             'shared_activities': sorted(common),
             'reason': str(review.get('reason') or 'No grounded activity overlap.')}
+
+
+_DELIVERABLE = re.compile(
+    r"^(?:built|created|developed|implemented|designed|delivered)\s+(?:(?:a|an|the)\s+)?"
+    r"(.+?)(?:\s+(?:with|using|featuring|spanning|to)\s+|[,.;]|$)",
+    re.I,
+)
+_GENERAL = {"full", "stack", "web", "mobile", "new", "application", "app", "platform", "system", "tool"}
+
+
+def _deliverable(wording: str) -> tuple[str, ...]:
+    match = _DELIVERABLE.match(wording.strip())
+    words = tuple(re.findall(r"[a-z0-9]+", match[1].casefold())) if match else ()
+    return words if len(set(words) - _GENERAL) >= 3 else ()
+
+
+def classify_comparison_pair(base: dict, library: dict) -> dict:
+    """Allow a grounded shared deliverable for read-only related inspection."""
+    relation = classify_related_pair(base, library)
+    if relation['eligible'] or relation['status'] in {
+        'unavailable', 'different_projects', 'source_unverified',
+    }:
+        return relation
+    deliverable = _deliverable(base['bullet'])
+    if deliverable and deliverable == _deliverable(library['bullet']):
+        return {**relation, 'eligible': True, 'status': 'shared_deliverable',
+                'reason': 'Both describe building the same deliverable. Each wording supplies different details about it.'}
+    return relation

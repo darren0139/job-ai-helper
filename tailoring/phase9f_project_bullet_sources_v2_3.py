@@ -126,6 +126,7 @@ def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_
         if not k or k in ranked_map:
             return {"projects": [], "notice": "Saved ranked project identities are ambiguous."}
         ranked_map[k] = row
+    from tailoring.project_title_resolution_v1 import mutually_resolve_project
     selected_keys = set()
     output = []
     for project in generated:
@@ -133,10 +134,12 @@ def build_project_bullet_source_view(projects: dict[str, Any] | None, candidate_
         if not key or key in selected_keys:
             return {"projects": [], "notice": "Generated project identities are ambiguous."}
         selected_keys.add(key)
-        source = index.get(key)
-        rank = ranked_map.get(key)
+        source, source_method = mutually_resolve_project(project, generated, list(index.values()))
+        rank, rank_method = mutually_resolve_project(project, generated, list(ranked_map.values()))
         if source is None or rank is None:
-            return {"projects": [], "notice": "A selected project's saved source/ranking identity cannot be resolved."}
+            return {"projects": [], "notice": "A selected project's saved source/ranking identity cannot be resolved: "
+                    + _clean(project.get('display_title') or project.get('title'))
+                    + ' (source=' + source_method + ', rank=' + rank_method + ').'}
         saved_project_id = _clean(project.get("project_id"))
         saved_rank_id = _clean(rank.get("project_id"))
         if saved_project_id and saved_rank_id and saved_project_id != saved_rank_id:

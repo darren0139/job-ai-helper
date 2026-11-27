@@ -8824,11 +8824,12 @@ elif page == "Application Sessions":
                     st, "Open Best-of résumé comparison",
                     value=bool(pending_bestof or saved_bestof), key=open_key,
                 )
+                score_optimizer_context = None
                 if st.session_state.get(f"phase9f_auto_bestof_pending_{int(current_application_id)}") or bestof_visible:
                     st.caption("Best-of reads its saved trial receipts. A starting-document comparison missing from that trial "
                                "does not invalidate the separately bound Phase 8 verification above; the receipts are not interchangeable.")
                     from tailoring.phase9f_automatic_bestof_v30_ui import render_automatic_bestof
-                    render_automatic_bestof(
+                    score_optimizer_context = render_automatic_bestof(
                         st,
                         application_id=int(current_application_id),
                         generation_id=str(
@@ -8862,6 +8863,10 @@ elif page == "Application Sessions":
                               if isinstance(phase9e_context, dict) else None),
                     generation_id=score_preferred_generation_id,
                     repo_root=Path.cwd(),
+                    baseline_report=report,
+                    raw_jd_text=score_phase8_raw_jd_text,
+                    native_score=active_score_projection,
+                    optimizer_context=score_optimizer_context,
                 )
 
 
