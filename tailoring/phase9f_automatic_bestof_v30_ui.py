@@ -602,7 +602,8 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         from tailoring.phase9f_optimizer_diagnostics_v312b214b4 import render_diagnostics as _render_b214b4_diagnostics
         _render_b214b4_diagnostics(st, application_id=application_id, generation_id=generation_id,
             projects=projects, fit=fit, audit=audit, result=result, run_mode=run_mode,
-            baseline_report=baseline_report, raw_jd_text=raw_jd_text, context=context)
+            baseline_report=baseline_report, raw_jd_text=raw_jd_text, context=context,
+            optimizer_history=history, independent_scores=independent_scores)
         # END B2.14b-4 read-only diagnostics
 
 

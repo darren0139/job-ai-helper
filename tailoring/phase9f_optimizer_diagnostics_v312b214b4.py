@@ -65,7 +65,7 @@ def detach(value, active=None, depth=0):
 def build_report(*, application_id, generation_id, projects=None, fit=None, audit=None,
                  result=None, run_mode=None, baseline_report=None, raw_jd_text=None,
                  candidate_pool=None, historical_optimizer=None, phase8=None,
-                 docx_bytes=None):
+                 docx_bytes=None, optimizer_history=None, independent_scores=None):
     projects, fit, audit, result = map(obj, (projects, fit, audit, result))
     gen = str(generation_id or '')
     fit_bound = bool(gen and fit.get('generation_id') == gen)
@@ -201,7 +201,32 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
         freshness = 'different scorer versions; historical optimizer receipt is not comparable to the reference'
     else:
         freshness = 'scorer versions match only; cache validity not established'
-    notes += ['Exact wording presence is not proof of causal lineage. Rewrites/fusions may change wording.',
+    # History was loaded by the caller for this application, generation and DOCX.
+    # It is not an active comparison, and its exact JD has not been revalidated.
+    historical_rows = []
+    if audit_bound:
+        for entry in rows(optimizer_history):
+            item = {k: entry.get(k) for k in ('Mode','Request','Status','Scorer','Execution','Saved UTC')}
+            if not item['Mode'] or item['Status'] in (None, 'not_run'):
+                continue
+            scorer = item['Scorer']
+            item['version_comparison'] = ('unknown: missing scorer version' if not scorer or not reference else
+                'different scorer versions; historical only' if scorer != reference else
+                'scorer versions match only; cache validity not established')
+            historical_rows.append(item)
+    independent = obj(independent_scores)
+    independent_scope = obj(independent.get('scope'))
+    independent_bound = bool(audit_bound and jd_hash and independent.get('status') == 'available'
+        and independent.get('native_score_claim') is False
+        and independent.get('optimizer_search_performed') is False
+        and independent_scope.get('generation_id') == gen
+        and independent_scope.get('a_docx_sha256') == doc_hash == audit.get('docx_sha256')
+        and independent_scope.get('raw_jd_sha256') == jd_hash)
+    independent_display = independent if independent_bound else {
+        'status':'unavailable', 'reason': independent.get('reason') or 'No identity-bound standalone saved-link receipt supplied.'}
+    notes += ['Historical mode rows are document-bound metadata only; no current comparison or exact JD authority is inferred.',
+              'Standalone points use saved links; zero is not evidence of zero native relevance.',
+              'Exact wording presence is not proof of causal lineage. Rewrites/fusions may change wording.',
               'No per-bullet native score or counterfactual score is calculated.',
               'Unrecorded modes/trials and unavailable stages stay unknown; no re-render or rescore is performed.',
               'Reference scorer is from the supplied Phase 8 or baseline report, not independently established as current.']
@@ -209,6 +234,7 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
         'actual_readback_available':audit_bound,'docx_sha256':doc_hash,'jd_sha256':jd_hash,'notes':notes,
         'project_stages':project_table,'bullet_stages':bullet_table,'saved_allocation_decisions':decisions,
         'active_reductions':active,'native_phase8':native,'native_gap_clues':gaps,
+        'independent_bullet_scores':independent_display, 'historical_optimizer_records':historical_rows,
         'optimizer':{'mode':run_mode,'status':result.get('status'),'reason':result.get('reason'),'winner':result.get('winner'),
             'verification_stage':result.get('verification_stage'),'scoring_version':version,'reference_scoring_version':reference,
             'version_comparison':freshness,'historical_summary':historical_optimizer,
@@ -235,15 +261,27 @@ def from_bundle(bundle, *, phase8=None, docx_bytes=None):
 
 
 def render_diagnostics(st, *, application_id, generation_id, projects, fit, audit, result, run_mode,
-                       baseline_report, raw_jd_text, context):
+                       baseline_report, raw_jd_text, context, optimizer_history=None, independent_scores=None):
     """Only a projection of already-loaded receipts. Never run a comparison."""
     try:
         report=build_report(application_id=application_id,generation_id=generation_id,projects=projects,
-            fit=fit,audit=audit,result=result,run_mode=run_mode,baseline_report=baseline_report,raw_jd_text=raw_jd_text)
+            fit=fit,audit=audit,result=result,run_mode=run_mode,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
+            optimizer_history=optimizer_history, independent_scores=independent_scores)
         st.markdown('#### B2.14b-4 — Optimizer evidence trail')
         st.caption('Read-only · saved selection signals are not native per-bullet scores · no new optimizer or model calls.')
         st.caption(report['optimizer']['version_comparison'])
-        st.caption('Recorded mode: '+str(run_mode or 'unknown')+' · '+str(report['optimizer']['status'] or 'unavailable'))
+        st.caption('Active comparison context: '+str(run_mode or 'unknown')+' · '+str(report['optimizer']['status'] or 'unavailable'))
+        if report['historical_optimizer_records']:
+            st.write('Historical optimizer records — not current score or reuse authority')
+            st.dataframe(report['historical_optimizer_records'],use_container_width=True,hide_index=True)
+        else:
+            st.caption('No document-bound historical mode records supplied.')
+        standalone=report['independent_bullet_scores']
+        if standalone.get('status') == 'available':
+            st.write('Standalone saved-link points — historical ranking, not native Job Match')
+            st.dataframe([{k:r.get(k) for k in ('project','wording','standalone_weighted_points','marginal_in_proposal_points')} for r in rows(standalone.get('bullets'))],use_container_width=True,hide_index=True)
+        else:
+            st.caption('Standalone points unavailable: '+str(standalone.get('reason')))
         if report['project_stages']:
             st.dataframe(report['project_stages'],use_container_width=True,hide_index=True)
         if report['bullet_stages']:
