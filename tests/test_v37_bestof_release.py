@@ -206,7 +206,7 @@ class BestOfRelease(unittest.TestCase):
                 st.button.side_effect = lambda label, **_: label.startswith('Compare the existing')
                 render_automatic_bestof(st, **args)
                 evaluate.assert_called_once()
-                self.assertEqual(evaluate.call_args.kwargs['source_docx'], source)
+                self.assertTrue(Path(evaluate.call_args.kwargs['source_docx']).samefile(source))
                 self.assertEqual(evaluate.call_args.kwargs['optimizer'], build_certified_optimization)
                 self.assertNotIn('guarded_floor_binding', evaluate.call_args.kwargs)
                 get_generation.assert_called_once_with(156, 'gen156')

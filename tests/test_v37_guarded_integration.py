@@ -86,7 +86,7 @@ class GuardedCandidateTests(unittest.TestCase):
             return output
 
         def score(**kw):
-            candidate = kw['docx_path'] != self.source
+            candidate = not Path(kw['docx_path']).samefile(self.source)
             result = self.score(kw['expected_sha256'], candidate=candidate, strength=2 if candidate and weaker else 4)
             if not candidate and stale_score:
                 result['canonical_requirements'][0]['evidence'][0]['text'] = self.old

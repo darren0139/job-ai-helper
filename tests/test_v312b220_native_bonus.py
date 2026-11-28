@@ -166,7 +166,7 @@ class NativeBonusTests(unittest.TestCase):
 
             def score(**kwargs):
                 actual = native_document_score(**kwargs)
-                if kwargs['docx_path'] != path:
+                if not Path(kwargs['docx_path']).samefile(path):
                     actual['deterministic_alignment_score'] = base['stable_analysis']['deterministic_alignment_score'] - 1
                 return actual
 
