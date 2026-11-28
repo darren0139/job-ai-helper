@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
+from hashlib import sha256
 from typing import Any
 
 from llm import ask_json
@@ -2027,10 +2028,12 @@ IMPORTANT:
         max_projects=max_projects,
     )
 
+    competition_trace: list[dict[str, Any]] = []
     ranked_rows, complementary_selection_debug = (
         select_complementary_projects(
             ranked_rows=ranked_rows,
             selected_count=selected_count,
+            competition_trace=competition_trace,
         )
     )
     (
@@ -2306,6 +2309,14 @@ IMPORTANT:
             "structural_cleanup": deterministic_rule_debug,
             "phase6b_ranking": phase6b_ranking_debug,
             "complementary_selection": complementary_selection_debug,
+            "project_selection_competition": {
+                "schema": "phase9f-project-selection-competition-v1",
+                "jd_sha256": sha256(raw_jd_text.encode("utf-8")).hexdigest(),
+                "candidate_profile_fingerprint": (phase6b_ranking_debug.get("candidate_profile") or {}).get("fingerprint"),
+                "scoring_version": stable_analysis.get("scoring_version"),
+                "ranking_version": phase6b_ranking_debug.get("ranking_version"),
+                "steps": competition_trace,
+            },
             "bullet_allocation": bullet_allocation,
         },
         "projects_to_remove_or_deprioritize": _build_projects_to_remove(

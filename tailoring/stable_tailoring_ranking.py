@@ -1883,6 +1883,7 @@ def select_complementary_projects(
     *,
     ranked_rows: list[dict[str, Any]],
     selected_count: int,
+    competition_trace: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Greedily select a stable project set with unique-coverage bonuses."""
     remaining = [deepcopy(row) for row in ranked_rows]
@@ -1937,6 +1938,30 @@ def select_complementary_projects(
         )
 
         chosen, selection_score, unique_bonus, overlap_penalty = near_tied[0]
+        if competition_trace is not None:
+            tie_positions = {item[0].get("project_id"): position
+                             for position, item in enumerate(near_tied, 1)}
+            competition_trace.append({
+                "step": len(selected) + 1,
+                "near_tie_margin": NEAR_TIE_MARGIN,
+                "covered_requirement_ids_before_selection": sorted(covered_requirements),
+                "candidates": [
+                    {
+                        "project_id": row.get("project_id"),
+                        "title": row.get("display_title") or row.get("title"),
+                        "base_score": row.get("final_score"),
+                        "unique_coverage_bonus": round(bonus, 4),
+                        "overlap_penalty": round(penalty, 4),
+                        "selection_score": round(adjusted, 4),
+                        "near_tie_order": tie_positions.get(row.get("project_id")),
+                        "selected": row is chosen,
+                        "decision": ("selected" if row is chosen else
+                                     "outside_near_tie_window" if row.get("project_id") not in tie_positions
+                                     else "lower_near_tie_order"),
+                    }
+                    for row, adjusted, bonus, penalty in candidates
+                ],
+            })
         chosen["selection_score"] = round(selection_score, 4)
         chosen["unique_coverage_bonus"] = round(unique_bonus, 4)
         chosen["overlap_penalty"] = round(overlap_penalty, 4)

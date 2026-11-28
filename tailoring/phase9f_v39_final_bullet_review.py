@@ -454,7 +454,7 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
                 st.write('• '+removed['project']+' — '+removed['bullet'])
         else:
             st.caption('No exact project bullet was removed compared with the fitted document.')
-    st.caption('Automatic comparisons start from a verified DOCX bullet. Manual comparison uses the frozen Base and Library wordings.')
+    st.caption('Comparison is read-only. Same work looks for overlapping accomplishments. Related evidence includes complementary work in the same project. Manual comparison lets you choose exact frozen wordings from both sources.')
     frozen_rows = _frozen_comparison_rows(audit, ranked, score_context, catalog)
     names = list(dict.fromkeys(x['project'] for x in chosen['bullets']))
     token = f'v39_final_{int(application_id)}_{context}'
@@ -509,6 +509,13 @@ def render_verified_final_bullets(st: Any, *, audit: dict, result: dict, proposa
         selected = options[wordings.index(selected_word)]
         relation = explain_pair(final=selected, ranked=frozen_rows, proposal=score_context, mode=mode)
         st.caption(relation['reason'])
+        if relation['base'] is None or relation['library'] is None:
+            project_pool = [row for row in frozen_rows if _norm(row['project']) == _norm(project)]
+            available_sources = {source for row in project_pool for source in row.get('sources', [])}
+            if {'Selected Base', 'Evidence Library'} <= available_sources:
+                mode_key = project_key+'_mode'
+                st.button('Switch to manual comparison', key=project_key+'_switch_manual',
+                          on_click=st.session_state.__setitem__, args=(mode_key, MANUAL_COMPARISON))
         base, lib = st.columns(2)
         with base:
             _show_panel(st, title='Base Resume', row=relation['base'], proposal=score_context,

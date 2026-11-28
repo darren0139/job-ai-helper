@@ -5794,33 +5794,16 @@ elif page == "Application Sessions":
                         "Bullet quality validation found no warnings."
                     )
 
-                with st.expander("Projects to remove or deprioritize"):
-                    st.json(project_result.get("projects_to_remove_or_deprioritize", []))
+                from tailoring.phase9f_decision_explorer_ui import render_project_tailoring_explorers
 
-
-                with st.expander("All candidate projects scored"):
-                    st.json(project_result.get("candidate_project_ranking", []))
-
-                allocation_debug = (
-                    project_result.get(
-                        "deterministic_rule_debug",
-                        {},
-                    ).get(
-                        "bullet_allocation",
-                        {},
-                    )
+                render_project_tailoring_explorers(
+                    st, project_result,
+                    st.session_state.get(f"project_candidate_pool_{current_application_id}") or [],
+                    application_id=current_application_id,
+                    generation_id=st.session_state.get(tailored_generation_id_key),
                 )
-                if allocation_debug:
-                    with st.expander(
-                        "Phase 6B.2 bullet allocation"
-                    ):
-                        st.json(allocation_debug)
-
                 with st.expander("Unsupported JD skills"):
                     st.json(project_result.get("unsupported_jd_skills", []))
-
-                with st.expander("Full tailored projects JSON"):
-                    st.json(project_result)
 
             if skills_result:
                 st.write("### Recommended Skills Section")

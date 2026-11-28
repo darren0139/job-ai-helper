@@ -138,6 +138,7 @@ class IndependentScoreTests(unittest.TestCase):
             def warning(self,*args,**kw):pass
             def container(self,**kw):return nullcontext()
             def columns(self,n):return [nullcontext() for _ in range(n)]
+            def button(self,*args,**kw):return False
             def selectbox(self,label,options,**kw):return options[0]
             def radio(self,label,options,**kw):
                 self.labels.extend(kw['format_func'](x) for x in options);return options[0]

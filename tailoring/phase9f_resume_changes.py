@@ -2,7 +2,6 @@
 from collections import Counter
 from hashlib import sha256
 from io import BytesIO
-import json
 
 from tailoring.phase9f_final_evidence_comparison_v2_4 import _read_exact_docx_bullets
 from tailoring.phase9f_v39_final_bullet_review import scored_wording
@@ -144,60 +143,6 @@ def render_resume_changes(st, *, application_id, generation_id, projects, fit, a
             and current.get('jd_sha256') == sha256(raw_jd_text.encode()).hexdigest()
             and current.get('base_docx_sha256') == artifact['sha256']
             and current.get('final_docx_sha256') == audit['docx_sha256'])
-    if comparable:
-        key = 'deterministic_alignment_score'
-        st.caption(f"Job Match · Base {current['base'][key]} → Fitted {current['final'][key]}")
-    else:
-        st.caption('A comparable Base and fitted Job Match receipt is unavailable.')
-    before = sum(row['status'] != 'Added' for row in changes)
-    after = sum(row['status'] != 'Removed' for row in changes)
-    before_bullets = sum(row['base_count'] for row in changes)
-    after_bullets = sum(row['final_count'] for row in changes)
-    st.write(f'Projects {before} → {after} · Project bullets {before_bullets} → {after_bullets}')
-    bullets = Counter()
-    for row in changes:
-        for bullet in row['bullets']:
-            bullets[bullet['status']] += bullet['count']
-    st.caption(' · '.join(f'{label} {count}' for label, count in sorted(bullets.items())))
-
-    prefix = f"phase9f_resume_changes_{application_id}_{generation_id}_{audit['docx_sha256'][:16]}"
-    project = st.selectbox('Filter projects', [row['project'] for row in changes],
-                           index=None, placeholder='All projects', key=prefix+'_project')
-    types = sorted(set(bullets) | {row['status'] for row in changes})
-    change_types = st.multiselect('Filter changes', types, key=prefix+'_type')
-    catalog = requirement_catalog(baseline_report, projects)
-    for row in changes:
-        if project and row['project'] != project:
-            continue
-        visible = [item for item in row['bullets']
-                   if not change_types or row['status'] in change_types or item['status'] in change_types]
-        if change_types and row['status'] not in change_types and not visible:
-            continue
-        with st.expander(f"{row['project']} · {row['status']} · {row['base_count']} → {row['final_count']} bullets"):
-            metadata = [', '.join(row['sources'])]
-            if row['rank'] is not None:
-                metadata.append('Saved rank '+str(row['rank']))
-            if row['recommendation']:
-                metadata.append(str(row['recommendation']))
-            st.caption(' · '.join(metadata))
-            if row['reason']:
-                st.write(row['reason'])
-            for item in visible:
-                count = f" ×{item['count']}" if item['count'] > 1 else ''
-                st.markdown(f"**{item['status']}{count}**")
-                st.write(item['wording'])
-                points = item['saved_link_points']
-                details = list(item['sources'])
-                details.append(f'{points:.3f} saved-link points' if points is not None else 'Saved-link points unavailable')
-                if item['saved_jd_ids']:
-                    details.extend(catalog.get(rid, {}).get('text') or rid for rid in item['saved_jd_ids'])
-                st.caption(' · '.join(details))
-                if item['lineage']:
-                    st.caption('Recorded source wordings')
-                    for original in item['lineage']['source_bullets']:
-                        st.write(original)
-
-
     from tailoring.phase9f_optimizer_diagnostics_v312b214b4 import build_report
 
     context = optimizer_context or {}
@@ -213,20 +158,77 @@ def render_resume_changes(st, *, application_id, generation_id, projects, fit, a
         'details': ('Approved' if current.get('generation_status') == 'approved' else 'Draft') if comparable
                    else 'No matching current approval receipt is available in this view.',
     })
-    with st.expander('Detailed selection and fitting trace'):
-        for stage in trace['whole_document']:
-            st.caption(stage['stage'] + ' · ' + stage['certainty'])
-            st.write(stage['details'])
-        wordings = [item for item in trace['wordings'] if project is None or item['project'] == project]
-        if wordings:
-            index = st.selectbox('Inspect a wording', range(len(wordings)), key=prefix + '_trace_wording',
-                                 format_func=lambda i: wordings[i]['project'] + ' · ' + wordings[i]['wording'])
-            for stage in wordings[index]['stages']:
-                st.caption(stage['stage'] + ' · ' + stage['certainty'])
-                st.write(stage['details'])
+
+    from tailoring.phase9f_decision_explorer_ui import (
+        build_explorer, render_bullet_ranking, render_project_ranking, render_raw_json,
+    )
+
+    prefix = f"phase9f_resume_changes_{application_id}_{generation_id}_{audit['docx_sha256'][:16]}"
+    catalog = requirement_catalog(baseline_report, projects)
+    explorer = build_explorer(projects, candidates, report=report, fit=fit)
+    st.caption(f"Saved decisions for fitted generation {generation_id[:8]} · DOCX {audit['docx_sha256'][:12]}.")
+    overview, project_ranking, bullet_ranking, detail = st.tabs(
+        ['Changes overview', 'Project ranking', 'Bullet ranking', 'Detailed decision trace'])
+    with overview:
+        if comparable:
+            key = 'deterministic_alignment_score'
+            st.caption(f"Job Match · Base {current['base'][key]} → Fitted {current['final'][key]}")
         else:
-            st.caption('No saved wordings in the selected project trace.')
-        st.download_button('Download résumé decision trace (JSON)',
-                           data=json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False).encode('utf-8'),
-                           file_name=f'phase9f_app_{application_id}_{generation_id[:8]}_resume_changes.json',
-                           mime='application/json', key=prefix+'_download', on_click='ignore')
+            st.caption('Current Base and fitted Job Match are unavailable for this view. The ranking and decisions shown here are saved records.')
+        _render_changes_overview(st, changes, catalog, prefix)
+    with project_ranking:
+        render_project_ranking(st, explorer, key=prefix+'_projects')
+    with bullet_ranking:
+        render_bullet_ranking(st, explorer, catalog, key=prefix+'_bullets')
+    with detail:
+        _render_trace(st, trace, prefix)
+    render_raw_json(st, report, key=prefix, label='Download résumé decision trace (JSON)',
+                    filename=f'phase9f_app_{application_id}_{generation_id[:8]}_resume_changes.json')
+
+
+def _render_changes_overview(st, changes, catalog, prefix):
+    before = sum(row['status'] != 'Added' for row in changes)
+    after = sum(row['status'] != 'Removed' for row in changes)
+    before_bullets = sum(row['base_count'] for row in changes)
+    after_bullets = sum(row['final_count'] for row in changes)
+    st.write(f'Projects {before} → {after} · Project bullets {before_bullets} → {after_bullets}')
+    items = [(row, bullet) for row in changes for bullet in row['bullets']]
+    project = st.selectbox('Filter projects', [row['project'] for row in changes],
+                           index=None, placeholder='All projects', key=prefix+'_project')
+    types = sorted({bullet['status'] for _, bullet in items} | {row['status'] for row in changes})
+    selected = st.multiselect('Filter changes', types, key=prefix+'_type')
+    visible = [(row, item) for row, item in items if (project is None or project == row['project'])
+               and (not selected or row['status'] in selected or item['status'] in selected)]
+    st.dataframe([{'Project': row['project'], 'Project status': row['status'], 'Base count': row['base_count'],
+                   'Fitted count': row['final_count'], 'Saved rank': row['rank']}
+                  for row in changes if (project is None or project == row['project'])
+                  and (not selected or row['status'] in selected or any(r is row for r, _ in visible))],
+                 hide_index=True)
+    if visible:
+        st.dataframe([{'Project': row['project'], 'Wording': item['wording'], 'Change': item['status'],
+                       'Count': item['count'], 'Source': ', '.join(item['sources']),
+                       'Independent saved-link points': item['saved_link_points'],
+                       'Saved JD links': ', '.join(catalog.get(rid, {}).get('text') or rid
+                                                   for rid in item['saved_jd_ids'] or ()),
+                       'Recorded source wording': '\n'.join(item['lineage']['source_bullets']) if item['lineage'] else None}
+                      for row, item in visible], hide_index=True)
+
+
+def _render_trace(st, trace, prefix):
+    from tailoring.phase9f_decision_explorer_ui import render_trace_stage
+
+    with st.expander('Saved whole-document decisions'):
+        for stage in trace['whole_document']:
+            render_trace_stage(st, stage)
+    projects = sorted({item['project'] for item in trace['wordings']})
+    project = st.selectbox('Trace project', projects, key=prefix+'_trace_project', index=None)
+    wordings = [item for item in trace['wordings'] if project is None or item['project'] == project]
+    if not wordings:
+        st.caption('No saved wordings in the selected project trace.')
+        return
+    index = st.selectbox('Inspect a wording', range(len(wordings)), key=prefix+'_trace_wording', index=None,
+                         format_func=lambda i: wordings[i]['project'] + ' · ' + wordings[i]['wording'])
+    if index is not None:
+        with st.expander('Saved lifecycle stages', expanded=True):
+            for stage in wordings[index]['stages']:
+                render_trace_stage(st, stage)
