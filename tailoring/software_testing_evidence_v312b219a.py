@@ -5,6 +5,10 @@ Return None for genuine game QA so the existing game-domain tiers remain intact.
 from __future__ import annotations
 import re
 
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import (
+    GENERAL_SOFTWARE_TESTING_VERSION, NATIVE_POLICY_ACTIVE,
+)
+
 VERSION = 'v312b219a-software-testing-v1'
 # Match explicit test modalities, not the standalone word 'system' or 'integration'.
 _MODE_PATTERNS = {
@@ -43,6 +47,57 @@ _THIRD_PARTY = re.compile(r'\b(?:the\s+team|qa\s+team|another\s+team|colleagues?
 _HARDWARE = re.compile(r'\b(?:hardware|electrical|mechanical|laboratory|clinical|chemical|materials?\s+testing|usability\s+research)\b', re.I)
 _SOFTWARE = re.compile(r'\b(?:software|applications?|apps?|code|api|web|python|java|javascript|pytest|junit|test\s+suite|ci|ci/cd|github\s+actions)\b', re.I)
 _QUALIFIED = re.compile(r'\b(?:certif(?:ied|ication)|years?\s+of|production|commercial|professional|expert|lead(?:ership)?|manage(?:ment)?|strategy|governance|compliance|iso\s*\d+|collaborat\w*|work\s+with|partner\w*|qa\s+team|test\s+plans?|test\s+cases?|defect\s+(?:investigation|verification|management)|bug\s+reproduction|reproduc\w*)\b', re.I)
+
+
+# Extend verbs only for general software-testing requirements. Named test
+# modalities still need the previous explicit action-to-modality evidence.
+_SOFTWARE_SCOPE = r'(?:software|applications?|apps?|frontend|front-end|backend|back-end|web|api)'
+_GENERAL_TEST_OBJECT = (
+    r'(?:(?:the|a|new|full|existing|automated)\s+)*'
+    r'(?:(?:' + _SOFTWARE_SCOPE + r'|' + _MODE + r')(?:\s+and\s+' + _SOFTWARE_SCOPE + r')?\s+)?'
+    + _TEST
+)
+_GENERAL_AUTHOR = re.compile(r'\b' + _AUTHOR_WORD + r'\s+' + _GENERAL_TEST_OBJECT + r'\b', re.I)
+_GENERAL_EXECUTE = re.compile(
+    r'\b' + _EXEC_WORD + r'\s+' + _GENERAL_TEST_OBJECT
+    + r'\b|\btested\s+(?:the\s+)?' + _SOFTWARE_SCOPE + r'\b', re.I,
+)
+_GENERAL_AUTOMATION = re.compile(
+    r'^\s*(?:[-*•]\s*)?(?:(?:I|we|independently|jointly)\s+)?automated\s+(?:(?:' + _SOFTWARE_SCOPE + r'\s+)?builds\s*,\s*(?:and\s+)?){0,2}'
+    + _GENERAL_TEST_OBJECT + r'\b', re.I,
+)
+_GENERAL_SOFTWARE_CONTEXT = re.compile(
+    r'\b(?:' + _SOFTWARE_SCOPE + r'|pytest|junit)\b', re.I,
+)
+_GENERAL_REQUIREMENT = re.compile(
+    r'\b' + _SOFTWARE_SCOPE + r'\s+testing\b'
+    r'|\b(?:write|author|create|develop|implement|design|execute|run|perform|conduct|automate)\s+'
+    + _GENERAL_TEST_OBJECT + r'\b'
+    r'|\btest\s+(?:the\s+)?' + _SOFTWARE_SCOPE + r'\b',
+    re.I,
+)
+_GENERAL_BLOCKED_WORK = re.compile(
+    r'\b(?:automated|authored|implemented|ran|executed|wrote)\b[^.;,]{0,90}\b(?:tests?|testing)\b'
+    r'[^.;,]{0,24}\b(?:were|was)\s+(?:not|never)\s+(?:run|executed|performed)\b'
+    r'|\b(?:tests?|testing)\b[^.;,]{0,35}\b(?:written|executed|authored|run)\s+by\s+'
+    r'(?:the\s+)?(?:qa|another|external|vendor|third.party|teammates?)\b',
+    re.I,
+)
+
+
+def _general_testing_activity(line):
+    # A test-related verb needs a software context. CI is context for an
+    # explicit test action, but CI configuration alone supplies no such action.
+    if _GENERAL_BLOCKED_WORK.search(line):
+        return []
+    if not (_GENERAL_SOFTWARE_CONTEXT.search(line) or _SOFTWARE.search(line)):
+        return []
+    actions = []
+    for pattern, name in ((_GENERAL_AUTHOR, 'authored'), (_GENERAL_EXECUTE, 'executed'),
+                          (_GENERAL_AUTOMATION, 'automated')):
+        if pattern.search(line):
+            actions.append(name)
+    return actions
 
 
 def modalities(text: str) -> set[str]:
@@ -130,6 +185,15 @@ def evaluate_software_testing(requirement: dict, evidence: str) -> dict | None:
             # plain software-testing request, actual action is transferable;
             # don't infer full lifecycle or process coverage.
             broad_qa = bool(re.search(r'\b(?:qa|quality\s+assurance)\b',focus,re.I))
+            if NATIVE_POLICY_ACTIVE and not qualified and not broad_qa and _GENERAL_REQUIREMENT.search(focus):
+                general_actions = _general_testing_activity(line)
+                if general_actions:
+                    rows.append({
+                        **_decision('transferable', 'explicit_general_software_testing_activity', requested, set()),
+                        'qa_testing_policy_version': GENERAL_SOFTWARE_TESTING_VERSION,
+                        'software_testing_activities': general_actions,
+                    })
+                    continue
             concrete = action and bool(supported or _SOFTWARE.search(line))
             label = 'transferable' if concrete and not qualified and not broad_qa else ('weak' if action else 'none')
             rows.append(_decision(label,'software_testing_activity_bounded_to_requested_scope' if label != 'none' else 'testing_activity_not_demonstrated',requested,set()))

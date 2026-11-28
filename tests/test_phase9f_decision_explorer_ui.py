@@ -4,10 +4,13 @@ import unittest
 from contextlib import nullcontext
 
 from tailoring.phase9f_decision_explorer_ui import (
-    build_explorer, render_project_tailoring_explorers, render_raw_json,
+    _related_wording_pairs, _wording_pair, build_explorer, render_project_tailoring_explorers, render_raw_json,
+)
+from tailoring.phase9f_decision_summary_ui import (
+    bullet_lifecycle, coverage_maximum, project_calculations, project_requirements, render_project_summary,
 )
 from tailoring.phase9f_prefit_dedupe_v39 import VERSION as PREFIT_VERSION
-from tailoring.stable_tailoring_ranking import select_complementary_projects
+from tailoring.stable_tailoring_ranking import PROJECT_RANKING_VERSION, select_complementary_projects
 
 
 def fixture():
@@ -45,9 +48,16 @@ class FakeStreamlit:
         self.downloads = {}
         self.raw = []
         self.tables = []
+        self.markup = []
 
     def expander(self, *args, **kwargs):
         return nullcontext()
+
+    def container(self, *args, **kwargs):
+        return nullcontext()
+
+    def html(self, markup):
+        self.markup.append(markup)
 
     def json(self, value, **kwargs):
         self.raw.append(value)
@@ -86,6 +96,7 @@ class DecisionExplorerTests(unittest.TestCase):
             self.assertEqual([json.loads(data) for data, _ in st.downloads.values()], expected)
             self.assertTrue(all(action == 'ignore' for _, action in st.downloads.values()))
         self.assertNotEqual(runs[0].tables, runs[1].tables)
+        self.assertNotEqual(runs[0].markup, runs[1].markup)
         self.assertEqual(runs[0].downloads, runs[1].downloads)
         self.assertEqual(projects, original)
 
@@ -129,6 +140,54 @@ class DecisionExplorerTests(unittest.TestCase):
         self.assertEqual(1, project['Allocated'])
         self.assertEqual('Excluded by portfolio before fitting', bullet['Portfolio decision'])
         self.assertEqual('Allocated', bullet['Decision'])
+
+    def test_visual_requirements_use_saved_weights_and_retain_unmatched(self):
+        match = {'requirement_id': 'matched', 'requirement_text': '<database>',
+                 'importance': 'core', 'group_weight_fraction': 0.5,
+                 'match_label': 'transferable', 'coverage_points': 9.9}
+        unmatched = {'requirement_id': 'unmatched', 'match_label': 'none'}
+        rank = {'ranking_version': PROJECT_RANKING_VERSION, 'ranking_owner': 'python_deterministic_evidence_mapping',
+                'requirement_matches': [match],
+                'project_relevance': {'requirement_relationships': [match, unmatched]},
+                'deterministic_coverage_score': 40.8, 'support_score': 18, 'final_score': 100,
+                'unique_coverage_bonus': 12, 'overlap_penalty': 0, 'selection_score': 112}
+        self.assertEqual(coverage_maximum(rank, match), 18)
+        self.assertIsNone(coverage_maximum(rank, {**match, 'group_weight_fraction': None}))
+        self.assertIsNone(coverage_maximum({**rank, 'ranking_version': 'legacy'}, match))
+        self.assertEqual(project_requirements(rank), [match, unmatched])
+        self.assertEqual(project_calculations(rank), [
+            'Base = min(100, round(2 × 40.8 + 18)) = 100', 'Adjusted = 100 + 12 − 0 = 112'])
+        st = FakeStreamlit()
+        row = {'Project': 'Tool', 'Rank': 1, 'Base ranking score': 100, 'Selection score': 112,
+               'rank_receipt': rank, 'Decision': 'Selected', 'Portfolio decision': None}
+        render_project_summary(st, row, [match, {**match, 'importance': 'unknown'}])
+        self.assertIn('9.9 / 18 points', st.markup[0])
+        self.assertIn('>9.9 points<', st.markup[0])
+        self.assertIn('&lt;database&gt;', st.markup[0])
+        self.assertEqual(st.markup[0].count('class="ds-bar"'), 1)
+
+    def test_preparation_lineage_and_zero_points_remain_distinct(self):
+        row = {'Project': 'Tool', 'Wording': 'Original', 'Source': 'Selected Base',
+               'Caller': 'Present', 'Prepared': 'Absent', 'Final DOCX': 'Absent',
+               'Optimizer proposal': 'Considered, excluded', 'receipt': {'selected': True},
+               'Pre-fit deduplication points': 9, 'Independent saved-link points': 0,
+               'preparation_lineage': {'retained': 'Alternative', 'removed_saved_evidence_points': 9,
+                                       'retained_saved_evidence_points': 9}}
+        retained = {'Project': 'Tool', 'Wording': 'Alternative', 'Source': 'Evidence Library',
+                    'Final DOCX': 'Present', 'Independent saved-link points': 9, 'trace': []}
+        missing = {**row, 'trace': [{'stage': 'Preparation', 'certainty': 'Cause unknown', 'details': 'Unavailable'}]}
+        self.assertEqual(_wording_pair(missing, [retained]), [])
+        self.assertEqual(bullet_lifecycle(missing)[0], ('removed', 'Absent from fitted DOCX'))
+        recorded = {**row, 'trace': [{'stage': 'Preparation', 'certainty': 'Recorded',
+                                      'details': [{'retained': 'Alternative', 'reason': 'Recorded tie-break'}]}]}
+        headline, timeline = bullet_lifecycle(recorded)
+        self.assertEqual(headline, ('removed', 'Removed before fitting'))
+        self.assertIn(('na', 'Not present during fitting'), timeline)
+        self.assertEqual(_wording_pair(recorded, [retained]), [
+            ('Discarded wording', 'Original', 'Selected Base', 9, 0),
+            ('Recorded retained wording', 'Alternative', 'Evidence Library', 9, 9)])
+        self.assertEqual(list(_related_wording_pairs(retained, [recorded, retained])),
+                         [_wording_pair(recorded, [retained])])
 
     def test_competition_capture_does_not_change_selection_or_original_debug(self):
         ranks = [{'title': 'One', 'project_id': 'one', 'final_score': 42},

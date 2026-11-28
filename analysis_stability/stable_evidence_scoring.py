@@ -18,7 +18,6 @@ The AI may still extract the JD and match rows, but this module owns:
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -40,6 +39,9 @@ from analysis_stability.jd_section_inference import (
     infer_semantic_list_heading,
 )
 from tailoring.fullstack_direct_evidence_v312a14 import independent_fullstack_implementation
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import (
+    B222D1, NATIVE_POLICY_ACTIVE as _V312A17_RUNTIME_ACTIVE,
+)
 from tailoring.capability_taxonomy import (
     evaluate_capability_evidence,
     evaluate_evidence,
@@ -78,21 +80,11 @@ def temporary_v312a14_candidate_scope():
 # The startup setting is read ONCE so a session cannot mix scoring identities.
 # B2.15 changes the default requirement eligibility scope. The existing
 # explicit legacy startup rollback retains the prior parser/scorer contract.
-_V312A17_POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
-_V312A17_POLICY_TOKEN = "v312a17_fullstack_single_row"
-_V312A17_RUNTIME_ACTIVE = (
-    os.environ.get(_V312A17_POLICY_ENV, _V312A17_POLICY_TOKEN).strip() == _V312A17_POLICY_TOKEN
-)
 _V312A17_POLICY_VERSION = "v312a17-fullstack-positive-single-row-v1"
 
-# Requirement recognition is part of snapshot/A-B reproducibility identity.
+# Recognition is part of the snapshot and native A/B identity.
 _BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
-SCORING_VERSION = (
-    _BASE_SCORING_VERSION + "-v312b215-jd-eligibility-v312a17-fullstack-single-row"
-    if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION
-) + '-v312b219a-software-testing-v1' + (
-    '-v312b219b-technology-database-v1' if _V312A17_RUNTIME_ACTIVE else ''
-)
+SCORING_VERSION = B222D1 if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION + '-v312b219a-software-testing-v1'
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"

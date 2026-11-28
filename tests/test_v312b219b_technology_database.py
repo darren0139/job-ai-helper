@@ -53,3 +53,54 @@ class TechnologyPolicyTests(unittest.TestCase):
     def test_registered_successor(self):
         self.assertEqual(policy_path(B219A,B219B),(B219A,B219B));self.assertEqual(policy_path(B215,B219B),(B215,B219A,B219B));self.assertIsNone(policy_path(B219B,B219A));self.assertIsNone(policy_path(B219A,B219B+'-unknown'))
         for old in LEGACY:self.assertEqual(policy_path(old,B219B),(old,B215,B219A,B219B))
+
+
+class ProjectTechnologyIntegrationTests(unittest.TestCase):
+    def test_frozen_project_and_exact_bullet_share_technology_matching(self):
+        from tailoring.project_technology_evidence_v312b219b2 import VERSION
+        from tailoring.stable_tailoring_ranking import (
+            build_bullet_evidence_priorities, rank_projects_deterministically,
+        )
+        from unittest.mock import patch
+
+        requirements = [
+            {'requirement_id': 'frontend', 'importance': 'preferred',
+             'text': 'Proficiency in one or more frontend framework (HTML5/Angular/React JS)'},
+            {'requirement_id': 'database', 'importance': 'preferred',
+             'text': 'Proficiency in database will be an added advantage'},
+            {'requirement_id': 'backend', 'importance': 'core',
+             'text': 'Proficiency in one or more backend languages (Java/.NET/Python/PHP)'},
+        ]
+        react = 'Built the user interface with React.'
+        database = 'Implemented PostgreSQL schema migrations with Alembic.'
+        fastapi = 'Developed backend API endpoints with FastAPI.'
+        owned = [react, database, fastapi]
+        candidates = [
+            {'title': 'Application', 'evidence_library_evidence': {'bullets': owned, 'tools': ['FastAPI']}},
+            {'title': 'Script', 'evidence_library_evidence': {'tools': ['Python'], 'bullets': ['Used an API.']}},
+        ]
+        with patch('tailoring.stable_tailoring_ranking.PROJECT_TECHNOLOGY_ENABLED', True):
+            ranked, _ = rank_projects_deterministically(
+                ranked_rows=[{'title': x['title']} for x in candidates],
+                project_candidates=candidates, stable_analysis={'canonical_requirements': requirements})
+        by_name = {rank['title']: rank for rank in ranked}
+        application = by_name['Application']
+        matches = {m['requirement_id']: m for m in application['requirement_matches']}
+        self.assertEqual({k: v['match_label'] for k,v in matches.items()}, {'frontend': 'direct', 'database': 'direct'})
+        self.assertTrue(all(m['technology_evidence_version'] == VERSION for m in matches.values()))
+        self.assertEqual(by_name['Script']['requirement_matches'][0]['match_label'], 'transferable')
+        rows = build_bullet_evidence_priorities(
+            bullets=owned + ['Built a monitoring dashboard with Grafana.'], ranking_row=application)
+        self.assertEqual([r['supported_requirement_ids'] for r in rows],
+                         [['frontend'], ['database'], [], []])
+        self.assertEqual(build_bullet_evidence_priorities(
+            bullets=['Used an API.'], ranking_row=by_name['Script'])[0]['supported_requirement_ids'], [])
+
+    def test_historical_technology_rank_keeps_its_frozen_link_resolution(self):
+        from tailoring.stable_tailoring_ranking import build_bullet_evidence_priorities
+        wording = 'Configured the project using Python.'
+        rank = {'requirement_matches': [{'requirement_id': 'backend', 'match_label': 'transferable', 'coverage_points': 19.8,
+                  'requirement_text': 'Proficiency in one or more backend languages (Java/.NET/Python/PHP)',
+                  'evidence_snippets': ['Python']}]}
+        self.assertEqual(build_bullet_evidence_priorities(
+            bullets=[wording], ranking_row=rank)[0]['supported_requirement_ids'], ['backend'])

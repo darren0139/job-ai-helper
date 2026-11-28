@@ -12,7 +12,7 @@ from analysis_stability.stable_evidence_scoring import (
     requirement_is_score_eligible,
 )
 from job_discovery.matching import build_profile_evidence_context
-from tests.b213_policy_support import ACTIVE_B219B, ROLLBACK_B219A, EXPECTED_SCORING_VERSION
+from tests.b213_policy_support import ACTIVE_B222D1, ROLLBACK_B219A, EXPECTED_SCORING_VERSION
 
 
 FIXTURE_PATH = (
@@ -139,7 +139,7 @@ class TQD2732RealJobRegressionTests(unittest.TestCase):
         # does not alter any row. No full implementation claim is permitted.
         self.assertEqual(baseline["deterministic_alignment_score"], 12)
         self.assertEqual(SCORING_VERSION, EXPECTED_SCORING_VERSION)
-        self.assertIn(SCORING_VERSION, (ACTIVE_B219B, ROLLBACK_B219A))
+        self.assertIn(SCORING_VERSION, (ACTIVE_B222D1, ROLLBACK_B219A))
         for key, expected in {
             "deterministic_alignment_score": 20,
             "required_core_coverage_score": 14,

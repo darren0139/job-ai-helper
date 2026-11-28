@@ -616,5 +616,23 @@ class StableTailoringRankingTests(unittest.TestCase):
         self.assertEqual(first["skill_lines"], second["skill_lines"])
 
 
+
+class ProjectRankingAttributionTests(unittest.TestCase):
+    def test_project_match_does_not_assign_the_project_grade_to_its_first_record(self):
+        from tailoring.stable_tailoring_ranking import _project_ranking_explanation
+
+        match = {
+            'requirement_id': 'fullstack', 'requirement_text': 'Frontend and backend web development',
+            'importance': 'preferred', 'match_label': 'direct', 'capability_id': 'fullstack.integration',
+            'evidence_snippets': ['Built CI tooling for UI workflows.', 'OpenAI API', 'database design'],
+            'evidence_ids': ['ev-ci', 'ev-api', 'ev-db'],
+        }
+        explanation, receipt = _project_ranking_explanation([match])
+        self.assertIn('Direct project-level match', explanation)
+        self.assertIn('fullstack.integration', explanation)
+        self.assertNotIn(match['evidence_snippets'][0], explanation)
+        self.assertEqual(receipt['primary_requirement_id'], 'fullstack')
+        self.assertEqual(receipt['evidence_ids'], ['ev-api', 'ev-ci', 'ev-db'])
+
 if __name__ == "__main__":
     unittest.main()

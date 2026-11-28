@@ -3,13 +3,21 @@
 Registration is not activation. Future releases add a reviewed exact edge and tests.
 The historical B2.15 event shape remains unchanged.
 """
+import os
+
+NATIVE_POLICY_ENV = "JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY"
+NATIVE_POLICY_TOKEN = "v312a17_fullstack_single_row"
+NATIVE_POLICY_ACTIVE = os.environ.get(NATIVE_POLICY_ENV, NATIVE_POLICY_TOKEN).strip() == NATIVE_POLICY_TOKEN
+
 LEGACY = frozenset({'stable-evidence-v1.16-phase6d20', 'stable-evidence-v1.16-phase6d20-v312a17-fullstack-single-row'})
 B215 = 'stable-evidence-v1.16-phase6d20-v312b215-jd-eligibility-v312a17-fullstack-single-row'
 B219A = B215 + '-v312b219a-software-testing-v1'
 # Policy-only edges are exact and scope-preserving. Legacy eligibility correction
 # is a separately reviewed removal-only edge. An unused registration is inert.
 B219B = B219A + '-v312b219b-technology-database-v1'
-POLICY_ONLY_EDGES = frozenset({(B215, B219A), (B219A, B219B)})
+GENERAL_SOFTWARE_TESTING_VERSION = 'v312b222d1-general-software-testing-v1'
+B222D1 = B219B + '-' + GENERAL_SOFTWARE_TESTING_VERSION
+POLICY_ONLY_EDGES = frozenset({(B215, B219A), (B219A, B219B), (B219B, B222D1)})
 
 def policy_path(old, new):
     if not isinstance(old,str) or not isinstance(new,str) or old == new:

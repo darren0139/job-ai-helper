@@ -27,6 +27,14 @@ from analysis_stability.stable_evidence_scoring import (
     requirement_is_tailoring_eligible,
 )
 
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import NATIVE_POLICY_ACTIVE as PROJECT_TECHNOLOGY_ENABLED
+from tailoring.project_technology_evidence_v312b219b2 import (
+    VERSION as PROJECT_TECHNOLOGY_VERSION,
+    evaluate_project_technology,
+    evaluate_technology_bullet,
+    technology_spec,
+)
+
 from tailoring.project_identity import (
     PROJECT_IDENTITY_VERSION,
     build_selected_project_identity_index,
@@ -39,7 +47,7 @@ from tailoring.phase6d_ranking_adapter import (
 )
 
 
-PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v4"
+PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v5" if PROJECT_TECHNOLOGY_ENABLED else "phase6b1-project-ranking-v4"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v4"
 EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
 PROJECT_RELEVANCE_METADATA_VERSION = (
@@ -772,6 +780,23 @@ def _deterministic_family_match(
     evidence does not support it, so any LLM proposal for the requirement must
     be discarded.
     """
+    if PROJECT_TECHNOLOGY_ENABLED:
+        spec = technology_spec(requirement)
+        if spec is not None:
+            hit = evaluate_project_technology(spec, project_profile.get("evidence_records", []))
+            label, technology, reason = hit[0] if hit else ("none", None, "no_eligible_project_technology_evidence")
+            ids, snippets = ([hit[1]["evidence_id"]], [hit[1]["text"]]) if hit else ([], [])
+            return label, ids, snippets, {
+                "recognised": True,
+                "family": None,
+                "capability_id": None,
+                "rule": reason,
+                "source": "python_b219b_project_technology_evidence",
+                "technology_evidence_version": PROJECT_TECHNOLOGY_VERSION,
+                "technology_domain": spec[0],
+                "matched_technology": technology,
+            }
+
     decision = match_requirement_to_candidate(
         requirement=requirement,
         candidate_evidence_text=_evidence_corpus(candidate),
@@ -1041,9 +1066,11 @@ def _apply_deterministic_requirement_overrides(
             "match_label": label,
             "evidence_ids": evidence_ids,
             "evidence_snippets": snippets,
-            "source": "python_phase6d_capability_taxonomy",
+            "source": rule_debug.get("source") or "python_phase6d_capability_taxonomy",
             "mapping_similarity": 1.0,
             "evidence_mapping_version": EVIDENCE_MAPPING_VERSION,
+            **({"technology_evidence_version": rule_debug["technology_evidence_version"]}
+               if rule_debug.get("technology_evidence_version") else {}),
             "capability_id": rule_debug.get("capability_id"),
             "capability_taxonomy_version": rule_debug.get(
                 "taxonomy_version"
@@ -1061,6 +1088,10 @@ def _bullet_supports_requirement_match(
     match: dict[str, Any],
 ) -> bool:
     """Return whether one bullet carries the matched requirement capability."""
+    if match.get("technology_evidence_version") == PROJECT_TECHNOLOGY_VERSION:
+        spec = technology_spec({"text": match.get("requirement_text")})
+        return evaluate_technology_bullet(spec, bullet) is not None
+
     requirement = {
         "text": match.get("requirement_text", ""),
         "atomic_focus": match.get("requirement_text", ""),
@@ -1592,6 +1623,19 @@ def _build_project_relevance_summary(
     }
 
 
+def describe_project_requirement_match(match: dict[str, Any]) -> str:
+    """Describe the saved match at project scope without attributing it to one quotation."""
+    label = _clean_text(match.get("match_label")).capitalize() or "Evidence-grounded"
+    requirement = _clean_text(match.get("requirement_text"))
+    capability = _clean_text(match.get("capability_id"))
+    detail = f"{label} project-level match to JD requirement “{requirement}”."
+    if capability:
+        detail += f" Capability relationship: {capability}."
+    elif match.get("source") == "python_unrecognised_single_record_evidence":
+        detail += " Relationship established by one explicit project evidence record."
+    return detail
+
+
 def _project_ranking_explanation(
     matches: list[dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
@@ -1620,21 +1664,7 @@ def _project_ranking_explanation(
         ),
     )
     primary = ordered[0]
-    label = _clean_text(primary.get("match_label")).capitalize() or "Evidence-grounded"
-    requirement_text = _clean_text(primary.get("requirement_text"))
-    snippet = _clean_text((primary.get("evidence_snippets") or [""])[0])
-    capability_id = _clean_text(primary.get("capability_id"))
-    source = _clean_text(primary.get("source"))
-
-    reason = f"{label} match to JD requirement “{requirement_text}”"
-    if snippet:
-        reason += f": “{snippet}”"
-    if capability_id:
-        reason += f". Capability relationship: {capability_id}."
-    elif source == "python_unrecognised_single_record_evidence":
-        reason += ". Relationship established by one explicit project evidence record."
-    else:
-        reason += "."
+    reason = describe_project_requirement_match(primary)
 
     return reason, {
         "source": "python_deterministic_requirement_evidence",

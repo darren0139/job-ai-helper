@@ -2,9 +2,16 @@
 from collections import defaultdict
 import json
 
+from tailoring.phase9f_decision_summary_ui import (
+    project_requirements, render_bullet_summary, render_portfolio_visual, render_project_summary,
+    render_ranking_overview, render_wording_pair,
+)
+from tailoring.phase9f_lead_intro_v310 import VERSION as LEAD_VERSION
 from tailoring.phase9f_optimizer_diagnostics_v312b214b4 import obj, rows, strings, title, wording
 from tailoring.phase9f_prefit_dedupe_v39 import VERSION as PREFIT_VERSION
+from tailoring.portfolio_quality_v311 import _key as portfolio_project_key
 from tailoring.project_title_resolution_v1 import mutually_resolve_project
+from tailoring.stable_tailoring_ranking import describe_project_requirement_match
 
 
 def render_raw_json(st, payload, *, key, filename, label='Download JSON'):
@@ -67,6 +74,13 @@ def build_explorer(projects, candidates=(), *, report=None, fit=None, applicatio
             for entry in rows(record.get('bullets')):
                 key = wording(record.get('project')), wording(entry.get('text'))
                 prefit_comparisons[key].append(entry.get('saved_evidence_points'))
+    preparation_lineage = defaultdict(list)
+    for field, version in (('v39_auto_dedupe', PREFIT_VERSION), ('v310_lead_intro', LEAD_VERSION)):
+        saved = obj(bound_fit.get(field))
+        if saved.get('version') == version:
+            for event in rows(saved.get('removals')):
+                if event.get('removed') and event.get('retained'):
+                    preparation_lineage[wording(event['project']), wording(event['removed'])].append(event)
     ranks = rows(projects.get('candidate_project_ranking'))
     pool = rows(list(candidates or ()))
     plans = rows(allocation.get('projects'))
@@ -113,8 +127,7 @@ def build_explorer(projects, candidates=(), *, report=None, fit=None, applicatio
         base_change = _matching(record, universe, rows(report.get('resume_changes')))
         stage_name = stage.get('project', name)
         recommendation = rank.get('recommendation')
-        project_id = (rank or record).get('project_id')
-        portfolio_key = f'id:{project_id}' if project_id else None
+        portfolio_key = portfolio_project_key(rank or record)
         portfolio_status = ('Selected by portfolio' if portfolio_key in included_keys else
                             'Excluded by portfolio before fitting' if portfolio_key in excluded_keys else None)
         if base_change.get('status') == 'Removed' or removal:
@@ -175,6 +188,7 @@ def build_explorer(projects, candidates=(), *, report=None, fit=None, applicatio
             if not ownership:
                 ownership = [s for s in strings(observed.get('sources')) if not s.startswith('saved allocation:')]
             context = obj(receipt.get('decision_context'))
+            lineage = preparation_lineage[wording(stage_name), text]
             display_bullets.append({
                 'Project': name, 'Wording': text, 'Source': ' + '.join(dict.fromkeys(ownership)) or None,
                 'Portfolio decision': portfolio_status,
@@ -185,11 +199,13 @@ def build_explorer(projects, candidates=(), *, report=None, fit=None, applicatio
                 'Independent saved-link points': points[0].get('standalone_weighted_points') if len(points) == 1 else None,
                 'Optimizer marginal proxy': proxy[0].get('marginal_in_proposal_points') if len(proxy) == 1 else None,
                 'Words': receipt.get('word_count') if receipt else len(text.split()),
+                'Caller': _presence(observed.get('generated_or_caller')),
                 'Prepared': _presence(observed.get('fitter_start')),
                 'Final DOCX': _presence(observed.get('actual_readback')),
                 'Optimizer proposal': {True: 'Included', False: 'Considered, excluded'}.get(
                     obj(proposal.get('details')).get('proposed')),
                 'Reason': receipt.get('reason'), 'receipt': receipt, 'trace': stages,
+                'preparation_lineage': lineage[0] if len(lineage) == 1 else {},
                 'saved_links': points[0].get('saved_jd_ids', []) if len(points) == 1 else [],
             })
     return {'projects': display_projects, 'bullets': display_bullets, 'allocation': allocation,
@@ -211,11 +227,13 @@ def _presence(value):
 
 def _filter(st, records, *, key, filters, sorts):
     selected = {}
-    for field in filters:
-        options = sorted({row[field] for row in records if row[field]})
-        if options:
-            selected[field] = st.multiselect('Filter by '+field.lower(), options, key=key+'_filter_'+field)
-    sort = st.selectbox('Sort by', sorts, key=key+'_sort')
+    with st.container(horizontal=True, gap='small'):
+        for field in filters:
+            options = sorted({row[field] for row in records if row[field]})
+            if options:
+                selected[field] = st.multiselect('Filter by '+field.lower(), options,
+                                                 key=key+'_filter_'+field, width=180)
+        sort = st.selectbox('Sort by', sorts, key=key+'_sort', width=220)
     visible = [row for row in records if all(not choices or row[field] in choices for field, choices in selected.items())]
     return sorted(visible, key=lambda row: (row[sort] is None,
                   -row[sort] if isinstance(row[sort], (float,int)) and sort not in ('Rank','Allocation order')
@@ -245,67 +263,57 @@ def _requirements(st, ids, catalog, label):
 
 def render_project_ranking(st, explorer, *, key):
     st.markdown('#### Project Ranking Explorer')
-    rows_ = _filter(st, explorer['projects'], key=key, filters=('Decision','Source'),
-                    sorts=('Rank','Project','Base ranking score','Selection score'))
-    _table(st, rows_, ('Project','Rank','Base ranking score','Selection score','Decision','Source',
-                       'Priority','Recommended action','Space action','Frozen candidate','Requested limit','Allocated','Caller','Prepared','Final DOCX'))
-    selection = explorer['selection']
-    invocation = explorer['fitter_invocation']
-    if invocation:
-        st.caption(f"Fitter caps · Projects requested {invocation.get('requested_max_projects', 'unavailable')}, "
-                   f"effective {invocation.get('max_projects', 'unavailable')} · Bullets per project requested "
-                   f"{invocation.get('requested_max_bullets_per_project', 'unavailable')}, effective "
-                   f"{invocation.get('max_bullets_per_project', 'unavailable')}.")
-    if selection.get('project_count_reason'):
-        st.caption(selection['project_count_reason'])
-    if not rows_:
-        return
-    row = _inspect(st, 'Inspect project ranking', explorer['projects'], rows_, key+'_detail',
-                   lambda item: item['Project'])
-    if row is None:
-        return
+    visible = _filter(st, explorer['projects'], key=key, filters=('Decision','Source'),
+                      sorts=('Rank','Project','Base ranking score','Selection score'))
+    render_ranking_overview(st, visible)
+    if visible:
+        row = _inspect(st, 'Inspect project ranking', explorer['projects'], visible, key+'_detail',
+                       lambda item: item['Project'])
+        if row is not None:
+            _render_project_detail(st, explorer, row, key)
+    with st.expander('Ranking table and fit limits'):
+        _table(st, visible, ('Project','Rank','Base ranking score','Selection score','Decision','Source',
+                            'Priority','Recommended action','Space action','Frozen candidate','Requested limit',
+                            'Allocated','Caller','Prepared','Final DOCX'))
+        invocation = explorer['fitter_invocation']
+        if invocation:
+            st.caption(f"Fitter caps · Projects requested {invocation.get('requested_max_projects', 'unavailable')}, "
+                       f"effective {invocation.get('max_projects', 'unavailable')} · Bullets per project requested "
+                       f"{invocation.get('requested_max_bullets_per_project', 'unavailable')}, effective "
+                       f"{invocation.get('max_bullets_per_project', 'unavailable')}.")
+        if explorer['selection'].get('project_count_reason'):
+            st.caption(explorer['selection']['project_count_reason'])
+
+
+def _render_project_detail(st, explorer, row, key):
     rank = row['rank_receipt']
+    requirements = project_requirements(rank)
+    primary_id = obj(rank.get('ranking_explanation')).get('primary_requirement_id')
+    primary_match = next((item for item in requirements if primary_id and item.get('requirement_id') == primary_id), {})
+    render_project_summary(st, row, requirements)
     plan = row['allocation']
-    with st.expander('Project score and evidence', expanded=True):
-        if rank.get('ranking_version') == 'phase6b1-project-ranking-v4' and rank.get('ranking_owner') == 'python_deterministic_evidence_mapping':
-            st.caption('With positive JD coverage, the base score rounds twice the coverage plus evidence support, capped at 100. Zero coverage yields zero.')
-            st.caption('Coverage uses requirement importance (Core or deal breaker 36, Required 30, Preferred 12), group weight, and evidence strength (direct 1, transferable 0.55, weak 0.25).')
-            st.caption('Complementary selection adds 35% of unique coverage points up to 12 and subtracts 12% of overlapping points up to 6. Candidates within five points are ordered by direct Required/Core matches, new Required/Core coverage, then the ranking tie-break factors and adjusted score.')
-        if rank.get('reason'):
+    if row['removal'].get('reason'):
+        st.write(row['removal']['reason'])
+    if plan:
+        st.caption(f"Canonical wordings {plan.get('canonical_bullet_count', 'unavailable')} · "
+                   f"Allocated {plan.get('allocated_bullet_count', 'unavailable')} · "
+                   f"Prepared {row['Prepared'] if row['Prepared'] is not None else 'unavailable'} · "
+                   f"Final DOCX {row['Final DOCX'] if row['Final DOCX'] is not None else 'unavailable'}")
+    if requirements:
+        with st.expander('JD requirements and supporting evidence'):
+            _render_requirement_evidence(st, rank, requirements, key, primary_id)
+    _render_portfolio(st, explorer, key)
+    with st.expander('Advanced — Project ranking details'):
+        if primary_match:
             st.caption('Saved project-level attribution')
-            st.write(rank['reason'] if len(rank['reason']) < 550 else rank['reason'][:547] + '…')
-            st.caption('The displayed wording is a snippet from the saved project-level match. Inspect the full evidence set below to see what the receipt attributes to the project.')
-        st.dataframe([{'JD coverage': rank.get('deterministic_coverage_score'), 'Support': rank.get('support_score'),
-                       'Unique bonus': rank.get('unique_coverage_bonus'), 'Overlap penalty': rank.get('overlap_penalty'),
-                       **obj(rank.get('support_components'))}], hide_index=True)
-        if row['removal'].get('reason'):
-            st.write(row['removal']['reason'])
-        matches = rows(rank.get('requirement_matches'))
-        if matches:
-            st.dataframe([{'Requirement': m.get('requirement_text'), 'Importance': m.get('importance'),
-                           'Evidence strength': m.get('match_label'), 'Relationship': m.get('capability_id'),
-                           'Coverage points': m.get('coverage_points')} for m in matches], hide_index=True)
-            choice = st.selectbox('Inspect matched evidence', range(len(matches)), key=key+'_requirement',
-                                  format_func=lambda i: matches[i].get('requirement_text') or matches[i].get('requirement_id'),
-                                  index=None)
-            if choice is not None:
-                match = matches[choice]
-                st.caption('Recorded project-level evidence and attribution')
-                evidence_ids = strings(match.get('evidence_ids'))
-                records = rows(obj(rank.get('project_relevance')).get('supporting_evidence_records'))
-                evidence = [record for record in records if record.get('evidence_id') in evidence_ids]
-                if evidence:
-                    st.dataframe(evidence, hide_index=True)
-                else:
-                    for text in strings(match.get('evidence_snippets')):
-                        st.write(text)
-                if match.get('source'):
-                    st.caption(match['source'])
+            st.text(describe_project_requirement_match(primary_match))
+        elif not requirements and rank.get('reason'):
+            st.caption('Saved project-level attribution')
+            st.text(rank['reason'])
+        if rank.get('support_components'):
+            st.dataframe([obj(rank['support_components'])], hide_index=True)
         if plan:
             st.caption(_allocation_policy(plan))
-            st.caption(f"Saved canonical wordings {plan.get('canonical_bullet_count', 'unavailable')} · "
-                       f"Allocated {plan.get('allocated_bullet_count', 'unavailable')}.")
-        _render_portfolio(st, explorer, row)
         peers = row['selection'].get('near_tied_project_ids') or []
         peers = [p['Project'] for p in explorer['projects'] if p['rank_receipt'].get('project_id') in peers and p is not row]
         if peers:
@@ -324,88 +332,221 @@ def render_project_ranking(st, explorer, *, key):
                             label='Download project selection competition (JSON)')
 
 
-def _render_portfolio(st, explorer, row):
-    if not row['Portfolio decision']:
+def _render_requirement_evidence(st, rank, requirements, key, primary_id):
+    def label(i):
+        match = requirements[i]
+        strength = match.get('match_label')
+        outcome = 'Unmatched' if strength == 'none' else str(strength or 'Unavailable').capitalize()
+        return f"{outcome} · {match.get('requirement_text') or match.get('requirement_id')}"
+
+    default = next((i for i, item in enumerate(requirements)
+                    if primary_id and item.get('requirement_id') == primary_id), None)
+    choice = st.selectbox('Inspect JD requirement', range(len(requirements)), key=key+'_requirement',
+                          format_func=label, index=default)
+    if choice is None:
         return
-    st.caption(row['Portfolio decision']+' · Saved pre-fit project-set proxy')
+    match = requirements[choice]
+    st.text(label(choice))
+    evidence_ids = strings(match.get('evidence_ids') or match.get('supporting_evidence_ids'))
+    records = rows(obj(rank.get('project_relevance')).get('supporting_evidence_records'))
+    evidence = [record for record in records if record.get('evidence_id') in evidence_ids]
+    snippets = strings(match.get('evidence_snippets') or match.get('supporting_evidence_snippets'))
+    if evidence or snippets:
+        st.caption('Evidence recorded for the project match. The strength applies to the project as a whole.')
+    displayed = set()
+    for record in evidence:
+        text = record.get('text')
+        if text:
+            st.text(text)
+            displayed.add(text)
+        source = record.get('source')
+        owner = {'resume': 'Selected Base', 'evidence_library': 'Evidence Library'}.get(source, source)
+        provenance = ' · '.join(str(value) for value in (record.get('kind'), owner) if value)
+        if provenance:
+            st.caption(provenance)
+    for snippet in dict.fromkeys(snippets):
+        if snippet not in displayed:
+            st.text(snippet)
+    if not evidence and not snippets:
+        st.caption('No supporting evidence is recorded for this requirement.')
+    details = [match.get(field) for field in ('capability_id', 'deterministic_rule') if match.get(field)]
+    if details:
+        st.caption(' · '.join(details))
+
+
+def _render_portfolio(st, explorer, key):
     portfolio = explorer['portfolio']
     winner = obj(portfolio.get('winner'))
-    alternatives = [candidate for candidate in rows(portfolio.get('top_candidates'))
-                    if row['portfolio_key'] in strings(candidate.get('selected_keys')) and candidate != winner]
-    names = {project['portfolio_key']: project['Project'] for project in explorer['projects']}
-    slates = [('Selected', winner)] + [('Alternative', candidate) for candidate in alternatives]
-    if winner or alternatives:
-        st.dataframe([{'Slate': label, 'Projects': ', '.join(names.get(key, key) for key in strings(item.get('selected_keys'))),
-                       'Proxy utility': item.get('proxy_utility'), 'Coverage units': item.get('coverage_units'),
-                       'Depth units': item.get('depth_units'), 'Required/Core lost': item.get('hard_required_core_lost')}
-                      for label, item in slates if item], hide_index=True)
-    if not winner or not alternatives:
-        st.caption('The saved shortlist may omit alternatives containing this project.')
+    if not winner:
+        return
+    baseline = obj(portfolio.get('baseline'))
+    slates = [('Selected slate', winner)]
+    seen = {tuple(strings(winner.get('selected_keys')))}
+    if baseline and tuple(strings(baseline.get('selected_keys'))) not in seen:
+        slates.append(('Original slate', baseline))
+        seen.add(tuple(strings(baseline.get('selected_keys'))))
+    alternative_number = 1
+    for candidate in rows(portfolio.get('top_candidates')):
+        composition = tuple(strings(candidate.get('selected_keys')))
+        if composition and composition not in seen:
+            slates.append((f'Alternative {alternative_number}', candidate))
+            alternative_number += 1
+            seen.add(composition)
+    render_portfolio_visual(st, slates)
+    with st.expander('Portfolio compositions and constraints'):
+        if portfolio.get('minimum_rule'):
+            minimum = {'at_least_two': 'At least two projects',
+                       'one_project_exception_only_saved_project': 'One project was available'}.get(portfolio['minimum_rule'])
+            if minimum:
+                st.caption(minimum + ' · The selection had to preserve the saved Required/Core project coverage.')
+        if portfolio.get('target_supporting_bullet_depth') is not None:
+            st.caption(f"Target supporting bullet depth {portfolio['target_supporting_bullet_depth']}.")
+        choice = st.selectbox('Inspect portfolio slate', range(len(slates)),
+                              format_func=lambda i: slates[i][0], key=key+'_portfolio')
+        slate = slates[choice][1]
+        names = {project['portfolio_key']: project['Project'] for project in explorer['projects']}
+        selected = strings(winner.get('selected_keys'))
+        composition = strings(slate.get('selected_keys'))
+        st.markdown('**Projects in this slate**')
+        for pid in composition:
+            suffix = ' · Added relative to selected slate' if pid not in selected else ''
+            st.text(names.get(pid, pid)+suffix)
+        excluded = [names.get(pid, pid) for pid in selected if pid not in composition]
+        if excluded:
+            st.markdown('**Omitted from this slate**')
+            for name in excluded:
+                st.text(name)
+        fields = {'Proxy utility': 'proxy_utility', 'Coverage units': 'coverage_units', 'Depth units': 'depth_units',
+                  'Required/Core covered': 'hard_required_core_covered', 'Required/Core lost': 'hard_required_core_lost',
+                  'One-bullet projects': 'one_bullet_projects', 'Verified requirements': 'verified_requirement_count',
+                  'Uncertain evidence': 'uncertain_evidence'}
+        metrics = {label: slate[field] for label, field in fields.items() if slate.get(field) is not None}
+        if metrics:
+            st.dataframe([metrics], hide_index=True)
+        if portfolio.get('version') == 'portfolio-quality-selection-v311-preview-1' and type(slate.get('selected_count')) is int:
+            st.caption(f"Project space penalty · {slate['selected_count']} projects × 7 = {slate['selected_count'] * 7} proxy points.")
+
+
+def _bullet_reason(row):
+    for stage in row['trace']:
+        if stage['certainty'] != 'Recorded':
+            continue
+        if stage['stage'] == 'Preparation':
+            reasons = [item['reason'] for item in rows(stage['details']) if item.get('reason')]
+            if reasons:
+                return ' / '.join(reasons)
+            return None
+        if stage['stage'] == 'Fitting actions':
+            reasons = [event['evidence_loss_reason'] for event in rows(stage['details'])
+                       if event.get('evidence_loss_reason') and wording(event.get('removed_bullet')) == row['Wording']]
+            if reasons:
+                return ' / '.join(reasons)
+    if row['Portfolio decision'] == 'Excluded by portfolio before fitting':
+        return row['Portfolio decision']
+    return {'minimum_project_coverage': 'Allocated to meet minimum project coverage.',
+            'all_canonical_before_fitting_fill': 'Admitted under the all-canonical allocation policy.'}.get(
+                row['Reason'], row['Reason'])
+
+
+def _wording_pair(row, bullets):
+    # Require a recorded transition before presenting two wordings as related by removal.
+    for step in row['trace']:
+        if step['certainty'] != 'Recorded':
+            continue
+        if step['stage'] == 'Preparation':
+            events = [event for event in rows(step['details']) if event.get('retained')]
+            if len(events) == 1:
+                retained = events[0]['retained']
+                raw = row['preparation_lineage']
+                after_points = raw.get('retained_saved_evidence_points') if wording(raw.get('retained')) == wording(retained) else None
+                before_points = (raw.get('removed_saved_evidence_points', row['Pre-fit deduplication points'])
+                                 if wording(raw.get('retained')) == wording(retained) else row['Pre-fit deduplication points'])
+                label = 'Recorded retained wording'
+                break
+        if step['stage'] == 'Fitting actions' and row['Final DOCX'] == 'Absent':
+            events = [event for event in rows(step['details']) if event.get('merged_bullet')
+                      and row['Wording'] in [wording(value) for value in strings(event.get('source_bullets'))]]
+            if len(events) == 1:
+                retained = events[0]['merged_bullet']
+                before_points = row['Pre-fit deduplication points']
+                after_points = None
+                label = 'Recorded fused wording'
+                break
+    else:
+        return []
+    candidates = [other for other in bullets if other['Project'] == row['Project'] and other['Wording'] == wording(retained)]
+    other = candidates[0] if len(candidates) == 1 else {}
+    return [('Discarded wording', row['Wording'], row['Source'], before_points, row['Independent saved-link points']),
+            (label, retained, other.get('Source'),
+             after_points if after_points is not None else other.get('Pre-fit deduplication points'),
+             other.get('Independent saved-link points'))]
+
+
+def _related_wording_pairs(row, bullets):
+    project_bullets = [item for item in bullets if item['Project'] == row['Project']]
+    for item in project_bullets:
+        pair = _wording_pair(item, project_bullets)
+        if pair and (item is row or wording(pair[1][1]) == row['Wording']):
+            yield pair
 
 
 def render_bullet_ranking(st, explorer, catalog, *, key):
     st.markdown('#### Bullet Allocation Explorer')
-    st.caption('Allocation evidence orders the initial slate. Pre-fit points compare similar wordings during preparation. Independent saved-link points apply to exact wordings. Optimizer marginal points describe the recorded proposal. Native Job Match applies to the document.')
-    allocation = explorer['allocation']
-    if explorer['fit_risk']:
-        st.caption('Saved pre-fit estimate · '+explorer['fit_risk'])
-    if explorer['fit_geometry']:
-        st.dataframe([{field.replace('_', ' ').capitalize(): value
-                       for field, value in explorer['fit_geometry'].items()}], hide_index=True)
-    if explorer['optimizer_status']:
-        st.caption('Saved whole-document optimizer verification · '+explorer['optimizer_status'])
-    if allocation:
-        st.caption(_allocation_policy(allocation))
-        st.dataframe([{'Base budget': allocation.get('base_bullet_budget'),
-                       'Available slots': allocation.get('total_available_slots'),
-                       'Allocated total': allocation.get('total_allocated_bullets')}], hide_index=True)
     visible = _filter(st, explorer['bullets'], key=key, filters=('Project','Decision','Source','Final DOCX'),
                       sorts=('Allocation order','Project','Allocation evidence','Weak allocation evidence',
                              'Pre-fit deduplication points','Independent saved-link points','Optimizer marginal proxy','Words'))
-    _table(st, visible, ('Project','Allocation order','Wording','Source','Decision','Allocation evidence',
-                         'Weak allocation evidence','Pre-fit deduplication points','Independent saved-link points','Optimizer marginal proxy',
-                         'Words','Prepared','Final DOCX','Optimizer proposal','Reason'))
-    if not visible:
-        return
-    row = _inspect(st, 'Inspect bullet decision', explorer['bullets'], visible, key+'_detail',
-                   lambda item: item['Project'] + ' · ' + item['Wording'])
-    if row is None:
-        return
-    with st.expander('Bullet evidence and decision factors', expanded=True):
-        st.write(row['Wording'])
-        receipt = row['receipt']
-        reason = {'minimum_project_coverage': 'Allocated to meet minimum project coverage.',
-                  'all_canonical_before_fitting_fill': 'Admitted under the all-canonical allocation policy.'}.get(row['Reason'], row['Reason'])
-        st.caption(reason or 'The saved receipts do not record a selection reason.')
-        if row['Portfolio decision'] == 'Excluded by portfolio before fitting':
-            st.caption(row['Portfolio decision']+'. See this project’s ranking detail for the recorded slate.')
-        st.dataframe([{field: row[field] for field in ('Allocation order', 'Allocation evidence',
-                       'Weak allocation evidence', 'Pre-fit deduplication points',
-                       'Independent saved-link points', 'Optimizer marginal proxy', 'Prepared', 'Final DOCX')}],
-                     hide_index=True)
-        for field, label in (('direct_requirement_ids','Direct allocation links'),
-                             ('supported_requirement_ids','Supported allocation links'),
-                             ('weak_requirement_ids','Weak allocation links')):
-            _requirements(st, strings(receipt.get(field)), catalog, label)
-        _requirements(st, row['saved_links'], catalog, 'Independent saved links')
-        for stage in row['trace']:
-            if stage['stage'] in ('Preparation', 'Fitting actions', 'Actual DOCX readback', 'Optimizer challenger'):
-                if stage['stage'] == 'Fitting actions' and stage['certainty'] != 'Recorded' and (
-                        row['Prepared'] == 'Absent' or row['Final DOCX'] == 'Present'):
-                    continue
-                render_trace_stage(st, stage)
-        context = obj(receipt.get('decision_context'))
-        factors = strings(context.get('factor_order'))
-        selected = obj(context.get('selected'))
-        peer = obj(context.get('best_opposite_source_peer_at_step'))
-        if context.get('decision_kind') == 'all_canonical_admission':
-            st.caption('The allocation step admitted all canonical alternatives. A peer and its factors explain order only.')
-        if peer.get('bullet'):
-            st.write('Recorded opposite-source peer · ' + peer['bullet'])
-        if factors:
-            st.dataframe([{'Factor': name.replace('_', ' '), 'Selected': value, 'Peer': comparison}
-                          for name, value, comparison in zip(factors, selected.get('rank_tuple', ()),
-                          (peer.get('rank_tuple') or [None]*len(factors)))], hide_index=True)
+    if visible:
+        row = _inspect(st, 'Inspect bullet decision', explorer['bullets'], visible, key+'_detail',
+                       lambda item: item['Project'] + ' · ' + item['Wording'])
+        if row is not None:
+            render_bullet_summary(st, row, _bullet_reason(row))
+            for pair in _related_wording_pairs(row, explorer['bullets']):
+                render_wording_pair(st, 'Recorded wording comparison', pair)
+            with st.expander('Advanced — Bullet evidence and ranking factors'):
+                _render_bullet_details(st, row, catalog)
+    with st.expander('Bullet table and allocation limits'):
+        _table(st, visible, ('Project','Allocation order','Wording','Source','Decision','Allocation evidence',
+                             'Weak allocation evidence','Pre-fit deduplication points','Independent saved-link points',
+                             'Optimizer marginal proxy','Words','Prepared','Final DOCX','Optimizer proposal','Reason'))
+        st.caption('Allocation points order the initial slate. Pre-fit points compare similar wordings during preparation. '
+                   'Independent saved-link points apply to exact wordings. The optimizer proxy describes its proposal.')
+        if explorer['fit_risk']:
+            st.caption('Saved pre-fit estimate · '+explorer['fit_risk'])
+        if explorer['fit_geometry']:
+            st.dataframe([{field.replace('_', ' ').capitalize(): value
+                           for field, value in explorer['fit_geometry'].items()}], hide_index=True)
+        if explorer['optimizer_status']:
+            st.caption('Saved whole-document optimizer verification · '+explorer['optimizer_status'])
+        allocation = explorer['allocation']
+        if allocation:
+            st.caption(_allocation_policy(allocation))
+            st.dataframe([{'Base budget': allocation.get('base_bullet_budget'),
+                           'Available slots': allocation.get('total_available_slots'),
+                           'Allocated total': allocation.get('total_allocated_bullets')}], hide_index=True)
+
+
+def _render_bullet_details(st, row, catalog):
+    receipt = row['receipt']
+    for field, label in (('direct_requirement_ids','Direct allocation links'),
+                         ('supported_requirement_ids','Supported allocation links'),
+                         ('weak_requirement_ids','Weak allocation links')):
+        _requirements(st, strings(receipt.get(field)), catalog, label)
+    _requirements(st, row['saved_links'], catalog, 'Independent saved links')
+    for stage in row['trace']:
+        if stage['stage'] == 'Fitting actions' and stage['certainty'] == 'Recorded':
+            render_trace_stage(st, stage)
+    context = obj(receipt.get('decision_context'))
+    factors = strings(context.get('factor_order'))
+    selected = obj(context.get('selected'))
+    peer = obj(context.get('best_opposite_source_peer_at_step'))
+    if context.get('decision_kind') == 'all_canonical_admission':
+        st.caption('The allocation step admitted all canonical alternatives. A peer and its factors explain order only.')
+    if peer.get('bullet'):
+        st.text('Recorded opposite-source peer · '+peer['bullet'])
+    if factors:
+        st.dataframe([{'Factor': name.replace('_', ' '), 'Selected': value, 'Peer': comparison}
+                      for name, value, comparison in zip(factors, selected.get('rank_tuple', ()),
+                      (peer.get('rank_tuple') or [None]*len(factors)))], hide_index=True)
 
 
 def render_trace_stage(st, stage):

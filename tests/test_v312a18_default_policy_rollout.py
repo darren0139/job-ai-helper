@@ -9,7 +9,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 POLICY='JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY'
-from tests.b213_policy_support import ACTIVE_B219B as ACTIVE, ROLLBACK_B219A as LEGACY
+from tests.b213_policy_support import ACTIVE_B222D1 as ACTIVE, ROLLBACK_B219A as LEGACY
 
 class DefaultPolicyRollout(unittest.TestCase):
     def _probe(self, setting):
