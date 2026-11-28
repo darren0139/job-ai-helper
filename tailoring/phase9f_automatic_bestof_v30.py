@@ -110,6 +110,8 @@ def native_document_score(*, docx_path: Path, generation_state: dict,
     frozen_ids,reason=_jd_identity(baseline_report,raw_jd_text)
     if frozen_ids is None:raise ValueError(reason)
     resume_text=read_resume_docx(str(docx),preserve_complete_text=True)
+    if sha256(docx.read_bytes()).hexdigest()!=expected_sha256:
+        raise ValueError('Actual DOCX changed during readback.')
     if not isinstance(resume_text,str) or not resume_text.strip():
         raise ValueError('Parser returned empty actual DOCX text.')
     profile=build_final_resume_profile(baseline_report.get('resume_profile') or {},generation_state)
@@ -146,6 +148,8 @@ def native_document_score(*, docx_path: Path, generation_state: dict,
     after.update(deepcopy((build_final_scoring_seed(after).get('aggregate') or {})))
     return {'actual_docx_evidence':True,'docx_sha256':expected_sha256,
             'claim_review_required_count':0,
+            'jd_sha256':sha256(raw_jd_text.encode()).hexdigest(),
+            'native_identity':(actual.get('document_analysis') or {}).get('identity'),
             'scoring_version':after.get('scoring_version'),
             'deterministic_alignment_score':after.get('deterministic_alignment_score'),
             'canonical_requirements':after['canonical_requirements']}
@@ -153,7 +157,7 @@ def native_document_score(*, docx_path: Path, generation_state: dict,
 
 
 def compare_verified_starting_analyses(*, baseline_report:dict,raw_jd_text:str,
-                                      chosen_document_score:dict) -> dict[str,Any]:
+                                      chosen_document_score:dict, require_hard_strength:bool=False) -> dict[str,Any]:
     """Informative source baselines; never used to pick the A/B winner.
 
     A missing historical Initial document is **unavailable**, never treated as
@@ -195,6 +199,13 @@ def compare_verified_starting_analyses(*, baseline_report:dict,raw_jd_text:str,
             original[rid][0]!=current['requirements'][rid][0] for rid in original):continue
         required_losses=[rid for rid,(kind,match) in original.items() if kind in HARD
              and RANK[current['requirements'][rid][1]]<RANK[match]]
+        if require_hard_strength:
+            from tailoring.phase9f_native_bonus_v312b220 import native_hard_floors
+            checks = native_hard_floors(rows, chosen_document_score['canonical_requirements'])
+            if any(row['status'] == 'unavailable' for row in checks):
+                continue
+            required_losses = sorted({*required_losses, *(
+                row['requirement_id'] for row in checks if row['status'] == 'regressed')})
         delta=round(current['score']-float(v),6)
         status=('regressed' if required_losses or delta<0 else 'improved' if delta>0 else 'maintained')
         out[label+'_comparison_status']=status
@@ -211,7 +222,8 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
                   baseline_report:dict, raw_jd_text:str,source_docx:Path,repo_root:Path,
                   application_id:int, optimizer:Callable, generator:Callable,
                   scorer:Callable=native_document_score,base_reviewed:bool=False,
-                  guarded_floor_binding:dict|None=None) -> dict[str,Any]:
+                  guarded_floor_binding:dict|None=None, native_bonus_policy:bool=False,
+                  rank_native_bonus:bool=False) -> dict[str,Any]:
     """Run at most one A/B trial when explicit Build&Fit creates a new generation."""
     if not isinstance(audit,dict) or audit.get('verified') is not True:return hold('Verified final DOCX audit unavailable.')
     if not isinstance(generation,dict) or str(generation.get('generation_id') or '')!=str(audit.get('generation_id') or ''):
@@ -229,6 +241,8 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
     proposal=None
     stage='optimize_source_selection'
     try:
+        if native_bonus_policy and (fit.get('section_locks') or {}).get('lock_projects'):
+            return hold('Project or bullet content is locked for this fitted generation.')
         if guarded_floor_binding is not None:
             from tailoring import phase9f_v37_guarded_evaluation as guard
             stage='verify_guarded_source'
@@ -236,7 +250,11 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
                 guarded_floor_binding,audit=audit,raw_jd=raw_jd_text,baseline_report=baseline_report,
                 fit=fit,output_root=root/'outputs'/'tailored_resumes')
             stage='optimize_source_selection'
-        proposal=optimizer(audit,projects)
+        if rank_native_bonus:
+            from tailoring.phase9f_native_bonus_v312b220 import shortlist_priorities
+            proposal=optimizer(audit,projects,bonus_priorities=shortlist_priorities(baseline_report,raw_jd_text))
+        else:
+            proposal=optimizer(audit,projects)
         # V3.5 deliberately tests a small whole-resume shortlist through the
         # exact same independent one-page/native scorer gate used by V3.0.
         # Never choose a proxy winner without evaluating the actual DOCX.
@@ -259,29 +277,35 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
                     baseline_report=baseline_report,raw_jd_text=raw_jd_text,
                     source_docx=source_docx,repo_root=repo_root,application_id=application_id,
                     optimizer=lambda _a,_p, v=variant: deepcopy(v),generator=generator,
-                    scorer=scorer,base_reviewed=base_reviewed)
+                    scorer=scorer,base_reviewed=base_reviewed,native_bonus_policy=native_bonus_policy)
                 trial_results.append(trial)
                 trial_summary.append({'trial':index,'status':trial.get('status'),
                     'winner':trial.get('winner'), 'reason':trial.get('reason'),
                     'verification_stage':trial.get('verification_stage',''),
                     'a_score':trial.get('a_score'), 'b_score':trial.get('b_score'),
                     'native_delta':trial.get('delta'),
+                    'native_selection':trial.get('native_selection'),
                     'proposal_version':variant['version'],
                     'relevance_diagnostics':variant.get('relevance_diagnostics')})
             verified=[row for row in trial_results if row.get('status')=='verified']
             # Different scores for the same SHA/JD/scorer indicate that the
             # comparator was not stable; never promote any challenger then.
             known={(row.get('a_score'),row.get('scoring_version')) for row in verified}
-            if len(known)>1:
+            incumbent_rows = [row['native_document_evidence']['existing'] for row in verified] if native_bonus_policy else []
+            if len(known)>1 or any(row != incumbent_rows[0] for row in incumbent_rows[1:]):
                 final={**hold('Native scorer returned inconsistent results for the identical fitted A.'),
                     'verification_stage':'compare_v35_independent_trials',
                     'proposal':proposal,'candidate_verified':False}
             elif verified:
                 winners=[row for row in verified if row.get('winner')=='optimized_candidate']
-                final=(max(winners,key=lambda row:(float(row.get('delta') or 0),
-                       -float(row.get('b_score') or 0))) if winners else
-                       max(verified,key=lambda row:(float(row.get('delta') or 0),
-                             -float(row.get('b_score') or 0))))
+                def order(row):
+                    selection = row.get('native_selection') or {}
+                    return (selection.get('decision') == 'hard_improvement',
+                            selection.get('hard_coverage_delta_units', 0), selection.get('hard_strength_delta', 0),
+                            selection.get('preferred_delta_units') or 0, selection.get('supporting_delta_units') or 0,
+                            float(row.get('delta') or 0), -float(row.get('b_score') or 0))
+
+                final=max(winners or verified,key=order)
             elif any(row.get('status') == 'needs_review' for row in trial_results):
                 final={**hold('A shortlisted alternative contains new Base-only evidence. Review it before rendering.',
                               status='needs_review'),
@@ -355,7 +379,7 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
         # V3.7 may prefer a simpler B on an *exact native score tie* only
         # after both actual documents have been scored and all requirement
         # strengths are non-regressed. This is not automatic approval.
-        if (guarded_floor_binding is None and compared.get('status')=='verified'
+        if (guarded_floor_binding is None and not native_bonus_policy and compared.get('status')=='verified'
                 and compared.get('winner')=='existing_final'
                 and compared.get('delta')==0 and not compared.get('hard_regressed_ids')):
             from tailoring.phase9f_same_work_selection_v37 import verified_tie_dedupe
@@ -368,6 +392,32 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
             compared.update(winner='existing_final',guarded_review=checked,
                             reason='Verified challenger available for explicit review. The existing fitted résumé remains selected.')
         if compared.get('status')=='verified':
+            from tailoring.phase9f_native_bonus_v312b220 import compare_native_bonus, unavailable
+            jd_sha = sha256(raw_jd_text.encode()).hexdigest()
+            compared['native_bonus'] = (compare_native_bonus(a,b,raw_jd=raw_jd_text,
+                before_document=va['sha256'],after_document=vb['sha256'],identity=a['native_identity'])
+                if a.get('jd_sha256') == b.get('jd_sha256') == jd_sha
+                and a.get('native_identity') and a['native_identity'] == b.get('native_identity')
+                else unavailable('Compatible native JD and scorer identities are unavailable.'))
+            if native_bonus_policy and guarded_floor_binding is None:
+                from tailoring.phase9f_native_bonus_v312b220 import native_selection
+                selection = native_selection(a, b, compared['native_bonus'], compared['delta'])
+                decision = selection['decision']
+                reasons = {
+                    'unavailable': 'Current actual-document evidence could not prove every Required/Core floor.',
+                    'hard_regression': 'The optimized alternative loses verified Required/Core match level or evidence strength.',
+                    'hard_improvement': 'The optimized alternative improves verified Required/Core evidence and preserves every hard floor.',
+                    'bonus_improvement': 'The optimized alternative improves verified bonus coverage and preserves every hard floor.',
+                    'retain_incumbent': 'The optimized alternative shows no verified Required/Core or bonus coverage improvement under the selection policy.',
+                }
+                if compared['hard_regressed_ids']:
+                    decision = selection['decision'] = 'hard_regression'
+                    selection['native_score_disagreement'] = False
+                improved = decision in ('hard_improvement', 'bonus_improvement')
+                compared.update(native_selection=selection, reason=reasons[decision],
+                    winner='optimized_candidate' if improved else 'existing_final',
+                    hard_regressed_ids=sorted({*compared['hard_regressed_ids'], *(
+                        r['requirement_id'] for r in selection['hard_floors'] if r['status'] == 'regressed')}))
             chosen=b if compared.get('winner')=='optimized_candidate' else a
             compared.update(compare_verified_starting_analyses(
                 baseline_report=baseline_report,raw_jd_text=raw_jd_text,chosen_document_score=chosen))
@@ -403,7 +453,7 @@ def evaluate_auto(*, audit:dict, projects:dict, fit:dict, generation:dict,
 
 def verify_fitted_a_against_baselines(*, audit:dict, fit:dict, generation:dict,
             baseline_report:dict, raw_jd_text:str, source_docx:Path,
-            scorer:Callable=native_document_score) -> dict[str,Any]:
+            scorer:Callable=native_document_score, require_hard_strength:bool=False) -> dict[str,Any]:
     """Independent, actual-document A-vs-frozen-baselines receipt for *every* fit.
 
     Also runs when no V3.1/V3.3 challenger exists. The document and metadata
@@ -436,7 +486,7 @@ def verify_fitted_a_against_baselines(*, audit:dict, fit:dict, generation:dict,
         if set(parsed['requirements'])!=frozen:
             return {**result,'reason':'Native A JD IDs differ from frozen requirements.'}
         compared=compare_verified_starting_analyses(baseline_report=baseline_report,
-            raw_jd_text=raw_jd_text,chosen_document_score=current)
+            raw_jd_text=raw_jd_text,chosen_document_score=current,require_hard_strength=require_hard_strength)
         return {'status':'verified','a_score':parsed['score'],
                 'a_docx_sha256':expected,'scoring_version':parsed['version'],
                 'reason':'Actual fitted DOCX scored; baseline comparisons only where frozen document authorities are comparable.',

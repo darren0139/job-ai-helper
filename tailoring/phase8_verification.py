@@ -819,7 +819,14 @@ def build_phase8_verification(
         from tailoring.document_grounded_analysis import analyze_actual_resume_against_jd, seal_document_report
         from tailoring.jd_user_input_overrides import apply_application_session_jd_user_inputs
         final_path = Path(str(fit_result.get('docx_path') or ''))
-        final_resume_text = read_resume_docx(str(final_path), preserve_complete_text=True)
+        try:
+            final_digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
+            final_resume_text = read_resume_docx(str(final_path), preserve_complete_text=True)
+            readback_digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ValueError('Fitted DOCX is missing or unreadable') from exc
+        if readback_digest != final_digest:
+            raise ValueError('Fitted DOCX changed during document readback')
         final_document = analyze_actual_resume_against_jd(resume_text=final_resume_text,
             jd_text=canonical_jd_text, jd_profile=baseline_report.get('jd_profile') or {}, resume_profile=final_profile)
         preferred = ((baseline_report.get('meta') or {}).get('jd_user_inputs') or {}).get('preferred_requirement_overrides') or []
@@ -830,7 +837,7 @@ def build_phase8_verification(
         seal_document_report(final_document)
         after = final_document['stable_analysis']
         document_authority = {'initial': authority, 'final': final_document['meta']['document_analysis'],
-            'final_document_sha256': hashlib.sha256(final_path.read_bytes()).hexdigest()}
+            'final_document_sha256': final_digest}
     raw_comparison = compare_stable_analyses(before, after)
     lineage = audit_claim_lineage(
         baseline_report.get("resume_profile", {}),

@@ -45,6 +45,8 @@ def decision_summary(calc: dict, result: dict) -> dict:
         verdict = 'Recommended résumé is the optimized alternative. Approval is a separate step.'
     elif result.get('hard_regressed_ids'):
         verdict = 'Keep the existing fitted résumé. Required/Core strength declined.'
+    elif result.get('native_selection'):
+        verdict = 'Keep the existing fitted résumé. ' + resume_terms(result.get('reason'))
     elif delta == 0:
         verdict = 'Keep the existing fitted résumé. Native Job Match scores tied.'
     elif delta < 0:
@@ -175,6 +177,14 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
                 'Both documents passed the one-page check.')
         if result.get('base_floor_reason'):
             st.caption(resume_terms(result['base_floor_reason']))
+        selection = result.get('native_selection') or {}
+        if selection.get('native_score_disagreement'):
+            st.caption('Job Match declined while verified coverage improved under the optimizer selection policy.')
+        if selection.get('hard_floors'):
+            with st.expander('Required and Core evidence floors', expanded=False):
+                st.table([{'Requirement': row['text'], 'Result': row['status'].capitalize(),
+                           'Existing': _floor_label(row['before']), 'Alternative': _floor_label(row['after'])}
+                          for row in selection['hard_floors']])
         verified_changes = _verified_coverage_changes(result, catalog)
         if verified_changes:
             with st.expander('Verified whole-résumé requirement changes', expanded=False):
@@ -183,6 +193,10 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
                     st.caption(f"Recorded strength · {entry['before']} → {entry['after']}")
     elif result.get('status') != 'not_run':
         st.info(info['verdict'] + '. ' + resume_terms(result.get('reason')))
+    if 'native_bonus' in result:
+        from tailoring.phase9f_v37_bonus_view import render_native_bonus
+        render_native_bonus(st, result['native_bonus'], 'Existing fitted résumé', 'Optimized alternative',
+                            key=f'bestof_bonus_{application_id}_{context}')
 
     basics = calc.get('summary') or {}
     counts = [basics.get(key) for key in (
@@ -339,11 +353,19 @@ def render_compact_decision_explorer(st: Any, *, calc: dict, result: dict, propo
             st.download_button('Export JD evidence and selection receipts (JSON)',
                 data=json.dumps({'schema': 'phase9f-v37-decision-explorer-v1',
                     'native_whole_resume': {k: info[k] for k in ('a_score', 'b_score', 'native_delta', 'native_verification_status')},
+                    'native_bonus': result.get('native_bonus'),
+                    'native_selection': result.get('native_selection'),
                     'selection_calculation': calc, 'jd_requirements': list(catalog.values()),
                     'bullet_evidence': ranked, 'fragment_warnings': fragments},
                     ensure_ascii=False, indent=2, default=str),
                 file_name=f'phase9f_app_{int(application_id)}_v37_jd_decisions.json',
                 mime='application/json', key=f'v365_export_{application_id}_{context}', on_click='ignore')
+
+
+def _floor_label(observation):
+    if observation is None:
+        return 'Unavailable'
+    return f"{observation['match_label'].capitalize()} · {observation['evidence_strength']}/5"
 
 
 def _render_forced_comparison(st: Any, rows: list[dict], proposal: dict, audit: dict,

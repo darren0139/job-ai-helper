@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -878,6 +879,14 @@ def render_phase8_verification(
             refreshed_latest.pop("cache_status", None)
         _render_result(refreshed_latest)
         if phase8_verification_is_current(refreshed_latest, selected):
+            from tailoring.phase9f_native_bonus_v312b220 import phase8_native_bonus
+            from tailoring.phase9f_v37_bonus_view import render_native_bonus
+            base_artifact = (phase9f_execution or {}).get('source_artifact') or {}
+            bonus = phase8_native_bonus(refreshed_latest, raw_jd=raw_jd_text,
+                final_path=Path(str(selected['fit_result'].get('docx_path') or '')),
+                selected_base_sha256=base_artifact.get('sha256') if base_artifact.get('artifact_type') == 'docx' else None)
+            render_native_bonus(st, bonus, 'Selected Base', 'Final fitted résumé',
+                                key=f'phase8_bonus_{application_id}_{selected_id}')
             from tailoring.phase9f_score_authority_v312b216a import render_diagnostic
             render_diagnostic(st, historical_baseline_report, refreshed_latest, selected, raw_jd_text)
     else:

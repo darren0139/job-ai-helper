@@ -142,3 +142,39 @@ def render_bonus_view(st, view, project, ranked):
                 st.caption(f'Isolated addition · {len(wording.split())} words · Native Job Match {delta:+g}.')
             elif not kept and not reviews:
                 st.caption('Outside the selected combination.')
+
+
+def render_native_bonus(st, receipt, before_label, after_label, *, key):
+    """Display the current native receipt alongside the independent research view."""
+    with st.expander('Preferred and Supporting coverage', expanded=False):
+        if receipt['status'] != 'verified':
+            st.caption('Coverage unavailable. ' + receipt['reason'])
+            return
+        table = []
+        for lane in ('preferred', 'supporting'):
+            result = receipt['lanes'][lane]
+            status = result['status']
+            if status == 'applicable':
+                available = result['available_units']
+                before = f"{result['before_units']:g}/{available:g}"
+                after = f"{result['after_units']:g}/{available:g}"
+                delta = f"{result['delta_units']:+g} units"
+            else:
+                before = after = status.replace('_', ' ').capitalize()
+                delta = '—'
+            table.append({'Lane': lane.capitalize(), before_label: before, after_label: after, 'Change': delta})
+        st.table(table)
+        for row in receipt['requirements']:
+            st.write(f"**{row['importance'].capitalize()}** · {row['text']}")
+            if row['status'] != 'verified':
+                st.caption(row['status'].capitalize() + ' · ' + row['exclusion'].replace('_', ' '))
+                continue
+            for label, side in ((before_label, 'before'), (after_label, 'after')):
+                observed = row[side]
+                st.caption(f"{label} · {observed['match_label'].capitalize()} · strength {observed['evidence_strength']}/5")
+                if not observed['evidence']:
+                    st.caption('Uncovered opportunity')
+                for item in observed['evidence']:
+                    st.text(item['text'])
+        st.download_button('Download native coverage (JSON)', json.dumps(receipt, ensure_ascii=False, indent=2),
+                           file_name='native_bonus_coverage.json', mime='application/json', key=key, on_click='ignore')
