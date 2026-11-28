@@ -34,16 +34,15 @@ def render_optimizer_mode_selector(st: Any, application_id: int) -> str:
         st.session_state.pop(key, None)
     settings_widget(st, application_id, 'radio', 'JD-aware bullet optimization (for the next Generate and Fit)',
         options=ACTIVE_MODES, key=key, index=ACTIVE_MODES.index('v37-same-work'), horizontal=False,
-        format_func=lambda mode: ('V3.5 — JD-aware comparison (existing behavior)'
+        format_func=lambda mode: ('V3.5 — JD coverage comparison'
                                   if mode=='v35-relevance' else
                                   'V3.7 — Prefer one wording per same-work Base/Library pair'
                                   if mode=='v37-same-work' else
                                   'V2.6 — Original fixed-count comparison'))
     if configured_mode(st, application_id) in ('v35-relevance','v37-same-work'):
-        st.caption('Rank exact grounded Base + Library bullets by saved JD coverage, '
-                   'JD terminology and evidence overlap; test up to three complete '
-                   'one-page DOCX challengers with native Job Match. Library wording '
-                   'only breaks otherwise equal source ties.')
+        st.caption('Shortlist source-grounded bullets for Required/Core, Preferred and Supporting coverage. '
+                   'A one-page alternative can be recommended when it preserves every Required/Core floor '
+                   'and improves verified coverage.')
     if configured_mode(st, application_id)=='v37-same-work':
         st.caption('V3.7 adds an at-most-one rule for confidently overlapping Base/Library work within the same project. A safe, independently verified alternative is required; otherwise the existing fitted résumé stays unchanged.')
     st.caption('The existing fitted résumé is built first. '
@@ -160,6 +159,8 @@ def _render_source_comparison(st: Any, *, application_id: int, context: str,
         'independent_bullet_scores': independent_scores,
         'proposal': exported_proposal,
         'actual_a_vs_starting': result.get('a_vs_starting'),
+        'native_bonus': result.get('native_bonus'),
+        'native_selection': result.get('native_selection'),
         'v35_trial_receipts': result.get('v35_trial_receipts') or [],
         'optimizer_execution_cache': result.get('_optimizer_cache'),
         'source_wording_is_causal_proof': False,
@@ -294,18 +295,40 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
     context=context_for(run_mode,tie_preference,manual_mode_receipt)
     key=f'phase9f_auto_bestof_receipt_{int(application_id)}_{context}'
 
+    def check_starting(checked, mode, docx, generation):
+        bonus_mode = mode in ('v35-relevance','v37-same-work')
+        starting = verify_fitted_a_against_baselines(
+            audit=audit,fit=fit,generation=generation,baseline_report=baseline_report,
+            raw_jd_text=raw_jd_text,source_docx=docx,require_hard_strength=bonus_mode)
+        if bonus_mode and checked.get('status') == 'verified':
+            from database.tailoring_verification_manager import get_latest_tailoring_verification
+            from sqlite3 import Error as DatabaseError
+            from tailoring.phase8_auto_verification import phase8_verification_is_current
+            from tailoring.phase9f_native_bonus_v312b220 import checked_phase8_base_floor
+
+            artifact = (execution or {}).get('source_artifact') or {}
+            if artifact.get('artifact_type') == 'docx':
+                try:
+                    receipt = get_latest_tailoring_verification(application_id, generation_id)
+                except DatabaseError:
+                    receipt = None
+                if phase8_verification_is_current(receipt, generation):
+                    starting.update(checked_phase8_base_floor(receipt, checked, raw_jd=raw_jd_text,
+                        final_path=docx, selected_base_sha256=artifact.get('sha256')))
+        checked['a_vs_starting'] = starting
+        if bonus_mode:
+            checked=selected_base_floor_gate(checked,checked.get('a_vs_starting'))
+        return checked
+
     def execute_trial(mode, docx, generation, optimizer, *, tie=False, force=False):
         def fresh():
+            bonus_mode = mode in ('v35-relevance','v37-same-work')
             checked=evaluate_auto(audit=audit,projects=projects,fit=fit,
                 generation=generation,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
                 source_docx=docx,repo_root=repo_root,application_id=application_id,
-                optimizer=optimizer,generator=materialize_verified_candidate)
-            checked['a_vs_starting']=verify_fitted_a_against_baselines(
-                audit=audit,fit=fit,generation=generation,baseline_report=baseline_report,
-                raw_jd_text=raw_jd_text,source_docx=docx)
-            if mode in ('v35-relevance','v37-same-work'):
-                checked=selected_base_floor_gate(checked,checked.get('a_vs_starting'))
-            return checked
+                optimizer=optimizer,generator=materialize_verified_candidate,native_bonus_policy=bonus_mode,
+                rank_native_bonus=bonus_mode)
+            return check_starting(checked, mode, docx, generation)
         return run_cached_trial(execute=fresh,application_id=application_id,generation=generation,
             audit=audit,projects=projects,fit=fit,baseline_report=baseline_report,raw_jd_text=raw_jd_text,
             source_docx=docx,repo_root=repo_root,mode=mode,tie=tie,force=force,identity=live_identity)
@@ -326,6 +349,13 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
         if not same_policy or not scope or value.get('scoring_version')!=scorer_version:
             return False
         if value.get('a_docx_sha256')!=audit.get('docx_sha256') or value.get('generation_id')!=str(generation_id):
+            return False
+        bonus = value.get('native_bonus') or {}
+        if bonus.get('status') == 'verified' and (
+                bonus.get('native_identity') != live_identity
+                or bonus.get('jd_sha256') != hashlib.sha256(raw_jd_text.encode()).hexdigest()
+                or bonus.get('before_docx_sha256') != value.get('a_docx_sha256')
+                or bonus.get('after_docx_sha256') != value.get('b_docx_sha256')):
             return False
         try:
             owned=(Path(repo_root)/'outputs'/'tailored_resumes'/'optimizations').resolve()
@@ -558,12 +588,9 @@ def render_automatic_bestof(st:Any, *, application_id:int, generation_id:str,
                         generation=generation,baseline_report=baseline_report,
                         raw_jd_text=raw_jd_text,source_docx=docx,repo_root=repo_root,
                         application_id=application_id,optimizer=lambda _audit, _projects: freeze_reviewed_slate(reviewed_snapshot)[0],
-                        generator=materialize_verified_candidate,base_reviewed=True)
-                    reviewed['a_vs_starting']=verify_fitted_a_against_baselines(
-                        audit=audit,fit=fit,generation=generation,baseline_report=baseline_report,
-                        raw_jd_text=raw_jd_text,source_docx=docx)
-                    reviewed = (selected_base_floor_gate(reviewed, reviewed['a_vs_starting'])
-                                if run_mode=='v35-relevance' else reviewed)
+                        generator=materialize_verified_candidate,base_reviewed=True,
+                        native_bonus_policy=run_mode in ('v35-relevance','v37-same-work'))
+                    reviewed = check_starting(reviewed, run_mode, docx, generation)
                     save_manual_result(reviewed_core_floor(reviewed, baseline_report),run_mode,tie=tie_preference)
                     st.rerun()
     elif run_mode not in ('v35-relevance','v37-same-work') and result.get('status') != 'not_run':

@@ -151,7 +151,7 @@ def _solve(model:dict, no_good:list[tuple[int,...]], *, time_limit:float, forced
         # y <= sum(x), and y >= x_i for each supporter. Baseline links preserved.
         add({Y+r:1,**{i:-1 for i in supporters}},-math.inf,0,f'cover:{rid}')
         for i in supporters: add({Y+r:1,i:-1},0,math.inf, f'cover_consistency:{rid}')
-        if rid in model['baseline_ids']:
+        if rid in model.get('protected_baseline_ids', model['baseline_ids']):
             add({Y+r:1},1,1,f'baseline_coverage:{rid}')
     for t,term in enumerate(terms):
         supporters=[i for i,b in enumerate(bullets) if term in b['terms']]
@@ -187,17 +187,32 @@ def _solve(model:dict, no_good:list[tuple[int,...]], *, time_limit:float, forced
     # terminology less overlap -> fewer edits -> fewer words. Each optimum is
     # fixed before optimizing the next phase. No unexplained weighted blend.
     phase_objectives=[]
-    c0=np.zeros(N);c0[Y:Y+nr]=-np.array([round(model['weights'][rid]*1000) for rid in req])
-    phase_objectives.append(('weighted_saved_JD_coverage',c0))
-    c1=np.zeros(N);c1[T:T+nt]=-10
-    c1[P:P+npairs]=18
-    phase_objectives.append(('distinct_JD_terms_minus_overlap',c1))
+    coverage_priorities = model.get('coverage_priorities') or {'weighted_saved_JD_coverage': model['weights']}
+    for name, weights in coverage_priorities.items():
+        objective = np.zeros(N)
+        objective[Y:Y+nr] = [-round(weights.get(rid, 0) * 1_000_000) for rid in req]
+        if name == 'weighted_saved_JD_coverage':
+            objective[Y:Y+nr] = [-round(weights[rid] * 1000) for rid in req]
+        if objective.any() or not phase_objectives:
+            phase_objectives.append((name, objective))
+    if 'coverage_priorities' in model:
+        overlap_objective = np.zeros(N)
+        overlap_objective[P:P+npairs] = 1
+        phase_objectives.append(('same_project_overlap', overlap_objective))
+        word_objective = np.zeros(N)
+        word_objective[:n] = [b['words'] for b in bullets]
+        phase_objectives.append(('source_bullet_words', word_objective))
+    else:
+        c1=np.zeros(N);c1[T:T+nt]=-10
+        c1[P:P+npairs]=18
+        phase_objectives.append(('distinct_JD_terms_minus_overlap',c1))
     c2=np.zeros(N)
     for i,b in enumerate(bullets):c2[i]= -1 if b['original'] else 1
     phase_objectives.append(('membership_changes',c2))
     c3=np.zeros(N)
     for i,b in enumerate(bullets):c3[i]=b['words']
-    phase_objectives.append(('source_bullet_words',c3))
+    if 'coverage_priorities' not in model:
+        phase_objectives.append(('source_bullet_words',c3))
     phase_results=[]
     for name,c in phase_objectives:
         answer=milp(c,integrality=np.ones(N),bounds=Bounds(np.zeros(N),np.ones(N)),
@@ -226,6 +241,7 @@ def _solve(model:dict, no_good:list[tuple[int,...]], *, time_limit:float, forced
 def _candidate(model:dict, source:dict, solution:dict, rank:int) -> dict:
     selected=set(solution['selected_indices']);groups=model['groups'];bullets=model['bullets']
     baseline=model['baseline_ids']; newids={rid for i in selected for rid in bullets[i]['ids']}
+    protected = model.get('protected_baseline_ids', baseline)
     rows=[];selected_comp=deepcopy(source['source_comparison'])
     for gi,(group,project,owned,base) in enumerate(groups):
         ordered=[i for i in base if i in selected]
@@ -268,7 +284,7 @@ def _candidate(model:dict, source:dict, solution:dict, rank:int) -> dict:
         'baseline_words':model['baseline_words'],'proposed_words':chosenwords,
         'baseline_bullet_count':model['baseline_count'],'proposed_bullet_count':len(selected),
         'baseline_jd_ids':sorted(baseline),'proposed_jd_ids':sorted(newids),
-        'protected_baseline_jd_ids':sorted(baseline),
+        'protected_baseline_jd_ids':sorted(protected),
         'gained_jd_ids':sorted(newids-baseline),'lost_jd_ids':sorted(baseline-newids),
         'requires_base_review':baseonly,
         'selection_receipt':{'algorithm':'v36-exact-lexicographic-MILP',
@@ -296,7 +312,7 @@ def _candidate(model:dict, source:dict, solution:dict, rank:int) -> dict:
                 'max_changed_memberships':MAX_TOTAL_EDITS,
                 'original_project_bullet_words':model['baseline_words'],
                 'word_proxy_upper_bound':model['max_words'],
-                'baseline_JD_identities_must_remain':sorted(model['baseline_ids']),
+                'baseline_JD_identities_must_remain':sorted(protected),
                 'actual_rendered_page_limit':'one page, enforced by separate renderer',
                 'native_score_floor':'requires independently comparable Selected Base',
             },
@@ -316,7 +332,8 @@ def _candidate(model:dict, source:dict, solution:dict, rank:int) -> dict:
         }}
 
 
-def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_trials:int=MAX_TRIALS,same_work_guard:bool=False)->dict:
+def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_trials:int=MAX_TRIALS,
+                                 same_work_guard:bool=False, bonus_priorities=None)->dict:
     """Exact lexicographic surrogate, fallback to bounded V3.5 when uncertified.
 
     Up to max_trials distinct exact-optimal-ranked solutions are submitted to
@@ -332,6 +349,9 @@ def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_t
         model=_matrix_program(audit,frozen,projects,same_work_guard=same_work_guard)
     except (KeyError,TypeError,ValueError,OverflowError) as exc:
         return _fallback(audit,projects,'Exact model not applicable: '+str(exc),evaluator=evaluator,same_work_guard=same_work_guard)
+    if bonus_priorities:
+        model['coverage_priorities'] = bonus_priorities
+        model['protected_baseline_ids'] = model['baseline_ids'] & bonus_priorities['required_core_saved_links'].keys()
     selections=[];certs=[];no_good=[]
     base=model['baseline_indices']
     for i in range(max_trials):
@@ -345,7 +365,13 @@ def build_certified_optimization(audit:dict,projects:dict,*,evaluator=None,max_t
         selected=solved['selected_indices']
         no_good.append(selected)
         if set(selected)==base:continue  # Baseline can be optimal; no candidate claimed.
-        selections.append(_candidate(model,frozen,solved,len(selections)+1))
+        candidate = _candidate(model,frozen,solved,len(selections)+1)
+        if bonus_priorities:
+            candidate['reason'] = 'A source-grounded shortlist prioritizes distinct Required/Core, Preferred and Supporting links.'
+            candidate['selection_receipt']['algorithm'] = 'v312b220c-lexicographic-JD-lane-MILP'
+            candidate['mathematical_certificate']['objectives_in_priority_order'] = [
+                phase['priority'] for phase in solved['phase_receipts']]
+        selections.append(candidate)
         certs.append(solved)
     if not selections:
         out=deepcopy(frozen)

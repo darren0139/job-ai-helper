@@ -103,14 +103,15 @@ def vet_fallback(result: dict) -> dict:
 
 
 def build_same_work_optimization(audit: dict, projects: dict, *, evaluator=None,
-                                 max_trials=None) -> dict:
+                                 max_trials=None, bonus_priorities=None) -> dict:
     """Propose a deduplicated challenger; NEVER auto-approve or alter incumbent."""
     from tailoring.phase9f_certified_selection_v36 import (
         MAX_TRIALS, build_certified_optimization)
     if max_trials is None:
         max_trials = MAX_TRIALS
+    options = {'bonus_priorities': bonus_priorities} if bonus_priorities else {}
     result = build_certified_optimization(audit, projects, evaluator=evaluator,
-                                          max_trials=max_trials, same_work_guard=True)
+                                          max_trials=max_trials, same_work_guard=True, **options)
     if not isinstance(result, dict):
         return {'status': 'withheld', 'version': VERSION,
                 'reason': 'Certified optimizer did not return a receipt.'}

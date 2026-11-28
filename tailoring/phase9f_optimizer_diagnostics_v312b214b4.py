@@ -224,6 +224,11 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
         and independent_scope.get('raw_jd_sha256') == jd_hash)
     independent_display = independent if independent_bound else {
         'status':'unavailable', 'reason': independent.get('reason') or 'No identity-bound standalone saved-link receipt supplied.'}
+    bonus = obj(result.get('native_bonus'))
+    bonus_bound = bool(audit_bound and doc_hash and jd_hash and result.get('status') == 'verified'
+        and bonus.get('before_docx_sha256') == doc_hash == result.get('a_docx_sha256')
+        and bonus.get('after_docx_sha256') == result.get('b_docx_sha256')
+        and bonus.get('jd_sha256') == jd_hash)
     notes += ['Historical mode rows are document-bound metadata only; no current comparison or exact JD authority is inferred.',
               'Standalone points use saved links; zero is not evidence of zero native relevance.',
               'Exact wording presence is not proof of causal lineage. Rewrites/fusions may change wording.',
@@ -239,6 +244,8 @@ def build_report(*, application_id, generation_id, projects=None, fit=None, audi
             'verification_stage':result.get('verification_stage'),'scoring_version':version,'reference_scoring_version':reference,
             'version_comparison':freshness,'historical_summary':historical_optimizer,
             'saved_native_scores':{k:result.get(k) for k in ('a_score','b_score','delta','hard_regressed_ids')},
+            'saved_native_bonus': bonus if bonus_bound else None,
+            'saved_native_selection': result.get('native_selection') if bonus_bound else None,
             'saved_trials':result.get('v35_trial_receipts'),'saved_guarded_review':result.get('guarded_review'),
             'saved_baseline_comparison':result.get('a_vs_starting'),
             'proposal_version':proposal.get('version'),'proposal_status':proposal.get('status'),

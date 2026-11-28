@@ -10,6 +10,17 @@ def _meets(evidence, floor):
             and evidence['strength'] >= floor['strength'])
 
 
+def compare_evidence_floor(before, after):
+    """Compare native match level and strength independently."""
+    def pair(row):
+        return {'label': row['match_label'], 'strength': row['evidence_strength']}
+
+    a, b = pair(before), pair(after)
+    if not _meets(b, a):
+        return 'regressed'
+    return 'maintained' if _meets(a, b) else 'improved'
+
+
 def select_protected(candidates, requirements, floors, *, max_bullets, max_words, sources,
                      existing=(), fixed_links=None, bonus_order=()):
     """Solve the exact scoped pool. Candidates/links must have passed source review."""

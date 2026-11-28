@@ -4951,6 +4951,19 @@ def run_or_reuse_phase9f_normal_generation_phase8(
         # starting document *for this handoff*. Expose its true Selected Base
         # role and do not claim a separate uploaded Initial comparison.
         result['initial_document_status'] = 'not_available_for_handoff'
+    elif (execution.get('source_artifact') or {}).get('artifact_type') == 'docx':
+        from tailoring.phase9f_native_bonus_v312b220 import bind_selected_base_docx
+        try:
+            selected_source = _resolve_prepared_source_artifact(
+                decision=prepared['decision'], confirmation=prepared['confirmation'],
+                expected_identity=execution['source_artifact'],
+            )
+            result['selected_base_bonus_binding'] = bind_selected_base_docx(
+                result['selected_base_analysis']['document_analysis'], selected_source)
+        except (Phase9FFExecutionError, OSError, ValueError, KeyError, TypeError):
+            # The optional bonus comparison needs byte authority. Phase 8's
+            # existing document analysis and readiness keep their own contract.
+            pass
     latest = save_tailoring_verification(
         application_id=int(application_id),
         generation_id=str(generation_id),
