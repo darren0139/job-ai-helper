@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 from tailoring import phase9f_policy_transition_v312b215c as t
 from tailoring import phase9f_policy_adoption_v312b215c2 as a
-from tailoring.phase9f_scoring_policy_registry_v312b2190 import B215, B219A, B219B, B222D1, LEGACY, policy_path, needs_exact_recheck, enforce_fresh_receipt
+from tailoring.phase9f_scoring_policy_registry_v312b2190 import B215, B219A, B219B, B222D1, B219C, LEGACY, policy_path, needs_exact_recheck, enforce_fresh_receipt
 from tests.test_v312b215c_policy_transition import _row, _snapshot, _decision
 from tests import test_v312b215c2_policy_adoption as fixtures
 
@@ -154,11 +154,11 @@ class NativeSuccessor(unittest.TestCase):
         from tailoring.phase8_auto_verification import _matches_active_scoring_policy
         from tests.test_v312b215_jd_eligibility import JD, PROFILE, OLD, REMOVED, make_handoff_fixture_docx
         import os
-        if scorer.SCORING_VERSION not in (B219A,B219B,B222D1) and os.getenv('B2190_REQUIRE_SUCCESSOR') != '1':
+        if scorer.SCORING_VERSION not in (B219A,B219B,B222D1,B219C) and os.getenv('B2190_REQUIRE_SUCCESSOR') != '1':
             self.skipTest('Successor scoring policy is not active; installer tests its disposable overlay')
         target=scorer.SCORING_VERSION
-        self.assertIn(target,(B219A,B219B,B222D1))
-        predecessor={B222D1:B219B,B219B:B219A,B219A:B215}[target]
+        self.assertIn(target,(B219A,B219B,B222D1,B219C))
+        predecessor={B219C:B222D1,B222D1:B219B,B219B:B219A,B219A:B215}[target]
         self.assertFalse(_matches_active_scoring_policy({'after_stable_analysis':{'scoring_version':B215}}))
         self.assertTrue(_matches_active_scoring_policy({'after_stable_analysis':{'scoring_version':target}}))
         from tailoring.phase8_verification import refresh_phase8_readiness
@@ -168,10 +168,12 @@ class NativeSuccessor(unittest.TestCase):
         with patch.object(scorer,'_V312A17_RUNTIME_ACTIVE',False):old_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements']
         new_rows=scorer.canonicalise_requirements(PROFILE,JD)['requirements'];self.assertEqual(len(new_rows),12);self.assertEqual(len(old_rows),17)
         versions = [(B215,new_rows),(OLD,old_rows)]
-        if target in (B219B, B222D1):
+        if target in (B219B, B222D1, B219C):
             versions.insert(0,(B219A,new_rows))
-        if target == B222D1:
+        if target in (B222D1, B219C):
             versions.insert(0,(B219B,new_rows))
+        if target == B219C:
+            versions.insert(0,(B222D1,new_rows))
         for version,rows in versions:
             with self.subTest(version=version),tempfile.TemporaryDirectory() as td:
                 old=_snapshot(rows,JD);current=_snapshot(new_rows,JD);old['jd_profile']=copy.deepcopy(PROFILE);current['jd_profile']=copy.deepcopy(PROFILE)

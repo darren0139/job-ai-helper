@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tests.b213_policy_support import (
-    EXPECTED_SCORING_VERSION, ACTIVE_B219B, ACTIVE_B222D1, ROLLBACK_B219A,
+    EXPECTED_SCORING_VERSION, ACTIVE_B219B, ACTIVE_B222D1, ACTIVE_B219C, ROLLBACK_B219A,
 )
 
 import copy
@@ -90,6 +90,39 @@ _HISTORICAL_RANKING_PIN = {'fixture_version': 'phase9f-b-ranking-identity-pinned
  'comparison_result_fingerprints': ['2440ebf57a7243a7c1691d9a6fc62f04c3c01b3b36ab7df6935b53b5df6aa415',
                                     '0b73c180da1d7a67476056636cdb7aeb19000e9511772fc1aa9fb915936240b6']}
 _CURRENT_RANKING_PINS = {
+    ACTIVE_B219C: {
+        "ranking_input_fingerprint": "73724ed88092a0bfdca8368c5d1d2a6318227844495a6d5b945f186a0506e85f",
+        "ranking_fingerprint": "5971b4d600468c71537c5b29d159a1282696f64234c06df0b31e8b993fc7e5c6",
+        "winner": "3f32806c24cb75fa18e8724f014c865e714799088028f7bacfe0ec34baa2a4be",
+        "candidate_order": [
+            "3f32806c24cb75fa18e8724f014c865e714799088028f7bacfe0ec34baa2a4be",
+            "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25"
+        ],
+        "candidate_metrics": [
+            {
+                "normalized_source_fingerprint": "3f32806c24cb75fa18e8724f014c865e714799088028f7bacfe0ec34baa2a4be",
+                "deterministic_alignment_score": 93,
+                "required_core_coverage_score": 92,
+                "preferred_coverage_score": 100,
+                "evidence_strength_score": 94,
+                "important_gap_count": 0,
+                "deal_breaker_gap_count": 0
+            },
+            {
+                "normalized_source_fingerprint": "37ac1958a4ebe8265cd4557f4c1e84425cedc1ff341e828d01ead65c190d0c25",
+                "deterministic_alignment_score": 0,
+                "required_core_coverage_score": 0,
+                "preferred_coverage_score": 0,
+                "evidence_strength_score": 0,
+                "important_gap_count": 6,
+                "deal_breaker_gap_count": 0
+            }
+        ],
+        "comparison_result_fingerprints": [
+            "2440ebf57a7243a7c1691d9a6fc62f04c3c01b3b36ab7df6935b53b5df6aa415",
+            "0b73c180da1d7a67476056636cdb7aeb19000e9511772fc1aa9fb915936240b6"
+        ]
+    },
     ACTIVE_B222D1: {
         "ranking_input_fingerprint": "a143c23d0efbb09f9cc05ef98b9bd1105ee934ebf605a376dd5789abb3a04b73",
         "ranking_fingerprint": "40f3f16b98670655faf945b454e7b9c3d95b24344c4220da9787748a99835e9a",

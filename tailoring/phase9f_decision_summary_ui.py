@@ -122,7 +122,7 @@ def coverage_maximum(rank, requirement):
 
 
 def _known_ranking(rank):
-    return (rank.get('ranking_version') in ('phase6b1-project-ranking-v4', 'phase6b1-project-ranking-v5')
+    return (rank.get('ranking_version') in ('phase6b1-project-ranking-v4', 'phase6b1-project-ranking-v5', 'phase6b1-project-ranking-v6')
             and rank.get('ranking_owner') == 'python_deterministic_evidence_mapping')
 
 

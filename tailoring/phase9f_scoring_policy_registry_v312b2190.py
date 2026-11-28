@@ -17,7 +17,9 @@ B219A = B215 + '-v312b219a-software-testing-v1'
 B219B = B219A + '-v312b219b-technology-database-v1'
 GENERAL_SOFTWARE_TESTING_VERSION = 'v312b222d1-general-software-testing-v1'
 B222D1 = B219B + '-' + GENERAL_SOFTWARE_TESTING_VERSION
-POLICY_ONLY_EDGES = frozenset({(B215, B219A), (B219A, B219B), (B219B, B222D1)})
+APPLICATION_DEVELOPMENT_VERSION = 'v312b219c-application-development-v1'
+B219C = B222D1 + '-' + APPLICATION_DEVELOPMENT_VERSION
+POLICY_ONLY_EDGES = frozenset({(B215, B219A), (B219A, B219B), (B219B, B222D1), (B222D1, B219C)})
 
 def policy_path(old, new):
     if not isinstance(old,str) or not isinstance(new,str) or old == new:

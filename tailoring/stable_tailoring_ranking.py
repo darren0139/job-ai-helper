@@ -28,6 +28,7 @@ from analysis_stability.stable_evidence_scoring import (
 )
 
 from tailoring.phase9f_scoring_policy_registry_v312b2190 import NATIVE_POLICY_ACTIVE as PROJECT_TECHNOLOGY_ENABLED
+from tailoring import application_development_evidence_v312b219c as development
 from tailoring.project_technology_evidence_v312b219b2 import (
     VERSION as PROJECT_TECHNOLOGY_VERSION,
     evaluate_project_technology,
@@ -47,7 +48,8 @@ from tailoring.phase6d_ranking_adapter import (
 )
 
 
-PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v5" if PROJECT_TECHNOLOGY_ENABLED else "phase6b1-project-ranking-v4"
+PROJECT_DEVELOPMENT_ENABLED = PROJECT_TECHNOLOGY_ENABLED
+PROJECT_RANKING_VERSION = "phase6b1-project-ranking-v6" if PROJECT_DEVELOPMENT_ENABLED else "phase6b1-project-ranking-v4"
 SKILL_RANKING_VERSION = "phase6b1-skill-ranking-v4"
 EVIDENCE_MAPPING_VERSION = "phase6d-capability-taxonomy-evidence-mapping-v1"
 PROJECT_RELEVANCE_METADATA_VERSION = (
@@ -780,6 +782,25 @@ def _deterministic_family_match(
     evidence does not support it, so any LLM proposal for the requirement must
     be discarded.
     """
+    if PROJECT_DEVELOPMENT_ENABLED:
+        spec = development.requirement(requirement)
+        if spec is not None:
+            grounded = next((record for record in project_profile.get("evidence_records", [])
+                             if record["kind"] in {"bullet", "impact"}
+                             and record["source"] in {"resume", "evidence_library"}
+                             and development.evaluate(spec, record["text"])), None)
+            return ("direct" if grounded else "none",
+                    [grounded["evidence_id"]] if grounded else [],
+                    [grounded["text"]] if grounded else [],
+                    {
+                        "recognised": True,
+                        "family": None,
+                        "capability_id": None,
+                        "rule": "owned_application_development" if grounded else "application_development_not_established",
+                        "source": "python_b219c_project_application_development",
+                        "application_development_version": development.VERSION,
+                    })
+
     if PROJECT_TECHNOLOGY_ENABLED:
         spec = technology_spec(requirement)
         if spec is not None:
@@ -1069,6 +1090,8 @@ def _apply_deterministic_requirement_overrides(
             "source": rule_debug.get("source") or "python_phase6d_capability_taxonomy",
             "mapping_similarity": 1.0,
             "evidence_mapping_version": EVIDENCE_MAPPING_VERSION,
+            **({"application_development_version": rule_debug["application_development_version"]}
+               if rule_debug.get("application_development_version") else {}),
             **({"technology_evidence_version": rule_debug["technology_evidence_version"]}
                if rule_debug.get("technology_evidence_version") else {}),
             "capability_id": rule_debug.get("capability_id"),
@@ -1088,6 +1111,9 @@ def _bullet_supports_requirement_match(
     match: dict[str, Any],
 ) -> bool:
     """Return whether one bullet carries the matched requirement capability."""
+    if match.get("application_development_version") == development.VERSION:
+        spec = development.requirement({"text": match.get("requirement_text")})
+        return development.evaluate(spec, bullet) is not None
     if match.get("technology_evidence_version") == PROJECT_TECHNOLOGY_VERSION:
         spec = technology_spec({"text": match.get("requirement_text")})
         return evaluate_technology_bullet(spec, bullet) is not None

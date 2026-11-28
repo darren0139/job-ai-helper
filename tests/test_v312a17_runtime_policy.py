@@ -12,7 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = 'JOB_AI_HELPER_V312A17_NATIVE_FULLSTACK_POLICY'
 TOKEN = 'v312a17_fullstack_single_row'
-from tests.b213_policy_support import ACTIVE_B222D1, ROLLBACK_B219A
+from tests.b213_policy_support import ACTIVE_B219C, ROLLBACK_B219A
 
 
 class RuntimePolicyContracts(unittest.TestCase):
@@ -44,7 +44,7 @@ print('A17_STARTUP_PROBE='+json.dumps({
             with self.subTest(value=value):
                 row=self._child(value)
                 self.assertTrue(row['active'])
-                self.assertEqual(row['version'], ACTIVE_B222D1)
+                self.assertEqual(row['version'], ACTIVE_B219C)
                 self.assertEqual(row['phase8'], row['version'])
                 self.assertFalse(row['scope'])
 
@@ -60,7 +60,7 @@ print('A17_STARTUP_PROBE='+json.dumps({
     def test_exact_startup_token_changes_phase8_and_scorer_identity(self):
         row=self._child(TOKEN)
         self.assertTrue(row['active'])
-        self.assertEqual(row['version'], ACTIVE_B222D1)
+        self.assertEqual(row['version'], ACTIVE_B219C)
         self.assertEqual(row['phase8'], row['version'])
         self.assertFalse(row['scope'])
 

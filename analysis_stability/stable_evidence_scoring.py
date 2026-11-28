@@ -40,7 +40,7 @@ from analysis_stability.jd_section_inference import (
 )
 from tailoring.fullstack_direct_evidence_v312a14 import independent_fullstack_implementation
 from tailoring.phase9f_scoring_policy_registry_v312b2190 import (
-    B222D1, NATIVE_POLICY_ACTIVE as _V312A17_RUNTIME_ACTIVE,
+    B219C, NATIVE_POLICY_ACTIVE as _V312A17_RUNTIME_ACTIVE,
 )
 from tailoring.capability_taxonomy import (
     evaluate_capability_evidence,
@@ -84,7 +84,7 @@ _V312A17_POLICY_VERSION = "v312a17-fullstack-positive-single-row-v1"
 
 # Recognition is part of the snapshot and native A/B identity.
 _BASE_SCORING_VERSION = "stable-evidence-v1.16-phase6d20"
-SCORING_VERSION = B222D1 if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION + '-v312b219a-software-testing-v1'
+SCORING_VERSION = B219C if _V312A17_RUNTIME_ACTIVE else _BASE_SCORING_VERSION + '-v312b219a-software-testing-v1'
 CAPABILITY_NONE_RECOVERY_POLICY_VERSION = "capability-single-row-none-recovery-v1.1"
 TECHNOLOGY_REGISTRY_RESOLUTION_VERSION = "technology-registry-stable-resolution-v1"
 CAPABILITY_EVIDENCE_RESELECTION_POLICY_VERSION = "capability-single-row-reselection-v1"
@@ -5126,15 +5126,18 @@ def build_stable_analysis(
                 for receipt in experimental_audit
             ]
     technology_database_audit = []
+    application_development_audit = []
     if _V312A17_RUNTIME_ACTIVE:
         from tailoring.technology_database_evidence_v312b219b import apply_policy
         taxonomy_validated, technology_database_audit = apply_policy(
             taxonomy_validated, evidence_index, raw_resume_text,
         )
+        from tailoring.application_development_evidence_v312b219c import apply_policy as apply_development_policy
+        application_development_audit = apply_development_policy(taxonomy_validated, evidence_index, raw_resume_text)
         # Report actual lexical overlap for the newly selected evidence, not
         # the earlier missing/skill-only match's metrics.
         for row in taxonomy_validated:
-            if not row.get('v312b219b_policy_audit'):
+            if not (row.get('v312b219b_policy_audit') or row.get('v312b219c_policy_audit')):
                 continue
             evidence = row.get('evidence') or []
             text = evidence[0]['text'] if evidence else ''
@@ -5175,6 +5178,8 @@ def build_stable_analysis(
             "scope": "opt_in_only", "not_a_saved_phase8_receipt": True,
             "selection_count": len(experimental_audit), "audit": experimental_audit,
         }} if _V312A14_NATIVE_REPLAY_SCOPE.get() else {}),
+        **({'native_application_development_policy_v312b219c': application_development_audit}
+           if application_development_audit else {}),
         **({'native_technology_database_policy_v312b219b': {
             'policy_version': 'v312b219b-technology-database-v1',
             'selection_count': len(technology_database_audit),
